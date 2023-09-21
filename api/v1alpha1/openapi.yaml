@@ -1,0 +1,430 @@
+openapi: 3.0.1
+info:
+  title: Open Device Management API
+  version: undefined
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: /
+security:
+  - BearerToken: []
+paths:
+  /api/v1/devices:
+    get:
+      tags:
+        - device
+      description: list Devices
+      operationId: listDevices
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.DeviceList'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.DeviceList'
+        "401":
+          description: Unauthorized
+          content: {}
+    post:
+      tags:
+        - device
+      description: create a Device
+      operationId: createDevice
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/v1alpha1.Device'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "401":
+          description: Unauthorized
+          content: {}
+    delete:
+      tags:
+        - device
+      description: delete collection of Devices
+      operationId: deleteDevices
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Status'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Status'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/devices/{id}:
+    get:
+      tags:
+        - device
+      description: read the specified Device
+      operationId: readDevice
+      parameters:
+        - name: id
+          in: path
+          description: id of the Device
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "401":
+          description: Unauthorized
+          content: {}
+    put:
+      tags:
+        - device
+      description: replace the specified Device
+      operationId: replaceDevice
+      parameters:
+        - name: id
+          in: path
+          description: id of the Pod
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/v1alpha1.Device'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "401":
+          description: Unauthorized
+          content: {}
+    delete:
+      tags:
+        - device
+      description: delete a Device
+      operationId: deleteDevice
+      parameters:
+        - name: id
+          in: path
+          description: id of the Device
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/devices/{id}/status:
+    get:
+      tags:
+        - device
+      description: read status of the specified Device
+      operationId: readDeviceStatus
+      parameters:
+        - name: id
+          in: path
+          description: id of the Pod
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "401":
+          description: Unauthorized
+          content: {}
+    put:
+      tags:
+        - device
+      description: replace status of the specified Device
+      operationId: replaceDeviceStatus
+      parameters:
+        - name: id
+          in: path
+          description: id of the Device
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/v1alpha1.Device'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/v1alpha1.Device'
+        "401":
+          description: Unauthorized
+          content: {}
+components:
+  schemas:
+    v1alpha1.Device:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/v1alpha1.ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/v1alpha1.DeviceSpec'
+        status:
+          $ref: '#/components/schemas/v1alpha1.DeviceStatus'
+      description: Device represents a physical device.
+    v1alpha1.DeviceCondition:
+      required:
+        - status
+        - type
+      type: object
+      properties:
+        lastHeartbeatTime:
+          type: string
+        lastTransitionTime:
+          type: string
+        message:
+          type: string
+          description: Human readable message indicating details about last transition.
+        reason:
+          type: string
+          description: (brief) reason for the condition's last transition.
+        status:
+          type: string
+          description: Status of the condition, one of True, False, Unknown.
+        type:
+          type: string
+          description: Type of node condition.
+      description: DeviceCondition contains condition information for a device.
+    v1alpha1.DeviceConfigSpec:
+      required:
+        - image
+      type: object
+      properties:
+        name:
+          type: string
+        inline:
+          type: string
+    v1alpha1.DeviceList:
+      required:
+        - items
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/v1alpha1.ListMeta'
+        items:
+          type: array
+          description: 'List of pods. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md'
+          items:
+            $ref: '#/components/schemas/v1alpha1.Device'
+      description: DeviceList is a list of Devices.
+    v1alpha1.DeviceOSSpec:
+      required:
+        - image
+      type: object
+      properties:
+        image:
+          type: string
+          description: 'ostree image name or URL.'
+    v1alpha1.DeviceSpec:
+      required:
+        - os
+        - config
+      type: object
+      properties:
+        os:
+          $ref: '#/components/schemas/v1alpha1.DeviceOSSpec'
+        config:
+          type: array
+          description: List of config resources.
+          items:
+            $ref: '#/components/schemas/v1alpha1.DeviceConfigSpec'
+      description: DeviceSpec is a description of a device's target state.
+    v1alpha1.DeviceStatus:
+      type: object
+      properties:
+        conditions:
+          type: array
+          description: 'Current state of the device.'
+          items:
+            $ref: '#/components/schemas/v1alpha1.DeviceCondition'
+        systemInfo:
+          $ref: '#/components/schemas/v1alpha1.DeviceSystemInfo'
+      description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
+    v1alpha1.DeviceSystemInfo:
+      required:
+        - architecture
+        - bootID
+        - machineID
+        - operatingSystem
+      type: object
+      properties:
+        architecture:
+          type: string
+          description: The Architecture reported by the device.
+        bootID:
+          type: string
+          description: Boot ID reported by the device.
+        machineID:
+          type: string
+          description: 'MachineID reported by the device.'
+        operatingSystem:
+          type: string
+          description: The Operating System reported by the device.
+      description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the node.
+    v1alpha1.ListMeta:
+      type: object
+      properties:
+        continue:
+          type: string
+          description: continue may be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
+        remainingItemCount:
+          type: integer
+          description: remainingItemCount is the number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
+          format: int64
+      description: ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+    v1alpha1.ObjectMeta:
+      type: object
+      properties:
+        creationTimestamp:
+          type: string
+        deletionTimestamp:
+          type: string
+        id:
+          type: string
+          description: 'id of the object'
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'Map of string keys and values that can be used to organize and categorize (scope and select) objects.'
+      description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+    v1alpha1.Status:
+      type: object
+      properties:
+        message:
+          type: string
+          description: A human-readable description of the status of this operation.
+        reason:
+          type: string
+          description: A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
+        status:
+          type: string
+          description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
+      description: Status is a return value for calls that don't return other objects.
