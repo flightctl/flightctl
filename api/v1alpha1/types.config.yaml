@@ -1,6 +1,6 @@
 package: v1alpha1
 generate:
   models: true
-output: api/v1alpha1/types.go
+output: types.gen.go
 output-options:
   skip-prune: true

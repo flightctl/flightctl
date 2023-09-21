@@ -1,9 +1,9 @@
-package: server
+package: client
 generate:
-  chi-server: true
+  client: true
 additional-imports:
   - alias: .  # means will be used without namespace prefix
     package: github.com/flightctl/flightctl/api/v1alpha1
-output: pkg/server/server.go
+output: client.gen.go
 output-options:
   skip-prune: true

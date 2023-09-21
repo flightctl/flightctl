@@ -1,25 +1,31 @@
-.PHONY: all
-all: install-oapi-codegen oapi-codegen-all
+GOBASE=$(shell pwd)
+GOBIN=$(GOBASE)/bin
 
-.PHONY: install-oapi-codegen
-install-oapi-codegen:
-	go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@v1.15.0
+help:
+	@echo "Targets:"
+	@echo "    generate:    regenerate all generated files"
+	@echo "    tidy:        tidy go mod"
+	@echo "    lint:        run golangci-lint"
+	@echo "    build:       run all builds"
+	@echo "    test:        run all tests"
 
-.PHONY: oapi-codegen-all
-oapi-codegen-all: oapi-codegen-types oapi-codegen-spec oapi-codegen-server oapi-codegen-client
+generate:
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go generate ./...'
 
-.PHONY: oapi-codegen-types
-oapi-codegen-types:
-	oapi-codegen -config api/v1alpha1/oapi-codegen-configs/types.yaml api/v1alpha1/openapi.yaml
+tidy:
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
 
-.PHONY: oapi-codegen-spec
-oapi-codegen-spec:
-	oapi-codegen -config api/v1alpha1/oapi-codegen-configs/spec.yaml api/v1alpha1/openapi.yaml
+lint: tools
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && $(GOBIN)/golangci-lint run ./...'
 
-.PHONY: oapi-codegen-server
-oapi-codegen-server:
-	oapi-codegen -config api/v1alpha1/oapi-codegen-configs/server.yaml api/v1alpha1/openapi.yaml
+build:
+	go build -o $(GOBIN) ./cmd/...
 
-.PHONY: oapi-codegen-client
-oapi-codegen-client:
-	oapi-codegen -config api/v1alpha1/oapi-codegen-configs/client.yaml api/v1alpha1/openapi.yaml
+test:
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go test -cover ./...'
+
+.PHONY: tools
+tools: $(GOBIN)/golangci-lint
+
+$(GOBIN)/golangci-lint:
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.54.0
