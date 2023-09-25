@@ -7,8 +7,8 @@ const (
 	BearerTokenScopes = "BearerToken.Scopes"
 )
 
-// V1alpha1Device Device represents a physical device.
-type V1alpha1Device struct {
+// Device Device represents a physical device.
+type Device struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
 	ApiVersion *string `json:"apiVersion,omitempty"`
 
@@ -16,17 +16,17 @@ type V1alpha1Device struct {
 	Kind *string `json:"kind,omitempty"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata *V1alpha1ObjectMeta `json:"metadata,omitempty"`
+	Metadata *ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec DeviceSpec is a description of a device's target state.
-	Spec *V1alpha1DeviceSpec `json:"spec,omitempty"`
+	Spec *DeviceSpec `json:"spec,omitempty"`
 
 	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
-	Status *V1alpha1DeviceStatus `json:"status,omitempty"`
+	Status *DeviceStatus `json:"status,omitempty"`
 }
 
-// V1alpha1DeviceCondition DeviceCondition contains condition information for a device.
-type V1alpha1DeviceCondition struct {
+// DeviceCondition DeviceCondition contains condition information for a device.
+type DeviceCondition struct {
 	LastHeartbeatTime  *string `json:"lastHeartbeatTime,omitempty"`
 	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
 
@@ -43,51 +43,51 @@ type V1alpha1DeviceCondition struct {
 	Type string `json:"type"`
 }
 
-// V1alpha1DeviceConfigSpec defines model for v1alpha1.DeviceConfigSpec.
-type V1alpha1DeviceConfigSpec struct {
+// DeviceConfigSpec defines model for DeviceConfigSpec.
+type DeviceConfigSpec struct {
 	Inline *string `json:"inline,omitempty"`
 	Name   *string `json:"name,omitempty"`
 }
 
-// V1alpha1DeviceList DeviceList is a list of Devices.
-type V1alpha1DeviceList struct {
+// DeviceList DeviceList is a list of Devices.
+type DeviceList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
 	ApiVersion *string `json:"apiVersion,omitempty"`
 
 	// Items List of pods. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md
-	Items []V1alpha1Device `json:"items"`
+	Items []Device `json:"items"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
 	Kind *string `json:"kind,omitempty"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
-	Metadata *V1alpha1ListMeta `json:"metadata,omitempty"`
+	Metadata *ListMeta `json:"metadata,omitempty"`
 }
 
-// V1alpha1DeviceOSSpec defines model for v1alpha1.DeviceOSSpec.
-type V1alpha1DeviceOSSpec struct {
+// DeviceOSSpec defines model for DeviceOSSpec.
+type DeviceOSSpec struct {
 	// Image ostree image name or URL.
 	Image string `json:"image"`
 }
 
-// V1alpha1DeviceSpec DeviceSpec is a description of a device's target state.
-type V1alpha1DeviceSpec struct {
+// DeviceSpec DeviceSpec is a description of a device's target state.
+type DeviceSpec struct {
 	// Config List of config resources.
-	Config []V1alpha1DeviceConfigSpec `json:"config"`
-	Os     V1alpha1DeviceOSSpec       `json:"os"`
+	Config []DeviceConfigSpec `json:"config"`
+	Os     DeviceOSSpec       `json:"os"`
 }
 
-// V1alpha1DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
-type V1alpha1DeviceStatus struct {
+// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
+type DeviceStatus struct {
 	// Conditions Current state of the device.
-	Conditions *[]V1alpha1DeviceCondition `json:"conditions,omitempty"`
+	Conditions *[]DeviceCondition `json:"conditions,omitempty"`
 
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the node.
-	SystemInfo *V1alpha1DeviceSystemInfo `json:"systemInfo,omitempty"`
+	SystemInfo *DeviceSystemInfo `json:"systemInfo,omitempty"`
 }
 
-// V1alpha1DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the node.
-type V1alpha1DeviceSystemInfo struct {
+// DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the node.
+type DeviceSystemInfo struct {
 	// Architecture The Architecture reported by the device.
 	Architecture string `json:"architecture"`
 
@@ -101,8 +101,8 @@ type V1alpha1DeviceSystemInfo struct {
 	OperatingSystem string `json:"operatingSystem"`
 }
 
-// V1alpha1ListMeta ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
-type V1alpha1ListMeta struct {
+// ListMeta ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+type ListMeta struct {
 	// Continue continue may be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
 	Continue *string `json:"continue,omitempty"`
 
@@ -110,8 +110,8 @@ type V1alpha1ListMeta struct {
 	RemainingItemCount *int64 `json:"remainingItemCount,omitempty"`
 }
 
-// V1alpha1ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-type V1alpha1ObjectMeta struct {
+// ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+type ObjectMeta struct {
 	CreationTimestamp *string `json:"creationTimestamp,omitempty"`
 	DeletionTimestamp *string `json:"deletionTimestamp,omitempty"`
 
@@ -122,8 +122,8 @@ type V1alpha1ObjectMeta struct {
 	Labels *map[string]string `json:"labels,omitempty"`
 }
 
-// V1alpha1Status Status is a return value for calls that don't return other objects.
-type V1alpha1Status struct {
+// Status Status is a return value for calls that don't return other objects.
+type Status struct {
 	// Message A human-readable description of the status of this operation.
 	Message *string `json:"message,omitempty"`
 

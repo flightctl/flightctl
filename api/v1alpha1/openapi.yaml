@@ -41,10 +41,10 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.DeviceList'
+                $ref: '#/components/schemas/DeviceList'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.DeviceList'
+                $ref: '#/components/schemas/DeviceList'
         "401":
           description: Unauthorized
           content: {}
@@ -57,7 +57,7 @@ paths:
         content:
           '*/*':
             schema:
-              $ref: '#/components/schemas/v1alpha1.Device'
+              $ref: '#/components/schemas/Device'
         required: true
       responses:
         "200":
@@ -65,19 +65,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -92,10 +92,10 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Status'
+                $ref: '#/components/schemas/Status'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content: {}
@@ -118,10 +118,10 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -141,7 +141,7 @@ paths:
         content:
           '*/*':
             schema:
-              $ref: '#/components/schemas/v1alpha1.Device'
+              $ref: '#/components/schemas/Device'
         required: true
       responses:
         "200":
@@ -149,19 +149,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -183,19 +183,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "202":
           description: Accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -218,10 +218,10 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -241,7 +241,7 @@ paths:
         content:
           '*/*':
             schema:
-              $ref: '#/components/schemas/v1alpha1.Device'
+              $ref: '#/components/schemas/Device'
         required: true
       responses:
         "200":
@@ -249,25 +249,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/v1alpha1.Device'
+                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
 components:
   schemas:
-    v1alpha1.Device:
+    Device:
       type: object
       properties:
         apiVersion:
@@ -277,13 +277,13 @@ components:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
         metadata:
-          $ref: '#/components/schemas/v1alpha1.ObjectMeta'
+          $ref: '#/components/schemas/ObjectMeta'
         spec:
-          $ref: '#/components/schemas/v1alpha1.DeviceSpec'
+          $ref: '#/components/schemas/DeviceSpec'
         status:
-          $ref: '#/components/schemas/v1alpha1.DeviceStatus'
+          $ref: '#/components/schemas/DeviceStatus'
       description: Device represents a physical device.
-    v1alpha1.DeviceCondition:
+    DeviceCondition:
       required:
         - status
         - type
@@ -306,7 +306,7 @@ components:
           type: string
           description: Type of node condition.
       description: DeviceCondition contains condition information for a device.
-    v1alpha1.DeviceConfigSpec:
+    DeviceConfigSpec:
       required:
         - image
       type: object
@@ -315,7 +315,7 @@ components:
           type: string
         inline:
           type: string
-    v1alpha1.DeviceList:
+    DeviceList:
       required:
         - items
       type: object
@@ -327,14 +327,14 @@ components:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
         metadata:
-          $ref: '#/components/schemas/v1alpha1.ListMeta'
+          $ref: '#/components/schemas/ListMeta'
         items:
           type: array
           description: 'List of pods. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md'
           items:
-            $ref: '#/components/schemas/v1alpha1.Device'
+            $ref: '#/components/schemas/Device'
       description: DeviceList is a list of Devices.
-    v1alpha1.DeviceOSSpec:
+    DeviceOSSpec:
       required:
         - image
       type: object
@@ -342,32 +342,32 @@ components:
         image:
           type: string
           description: 'ostree image name or URL.'
-    v1alpha1.DeviceSpec:
+    DeviceSpec:
       required:
         - os
         - config
       type: object
       properties:
         os:
-          $ref: '#/components/schemas/v1alpha1.DeviceOSSpec'
+          $ref: '#/components/schemas/DeviceOSSpec'
         config:
           type: array
           description: List of config resources.
           items:
-            $ref: '#/components/schemas/v1alpha1.DeviceConfigSpec'
+            $ref: '#/components/schemas/DeviceConfigSpec'
       description: DeviceSpec is a description of a device's target state.
-    v1alpha1.DeviceStatus:
+    DeviceStatus:
       type: object
       properties:
         conditions:
           type: array
           description: 'Current state of the device.'
           items:
-            $ref: '#/components/schemas/v1alpha1.DeviceCondition'
+            $ref: '#/components/schemas/DeviceCondition'
         systemInfo:
-          $ref: '#/components/schemas/v1alpha1.DeviceSystemInfo'
+          $ref: '#/components/schemas/DeviceSystemInfo'
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
-    v1alpha1.DeviceSystemInfo:
+    DeviceSystemInfo:
       required:
         - architecture
         - bootID
@@ -388,7 +388,7 @@ components:
           type: string
           description: The Operating System reported by the device.
       description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the node.
-    v1alpha1.ListMeta:
+    ListMeta:
       type: object
       properties:
         continue:
@@ -399,7 +399,7 @@ components:
           description: remainingItemCount is the number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
           format: int64
       description: ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
-    v1alpha1.ObjectMeta:
+    ObjectMeta:
       type: object
       properties:
         creationTimestamp:
@@ -415,7 +415,7 @@ components:
             type: string
           description: 'Map of string keys and values that can be used to organize and categorize (scope and select) objects.'
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-    v1alpha1.Status:
+    Status:
       type: object
       properties:
         message:

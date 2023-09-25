@@ -594,8 +594,8 @@ type ClientWithResponsesInterface interface {
 type DeleteDevicesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1Status
-	YAML200      *V1alpha1Status
+	JSON200      *Status
+	YAML200      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -617,8 +617,8 @@ func (r DeleteDevicesResponse) StatusCode() int {
 type ListDevicesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1DeviceList
-	YAML200      *V1alpha1DeviceList
+	JSON200      *DeviceList
+	YAML200      *DeviceList
 }
 
 // Status returns HTTPResponse.Status
@@ -640,10 +640,10 @@ func (r ListDevicesResponse) StatusCode() int {
 type CreateDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1Device
-	YAML200      *V1alpha1Device
-	JSON201      *V1alpha1Device
-	YAML201      *V1alpha1Device
+	JSON200      *Device
+	YAML200      *Device
+	JSON201      *Device
+	YAML201      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -665,10 +665,10 @@ func (r CreateDeviceResponse) StatusCode() int {
 type DeleteDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1Device
-	YAML200      *V1alpha1Device
-	JSON202      *V1alpha1Device
-	YAML202      *V1alpha1Device
+	JSON200      *Device
+	YAML200      *Device
+	JSON202      *Device
+	YAML202      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -690,8 +690,8 @@ func (r DeleteDeviceResponse) StatusCode() int {
 type ReadDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1Device
-	YAML200      *V1alpha1Device
+	JSON200      *Device
+	YAML200      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -713,10 +713,10 @@ func (r ReadDeviceResponse) StatusCode() int {
 type ReplaceDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1Device
-	YAML200      *V1alpha1Device
-	JSON201      *V1alpha1Device
-	YAML201      *V1alpha1Device
+	JSON200      *Device
+	YAML200      *Device
+	JSON201      *Device
+	YAML201      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -738,8 +738,8 @@ func (r ReplaceDeviceResponse) StatusCode() int {
 type ReadDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1Device
-	YAML200      *V1alpha1Device
+	JSON200      *Device
+	YAML200      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -761,10 +761,10 @@ func (r ReadDeviceStatusResponse) StatusCode() int {
 type ReplaceDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *V1alpha1Device
-	YAML200      *V1alpha1Device
-	JSON201      *V1alpha1Device
-	YAML201      *V1alpha1Device
+	JSON200      *Device
+	YAML200      *Device
+	JSON201      *Device
+	YAML201      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -870,14 +870,14 @@ func ParseDeleteDevicesResponse(rsp *http.Response) (*DeleteDevicesResponse, err
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1Status
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1Status
+		var dest Status
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -903,14 +903,14 @@ func ParseListDevicesResponse(rsp *http.Response) (*ListDevicesResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1DeviceList
+		var dest DeviceList
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1DeviceList
+		var dest DeviceList
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -936,28 +936,28 @@ func ParseCreateDeviceResponse(rsp *http.Response) (*CreateDeviceResponse, error
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.YAML200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 201:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -983,28 +983,28 @@ func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON202 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.YAML200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 202:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1030,14 +1030,14 @@ func ParseReadDeviceResponse(rsp *http.Response) (*ReadDeviceResponse, error) {
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1063,28 +1063,28 @@ func ParseReplaceDeviceResponse(rsp *http.Response) (*ReplaceDeviceResponse, err
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.YAML200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 201:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1110,14 +1110,14 @@ func ParseReadDeviceStatusResponse(rsp *http.Response) (*ReadDeviceStatusRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1143,28 +1143,28 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest V1alpha1Device
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.YAML200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 201:
-		var dest V1alpha1Device
+		var dest Device
 		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

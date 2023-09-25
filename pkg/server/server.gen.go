@@ -465,7 +465,7 @@ type DeleteDevicesResponseObject interface {
 	VisitDeleteDevicesResponse(w http.ResponseWriter) error
 }
 
-type DeleteDevices200JSONResponse V1alpha1Status
+type DeleteDevices200JSONResponse Status
 
 func (response DeleteDevices200JSONResponse) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -509,7 +509,7 @@ type ListDevicesResponseObject interface {
 	VisitListDevicesResponse(w http.ResponseWriter) error
 }
 
-type ListDevices200JSONResponse V1alpha1DeviceList
+type ListDevices200JSONResponse DeviceList
 
 func (response ListDevices200JSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -554,7 +554,7 @@ type CreateDeviceResponseObject interface {
 	VisitCreateDeviceResponse(w http.ResponseWriter) error
 }
 
-type CreateDevice200JSONResponse V1alpha1Device
+type CreateDevice200JSONResponse Device
 
 func (response CreateDevice200JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -582,7 +582,7 @@ func (response CreateDevice200ApplicationyamlResponse) VisitCreateDeviceResponse
 	return err
 }
 
-type CreateDevice201JSONResponse V1alpha1Device
+type CreateDevice201JSONResponse Device
 
 func (response CreateDevice201JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -626,7 +626,7 @@ type DeleteDeviceResponseObject interface {
 	VisitDeleteDeviceResponse(w http.ResponseWriter) error
 }
 
-type DeleteDevice200JSONResponse V1alpha1Device
+type DeleteDevice200JSONResponse Device
 
 func (response DeleteDevice200JSONResponse) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -654,7 +654,7 @@ func (response DeleteDevice200ApplicationyamlResponse) VisitDeleteDeviceResponse
 	return err
 }
 
-type DeleteDevice202JSONResponse V1alpha1Device
+type DeleteDevice202JSONResponse Device
 
 func (response DeleteDevice202JSONResponse) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -698,7 +698,7 @@ type ReadDeviceResponseObject interface {
 	VisitReadDeviceResponse(w http.ResponseWriter) error
 }
 
-type ReadDevice200JSONResponse V1alpha1Device
+type ReadDevice200JSONResponse Device
 
 func (response ReadDevice200JSONResponse) VisitReadDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -744,7 +744,7 @@ type ReplaceDeviceResponseObject interface {
 	VisitReplaceDeviceResponse(w http.ResponseWriter) error
 }
 
-type ReplaceDevice200JSONResponse V1alpha1Device
+type ReplaceDevice200JSONResponse Device
 
 func (response ReplaceDevice200JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -772,7 +772,7 @@ func (response ReplaceDevice200ApplicationyamlResponse) VisitReplaceDeviceRespon
 	return err
 }
 
-type ReplaceDevice201JSONResponse V1alpha1Device
+type ReplaceDevice201JSONResponse Device
 
 func (response ReplaceDevice201JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -816,7 +816,7 @@ type ReadDeviceStatusResponseObject interface {
 	VisitReadDeviceStatusResponse(w http.ResponseWriter) error
 }
 
-type ReadDeviceStatus200JSONResponse V1alpha1Device
+type ReadDeviceStatus200JSONResponse Device
 
 func (response ReadDeviceStatus200JSONResponse) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -862,7 +862,7 @@ type ReplaceDeviceStatusResponseObject interface {
 	VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error
 }
 
-type ReplaceDeviceStatus200JSONResponse V1alpha1Device
+type ReplaceDeviceStatus200JSONResponse Device
 
 func (response ReplaceDeviceStatus200JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -890,7 +890,7 @@ func (response ReplaceDeviceStatus200ApplicationyamlResponse) VisitReplaceDevice
 	return err
 }
 
-type ReplaceDeviceStatus201JSONResponse V1alpha1Device
+type ReplaceDeviceStatus201JSONResponse Device
 
 func (response ReplaceDeviceStatus201JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
