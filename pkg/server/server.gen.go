@@ -28,20 +28,68 @@ type ServerInterface interface {
 	// (POST /api/v1/devices)
 	CreateDevice(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /api/v1/devices/{id})
-	DeleteDevice(w http.ResponseWriter, r *http.Request, id string)
+	// (DELETE /api/v1/devices/{name})
+	DeleteDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{id})
-	ReadDevice(w http.ResponseWriter, r *http.Request, id string)
+	// (GET /api/v1/devices/{name})
+	ReadDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/devices/{id})
-	ReplaceDevice(w http.ResponseWriter, r *http.Request, id string)
+	// (PUT /api/v1/devices/{name})
+	ReplaceDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{id}/status)
-	ReadDeviceStatus(w http.ResponseWriter, r *http.Request, id string)
+	// (GET /api/v1/devices/{name}/status)
+	ReadDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/devices/{id}/status)
-	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, id string)
+	// (PUT /api/v1/devices/{name}/status)
+	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (DELETE /api/v1/enrollmentrequests)
+	DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/enrollmentrequests)
+	ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams)
+
+	// (POST /api/v1/enrollmentrequests)
+	CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/enrollmentrequests/{name})
+	ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/enrollmentrequests/{name})
+	ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/enrollmentrequests/{name}/approve)
+	ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/enrollmentrequests/{name}/status)
+	ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/enrollmentrequests/{name}/status)
+	ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (DELETE /api/v1/fleets)
+	DeleteFleets(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/fleets)
+	ListFleets(w http.ResponseWriter, r *http.Request, params ListFleetsParams)
+
+	// (POST /api/v1/fleets)
+	CreateFleet(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /api/v1/fleets/{name})
+	DeleteFleet(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/fleets/{name})
+	ReadFleet(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/fleets/{name})
+	ReplaceFleet(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/fleets/{name}/status)
+	ReadFleetStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/fleets/{name}/status)
+	ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -63,28 +111,108 @@ func (_ Unimplemented) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/devices/{id})
-func (_ Unimplemented) DeleteDevice(w http.ResponseWriter, r *http.Request, id string) {
+// (DELETE /api/v1/devices/{name})
+func (_ Unimplemented) DeleteDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{id})
-func (_ Unimplemented) ReadDevice(w http.ResponseWriter, r *http.Request, id string) {
+// (GET /api/v1/devices/{name})
+func (_ Unimplemented) ReadDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/devices/{id})
-func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, id string) {
+// (PUT /api/v1/devices/{name})
+func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{id}/status)
-func (_ Unimplemented) ReadDeviceStatus(w http.ResponseWriter, r *http.Request, id string) {
+// (GET /api/v1/devices/{name}/status)
+func (_ Unimplemented) ReadDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/devices/{id}/status)
-func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, id string) {
+// (PUT /api/v1/devices/{name}/status)
+func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/enrollmentrequests)
+func (_ Unimplemented) DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/enrollmentrequests)
+func (_ Unimplemented) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/enrollmentrequests)
+func (_ Unimplemented) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/enrollmentrequests/{name})
+func (_ Unimplemented) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/enrollmentrequests/{name})
+func (_ Unimplemented) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/enrollmentrequests/{name}/approve)
+func (_ Unimplemented) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/enrollmentrequests/{name}/status)
+func (_ Unimplemented) ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/enrollmentrequests/{name}/status)
+func (_ Unimplemented) ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/fleets)
+func (_ Unimplemented) DeleteFleets(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/fleets)
+func (_ Unimplemented) ListFleets(w http.ResponseWriter, r *http.Request, params ListFleetsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/fleets)
+func (_ Unimplemented) CreateFleet(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/fleets/{name})
+func (_ Unimplemented) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/fleets/{name})
+func (_ Unimplemented) ReadFleet(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/fleets/{name})
+func (_ Unimplemented) ReplaceFleet(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/fleets/{name}/status)
+func (_ Unimplemented) ReadFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/fleets/{name}/status)
+func (_ Unimplemented) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -100,8 +228,6 @@ type MiddlewareFunc func(http.Handler) http.Handler
 // DeleteDevices operation middleware
 func (siw *ServerInterfaceWrapper) DeleteDevices(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteDevices(w, r)
@@ -119,8 +245,6 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 	ctx := r.Context()
 
 	var err error
-
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListDevicesParams
@@ -164,8 +288,6 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 func (siw *ServerInterfaceWrapper) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateDevice(w, r)
 	}))
@@ -183,19 +305,17 @@ func (siw *ServerInterfaceWrapper) DeleteDevice(w http.ResponseWriter, r *http.R
 
 	var err error
 
-	// ------------- Path parameter "id" -------------
-	var id string
+	// ------------- Path parameter "name" -------------
+	var name string
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "id", runtime.ParamLocationPath, chi.URLParam(r, "id"), &id)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
 
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteDevice(w, r, id)
+		siw.Handler.DeleteDevice(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -211,19 +331,17 @@ func (siw *ServerInterfaceWrapper) ReadDevice(w http.ResponseWriter, r *http.Req
 
 	var err error
 
-	// ------------- Path parameter "id" -------------
-	var id string
+	// ------------- Path parameter "name" -------------
+	var name string
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "id", runtime.ParamLocationPath, chi.URLParam(r, "id"), &id)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
 
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadDevice(w, r, id)
+		siw.Handler.ReadDevice(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -239,19 +357,17 @@ func (siw *ServerInterfaceWrapper) ReplaceDevice(w http.ResponseWriter, r *http.
 
 	var err error
 
-	// ------------- Path parameter "id" -------------
-	var id string
+	// ------------- Path parameter "name" -------------
+	var name string
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "id", runtime.ParamLocationPath, chi.URLParam(r, "id"), &id)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
 
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReplaceDevice(w, r, id)
+		siw.Handler.ReplaceDevice(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -267,19 +383,17 @@ func (siw *ServerInterfaceWrapper) ReadDeviceStatus(w http.ResponseWriter, r *ht
 
 	var err error
 
-	// ------------- Path parameter "id" -------------
-	var id string
+	// ------------- Path parameter "name" -------------
+	var name string
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "id", runtime.ParamLocationPath, chi.URLParam(r, "id"), &id)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
 
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadDeviceStatus(w, r, id)
+		siw.Handler.ReadDeviceStatus(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -295,19 +409,425 @@ func (siw *ServerInterfaceWrapper) ReplaceDeviceStatus(w http.ResponseWriter, r 
 
 	var err error
 
-	// ------------- Path parameter "id" -------------
-	var id string
+	// ------------- Path parameter "name" -------------
+	var name string
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "id", runtime.ParamLocationPath, chi.URLParam(r, "id"), &id)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
 
-	ctx = context.WithValue(ctx, BearerTokenScopes, []string{})
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceDeviceStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteEnrollmentRequests operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReplaceDeviceStatus(w, r, id)
+		siw.Handler.DeleteEnrollmentRequests(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ListEnrollmentRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEnrollmentRequestsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEnrollmentRequests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// CreateEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnrollmentRequest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadEnrollmentRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceEnrollmentRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ApproveEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveEnrollmentRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadEnrollmentRequestStatus operation middleware
+func (siw *ServerInterfaceWrapper) ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadEnrollmentRequestStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceEnrollmentRequestStatus operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceEnrollmentRequestStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteFleets operation middleware
+func (siw *ServerInterfaceWrapper) DeleteFleets(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteFleets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ListFleets operation middleware
+func (siw *ServerInterfaceWrapper) ListFleets(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFleetsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFleets(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// CreateFleet operation middleware
+func (siw *ServerInterfaceWrapper) CreateFleet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateFleet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteFleet operation middleware
+func (siw *ServerInterfaceWrapper) DeleteFleet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteFleet(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadFleet operation middleware
+func (siw *ServerInterfaceWrapper) ReadFleet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadFleet(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceFleet operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceFleet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceFleet(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadFleetStatus operation middleware
+func (siw *ServerInterfaceWrapper) ReadFleetStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadFleetStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceFleetStatus operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceFleetStatus(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -440,19 +960,67 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/devices", wrapper.CreateDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/devices/{id}", wrapper.DeleteDevice)
+		r.Delete(options.BaseURL+"/api/v1/devices/{name}", wrapper.DeleteDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{id}", wrapper.ReadDevice)
+		r.Get(options.BaseURL+"/api/v1/devices/{name}", wrapper.ReadDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/devices/{id}", wrapper.ReplaceDevice)
+		r.Put(options.BaseURL+"/api/v1/devices/{name}", wrapper.ReplaceDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{id}/status", wrapper.ReadDeviceStatus)
+		r.Get(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReadDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/devices/{id}/status", wrapper.ReplaceDeviceStatus)
+		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.DeleteEnrollmentRequests)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.ListEnrollmentRequests)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.CreateEnrollmentRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReadEnrollmentRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReplaceEnrollmentRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approve", wrapper.ApproveEnrollmentRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.ReadEnrollmentRequestStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.ReplaceEnrollmentRequestStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/fleets", wrapper.DeleteFleets)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/fleets", wrapper.ListFleets)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/fleets", wrapper.CreateFleet)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/fleets/{name}", wrapper.DeleteFleet)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/fleets/{name}", wrapper.ReadFleet)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/fleets/{name}", wrapper.ReplaceFleet)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReadFleetStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReplaceFleetStatus)
 	})
 
 	return r
@@ -554,34 +1122,6 @@ type CreateDeviceResponseObject interface {
 	VisitCreateDeviceResponse(w http.ResponseWriter) error
 }
 
-type CreateDevice200JSONResponse Device
-
-func (response CreateDevice200JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateDevice200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response CreateDevice200ApplicationyamlResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type CreateDevice201JSONResponse Device
 
 func (response CreateDevice201JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
@@ -618,8 +1158,16 @@ func (response CreateDevice401Response) VisitCreateDeviceResponse(w http.Respons
 	return nil
 }
 
+type CreateDevice409Response struct {
+}
+
+func (response CreateDevice409Response) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
 type DeleteDeviceRequestObject struct {
-	Id string `json:"id"`
+	Name string `json:"name"`
 }
 
 type DeleteDeviceResponseObject interface {
@@ -654,34 +1202,6 @@ func (response DeleteDevice200ApplicationyamlResponse) VisitDeleteDeviceResponse
 	return err
 }
 
-type DeleteDevice202JSONResponse Device
-
-func (response DeleteDevice202JSONResponse) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(202)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteDevice202ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response DeleteDevice202ApplicationyamlResponse) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(202)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type DeleteDevice401Response struct {
 }
 
@@ -691,7 +1211,7 @@ func (response DeleteDevice401Response) VisitDeleteDeviceResponse(w http.Respons
 }
 
 type ReadDeviceRequestObject struct {
-	Id string `json:"id"`
+	Name string `json:"name"`
 }
 
 type ReadDeviceResponseObject interface {
@@ -735,7 +1255,7 @@ func (response ReadDevice401Response) VisitReadDeviceResponse(w http.ResponseWri
 }
 
 type ReplaceDeviceRequestObject struct {
-	Id          string `json:"id"`
+	Name        string `json:"name"`
 	ContentType string
 	Body        io.Reader
 }
@@ -772,34 +1292,6 @@ func (response ReplaceDevice200ApplicationyamlResponse) VisitReplaceDeviceRespon
 	return err
 }
 
-type ReplaceDevice201JSONResponse Device
-
-func (response ReplaceDevice201JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ReplaceDevice201ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReplaceDevice201ApplicationyamlResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(201)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ReplaceDevice401Response struct {
 }
 
@@ -809,7 +1301,7 @@ func (response ReplaceDevice401Response) VisitReplaceDeviceResponse(w http.Respo
 }
 
 type ReadDeviceStatusRequestObject struct {
-	Id string `json:"id"`
+	Name string `json:"name"`
 }
 
 type ReadDeviceStatusResponseObject interface {
@@ -853,7 +1345,7 @@ func (response ReadDeviceStatus401Response) VisitReadDeviceStatusResponse(w http
 }
 
 type ReplaceDeviceStatusRequestObject struct {
-	Id          string `json:"id"`
+	Name        string `json:"name"`
 	ContentType string
 	Body        io.Reader
 }
@@ -890,21 +1382,125 @@ func (response ReplaceDeviceStatus200ApplicationyamlResponse) VisitReplaceDevice
 	return err
 }
 
-type ReplaceDeviceStatus201JSONResponse Device
+type ReplaceDeviceStatus401Response struct {
+}
 
-func (response ReplaceDeviceStatus201JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceDeviceStatus401Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type DeleteEnrollmentRequestsRequestObject struct {
+}
+
+type DeleteEnrollmentRequestsResponseObject interface {
+	VisitDeleteEnrollmentRequestsResponse(w http.ResponseWriter) error
+}
+
+type DeleteEnrollmentRequests200JSONResponse Status
+
+func (response DeleteEnrollmentRequests200JSONResponse) VisitDeleteEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteEnrollmentRequests200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response DeleteEnrollmentRequests200ApplicationyamlResponse) VisitDeleteEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type DeleteEnrollmentRequests401Response struct {
+}
+
+func (response DeleteEnrollmentRequests401Response) VisitDeleteEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ListEnrollmentRequestsRequestObject struct {
+	Params ListEnrollmentRequestsParams
+}
+
+type ListEnrollmentRequestsResponseObject interface {
+	VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListEnrollmentRequests200JSONResponse EnrollmentRequestList
+
+func (response ListEnrollmentRequests200JSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEnrollmentRequests200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ListEnrollmentRequests200ApplicationyamlResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ListEnrollmentRequests401Response struct {
+}
+
+func (response ListEnrollmentRequests401Response) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateEnrollmentRequestRequestObject struct {
+	ContentType string
+	Body        io.Reader
+}
+
+type CreateEnrollmentRequestResponseObject interface {
+	VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type CreateEnrollmentRequest201JSONResponse EnrollmentRequest
+
+func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus201ApplicationyamlResponse struct {
+type CreateEnrollmentRequest201ApplicationyamlResponse struct {
 	Body          io.Reader
 	ContentLength int64
 }
 
-func (response ReplaceDeviceStatus201ApplicationyamlResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+func (response CreateEnrollmentRequest201ApplicationyamlResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/yaml")
 	if response.ContentLength != 0 {
 		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
@@ -918,10 +1514,608 @@ func (response ReplaceDeviceStatus201ApplicationyamlResponse) VisitReplaceDevice
 	return err
 }
 
-type ReplaceDeviceStatus401Response struct {
+type CreateEnrollmentRequest401Response struct {
 }
 
-func (response ReplaceDeviceStatus401Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+func (response CreateEnrollmentRequest401Response) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateEnrollmentRequest409Response struct {
+}
+
+func (response CreateEnrollmentRequest409Response) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
+type ReadEnrollmentRequestRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadEnrollmentRequestResponseObject interface {
+	VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type ReadEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response ReadEnrollmentRequest200JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadEnrollmentRequest200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadEnrollmentRequest200ApplicationyamlResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadEnrollmentRequest401Response struct {
+}
+
+func (response ReadEnrollmentRequest401Response) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceEnrollmentRequestRequestObject struct {
+	Name        string `json:"name"`
+	ContentType string
+	Body        io.Reader
+}
+
+type ReplaceEnrollmentRequestResponseObject interface {
+	VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type ReplaceEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response ReplaceEnrollmentRequest200JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceEnrollmentRequest200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReplaceEnrollmentRequest200ApplicationyamlResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReplaceEnrollmentRequest401Response struct {
+}
+
+func (response ReplaceEnrollmentRequest401Response) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ApproveEnrollmentRequestRequestObject struct {
+	Name        string `json:"name"`
+	ContentType string
+	Body        io.Reader
+}
+
+type ApproveEnrollmentRequestResponseObject interface {
+	VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type ApproveEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response ApproveEnrollmentRequest200JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveEnrollmentRequest200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ApproveEnrollmentRequest200ApplicationyamlResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ApproveEnrollmentRequest401Response struct {
+}
+
+func (response ApproveEnrollmentRequest401Response) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReadEnrollmentRequestStatusRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadEnrollmentRequestStatusResponseObject interface {
+	VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error
+}
+
+type ReadEnrollmentRequestStatus200JSONResponse EnrollmentRequest
+
+func (response ReadEnrollmentRequestStatus200JSONResponse) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadEnrollmentRequestStatus200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadEnrollmentRequestStatus200ApplicationyamlResponse) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadEnrollmentRequestStatus401Response struct {
+}
+
+func (response ReadEnrollmentRequestStatus401Response) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceEnrollmentRequestStatusRequestObject struct {
+	Name        string `json:"name"`
+	ContentType string
+	Body        io.Reader
+}
+
+type ReplaceEnrollmentRequestStatusResponseObject interface {
+	VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error
+}
+
+type ReplaceEnrollmentRequestStatus200JSONResponse EnrollmentRequest
+
+func (response ReplaceEnrollmentRequestStatus200JSONResponse) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceEnrollmentRequestStatus200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReplaceEnrollmentRequestStatus200ApplicationyamlResponse) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReplaceEnrollmentRequestStatus401Response struct {
+}
+
+func (response ReplaceEnrollmentRequestStatus401Response) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type DeleteFleetsRequestObject struct {
+}
+
+type DeleteFleetsResponseObject interface {
+	VisitDeleteFleetsResponse(w http.ResponseWriter) error
+}
+
+type DeleteFleets200JSONResponse Status
+
+func (response DeleteFleets200JSONResponse) VisitDeleteFleetsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteFleets200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response DeleteFleets200ApplicationyamlResponse) VisitDeleteFleetsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type DeleteFleets401Response struct {
+}
+
+func (response DeleteFleets401Response) VisitDeleteFleetsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ListFleetsRequestObject struct {
+	Params ListFleetsParams
+}
+
+type ListFleetsResponseObject interface {
+	VisitListFleetsResponse(w http.ResponseWriter) error
+}
+
+type ListFleets200JSONResponse FleetList
+
+func (response ListFleets200JSONResponse) VisitListFleetsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListFleets200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ListFleets200ApplicationyamlResponse) VisitListFleetsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ListFleets401Response struct {
+}
+
+func (response ListFleets401Response) VisitListFleetsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateFleetRequestObject struct {
+	ContentType string
+	Body        io.Reader
+}
+
+type CreateFleetResponseObject interface {
+	VisitCreateFleetResponse(w http.ResponseWriter) error
+}
+
+type CreateFleet201JSONResponse Fleet
+
+func (response CreateFleet201JSONResponse) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateFleet201ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response CreateFleet201ApplicationyamlResponse) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(201)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type CreateFleet401Response struct {
+}
+
+func (response CreateFleet401Response) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateFleet409Response struct {
+}
+
+func (response CreateFleet409Response) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
+type DeleteFleetRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DeleteFleetResponseObject interface {
+	VisitDeleteFleetResponse(w http.ResponseWriter) error
+}
+
+type DeleteFleet200JSONResponse Fleet
+
+func (response DeleteFleet200JSONResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteFleet200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response DeleteFleet200ApplicationyamlResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type DeleteFleet401Response struct {
+}
+
+func (response DeleteFleet401Response) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReadFleetRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadFleetResponseObject interface {
+	VisitReadFleetResponse(w http.ResponseWriter) error
+}
+
+type ReadFleet200JSONResponse Fleet
+
+func (response ReadFleet200JSONResponse) VisitReadFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadFleet200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadFleet200ApplicationyamlResponse) VisitReadFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadFleet401Response struct {
+}
+
+func (response ReadFleet401Response) VisitReadFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceFleetRequestObject struct {
+	Name        string `json:"name"`
+	ContentType string
+	Body        io.Reader
+}
+
+type ReplaceFleetResponseObject interface {
+	VisitReplaceFleetResponse(w http.ResponseWriter) error
+}
+
+type ReplaceFleet200JSONResponse Fleet
+
+func (response ReplaceFleet200JSONResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceFleet200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReplaceFleet200ApplicationyamlResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReplaceFleet401Response struct {
+}
+
+func (response ReplaceFleet401Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReadFleetStatusRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadFleetStatusResponseObject interface {
+	VisitReadFleetStatusResponse(w http.ResponseWriter) error
+}
+
+type ReadFleetStatus200JSONResponse Fleet
+
+func (response ReadFleetStatus200JSONResponse) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadFleetStatus200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadFleetStatus200ApplicationyamlResponse) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadFleetStatus401Response struct {
+}
+
+func (response ReadFleetStatus401Response) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceFleetStatusRequestObject struct {
+	Name        string `json:"name"`
+	ContentType string
+	Body        io.Reader
+}
+
+type ReplaceFleetStatusResponseObject interface {
+	VisitReplaceFleetStatusResponse(w http.ResponseWriter) error
+}
+
+type ReplaceFleetStatus200JSONResponse Fleet
+
+func (response ReplaceFleetStatus200JSONResponse) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceFleetStatus200ApplicationyamlResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReplaceFleetStatus200ApplicationyamlResponse) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/yaml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReplaceFleetStatus401Response struct {
+}
+
+func (response ReplaceFleetStatus401Response) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
 	return nil
 }
@@ -938,20 +2132,68 @@ type StrictServerInterface interface {
 	// (POST /api/v1/devices)
 	CreateDevice(ctx context.Context, request CreateDeviceRequestObject) (CreateDeviceResponseObject, error)
 
-	// (DELETE /api/v1/devices/{id})
+	// (DELETE /api/v1/devices/{name})
 	DeleteDevice(ctx context.Context, request DeleteDeviceRequestObject) (DeleteDeviceResponseObject, error)
 
-	// (GET /api/v1/devices/{id})
+	// (GET /api/v1/devices/{name})
 	ReadDevice(ctx context.Context, request ReadDeviceRequestObject) (ReadDeviceResponseObject, error)
 
-	// (PUT /api/v1/devices/{id})
+	// (PUT /api/v1/devices/{name})
 	ReplaceDevice(ctx context.Context, request ReplaceDeviceRequestObject) (ReplaceDeviceResponseObject, error)
 
-	// (GET /api/v1/devices/{id}/status)
+	// (GET /api/v1/devices/{name}/status)
 	ReadDeviceStatus(ctx context.Context, request ReadDeviceStatusRequestObject) (ReadDeviceStatusResponseObject, error)
 
-	// (PUT /api/v1/devices/{id}/status)
+	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(ctx context.Context, request ReplaceDeviceStatusRequestObject) (ReplaceDeviceStatusResponseObject, error)
+
+	// (DELETE /api/v1/enrollmentrequests)
+	DeleteEnrollmentRequests(ctx context.Context, request DeleteEnrollmentRequestsRequestObject) (DeleteEnrollmentRequestsResponseObject, error)
+
+	// (GET /api/v1/enrollmentrequests)
+	ListEnrollmentRequests(ctx context.Context, request ListEnrollmentRequestsRequestObject) (ListEnrollmentRequestsResponseObject, error)
+
+	// (POST /api/v1/enrollmentrequests)
+	CreateEnrollmentRequest(ctx context.Context, request CreateEnrollmentRequestRequestObject) (CreateEnrollmentRequestResponseObject, error)
+
+	// (GET /api/v1/enrollmentrequests/{name})
+	ReadEnrollmentRequest(ctx context.Context, request ReadEnrollmentRequestRequestObject) (ReadEnrollmentRequestResponseObject, error)
+
+	// (PUT /api/v1/enrollmentrequests/{name})
+	ReplaceEnrollmentRequest(ctx context.Context, request ReplaceEnrollmentRequestRequestObject) (ReplaceEnrollmentRequestResponseObject, error)
+
+	// (PUT /api/v1/enrollmentrequests/{name}/approve)
+	ApproveEnrollmentRequest(ctx context.Context, request ApproveEnrollmentRequestRequestObject) (ApproveEnrollmentRequestResponseObject, error)
+
+	// (GET /api/v1/enrollmentrequests/{name}/status)
+	ReadEnrollmentRequestStatus(ctx context.Context, request ReadEnrollmentRequestStatusRequestObject) (ReadEnrollmentRequestStatusResponseObject, error)
+
+	// (PUT /api/v1/enrollmentrequests/{name}/status)
+	ReplaceEnrollmentRequestStatus(ctx context.Context, request ReplaceEnrollmentRequestStatusRequestObject) (ReplaceEnrollmentRequestStatusResponseObject, error)
+
+	// (DELETE /api/v1/fleets)
+	DeleteFleets(ctx context.Context, request DeleteFleetsRequestObject) (DeleteFleetsResponseObject, error)
+
+	// (GET /api/v1/fleets)
+	ListFleets(ctx context.Context, request ListFleetsRequestObject) (ListFleetsResponseObject, error)
+
+	// (POST /api/v1/fleets)
+	CreateFleet(ctx context.Context, request CreateFleetRequestObject) (CreateFleetResponseObject, error)
+
+	// (DELETE /api/v1/fleets/{name})
+	DeleteFleet(ctx context.Context, request DeleteFleetRequestObject) (DeleteFleetResponseObject, error)
+
+	// (GET /api/v1/fleets/{name})
+	ReadFleet(ctx context.Context, request ReadFleetRequestObject) (ReadFleetResponseObject, error)
+
+	// (PUT /api/v1/fleets/{name})
+	ReplaceFleet(ctx context.Context, request ReplaceFleetRequestObject) (ReplaceFleetResponseObject, error)
+
+	// (GET /api/v1/fleets/{name}/status)
+	ReadFleetStatus(ctx context.Context, request ReadFleetStatusRequestObject) (ReadFleetStatusResponseObject, error)
+
+	// (PUT /api/v1/fleets/{name}/status)
+	ReplaceFleetStatus(ctx context.Context, request ReplaceFleetStatusRequestObject) (ReplaceFleetStatusResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHttpHandlerFunc
@@ -1062,10 +2304,10 @@ func (sh *strictHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteDevice operation middleware
-func (sh *strictHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, id string) {
+func (sh *strictHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, name string) {
 	var request DeleteDeviceRequestObject
 
-	request.Id = id
+	request.Name = name
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.DeleteDevice(ctx, request.(DeleteDeviceRequestObject))
@@ -1088,10 +2330,10 @@ func (sh *strictHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, id
 }
 
 // ReadDevice operation middleware
-func (sh *strictHandler) ReadDevice(w http.ResponseWriter, r *http.Request, id string) {
+func (sh *strictHandler) ReadDevice(w http.ResponseWriter, r *http.Request, name string) {
 	var request ReadDeviceRequestObject
 
-	request.Id = id
+	request.Name = name
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReadDevice(ctx, request.(ReadDeviceRequestObject))
@@ -1114,10 +2356,10 @@ func (sh *strictHandler) ReadDevice(w http.ResponseWriter, r *http.Request, id s
 }
 
 // ReplaceDevice operation middleware
-func (sh *strictHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request, id string) {
+func (sh *strictHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request, name string) {
 	var request ReplaceDeviceRequestObject
 
-	request.Id = id
+	request.Name = name
 	request.ContentType = r.Header.Get("Content-Type")
 
 	request.Body = r.Body
@@ -1143,10 +2385,10 @@ func (sh *strictHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request, i
 }
 
 // ReadDeviceStatus operation middleware
-func (sh *strictHandler) ReadDeviceStatus(w http.ResponseWriter, r *http.Request, id string) {
+func (sh *strictHandler) ReadDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var request ReadDeviceStatusRequestObject
 
-	request.Id = id
+	request.Name = name
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReadDeviceStatus(ctx, request.(ReadDeviceStatusRequestObject))
@@ -1169,10 +2411,10 @@ func (sh *strictHandler) ReadDeviceStatus(w http.ResponseWriter, r *http.Request
 }
 
 // ReplaceDeviceStatus operation middleware
-func (sh *strictHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, id string) {
+func (sh *strictHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var request ReplaceDeviceStatusRequestObject
 
-	request.Id = id
+	request.Name = name
 	request.ContentType = r.Header.Get("Content-Type")
 
 	request.Body = r.Body
@@ -1190,6 +2432,437 @@ func (sh *strictHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceDeviceStatusResponseObject); ok {
 		if err := validResponse.VisitReplaceDeviceStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteEnrollmentRequests operation middleware
+func (sh *strictHandler) DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
+	var request DeleteEnrollmentRequestsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteEnrollmentRequests(ctx, request.(DeleteEnrollmentRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteEnrollmentRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteEnrollmentRequestsResponseObject); ok {
+		if err := validResponse.VisitDeleteEnrollmentRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListEnrollmentRequests operation middleware
+func (sh *strictHandler) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams) {
+	var request ListEnrollmentRequestsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEnrollmentRequests(ctx, request.(ListEnrollmentRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEnrollmentRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEnrollmentRequestsResponseObject); ok {
+		if err := validResponse.VisitListEnrollmentRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateEnrollmentRequest operation middleware
+func (sh *strictHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	var request CreateEnrollmentRequestRequestObject
+
+	request.ContentType = r.Header.Get("Content-Type")
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateEnrollmentRequest(ctx, request.(CreateEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitCreateEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadEnrollmentRequest operation middleware
+func (sh *strictHandler) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadEnrollmentRequestRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadEnrollmentRequest(ctx, request.(ReadEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitReadEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceEnrollmentRequest operation middleware
+func (sh *strictHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceEnrollmentRequestRequestObject
+
+	request.Name = name
+	request.ContentType = r.Header.Get("Content-Type")
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceEnrollmentRequest(ctx, request.(ReplaceEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitReplaceEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveEnrollmentRequest operation middleware
+func (sh *strictHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request ApproveEnrollmentRequestRequestObject
+
+	request.Name = name
+	request.ContentType = r.Header.Get("Content-Type")
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveEnrollmentRequest(ctx, request.(ApproveEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitApproveEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadEnrollmentRequestStatus operation middleware
+func (sh *strictHandler) ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadEnrollmentRequestStatusRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadEnrollmentRequestStatus(ctx, request.(ReadEnrollmentRequestStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadEnrollmentRequestStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadEnrollmentRequestStatusResponseObject); ok {
+		if err := validResponse.VisitReadEnrollmentRequestStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceEnrollmentRequestStatus operation middleware
+func (sh *strictHandler) ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceEnrollmentRequestStatusRequestObject
+
+	request.Name = name
+	request.ContentType = r.Header.Get("Content-Type")
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceEnrollmentRequestStatus(ctx, request.(ReplaceEnrollmentRequestStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceEnrollmentRequestStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceEnrollmentRequestStatusResponseObject); ok {
+		if err := validResponse.VisitReplaceEnrollmentRequestStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteFleets operation middleware
+func (sh *strictHandler) DeleteFleets(w http.ResponseWriter, r *http.Request) {
+	var request DeleteFleetsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteFleets(ctx, request.(DeleteFleetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteFleets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteFleetsResponseObject); ok {
+		if err := validResponse.VisitDeleteFleetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListFleets operation middleware
+func (sh *strictHandler) ListFleets(w http.ResponseWriter, r *http.Request, params ListFleetsParams) {
+	var request ListFleetsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListFleets(ctx, request.(ListFleetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListFleets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListFleetsResponseObject); ok {
+		if err := validResponse.VisitListFleetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateFleet operation middleware
+func (sh *strictHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
+	var request CreateFleetRequestObject
+
+	request.ContentType = r.Header.Get("Content-Type")
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateFleet(ctx, request.(CreateFleetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateFleet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateFleetResponseObject); ok {
+		if err := validResponse.VisitCreateFleetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteFleet operation middleware
+func (sh *strictHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
+	var request DeleteFleetRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteFleet(ctx, request.(DeleteFleetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteFleet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteFleetResponseObject); ok {
+		if err := validResponse.VisitDeleteFleetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadFleet operation middleware
+func (sh *strictHandler) ReadFleet(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadFleetRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadFleet(ctx, request.(ReadFleetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadFleet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadFleetResponseObject); ok {
+		if err := validResponse.VisitReadFleetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceFleet operation middleware
+func (sh *strictHandler) ReplaceFleet(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceFleetRequestObject
+
+	request.Name = name
+	request.ContentType = r.Header.Get("Content-Type")
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceFleet(ctx, request.(ReplaceFleetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceFleet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceFleetResponseObject); ok {
+		if err := validResponse.VisitReplaceFleetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadFleetStatus operation middleware
+func (sh *strictHandler) ReadFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadFleetStatusRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadFleetStatus(ctx, request.(ReadFleetStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadFleetStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadFleetStatusResponseObject); ok {
+		if err := validResponse.VisitReadFleetStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceFleetStatus operation middleware
+func (sh *strictHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceFleetStatusRequestObject
+
+	request.Name = name
+	request.ContentType = r.Header.Get("Content-Type")
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceFleetStatus(ctx, request.(ReplaceFleetStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceFleetStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceFleetStatusResponseObject); ok {
+		if err := validResponse.VisitReplaceFleetStatusResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

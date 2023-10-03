@@ -7,8 +7,6 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
   - url: /
-security:
-  - BearerToken: []
 paths:
   /api/v1/devices:
     get:
@@ -60,15 +58,6 @@ paths:
               $ref: '#/components/schemas/Device'
         required: true
       responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Device'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/Device'
         "201":
           description: Created
           content:
@@ -80,6 +69,9 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
+          content: {}
+        "409":
+          description: StatusConflict
           content: {}
     delete:
       tags:
@@ -99,16 +91,16 @@ paths:
         "401":
           description: Unauthorized
           content: {}
-  /api/v1/devices/{id}:
+  /api/v1/devices/{name}:
     get:
       tags:
         - device
       description: read the specified Device
       operationId: readDevice
       parameters:
-        - name: id
+        - name: name
           in: path
-          description: id of the Device
+          description: unique name of the Device
           required: true
           schema:
             type: string
@@ -131,9 +123,9 @@ paths:
       description: replace the specified Device
       operationId: replaceDevice
       parameters:
-        - name: id
+        - name: name
           in: path
-          description: id of the Pod
+          description: name of the Device
           required: true
           schema:
             type: string
@@ -153,15 +145,6 @@ paths:
             application/yaml:
               schema:
                 $ref: '#/components/schemas/Device'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Device'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -171,9 +154,9 @@ paths:
       description: delete a Device
       operationId: deleteDevice
       parameters:
-        - name: id
+        - name: name
           in: path
-          description: id of the Device
+          description: name of the Device
           required: true
           schema:
             type: string
@@ -187,28 +170,19 @@ paths:
             application/yaml:
               schema:
                 $ref: '#/components/schemas/Device'
-        "202":
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Device'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
-  /api/v1/devices/{id}/status:
+  /api/v1/devices/{name}/status:
     get:
       tags:
         - device
       description: read status of the specified Device
       operationId: readDeviceStatus
       parameters:
-        - name: id
+        - name: name
           in: path
-          description: id of the Pod
+          description: name of the Device
           required: true
           schema:
             type: string
@@ -231,9 +205,9 @@ paths:
       description: replace status of the specified Device
       operationId: replaceDeviceStatus
       parameters:
-        - name: id
+        - name: name
           in: path
-          description: id of the Device
+          description: name of the Device
           required: true
           schema:
             type: string
@@ -253,15 +227,457 @@ paths:
             application/yaml:
               schema:
                 $ref: '#/components/schemas/Device'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/enrollmentrequests:
+    get:
+      tags:
+        - enrollmentrequests
+      description: list Enrollment Requests
+      operationId: listEnrollmentRequests
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequestList'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequestList'
+        "401":
+          description: Unauthorized
+          content: {}
+    post:
+      tags:
+        - enrollment
+      description: request enrollment of a Device
+      operationId: createEnrollmentRequest
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequest'
+        required: true
+      responses:
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: '#/components/schemas/EnrollmentRequest'
             application/yaml:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content: {}
+        "409":
+          description: StatusConflict
+          content: {}
+    delete:
+      tags:
+        - enrollment
+      description: delete collection of Enrollments
+      operationId: deleteEnrollmentRequests
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/enrollmentrequests/{name}:
+    get:
+      tags:
+        - enrollment
+      description: read the specified Enrollment
+      operationId: readEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: the fingerprint of the EnrollmentRequest
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content: {}
+    put:
+      tags:
+        - enrollment
+      description: replace the specified Enrollment Request
+      operationId: replaceEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the EnrollmentRequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/enrollmentrequests/{name}/status:
+    get:
+      tags:
+        - enrollment
+      description: read status of the specified EnrollmentRequest
+      operationId: readEnrollmentRequestStatus
+      parameters:
+        - name: name
+          in: path
+          description: name of the EnrollmentRequest
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content: {}
+    put:
+      tags:
+        - enrollment
+      description: replace status of the specified EnrollmentRequest
+      operationId: replaceEnrollmentRequestStatus
+      parameters:
+        - name: name
+          in: path
+          description: name of the EnrollmentRequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/enrollmentrequests/{name}/approve:
+    put:
+      tags:
+        - enrollment
+      description: approve the specified EnrollmentRequest
+      operationId: approveEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the EnrollmentRequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/fleets:
+    get:
+      tags:
+        - fleet
+      description: list Fleets
+      operationId: listFleets
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FleetList'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/FleetList'
+        "401":
+          description: Unauthorized
+          content: {}
+    post:
+      tags:
+        - fleet
+      description: create a Fleet
+      operationId: createFleet
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/Fleet'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "401":
+          description: Unauthorized
+          content: {}
+        "409":
+          description: StatusConflict
+          content: {}
+    delete:
+      tags:
+        - fleet
+      description: delete collection of Fleets
+      operationId: deleteFleets
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/fleets/{name}:
+    get:
+      tags:
+        - fleet
+      description: read the specified Fleet
+      operationId: readFleet
+      parameters:
+        - name: name
+          in: path
+          description: unique name of the Fleet
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "401":
+          description: Unauthorized
+          content: {}
+    put:
+      tags:
+        - fleet
+      description: replace the specified Fleet
+      operationId: replaceFleet
+      parameters:
+        - name: name
+          in: path
+          description: name of the Fleet
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/Fleet'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "401":
+          description: Unauthorized
+          content: {}
+    delete:
+      tags:
+        - fleet
+      description: delete a Fleet
+      operationId: deleteFleet
+      parameters:
+        - name: name
+          in: path
+          description: name of the Fleet
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/fleets/{name}/status:
+    get:
+      tags:
+        - fleet
+      description: read status of the specified Fleet
+      operationId: readFleetStatus
+      parameters:
+        - name: name
+          in: path
+          description: name of the Fleet
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "401":
+          description: Unauthorized
+          content: {}
+    put:
+      tags:
+        - fleet
+      description: replace status of the specified Fleet
+      operationId: replaceFleetStatus
+      parameters:
+        - name: name
+          in: path
+          description: name of the Device
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/Fleet'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
           content: {}
@@ -304,7 +720,7 @@ components:
           description: Status of the condition, one of True, False, Unknown.
         type:
           type: string
-          description: Type of node condition.
+          description: Type of device condition.
       description: DeviceCondition contains condition information for a device.
     DeviceConfigSpec:
       required:
@@ -330,7 +746,7 @@ components:
           $ref: '#/components/schemas/ListMeta'
         items:
           type: array
-          description: 'List of pods. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md'
+          description: 'List of Devices.'
           items:
             $ref: '#/components/schemas/Device'
       description: DeviceList is a list of Devices.
@@ -343,9 +759,6 @@ components:
           type: string
           description: 'ostree image name or URL.'
     DeviceSpec:
-      required:
-        - os
-        - config
       type: object
       properties:
         os:
@@ -387,7 +800,157 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
-      description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the node.
+      description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+    EnrollmentRequest:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/EnrollmentRequestSpec'
+        status:
+          $ref: '#/components/schemas/EnrollmentRequestStatus'
+      description: EnrollmentRequest represents a request for approval to enroll a device.
+    EnrollmentRequestCondition:
+      required:
+        - status
+        - type
+      type: object
+      properties:
+        lastTransitionTime:
+          type: string
+        message:
+          type: string
+          description: Human readable message indicating details about last transition.
+        reason:
+          type: string
+          description: (brief) reason for the condition's last transition.
+        status:
+          type: string
+          description: Status of the condition, one of True, False, Unknown.
+        type:
+          type: string
+          description: Type of fleet condition.
+      description: EnrollmentRequestCondition contains condition information for a EnrollmentRequest.
+    EnrollmentRequestList:
+      required:
+        - items
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of EnrollmentRequest.'
+          items:
+            $ref: '#/components/schemas/EnrollmentRequest'
+      description: EnrollmentRequestList is a list of EnrollmentRequest.
+    EnrollmentRequestSpec:
+      required:
+        - csr
+      type: object
+      properties:
+        csr:
+          type: string
+          description: 'csr is a PEM-encoded PKCS#10 certificate signing request.'
+        deviceStatus:
+          $ref: '#/components/schemas/DeviceStatus'
+      description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
+    EnrollmentRequestStatus:
+      type: object
+      properties:
+        certificate:
+          type: string
+          description: 'certificate is a PEM-encoded signed certificate.'
+        conditions:
+          type: array
+          description: 'Current state of the EnrollmentRequest.'
+          items:
+            $ref: '#/components/schemas/EnrollmentRequestCondition'
+      description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+    Fleet:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/FleetSpec'
+        status:
+          $ref: '#/components/schemas/FleetStatus'
+      description: Fleet represents a set of devices.
+    FleetCondition:
+      required:
+        - status
+        - type
+      type: object
+      properties:
+        lastTransitionTime:
+          type: string
+        message:
+          type: string
+          description: Human readable message indicating details about last transition.
+        reason:
+          type: string
+          description: (brief) reason for the condition's last transition.
+        status:
+          type: string
+          description: Status of the condition, one of True, False, Unknown.
+        type:
+          type: string
+          description: Type of fleet condition.
+      description: DeviceCondition contains condition information for a device.
+    FleetList:
+      required:
+        - items
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of Fleets.'
+          items:
+            $ref: '#/components/schemas/Fleet'
+      description: FleetList is a list of Fleets.
+    FleetSpec:
+      type: object
+      properties:
+        template:
+          $ref: '#/components/schemas/DeviceSpec'
+      description: FleetSpec is a description of a fleet's target state.
+    FleetStatus:
+      type: object
+      properties:
+        conditions:
+          type: array
+          description: 'Current state of the fleet.'
+          items:
+            $ref: '#/components/schemas/FleetCondition'
+      description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
     ListMeta:
       type: object
       properties:
@@ -406,9 +969,9 @@ components:
           type: string
         deletionTimestamp:
           type: string
-        id:
+        name:
           type: string
-          description: 'id of the object'
+          description: name of the object
         labels:
           type: object
           additionalProperties:
