@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/flightctl/flightctl/internal/service"
 	"gorm.io/gorm"
 )
 
@@ -16,6 +17,18 @@ func NewStore(db *gorm.DB) *Store {
 		enrollmentRequestStore: NewEnrollmentRequestStoreStore(db),
 		fleetStore:             NewFleetStore(db),
 	}
+}
+
+func (s *Store) GetDeviceStore() service.DeviceStoreInterface {
+	return s.deviceStore
+}
+
+func (s *Store) GetEnrollmentRequestStore() service.EnrollmentRequestStoreInterface {
+	return s.enrollmentRequestStore
+}
+
+func (s *Store) GetFleetStore() service.FleetStoreInterface {
+	return s.fleetStore
 }
 
 func (s *Store) InitialMigration() error {
