@@ -1,0 +1,21 @@
+version: 4.4
+
+services:
+  flightctl-db:
+    container_name: flightctl-db
+    image: quay.io/cloudservices/postgresql-rds:12-9ee2984
+    environment:
+      - POSTGRESQL_DATABASE=flightctl
+      - POSTGRESQL_USER=demouser
+      - POSTGRESQL_PASSWORD=demopass
+      - POSTGRESQL_MASTER_USER=admin
+      - POSTGRESQL_MASTER_PASSWORD=adminpass
+      - PGPASSWORD=adminpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - flightctl-db:/var/lib/pgsql/data
+    restart: always
+
+volumes:
+  flightctl-db:
