@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	oapimiddleware "github.com/deepmap/oapi-codegen/pkg/chi-middleware"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/server"
@@ -38,6 +40,19 @@ func main() {
 		log.Fatalf("reading configuration: %v", err)
 	}
 	log.Printf("Using config: %s", cfg)
+
+	ca, _, err := crypto.EnsureCA(certFile(signerCertName), keyFile(signerCertName), "", signerCertName, caCertValidityDays)
+	if err != nil {
+		log.Fatalf("ensuring CA cert: %v", err)
+	}
+	serverCerts, _, err := ca.EnsureServerCertificate(certFile(serverCertName), keyFile(serverCertName), []string{"localhost"}, serverCertValidityDays)
+	if err != nil {
+		log.Fatalf("ensuring server cert: %v", err)
+	}
+	_, _, err = ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), clientBootstrapCertName, clientBootStrapValidityDays)
+	if err != nil {
+		log.Fatalf("ensuring bootstrap client cert: %v", err)
+	}
 
 	log.Println("Initializing data store...")
 	db, err := store.InitDB(cfg)
@@ -67,9 +82,14 @@ func main() {
 	h := service.NewServiceHandler(store)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
+	tlsConfig, err := ca.TLSConfigForServer(serverCerts)
+	if err != nil {
+		log.Fatalf("creating TLS config: %v", err)
+	}
 	srv := &http.Server{
 		Addr:         cfg.Service.Address,
 		Handler:      router,
+		TLSConfig:    tlsConfig,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -88,7 +108,15 @@ func main() {
 	}()
 
 	log.Printf("Listening on %s...", srv.Addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func certFile(name string) string {
+	return filepath.Join(config.CertificateDir(), name+".crt")
+}
+
+func keyFile(name string) string {
+	return filepath.Join(config.CertificateDir(), name+".key")
 }
