@@ -23,9 +23,7 @@ func NewKeyPairWithHash() (crypto.PublicKey, crypto.PrivateKey, []byte, error) {
 	publicKey, privateKey, err := newECDSAKeyPair()
 	var publicKeyHash []byte
 	if err == nil {
-		hash := sha256.New()
-		hash.Write(publicKey.X.Bytes())
-		publicKeyHash = hash.Sum(nil)
+		publicKeyHash = hashECDSAKey(publicKey)
 	}
 	return publicKey, privateKey, publicKeyHash, nil
 }
@@ -38,15 +36,46 @@ func newECDSAKeyPair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
 	return &privateKey.PublicKey, privateKey, nil
 }
 
-func EnsureKey(keyFile string) (*crypto.PrivateKey, bool, error) {
-	if key, err := LoadKey(keyFile); err == nil {
-		return key, false, err
+func HashPublicKey(key crypto.PublicKey) ([]byte, error) {
+	switch key := key.(type) {
+	case ecdsa.PublicKey:
+		return hashECDSAKey(&key), nil
+	case *ecdsa.PublicKey:
+		return hashECDSAKey(key), nil
+	case *crypto.PublicKey:
+		return HashPublicKey(*key)
+	case *crypto.PrivateKey:
+		privateKey, ok := (*key).(crypto.Signer)
+		if !ok {
+			return nil, fmt.Errorf("unsupported private key type %T", key)
+		}
+		return HashPublicKey(privateKey.Public())
+	default:
+		return nil, fmt.Errorf("unsupported public key type %T", key)
 	}
-	_, privateKey, _ := NewKeyPair()
+}
+
+func hashECDSAKey(publicKey *ecdsa.PublicKey) []byte {
+	hash := sha256.New()
+	hash.Write(publicKey.X.Bytes())
+	hash.Write(publicKey.Y.Bytes())
+	return hash.Sum(nil)
+}
+
+func EnsureKey(keyFile string) (crypto.PublicKey, crypto.PrivateKey, bool, error) {
+	if privateKey, err := LoadKey(keyFile); err == nil {
+		privateKeySigner, ok := privateKey.(crypto.Signer)
+		if !ok {
+			return nil, nil, false, err
+		}
+		publicKey := privateKeySigner.Public()
+		return publicKey, privateKey, false, err
+	}
+	publicKey, privateKey, _ := NewKeyPair()
 	if err := WriteKey(keyFile, privateKey); err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
-	return &privateKey, true, nil
+	return publicKey, privateKey, true, nil
 }
 
 func WriteKey(keyPath string, key crypto.PrivateKey) error {
@@ -78,7 +107,7 @@ func PEMEncodeKey(key crypto.PrivateKey) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func LoadKey(keyFile string) (*crypto.PrivateKey, error) {
+func LoadKey(keyFile string) (crypto.PrivateKey, error) {
 	pemBlock, err := os.ReadFile(keyFile)
 	if err != nil {
 		return nil, err
@@ -87,7 +116,7 @@ func LoadKey(keyFile string) (*crypto.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading %s: %v", keyFile, err)
 	}
-	return &key, nil
+	return key, nil
 }
 
 func ParseKeyPEM(pemKey []byte) (crypto.PrivateKey, error) {

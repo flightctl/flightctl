@@ -14,12 +14,12 @@ import (
 
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apiserver/pkg/authentication/user"
 )
 
 // Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
+
 type CA struct {
 	Config *TLSCertificateConfig
 
@@ -218,21 +218,27 @@ func (ca *CA) signCertificate(template *x509.Certificate, requestKey crypto.Publ
 	return signCertificate(template, requestKey, ca.Config.Certs[0], ca.Config.Key)
 }
 
-func (ca *CA) EnsureClientCertificate(certFile, keyFile string, subject string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := GetClientCertificate(certFile, keyFile, subject)
+func (ca *CA) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
+	certConfig, err := GetClientCertificate(certFile, keyFile, subjectName)
 	if err != nil {
-		certConfig, err = ca.MakeClientCertificate(certFile, keyFile, subject, expireDays)
+		certConfig, err = ca.MakeClientCertificate(certFile, keyFile, subjectName, expireDays)
 		return certConfig, true, err // true indicates we wrote the files.
 	}
 	return certConfig, false, nil
 }
 
-func GetClientCertificate(certFile, keyFile string, subject string) (*TLSCertificateConfig, error) {
-	internalClient, err := oscrypto.GetClientCertificate(certFile, keyFile, &user.DefaultInfo{Name: subject})
+func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCertificateConfig, error) {
+	internalConfig, err := oscrypto.GetTLSCertificateConfig(certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
-	client := TLSCertificateConfig(*internalClient)
+
+	if internalConfig.Certs[0].Subject.CommonName != subjectName {
+		return nil, fmt.Errorf("existing client certificate in %s was issued for a different Subject (%s)",
+			certFile, subjectName)
+	}
+
+	client := TLSCertificateConfig(*internalConfig)
 	return &client, nil
 }
 
@@ -244,7 +250,14 @@ func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, ex
 		return nil, err
 	}
 
-	clientPublicKey, clientPrivateKey, _ := NewKeyPair()
+	clientPublicKey, clientPrivateKey, isNewKey, err := EnsureKey(keyFile)
+	if err != nil {
+		return nil, err
+	}
+	clientPublicKeyHash, err := HashPublicKey(clientPublicKey)
+	if err != nil {
+		return nil, err
+	}
 
 	now := time.Now()
 	clientTemplate := &x509.Certificate{
@@ -259,6 +272,9 @@ func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, ex
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
+
+		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
+		SubjectKeyId:   clientPublicKeyHash,
 	}
 	clientCrt, err := ca.signCertificate(clientTemplate, clientPublicKey)
 	if err != nil {
@@ -277,8 +293,10 @@ func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, ex
 	if err = os.WriteFile(certFile, certData, os.FileMode(0644)); err != nil {
 		return nil, err
 	}
-	if err = os.WriteFile(keyFile, keyData, os.FileMode(0600)); err != nil {
-		return nil, err
+	if isNewKey {
+		if err = os.WriteFile(keyFile, keyData, os.FileMode(0600)); err != nil {
+			return nil, err
+		}
 	}
 
 	return GetTLSCertificateConfig(certFile, keyFile)
