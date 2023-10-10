@@ -82,7 +82,7 @@ func main() {
 	h := service.NewServiceHandler(store)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
-	tlsConfig, err := ca.TLSConfigForServer(serverCerts)
+	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		log.Fatalf("creating TLS config: %v", err)
 	}
