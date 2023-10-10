@@ -1042,25 +1042,6 @@ func (response DeleteDevices200JSONResponse) VisitDeleteDevicesResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteDevices200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response DeleteDevices200ApplicationyamlResponse) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type DeleteDevices401Response struct {
 }
 
@@ -1084,25 +1065,6 @@ func (response ListDevices200JSONResponse) VisitListDevicesResponse(w http.Respo
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ListDevices200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ListDevices200ApplicationyamlResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ListDevices401Response struct {
@@ -1129,25 +1091,6 @@ func (response CreateDevice201JSONResponse) VisitCreateDeviceResponse(w http.Res
 	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateDevice201ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response CreateDevice201ApplicationyamlResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(201)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type CreateDevice401Response struct {
@@ -1183,25 +1126,6 @@ func (response DeleteDevice200JSONResponse) VisitDeleteDeviceResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteDevice200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response DeleteDevice200ApplicationyamlResponse) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type DeleteDevice401Response struct {
 }
 
@@ -1225,25 +1149,6 @@ func (response ReadDevice200JSONResponse) VisitReadDeviceResponse(w http.Respons
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ReadDevice200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReadDevice200ApplicationyamlResponse) VisitReadDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ReadDevice401Response struct {
@@ -1273,25 +1178,6 @@ func (response ReplaceDevice200JSONResponse) VisitReplaceDeviceResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDevice200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReplaceDevice200ApplicationyamlResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ReplaceDevice401Response struct {
 }
 
@@ -1315,25 +1201,6 @@ func (response ReadDeviceStatus200JSONResponse) VisitReadDeviceStatusResponse(w 
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ReadDeviceStatus200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReadDeviceStatus200ApplicationyamlResponse) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ReadDeviceStatus401Response struct {
@@ -1363,25 +1230,6 @@ func (response ReplaceDeviceStatus200JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReplaceDeviceStatus200ApplicationyamlResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ReplaceDeviceStatus401Response struct {
 }
 
@@ -1404,25 +1252,6 @@ func (response DeleteEnrollmentRequests200JSONResponse) VisitDeleteEnrollmentReq
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteEnrollmentRequests200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response DeleteEnrollmentRequests200ApplicationyamlResponse) VisitDeleteEnrollmentRequestsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type DeleteEnrollmentRequests401Response struct {
@@ -1450,25 +1279,6 @@ func (response ListEnrollmentRequests200JSONResponse) VisitListEnrollmentRequest
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListEnrollmentRequests200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ListEnrollmentRequests200ApplicationyamlResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ListEnrollmentRequests401Response struct {
 }
 
@@ -1493,25 +1303,6 @@ func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequ
 	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateEnrollmentRequest201ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response CreateEnrollmentRequest201ApplicationyamlResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(201)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type CreateEnrollmentRequest401Response struct {
@@ -1547,25 +1338,6 @@ func (response ReadEnrollmentRequest200JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReadEnrollmentRequest200ApplicationyamlResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ReadEnrollmentRequest401Response struct {
 }
 
@@ -1591,25 +1363,6 @@ func (response ReplaceEnrollmentRequest200JSONResponse) VisitReplaceEnrollmentRe
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ReplaceEnrollmentRequest200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReplaceEnrollmentRequest200ApplicationyamlResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ReplaceEnrollmentRequest401Response struct {
@@ -1639,25 +1392,6 @@ func (response ApproveEnrollmentRequest200JSONResponse) VisitApproveEnrollmentRe
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ApproveEnrollmentRequest200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ApproveEnrollmentRequest200ApplicationyamlResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ApproveEnrollmentRequest401Response struct {
 }
 
@@ -1681,25 +1415,6 @@ func (response ReadEnrollmentRequestStatus200JSONResponse) VisitReadEnrollmentRe
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ReadEnrollmentRequestStatus200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReadEnrollmentRequestStatus200ApplicationyamlResponse) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ReadEnrollmentRequestStatus401Response struct {
@@ -1729,25 +1444,6 @@ func (response ReplaceEnrollmentRequestStatus200JSONResponse) VisitReplaceEnroll
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceEnrollmentRequestStatus200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReplaceEnrollmentRequestStatus200ApplicationyamlResponse) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ReplaceEnrollmentRequestStatus401Response struct {
 }
 
@@ -1770,25 +1466,6 @@ func (response DeleteFleets200JSONResponse) VisitDeleteFleetsResponse(w http.Res
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteFleets200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response DeleteFleets200ApplicationyamlResponse) VisitDeleteFleetsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type DeleteFleets401Response struct {
@@ -1816,25 +1493,6 @@ func (response ListFleets200JSONResponse) VisitListFleetsResponse(w http.Respons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListFleets200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ListFleets200ApplicationyamlResponse) VisitListFleetsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ListFleets401Response struct {
 }
 
@@ -1859,25 +1517,6 @@ func (response CreateFleet201JSONResponse) VisitCreateFleetResponse(w http.Respo
 	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateFleet201ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response CreateFleet201ApplicationyamlResponse) VisitCreateFleetResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(201)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type CreateFleet401Response struct {
@@ -1913,25 +1552,6 @@ func (response DeleteFleet200JSONResponse) VisitDeleteFleetResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteFleet200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response DeleteFleet200ApplicationyamlResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type DeleteFleet401Response struct {
 }
 
@@ -1955,25 +1575,6 @@ func (response ReadFleet200JSONResponse) VisitReadFleetResponse(w http.ResponseW
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ReadFleet200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReadFleet200ApplicationyamlResponse) VisitReadFleetResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ReadFleet401Response struct {
@@ -2003,25 +1604,6 @@ func (response ReplaceFleet200JSONResponse) VisitReplaceFleetResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceFleet200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReplaceFleet200ApplicationyamlResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
 type ReplaceFleet401Response struct {
 }
 
@@ -2045,25 +1627,6 @@ func (response ReadFleetStatus200JSONResponse) VisitReadFleetStatusResponse(w ht
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ReadFleetStatus200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReadFleetStatus200ApplicationyamlResponse) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ReadFleetStatus401Response struct {
@@ -2091,25 +1654,6 @@ func (response ReplaceFleetStatus200JSONResponse) VisitReplaceFleetStatusRespons
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-type ReplaceFleetStatus200ApplicationyamlResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response ReplaceFleetStatus200ApplicationyamlResponse) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
 }
 
 type ReplaceFleetStatus401Response struct {

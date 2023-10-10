@@ -40,9 +40,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeviceList'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/DeviceList'
         "401":
           description: Unauthorized
           content: {}
@@ -64,9 +61,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -83,9 +77,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Status'
         "401":
@@ -109,9 +100,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Device'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Device'
         "401":
@@ -142,9 +130,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -165,9 +150,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Device'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Device'
         "401":
@@ -191,9 +173,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Device'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Device'
         "401":
@@ -222,9 +201,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Device'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Device'
         "401":
@@ -262,9 +238,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequestList'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequestList'
         "401":
           description: Unauthorized
           content: {}
@@ -286,9 +259,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
           content: {}
@@ -305,9 +275,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Status'
         "401":
@@ -331,9 +298,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
@@ -364,9 +328,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
           content: {}
@@ -388,9 +349,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
@@ -421,9 +379,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
           content: {}
@@ -451,9 +406,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
@@ -491,9 +443,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FleetList'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/FleetList'
         "401":
           description: Unauthorized
           content: {}
@@ -515,9 +464,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
           content: {}
@@ -534,9 +480,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Status'
         "401":
@@ -560,9 +503,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Fleet'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Fleet'
         "401":
@@ -593,9 +533,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
-            application/yaml:
-              schema:
-                $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
           content: {}
@@ -616,9 +553,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Fleet'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Fleet'
         "401":
@@ -642,9 +576,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Fleet'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Fleet'
         "401":
@@ -673,9 +604,6 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Fleet'
-            application/yaml:
               schema:
                 $ref: '#/components/schemas/Fleet'
         "401":

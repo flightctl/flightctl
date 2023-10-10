@@ -12,8 +12,6 @@ import (
 	"net/url"
 	"strings"
 
-	"gopkg.in/yaml.v2"
-
 	. "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/oapi-codegen/runtime"
 )
@@ -1507,7 +1505,6 @@ type DeleteDevicesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Status
-	YAML200      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -1530,7 +1527,6 @@ type ListDevicesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *DeviceList
-	YAML200      *DeviceList
 }
 
 // Status returns HTTPResponse.Status
@@ -1553,7 +1549,6 @@ type CreateDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *Device
-	YAML201      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -1576,7 +1571,6 @@ type DeleteDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	YAML200      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -1599,7 +1593,6 @@ type ReadDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	YAML200      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -1622,7 +1615,6 @@ type ReplaceDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	YAML200      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -1645,7 +1637,6 @@ type ReadDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	YAML200      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -1668,7 +1659,6 @@ type ReplaceDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	YAML200      *Device
 }
 
 // Status returns HTTPResponse.Status
@@ -1691,7 +1681,6 @@ type DeleteEnrollmentRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Status
-	YAML200      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -1714,7 +1703,6 @@ type ListEnrollmentRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequestList
-	YAML200      *EnrollmentRequestList
 }
 
 // Status returns HTTPResponse.Status
@@ -1737,7 +1725,6 @@ type CreateEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *EnrollmentRequest
-	YAML201      *EnrollmentRequest
 }
 
 // Status returns HTTPResponse.Status
@@ -1760,7 +1747,6 @@ type ReadEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	YAML200      *EnrollmentRequest
 }
 
 // Status returns HTTPResponse.Status
@@ -1783,7 +1769,6 @@ type ReplaceEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	YAML200      *EnrollmentRequest
 }
 
 // Status returns HTTPResponse.Status
@@ -1806,7 +1791,6 @@ type ApproveEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	YAML200      *EnrollmentRequest
 }
 
 // Status returns HTTPResponse.Status
@@ -1829,7 +1813,6 @@ type ReadEnrollmentRequestStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	YAML200      *EnrollmentRequest
 }
 
 // Status returns HTTPResponse.Status
@@ -1852,7 +1835,6 @@ type ReplaceEnrollmentRequestStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	YAML200      *EnrollmentRequest
 }
 
 // Status returns HTTPResponse.Status
@@ -1875,7 +1857,6 @@ type DeleteFleetsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Status
-	YAML200      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -1898,7 +1879,6 @@ type ListFleetsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *FleetList
-	YAML200      *FleetList
 }
 
 // Status returns HTTPResponse.Status
@@ -1921,7 +1901,6 @@ type CreateFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *Fleet
-	YAML201      *Fleet
 }
 
 // Status returns HTTPResponse.Status
@@ -1944,7 +1923,6 @@ type DeleteFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	YAML200      *Fleet
 }
 
 // Status returns HTTPResponse.Status
@@ -1967,7 +1945,6 @@ type ReadFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	YAML200      *Fleet
 }
 
 // Status returns HTTPResponse.Status
@@ -1990,7 +1967,6 @@ type ReplaceFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	YAML200      *Fleet
 }
 
 // Status returns HTTPResponse.Status
@@ -2013,7 +1989,6 @@ type ReadFleetStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	YAML200      *Fleet
 }
 
 // Status returns HTTPResponse.Status
@@ -2036,7 +2011,6 @@ type ReplaceFleetStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	YAML200      *Fleet
 }
 
 // Status returns HTTPResponse.Status
@@ -2292,13 +2266,6 @@ func ParseDeleteDevicesResponse(rsp *http.Response) (*DeleteDevicesResponse, err
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Status
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2324,13 +2291,6 @@ func ParseListDevicesResponse(rsp *http.Response) (*ListDevicesResponse, error) 
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest DeviceList
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2358,13 +2318,6 @@ func ParseCreateDeviceResponse(rsp *http.Response) (*CreateDeviceResponse, error
 		}
 		response.JSON201 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 201:
-		var dest Device
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML201 = &dest
-
 	}
 
 	return response, nil
@@ -2390,13 +2343,6 @@ func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Device
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2424,13 +2370,6 @@ func ParseReadDeviceResponse(rsp *http.Response) (*ReadDeviceResponse, error) {
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Device
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2456,13 +2395,6 @@ func ParseReplaceDeviceResponse(rsp *http.Response) (*ReplaceDeviceResponse, err
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Device
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2490,13 +2422,6 @@ func ParseReadDeviceStatusResponse(rsp *http.Response) (*ReadDeviceStatusRespons
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Device
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2522,13 +2447,6 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Device
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2556,13 +2474,6 @@ func ParseDeleteEnrollmentRequestsResponse(rsp *http.Response) (*DeleteEnrollmen
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Status
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2588,13 +2499,6 @@ func ParseListEnrollmentRequestsResponse(rsp *http.Response) (*ListEnrollmentReq
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest EnrollmentRequestList
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2622,13 +2526,6 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 		}
 		response.JSON201 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 201:
-		var dest EnrollmentRequest
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML201 = &dest
-
 	}
 
 	return response, nil
@@ -2654,13 +2551,6 @@ func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequ
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest EnrollmentRequest
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2688,13 +2578,6 @@ func ParseReplaceEnrollmentRequestResponse(rsp *http.Response) (*ReplaceEnrollme
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest EnrollmentRequest
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2720,13 +2603,6 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest EnrollmentRequest
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2754,13 +2630,6 @@ func ParseReadEnrollmentRequestStatusResponse(rsp *http.Response) (*ReadEnrollme
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest EnrollmentRequest
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2786,13 +2655,6 @@ func ParseReplaceEnrollmentRequestStatusResponse(rsp *http.Response) (*ReplaceEn
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest EnrollmentRequest
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2820,13 +2682,6 @@ func ParseDeleteFleetsResponse(rsp *http.Response) (*DeleteFleetsResponse, error
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Status
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2852,13 +2707,6 @@ func ParseListFleetsResponse(rsp *http.Response) (*ListFleetsResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest FleetList
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2886,13 +2734,6 @@ func ParseCreateFleetResponse(rsp *http.Response) (*CreateFleetResponse, error) 
 		}
 		response.JSON201 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 201:
-		var dest Fleet
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML201 = &dest
-
 	}
 
 	return response, nil
@@ -2918,13 +2759,6 @@ func ParseDeleteFleetResponse(rsp *http.Response) (*DeleteFleetResponse, error) 
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Fleet
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -2952,13 +2786,6 @@ func ParseReadFleetResponse(rsp *http.Response) (*ReadFleetResponse, error) {
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Fleet
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -2984,13 +2811,6 @@ func ParseReplaceFleetResponse(rsp *http.Response) (*ReplaceFleetResponse, error
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Fleet
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
@@ -3018,13 +2838,6 @@ func ParseReadFleetStatusResponse(rsp *http.Response) (*ReadFleetStatusResponse,
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Fleet
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
-
 	}
 
 	return response, nil
@@ -3050,13 +2863,6 @@ func ParseReplaceFleetStatusResponse(rsp *http.Response) (*ReplaceFleetStatusRes
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "yaml") && rsp.StatusCode == 200:
-		var dest Fleet
-		if err := yaml.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.YAML200 = &dest
 
 	}
 
