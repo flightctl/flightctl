@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/server"
 )
 
@@ -14,15 +15,17 @@ type ServiceHandler struct {
 	deviceStore            DeviceStoreInterface
 	enrollmentRequestStore EnrollmentRequestStoreInterface
 	fleetStore             FleetStoreInterface
+	ca                     *crypto.CA
 }
 
 // Make sure we conform to StrictServerInterface
 var _ server.StrictServerInterface = (*ServiceHandler)(nil)
 
-func NewServiceHandler(store DataStoreInterface) *ServiceHandler {
+func NewServiceHandler(store DataStoreInterface, ca *crypto.CA) *ServiceHandler {
 	return &ServiceHandler{
 		deviceStore:            store.GetDeviceStore(),
 		enrollmentRequestStore: store.GetEnrollmentRequestStore(),
 		fleetStore:             store.GetFleetStore(),
+		ca:                     ca,
 	}
 }

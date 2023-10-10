@@ -79,7 +79,7 @@ func main() {
 		oapimiddleware.OapiRequestValidator(swagger),
 	)
 
-	h := service.NewServiceHandler(store)
+	h := service.NewServiceHandler(store, ca)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
 	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)

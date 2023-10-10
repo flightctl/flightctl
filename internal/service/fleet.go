@@ -2,59 +2,125 @@ package service
 
 import (
 	"context"
+	"fmt"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/model"
 	"github.com/flightctl/flightctl/pkg/server"
 	"github.com/google/uuid"
 )
 
 type FleetStoreInterface interface {
-	CreateFleet(orgId uuid.UUID, name string) (model.Fleet, error)
+	CreateFleet(orgId uuid.UUID, req *model.Fleet) (*model.Fleet, error)
 	ListFleets(orgId uuid.UUID) ([]model.Fleet, error)
-	GetFleet(orgId uuid.UUID, name string) (model.Fleet, error)
-	WriteFleetSpec(orgId uuid.UUID, name string, spec api.FleetSpec) error
-	WriteFleetStatus(orgId uuid.UUID, name string, status api.FleetStatus) error
+	GetFleet(orgId uuid.UUID, name string) (*model.Fleet, error)
+	UpdateFleet(orgId uuid.UUID, fleet *model.Fleet) (*model.Fleet, error)
+	UpdateFleetStatus(orgId uuid.UUID, fleet *model.Fleet) (*model.Fleet, error)
 	DeleteFleets(orgId uuid.UUID) error
 	DeleteFleet(orgId uuid.UUID, name string) error
 }
 
-// (DELETE /api/v1/fleets)
-func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
-	return nil, nil
+// (POST /api/v1/fleets)
+func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
+	orgId := NullOrgId
+	if request.ContentType != "application/json" {
+		return nil, fmt.Errorf("bad content type %s", request.ContentType)
+	}
+
+	newFleet, err := model.NewFleetFromApiResourceReader(request.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.fleetStore.CreateFleet(orgId, newFleet)
+	if err != nil {
+		return nil, err
+	}
+	return server.CreateFleet201JSONResponse(result.ToApiResource()), nil
 }
 
 // (GET /api/v1/fleets)
 func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
-	return nil, nil
+	orgId := NullOrgId
+	fleets, err := h.fleetStore.ListFleets(orgId)
+	if err != nil {
+		return nil, err
+	}
+	return server.ListFleets200JSONResponse(model.FleetList(fleets).ToApiResource()), nil
 }
 
-// (POST /api/v1/fleets)
-func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
-	return nil, nil
-}
-
-// (DELETE /api/v1/fleets/{name})
-func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
-	return nil, nil
+// (DELETE /api/v1/fleets)
+func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
+	orgId := NullOrgId
+	err := h.fleetStore.DeleteFleets(orgId)
+	if err != nil {
+		return nil, err
+	}
+	return server.DeleteFleets200JSONResponse{}, nil
 }
 
 // (GET /api/v1/fleets/{name})
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
-	return nil, nil
+	orgId := NullOrgId
+	fleet, err := h.fleetStore.GetFleet(orgId, request.Name)
+	if err != nil {
+		return nil, err
+	}
+	return server.ReadFleet200JSONResponse(fleet.ToApiResource()), nil
 }
 
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
-	return nil, nil
+	orgId := NullOrgId
+	if request.ContentType != "application/json" {
+		return nil, fmt.Errorf("bad content type %s", request.ContentType)
+	}
+
+	updatedFleet, err := model.NewFleetFromApiResourceReader(request.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	fleet, err := h.fleetStore.UpdateFleet(orgId, updatedFleet)
+	if err != nil {
+		return nil, err
+	}
+	return server.ReplaceFleet200JSONResponse(fleet.ToApiResource()), nil
+}
+
+// (DELETE /api/v1/fleets/{name})
+func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
+	orgId := NullOrgId
+	if err := h.fleetStore.DeleteFleet(orgId, request.Name); err != nil {
+		return nil, err
+	}
+	return server.DeleteFleet200JSONResponse{}, nil
 }
 
 // (GET /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
-	return nil, nil
+	orgId := NullOrgId
+	fleet, err := h.fleetStore.GetFleet(orgId, request.Name)
+	if err != nil {
+		return nil, err
+	}
+	return server.ReadFleetStatus200JSONResponse(fleet.ToApiResource()), nil
 }
 
 // (PUT /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
-	return nil, nil
+	orgId := NullOrgId
+	if request.ContentType != "application/json" {
+		return nil, fmt.Errorf("bad content type %s", request.ContentType)
+	}
+
+	updatedFleet, err := model.NewFleetFromApiResourceReader(request.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.fleetStore.UpdateFleetStatus(orgId, updatedFleet)
+	if err != nil {
+		return nil, err
+	}
+	return server.ReplaceFleetStatus200JSONResponse(result.ToApiResource()), nil
 }

@@ -1,9 +1,9 @@
 package store
 
 import (
+	"fmt"
 	"log"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/model"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
@@ -25,16 +25,12 @@ func (s *FleetStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Fleet{})
 }
 
-func (s *FleetStore) CreateFleet(orgId uuid.UUID, name string) (model.Fleet, error) {
-	resource := model.Fleet{
-		Resource: model.Resource{
-			OrgID: orgId,
-			Name:  name,
-		},
-		Spec:   model.MakeJSONField(api.FleetSpec{}),
-		Status: model.MakeJSONField(api.FleetStatus{}),
+func (s *FleetStore) CreateFleet(orgId uuid.UUID, resource *model.Fleet) (*model.Fleet, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
 	}
-	result := s.db.Create(&resource)
+	resource.OrgID = orgId
+	result := s.db.Create(resource)
 	log.Printf("db.Create: %s, %d rows affected, error is %v", resource, result.RowsAffected, result.Error)
 	return resource, result.Error
 }
@@ -43,31 +39,59 @@ func (s *FleetStore) ListFleets(orgId uuid.UUID) ([]model.Fleet, error) {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId},
 	}
-
-	var devices []model.Fleet
-	result := s.db.Where(condition).Find(&devices)
-	log.Printf("db.Find: %s, %d rows affected, error is %v", devices, result.RowsAffected, result.Error)
-	return devices, result.Error
+	var fleets []model.Fleet
+	result := s.db.Where(condition).Find(&fleets)
+	log.Printf("db.Find: %s, %d rows affected, error is %v", fleets, result.RowsAffected, result.Error)
+	return fleets, result.Error
 }
 
-func (s *FleetStore) GetFleet(orgId uuid.UUID, name string) (model.Fleet, error) {
-	device := model.Fleet{
+func (s *FleetStore) DeleteFleets(orgId uuid.UUID) error {
+	condition := model.Fleet{
+		Resource: model.Resource{OrgID: orgId},
+	}
+	result := s.db.Delete(&condition)
+	return result.Error
+}
+
+func (s *FleetStore) GetFleet(orgId uuid.UUID, name string) (*model.Fleet, error) {
+	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&device)
-	log.Printf("db.Find: %s, %d rows affected, error is %v", device, result.RowsAffected, result.Error)
-	return device, result.Error
+	result := s.db.First(&fleet)
+	log.Printf("db.Find: %s, %d rows affected, error is %v", fleet, result.RowsAffected, result.Error)
+	return &fleet, result.Error
 }
 
-func (s *FleetStore) WriteFleetSpec(orgId uuid.UUID, name string, spec api.FleetSpec) error {
-	return nil
+func (s *FleetStore) UpdateFleet(orgId uuid.UUID, resource *model.Fleet) (*model.Fleet, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
+	}
+	fleet := model.Fleet{
+		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	}
+	result := s.db.Model(&fleet).Updates(map[string]interface{}{
+		"spec": model.MakeJSONField(resource.Spec),
+	})
+	return &fleet, result.Error
 }
-func (s *FleetStore) WriteFleetStatus(orgId uuid.UUID, name string, status api.FleetStatus) error {
-	return nil
+
+func (s *FleetStore) UpdateFleetStatus(orgId uuid.UUID, resource *model.Fleet) (*model.Fleet, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
+	}
+	fleet := model.Fleet{
+		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	}
+	result := s.db.Model(&fleet).Updates(map[string]interface{}{
+		"status": model.MakeJSONField(resource.Status),
+	})
+	return &fleet, result.Error
 }
-func (s *FleetStore) DeleteFleets(orgId uuid.UUID) error {
-	return nil
-}
+
 func (s *FleetStore) DeleteFleet(orgId uuid.UUID, name string) error {
-	return nil
+	condition := model.Fleet{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.db.Delete(&condition)
+	return result.Error
 }

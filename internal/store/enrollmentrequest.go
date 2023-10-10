@@ -1,9 +1,9 @@
 package store
 
 import (
+	"fmt"
 	"log"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/model"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
@@ -25,16 +25,12 @@ func (s *EnrollmentRequestStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.EnrollmentRequest{})
 }
 
-func (s *EnrollmentRequestStore) CreateEnrollmentRequest(orgId uuid.UUID, name string) (model.EnrollmentRequest, error) {
-	resource := model.EnrollmentRequest{
-		Resource: model.Resource{
-			OrgID: orgId,
-			Name:  name,
-		},
-		Spec:   model.MakeJSONField(api.EnrollmentRequestSpec{}),
-		Status: model.MakeJSONField(api.EnrollmentRequestStatus{}),
+func (s *EnrollmentRequestStore) CreateEnrollmentRequest(orgId uuid.UUID, resource *model.EnrollmentRequest) (*model.EnrollmentRequest, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
 	}
-	result := s.db.Create(&resource)
+	resource.OrgID = orgId
+	result := s.db.Create(resource)
 	log.Printf("db.Create: %s, %d rows affected, error is %v", resource, result.RowsAffected, result.Error)
 	return resource, result.Error
 }
@@ -43,31 +39,59 @@ func (s *EnrollmentRequestStore) ListEnrollmentRequests(orgId uuid.UUID) ([]mode
 	condition := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId},
 	}
-
-	var enrollmentrequests []model.EnrollmentRequest
-	result := s.db.Where(condition).Find(&enrollmentrequests)
-	log.Printf("db.Find: %s, %d rows affected, error is %v", enrollmentrequests, result.RowsAffected, result.Error)
-	return enrollmentrequests, result.Error
+	var enrollmentRequests []model.EnrollmentRequest
+	result := s.db.Where(condition).Find(&enrollmentRequests)
+	log.Printf("db.Find: %s, %d rows affected, error is %v", enrollmentRequests, result.RowsAffected, result.Error)
+	return enrollmentRequests, result.Error
 }
 
-func (s *EnrollmentRequestStore) GetEnrollmentRequest(orgId uuid.UUID, name string) (model.EnrollmentRequest, error) {
-	enrollmentrequest := model.EnrollmentRequest{
+func (s *EnrollmentRequestStore) DeleteEnrollmentRequests(orgId uuid.UUID) error {
+	condition := model.EnrollmentRequest{
+		Resource: model.Resource{OrgID: orgId},
+	}
+	result := s.db.Delete(&condition)
+	return result.Error
+}
+
+func (s *EnrollmentRequestStore) GetEnrollmentRequest(orgId uuid.UUID, name string) (*model.EnrollmentRequest, error) {
+	enrollmentRequest := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&enrollmentrequest)
-	log.Printf("db.Find: %s, %d rows affected, error is %v", enrollmentrequest, result.RowsAffected, result.Error)
-	return enrollmentrequest, result.Error
+	result := s.db.First(&enrollmentRequest)
+	log.Printf("db.Find: %s, %d rows affected, error is %v", name, result.RowsAffected, result.Error)
+	return &enrollmentRequest, result.Error
 }
 
-func (s *EnrollmentRequestStore) WriteEnrollmentRequestSpec(orgId uuid.UUID, name string, spec api.EnrollmentRequestSpec) error {
-	return nil
+func (s *EnrollmentRequestStore) UpdateEnrollmentRequest(orgId uuid.UUID, resource *model.EnrollmentRequest) (*model.EnrollmentRequest, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
+	}
+	enrollmentRequest := model.EnrollmentRequest{
+		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	}
+	result := s.db.Model(&enrollmentRequest).Updates(map[string]interface{}{
+		"spec": model.MakeJSONField(resource.Spec),
+	})
+	return &enrollmentRequest, result.Error
 }
-func (s *EnrollmentRequestStore) WriteEnrollmentRequestStatus(orgId uuid.UUID, name string, status api.EnrollmentRequestStatus) error {
-	return nil
+
+func (s *EnrollmentRequestStore) UpdateEnrollmentRequestStatus(orgId uuid.UUID, resource *model.EnrollmentRequest) (*model.EnrollmentRequest, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
+	}
+	enrollmentRequest := model.EnrollmentRequest{
+		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	}
+	result := s.db.Model(&enrollmentRequest).Updates(map[string]interface{}{
+		"status": model.MakeJSONField(resource.Status),
+	})
+	return &enrollmentRequest, result.Error
 }
-func (s *EnrollmentRequestStore) DeleteEnrollmentRequests(orgId uuid.UUID) error {
-	return nil
-}
+
 func (s *EnrollmentRequestStore) DeleteEnrollmentRequest(orgId uuid.UUID, name string) error {
-	return nil
+	condition := model.EnrollmentRequest{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.db.Delete(&condition)
+	return result.Error
 }

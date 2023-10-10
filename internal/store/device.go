@@ -1,9 +1,9 @@
 package store
 
 import (
+	"fmt"
 	"log"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/model"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
@@ -21,53 +21,77 @@ func NewDeviceStore(db *gorm.DB) *DeviceStore {
 	return &DeviceStore{db: db}
 }
 
-func (d *DeviceStore) InitialMigration() error {
-	return d.db.AutoMigrate(&model.Device{})
+func (s *DeviceStore) InitialMigration() error {
+	return s.db.AutoMigrate(&model.Device{})
 }
 
-func (d *DeviceStore) CreateDevice(orgId uuid.UUID, name string) (model.Device, error) {
-	device := model.Device{
-		Resource: model.Resource{
-			OrgID: orgId,
-			Name:  name,
-		},
-		Spec:   model.MakeJSONField(api.DeviceSpec{}),
-		Status: model.MakeJSONField(api.DeviceStatus{}),
+func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *model.Device) (*model.Device, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
 	}
-	result := d.db.Create(&device)
-	log.Printf("db.Create: %s, %d rows affected, error is %v", device, result.RowsAffected, result.Error)
-	return device, result.Error
+	resource.OrgID = orgId
+	result := s.db.Create(resource)
+	log.Printf("db.Create: %s, %d rows affected, error is %v", resource, result.RowsAffected, result.Error)
+	return resource, result.Error
 }
 
-func (d *DeviceStore) ListDevices(orgId uuid.UUID) ([]model.Device, error) {
+func (s *DeviceStore) ListDevices(orgId uuid.UUID) ([]model.Device, error) {
 	condition := model.Device{
 		Resource: model.Resource{OrgID: orgId},
 	}
-
 	var devices []model.Device
-	result := d.db.Where(condition).Find(&devices)
+	result := s.db.Where(condition).Find(&devices)
 	log.Printf("db.Find: %s, %d rows affected, error is %v", devices, result.RowsAffected, result.Error)
 	return devices, result.Error
 }
 
-func (d *DeviceStore) GetDevice(orgId uuid.UUID, name string) (model.Device, error) {
+func (s *DeviceStore) DeleteDevices(orgId uuid.UUID) error {
+	condition := model.Device{
+		Resource: model.Resource{OrgID: orgId},
+	}
+	result := s.db.Delete(&condition)
+	return result.Error
+}
+
+func (s *DeviceStore) GetDevice(orgId uuid.UUID, name string) (*model.Device, error) {
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := d.db.First(&device)
+	result := s.db.First(&device)
 	log.Printf("db.Find: %s, %d rows affected, error is %v", device, result.RowsAffected, result.Error)
-	return device, result.Error
+	return &device, result.Error
 }
 
-func (d *DeviceStore) WriteDeviceSpec(orgId uuid.UUID, name string, spec api.DeviceSpec) error {
-	return nil
+func (s *DeviceStore) UpdateDevice(orgId uuid.UUID, resource *model.Device) (*model.Device, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
+	}
+	device := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	}
+	result := s.db.Model(&device).Updates(map[string]interface{}{
+		"spec": model.MakeJSONField(resource.Spec),
+	})
+	return &device, result.Error
 }
-func (d *DeviceStore) WriteDeviceStatus(orgId uuid.UUID, name string, status api.DeviceStatus) error {
-	return nil
+
+func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *model.Device) (*model.Device, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is nil")
+	}
+	device := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	}
+	result := s.db.Model(&device).Updates(map[string]interface{}{
+		"status": model.MakeJSONField(resource.Status),
+	})
+	return &device, result.Error
 }
-func (d *DeviceStore) DeleteDevices(orgId uuid.UUID) error {
-	return nil
-}
-func (d *DeviceStore) DeleteDevice(orgId uuid.UUID, name string) error {
-	return nil
+
+func (s *DeviceStore) DeleteDevice(orgId uuid.UUID, name string) error {
+	condition := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.db.Delete(&condition)
+	return result.Error
 }
