@@ -52,6 +52,9 @@ type ServerInterface interface {
 	// (POST /api/v1/enrollmentrequests)
 	CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request)
 
+	// (DELETE /api/v1/enrollmentrequests/{name})
+	DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /api/v1/enrollmentrequests/{name})
 	ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
@@ -148,6 +151,11 @@ func (_ Unimplemented) ListEnrollmentRequests(w http.ResponseWriter, r *http.Req
 
 // (POST /api/v1/enrollmentrequests)
 func (_ Unimplemented) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/enrollmentrequests/{name})
+func (_ Unimplemented) DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -494,6 +502,32 @@ func (siw *ServerInterfaceWrapper) CreateEnrollmentRequest(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateEnrollmentRequest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEnrollmentRequest(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -984,6 +1018,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.CreateEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.DeleteEnrollmentRequest)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReadEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
@@ -1318,6 +1355,31 @@ type CreateEnrollmentRequest409Response struct {
 
 func (response CreateEnrollmentRequest409Response) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.WriteHeader(409)
+	return nil
+}
+
+type DeleteEnrollmentRequestRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DeleteEnrollmentRequestResponseObject interface {
+	VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type DeleteEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response DeleteEnrollmentRequest200JSONResponse) VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteEnrollmentRequest401Response struct {
+}
+
+func (response DeleteEnrollmentRequest401Response) VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
 	return nil
 }
 
@@ -1700,6 +1762,9 @@ type StrictServerInterface interface {
 	// (POST /api/v1/enrollmentrequests)
 	CreateEnrollmentRequest(ctx context.Context, request CreateEnrollmentRequestRequestObject) (CreateEnrollmentRequestResponseObject, error)
 
+	// (DELETE /api/v1/enrollmentrequests/{name})
+	DeleteEnrollmentRequest(ctx context.Context, request DeleteEnrollmentRequestRequestObject) (DeleteEnrollmentRequestResponseObject, error)
+
 	// (GET /api/v1/enrollmentrequests/{name})
 	ReadEnrollmentRequest(ctx context.Context, request ReadEnrollmentRequestRequestObject) (ReadEnrollmentRequestResponseObject, error)
 
@@ -2054,6 +2119,32 @@ func (sh *strictHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateEnrollmentRequestResponseObject); ok {
 		if err := validResponse.VisitCreateEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteEnrollmentRequest operation middleware
+func (sh *strictHandler) DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request DeleteEnrollmentRequestRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteEnrollmentRequest(ctx, request.(DeleteEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitDeleteEnrollmentRequestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

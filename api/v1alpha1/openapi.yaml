@@ -331,6 +331,28 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+    delete:
+      tags:
+        - enrollment
+      description: delete a Enrollment Request
+      operationId: deleteEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the Enrollment Request
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content: {}
   /api/v1/enrollmentrequests/{name}/status:
     get:
       tags:
