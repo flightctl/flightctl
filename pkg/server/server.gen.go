@@ -61,8 +61,8 @@ type ServerInterface interface {
 	// (PUT /api/v1/enrollmentrequests/{name})
 	ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/enrollmentrequests/{name}/approve)
-	ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+	// (PUT /api/v1/enrollmentrequests/{name}/approval)
+	ReplaceEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/enrollmentrequests/{name}/status)
 	ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
@@ -169,8 +169,8 @@ func (_ Unimplemented) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/enrollmentrequests/{name}/approve)
-func (_ Unimplemented) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+// (PUT /api/v1/enrollmentrequests/{name}/approval)
+func (_ Unimplemented) ReplaceEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -589,8 +589,8 @@ func (siw *ServerInterfaceWrapper) ReplaceEnrollmentRequest(w http.ResponseWrite
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// ApproveEnrollmentRequest operation middleware
-func (siw *ServerInterfaceWrapper) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+// ReplaceEnrollmentRequestApproval operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var err error
@@ -605,7 +605,7 @@ func (siw *ServerInterfaceWrapper) ApproveEnrollmentRequest(w http.ResponseWrite
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ApproveEnrollmentRequest(w, r, name)
+		siw.Handler.ReplaceEnrollmentRequestApproval(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1027,7 +1027,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReplaceEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approve", wrapper.ApproveEnrollmentRequest)
+		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approval", wrapper.ReplaceEnrollmentRequestApproval)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.ReadEnrollmentRequestStatus)
@@ -1435,29 +1435,29 @@ func (response ReplaceEnrollmentRequest401Response) VisitReplaceEnrollmentReques
 	return nil
 }
 
-type ApproveEnrollmentRequestRequestObject struct {
+type ReplaceEnrollmentRequestApprovalRequestObject struct {
 	Name        string `json:"name"`
 	ContentType string
 	Body        io.Reader
 }
 
-type ApproveEnrollmentRequestResponseObject interface {
-	VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error
+type ReplaceEnrollmentRequestApprovalResponseObject interface {
+	VisitReplaceEnrollmentRequestApprovalResponse(w http.ResponseWriter) error
 }
 
-type ApproveEnrollmentRequest200JSONResponse EnrollmentRequest
+type ReplaceEnrollmentRequestApproval200JSONResponse EnrollmentRequest
 
-func (response ApproveEnrollmentRequest200JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response ReplaceEnrollmentRequestApproval200JSONResponse) VisitReplaceEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ApproveEnrollmentRequest401Response struct {
+type ReplaceEnrollmentRequestApproval401Response struct {
 }
 
-func (response ApproveEnrollmentRequest401Response) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response ReplaceEnrollmentRequestApproval401Response) VisitReplaceEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
 	return nil
 }
@@ -1771,8 +1771,8 @@ type StrictServerInterface interface {
 	// (PUT /api/v1/enrollmentrequests/{name})
 	ReplaceEnrollmentRequest(ctx context.Context, request ReplaceEnrollmentRequestRequestObject) (ReplaceEnrollmentRequestResponseObject, error)
 
-	// (PUT /api/v1/enrollmentrequests/{name}/approve)
-	ApproveEnrollmentRequest(ctx context.Context, request ApproveEnrollmentRequestRequestObject) (ApproveEnrollmentRequestResponseObject, error)
+	// (PUT /api/v1/enrollmentrequests/{name}/approval)
+	ReplaceEnrollmentRequestApproval(ctx context.Context, request ReplaceEnrollmentRequestApprovalRequestObject) (ReplaceEnrollmentRequestApprovalResponseObject, error)
 
 	// (GET /api/v1/enrollmentrequests/{name}/status)
 	ReadEnrollmentRequestStatus(ctx context.Context, request ReadEnrollmentRequestStatusRequestObject) (ReadEnrollmentRequestStatusResponseObject, error)
@@ -2207,9 +2207,9 @@ func (sh *strictHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http
 	}
 }
 
-// ApproveEnrollmentRequest operation middleware
-func (sh *strictHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
-	var request ApproveEnrollmentRequestRequestObject
+// ReplaceEnrollmentRequestApproval operation middleware
+func (sh *strictHandler) ReplaceEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceEnrollmentRequestApprovalRequestObject
 
 	request.Name = name
 	request.ContentType = r.Header.Get("Content-Type")
@@ -2217,18 +2217,18 @@ func (sh *strictHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http
 	request.Body = r.Body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ApproveEnrollmentRequest(ctx, request.(ApproveEnrollmentRequestRequestObject))
+		return sh.ssi.ReplaceEnrollmentRequestApproval(ctx, request.(ReplaceEnrollmentRequestApprovalRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ApproveEnrollmentRequest")
+		handler = middleware(handler, "ReplaceEnrollmentRequestApproval")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ApproveEnrollmentRequestResponseObject); ok {
-		if err := validResponse.VisitApproveEnrollmentRequestResponse(w); err != nil {
+	} else if validResponse, ok := response.(ReplaceEnrollmentRequestApprovalResponseObject); ok {
+		if err := validResponse.VisitReplaceEnrollmentRequestApprovalResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

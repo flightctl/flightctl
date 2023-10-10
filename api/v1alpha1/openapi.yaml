@@ -404,12 +404,12 @@ paths:
         "401":
           description: Unauthorized
           content: {}
-  /api/v1/enrollmentrequests/{name}/approve:
+  /api/v1/enrollmentrequests/{name}/approval:
     put:
       tags:
         - enrollment
-      description: approve the specified EnrollmentRequest
-      operationId: approveEnrollmentRequest
+      description: replace approval of the specified EnrollmentRequest
+      operationId: replaceEnrollmentRequestApproval
       parameters:
         - name: name
           in: path

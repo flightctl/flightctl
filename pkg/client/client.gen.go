@@ -131,8 +131,8 @@ type ClientInterface interface {
 	// ReplaceEnrollmentRequestWithBody request with any body
 	ReplaceEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ApproveEnrollmentRequestWithBody request with any body
-	ApproveEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ReplaceEnrollmentRequestApprovalWithBody request with any body
+	ReplaceEnrollmentRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReadEnrollmentRequestStatus request
 	ReadEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -333,8 +333,8 @@ func (c *Client) ReplaceEnrollmentRequestWithBody(ctx context.Context, name stri
 	return c.Client.Do(req)
 }
 
-func (c *Client) ApproveEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewApproveEnrollmentRequestRequestWithBody(c.Server, name, contentType, body)
+func (c *Client) ReplaceEnrollmentRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceEnrollmentRequestApprovalRequestWithBody(c.Server, name, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1017,8 +1017,8 @@ func NewReplaceEnrollmentRequestRequestWithBody(server string, name string, cont
 	return req, nil
 }
 
-// NewApproveEnrollmentRequestRequestWithBody generates requests for ApproveEnrollmentRequest with any type of body
-func NewApproveEnrollmentRequestRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+// NewReplaceEnrollmentRequestApprovalRequestWithBody generates requests for ReplaceEnrollmentRequestApproval with any type of body
+func NewReplaceEnrollmentRequestApprovalRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1033,7 +1033,7 @@ func NewApproveEnrollmentRequestRequestWithBody(server string, name string, cont
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/enrollmentrequests/%s/approve", pathParam0)
+	operationPath := fmt.Sprintf("/api/v1/enrollmentrequests/%s/approval", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1519,8 +1519,8 @@ type ClientWithResponsesInterface interface {
 	// ReplaceEnrollmentRequestWithBodyWithResponse request with any body
 	ReplaceEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestResponse, error)
 
-	// ApproveEnrollmentRequestWithBodyWithResponse request with any body
-	ApproveEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error)
+	// ReplaceEnrollmentRequestApprovalWithBodyWithResponse request with any body
+	ReplaceEnrollmentRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestApprovalResponse, error)
 
 	// ReadEnrollmentRequestStatusWithResponse request
 	ReadEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestStatusResponse, error)
@@ -1861,14 +1861,14 @@ func (r ReplaceEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ApproveEnrollmentRequestResponse struct {
+type ReplaceEnrollmentRequestApprovalResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
 }
 
 // Status returns HTTPResponse.Status
-func (r ApproveEnrollmentRequestResponse) Status() string {
+func (r ReplaceEnrollmentRequestApprovalResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -1876,7 +1876,7 @@ func (r ApproveEnrollmentRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ApproveEnrollmentRequestResponse) StatusCode() int {
+func (r ReplaceEnrollmentRequestApprovalResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -2229,13 +2229,13 @@ func (c *ClientWithResponses) ReplaceEnrollmentRequestWithBodyWithResponse(ctx c
 	return ParseReplaceEnrollmentRequestResponse(rsp)
 }
 
-// ApproveEnrollmentRequestWithBodyWithResponse request with arbitrary body returning *ApproveEnrollmentRequestResponse
-func (c *ClientWithResponses) ApproveEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error) {
-	rsp, err := c.ApproveEnrollmentRequestWithBody(ctx, name, contentType, body, reqEditors...)
+// ReplaceEnrollmentRequestApprovalWithBodyWithResponse request with arbitrary body returning *ReplaceEnrollmentRequestApprovalResponse
+func (c *ClientWithResponses) ReplaceEnrollmentRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestApprovalResponse, error) {
+	rsp, err := c.ReplaceEnrollmentRequestApprovalWithBody(ctx, name, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseApproveEnrollmentRequestResponse(rsp)
+	return ParseReplaceEnrollmentRequestApprovalResponse(rsp)
 }
 
 // ReadEnrollmentRequestStatusWithResponse request returning *ReadEnrollmentRequestStatusResponse
@@ -2692,15 +2692,15 @@ func ParseReplaceEnrollmentRequestResponse(rsp *http.Response) (*ReplaceEnrollme
 	return response, nil
 }
 
-// ParseApproveEnrollmentRequestResponse parses an HTTP response from a ApproveEnrollmentRequestWithResponse call
-func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollmentRequestResponse, error) {
+// ParseReplaceEnrollmentRequestApprovalResponse parses an HTTP response from a ReplaceEnrollmentRequestApprovalWithResponse call
+func ParseReplaceEnrollmentRequestApprovalResponse(rsp *http.Response) (*ReplaceEnrollmentRequestApprovalResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ApproveEnrollmentRequestResponse{
+	response := &ReplaceEnrollmentRequestApprovalResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
