@@ -1,0 +1,22 @@
+apiVersion: v1alpha1
+kind: Device
+metadata:
+  name: f62dfb4f5d2cdbb9339362b5f18f2ce268d75649bdc80003f0e04292a7ef8c3f
+  labels:
+    fleet: default
+spec:
+  os:
+    image: quay.io/redhat/rhde:9.2
+  config:
+    - name: rendered-config  # <-- this is the merged config rendered by flightctl
+      inline:
+        ignition:
+          version: 3.4.0
+        storage:
+        files:
+          - contents:
+              source: >-
+                data:,This%20system%20is%20managed%20by%20flightctl.%0A
+            mode: 422
+            overwrite: true
+            path: "/etc/motd"
