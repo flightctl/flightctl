@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/model"
 	"github.com/flightctl/flightctl/pkg/server"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 var (
@@ -36,40 +37,50 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	}
 
 	result, err := h.deviceStore.CreateDevice(orgId, newDevice)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.CreateDevice201JSONResponse(result.ToApiResource()), nil
+	default:
 		return nil, err
 	}
-	return server.CreateDevice201JSONResponse(result.ToApiResource()), nil
 }
 
 // (GET /api/v1/devices)
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
 	orgId := NullOrgId
 	devices, err := h.deviceStore.ListDevices(orgId)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ListDevices200JSONResponse(model.DeviceList(devices).ToApiResource()), nil
+	default:
 		return nil, err
 	}
-	return server.ListDevices200JSONResponse(model.DeviceList(devices).ToApiResource()), nil
 }
 
 // (DELETE /api/v1/devices)
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
 	orgId := NullOrgId
 	err := h.deviceStore.DeleteDevices(orgId)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.DeleteDevices200JSONResponse{}, nil
+	default:
 		return nil, err
 	}
-	return server.DeleteDevices200JSONResponse{}, nil
 }
 
 // (GET /api/v1/devices/{name})
 func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDeviceRequestObject) (server.ReadDeviceResponseObject, error) {
 	orgId := NullOrgId
 	device, err := h.deviceStore.GetDevice(orgId, request.Name)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReadDevice200JSONResponse(device.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReadDevice404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReadDevice200JSONResponse(device.ToApiResource()), nil
 }
 
 // (PUT /api/v1/devices/{name})
@@ -85,29 +96,42 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 	}
 
 	device, err := h.deviceStore.UpdateDevice(orgId, updatedDevice)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReplaceDevice200JSONResponse(device.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReplaceDevice404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReplaceDevice200JSONResponse(device.ToApiResource()), nil
 }
 
 // (DELETE /api/v1/devices/{name})
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
 	orgId := NullOrgId
-	if err := h.deviceStore.DeleteDevice(orgId, request.Name); err != nil {
+	err := h.deviceStore.DeleteDevice(orgId, request.Name)
+	switch err {
+	case nil:
+		return server.DeleteDevice200JSONResponse{}, nil
+	case gorm.ErrRecordNotFound:
+		return server.DeleteDevice404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.DeleteDevice200JSONResponse{}, nil
 }
 
 // (GET /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.ReadDeviceStatusRequestObject) (server.ReadDeviceStatusResponseObject, error) {
 	orgId := NullOrgId
 	device, err := h.deviceStore.GetDevice(orgId, request.Name)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReadDeviceStatus200JSONResponse(device.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReadDeviceStatus404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReadDeviceStatus200JSONResponse(device.ToApiResource()), nil
 }
 
 // (PUT /api/v1/devices/{name}/status)
@@ -123,8 +147,12 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	}
 
 	result, err := h.deviceStore.UpdateDeviceStatus(orgId, updatedDevice)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReplaceDeviceStatus200JSONResponse(result.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReplaceDeviceStatus404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReplaceDeviceStatus200JSONResponse(result.ToApiResource()), nil
 }

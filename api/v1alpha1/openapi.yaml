@@ -105,6 +105,9 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+        "404":
+          description: NotFound
+          content: {}
     put:
       tags:
         - device
@@ -133,6 +136,9 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+        "404":
+          description: NotFound
+          content: {}
     delete:
       tags:
         - device
@@ -154,6 +160,9 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
   /api/v1/devices/{name}/status:
     get:
@@ -177,6 +186,9 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
     put:
       tags:
@@ -205,6 +217,9 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
   /api/v1/enrollmentrequests:
     get:
@@ -303,6 +318,9 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+        "404":
+          description: NotFound
+          content: {}
     put:
       tags:
         - enrollment
@@ -331,6 +349,9 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+        "404":
+          description: NotFound
+          content: {}
     delete:
       tags:
         - enrollment
@@ -352,6 +373,9 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
   /api/v1/enrollmentrequests/{name}/status:
     get:
@@ -375,6 +399,9 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
     put:
       tags:
@@ -404,6 +431,9 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+        "404":
+          description: NotFound
+          content: {}
   /api/v1/enrollmentrequests/{name}/approval:
     put:
       tags:
@@ -432,6 +462,9 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
   /api/v1/fleets:
     get:
@@ -530,6 +563,9 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+        "404":
+          description: NotFound
+          content: {}
     put:
       tags:
         - fleet
@@ -558,6 +594,9 @@ paths:
         "401":
           description: Unauthorized
           content: {}
+        "404":
+          description: NotFound
+          content: {}
     delete:
       tags:
         - fleet
@@ -579,6 +618,9 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
   /api/v1/fleets/{name}/status:
     get:
@@ -602,6 +644,9 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
     put:
       tags:
@@ -630,6 +675,9 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
           content: {}
 components:
   schemas:

@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/model"
 	"github.com/flightctl/flightctl/pkg/server"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type FleetStoreInterface interface {
@@ -32,40 +33,50 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 	}
 
 	result, err := h.fleetStore.CreateFleet(orgId, newFleet)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.CreateFleet201JSONResponse(result.ToApiResource()), nil
+	default:
 		return nil, err
 	}
-	return server.CreateFleet201JSONResponse(result.ToApiResource()), nil
 }
 
 // (GET /api/v1/fleets)
 func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
 	orgId := NullOrgId
 	fleets, err := h.fleetStore.ListFleets(orgId)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ListFleets200JSONResponse(model.FleetList(fleets).ToApiResource()), nil
+	default:
 		return nil, err
 	}
-	return server.ListFleets200JSONResponse(model.FleetList(fleets).ToApiResource()), nil
 }
 
 // (DELETE /api/v1/fleets)
 func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
 	orgId := NullOrgId
 	err := h.fleetStore.DeleteFleets(orgId)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.DeleteFleets200JSONResponse{}, nil
+	default:
 		return nil, err
 	}
-	return server.DeleteFleets200JSONResponse{}, nil
 }
 
 // (GET /api/v1/fleets/{name})
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
 	orgId := NullOrgId
 	fleet, err := h.fleetStore.GetFleet(orgId, request.Name)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReadFleet200JSONResponse(fleet.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReadFleet404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReadFleet200JSONResponse(fleet.ToApiResource()), nil
 }
 
 // (PUT /api/v1/fleets/{name})
@@ -81,29 +92,42 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 	}
 
 	fleet, err := h.fleetStore.UpdateFleet(orgId, updatedFleet)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReplaceFleet200JSONResponse(fleet.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReplaceFleet404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReplaceFleet200JSONResponse(fleet.ToApiResource()), nil
 }
 
 // (DELETE /api/v1/fleets/{name})
 func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
 	orgId := NullOrgId
-	if err := h.fleetStore.DeleteFleet(orgId, request.Name); err != nil {
+	err := h.fleetStore.DeleteFleet(orgId, request.Name)
+	switch err {
+	case nil:
+		return server.DeleteFleet200JSONResponse{}, nil
+	case gorm.ErrRecordNotFound:
+		return server.DeleteFleet404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.DeleteFleet200JSONResponse{}, nil
 }
 
 // (GET /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
 	orgId := NullOrgId
 	fleet, err := h.fleetStore.GetFleet(orgId, request.Name)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReadFleetStatus200JSONResponse(fleet.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReadFleetStatus404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReadFleetStatus200JSONResponse(fleet.ToApiResource()), nil
 }
 
 // (PUT /api/v1/fleets/{name}/status)
@@ -119,8 +143,12 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	}
 
 	result, err := h.fleetStore.UpdateFleetStatus(orgId, updatedFleet)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReplaceFleetStatus200JSONResponse(result.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReplaceFleetStatus404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReplaceFleetStatus200JSONResponse(result.ToApiResource()), nil
 }

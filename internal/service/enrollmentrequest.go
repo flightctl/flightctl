@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/server"
 	"github.com/flightctl/flightctl/pkg/util"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 const ClientCertExpiryDays = 365
@@ -103,40 +104,50 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 
 	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
 	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(orgId, modelResource)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.CreateEnrollmentRequest201JSONResponse(result.ToApiResource()), nil
+	default:
 		return nil, err
 	}
-	return server.CreateEnrollmentRequest201JSONResponse(result.ToApiResource()), nil
 }
 
 // (GET /api/v1/enrollmentrequests)
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
 	orgId := NullOrgId
 	enrollmentRequests, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ListEnrollmentRequests200JSONResponse(model.EnrollmentRequestList(enrollmentRequests).ToApiResource()), nil
+	default:
 		return nil, err
 	}
-	return server.ListEnrollmentRequests200JSONResponse(model.EnrollmentRequestList(enrollmentRequests).ToApiResource()), nil
 }
 
 // (DELETE /api/v1/enrollmentrequests)
 func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
 	orgId := NullOrgId
 	err := h.enrollmentRequestStore.DeleteEnrollmentRequests(orgId)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.DeleteEnrollmentRequests200JSONResponse{}, nil
+	default:
 		return nil, err
 	}
-	return server.DeleteEnrollmentRequests200JSONResponse{}, nil
 }
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
 	enrollmentRequest, err := h.enrollmentRequestStore.GetEnrollmentRequest(orgId, request.Name)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReadEnrollmentRequest200JSONResponse(enrollmentRequest.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReadEnrollmentRequest404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReadEnrollmentRequest200JSONResponse(enrollmentRequest.ToApiResource()), nil
 }
 
 // (PUT /api/v1/enrollmentrequests/{name})
@@ -160,19 +171,28 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 
 	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
 	enrollmentrequest, err := h.enrollmentRequestStore.UpdateEnrollmentRequest(orgId, modelResource)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReplaceEnrollmentRequest200JSONResponse(enrollmentrequest.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReplaceEnrollmentRequest404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReplaceEnrollmentRequest200JSONResponse(enrollmentrequest.ToApiResource()), nil
 }
 
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
-	if err := h.enrollmentRequestStore.DeleteEnrollmentRequest(orgId, request.Name); err != nil {
+	err := h.enrollmentRequestStore.DeleteEnrollmentRequest(orgId, request.Name)
+	switch err {
+	case nil:
+		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
+	case gorm.ErrRecordNotFound:
+		return server.DeleteEnrollmentRequest404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.DeleteEnrollmentRequest200JSONResponse{}, nil
 }
 
 // (PUT /api/v1/enrollmentrequests/{name}/approval)
@@ -196,20 +216,28 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestApproval(ctx context.Context, r
 
 	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
 	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, modelResource)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReplaceEnrollmentRequestApproval200JSONResponse(result.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReplaceEnrollmentRequestApproval404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReplaceEnrollmentRequestApproval200JSONResponse(result.ToApiResource()), nil
 }
 
 // (GET /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
 	orgId := NullOrgId
 	enrollmentRequest, err := h.enrollmentRequestStore.GetEnrollmentRequest(orgId, request.Name)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReadEnrollmentRequestStatus200JSONResponse(enrollmentRequest.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReadEnrollmentRequestStatus404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReadEnrollmentRequestStatus200JSONResponse(enrollmentRequest.ToApiResource()), nil
 }
 
 // (PUT /api/v1/enrollmentrequests/{name}/status)
@@ -233,8 +261,12 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 
 	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
 	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, modelResource)
-	if err != nil {
+	switch err {
+	case nil:
+		return server.ReplaceEnrollmentRequestStatus200JSONResponse(result.ToApiResource()), nil
+	case gorm.ErrRecordNotFound:
+		return server.ReplaceEnrollmentRequestStatus404Response{}, nil
+	default:
 		return nil, err
 	}
-	return server.ReplaceEnrollmentRequestStatus200JSONResponse(result.ToApiResource()), nil
 }

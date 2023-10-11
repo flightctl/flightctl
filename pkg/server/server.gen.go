@@ -1171,6 +1171,14 @@ func (response DeleteDevice401Response) VisitDeleteDeviceResponse(w http.Respons
 	return nil
 }
 
+type DeleteDevice404Response struct {
+}
+
+func (response DeleteDevice404Response) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type ReadDeviceRequestObject struct {
 	Name string `json:"name"`
 }
@@ -1193,6 +1201,14 @@ type ReadDevice401Response struct {
 
 func (response ReadDevice401Response) VisitReadDeviceResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReadDevice404Response struct {
+}
+
+func (response ReadDevice404Response) VisitReadDeviceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1223,6 +1239,14 @@ func (response ReplaceDevice401Response) VisitReplaceDeviceResponse(w http.Respo
 	return nil
 }
 
+type ReplaceDevice404Response struct {
+}
+
+func (response ReplaceDevice404Response) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type ReadDeviceStatusRequestObject struct {
 	Name string `json:"name"`
 }
@@ -1245,6 +1269,14 @@ type ReadDeviceStatus401Response struct {
 
 func (response ReadDeviceStatus401Response) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReadDeviceStatus404Response struct {
+}
+
+func (response ReadDeviceStatus404Response) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1272,6 +1304,14 @@ type ReplaceDeviceStatus401Response struct {
 
 func (response ReplaceDeviceStatus401Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceDeviceStatus404Response struct {
+}
+
+func (response ReplaceDeviceStatus404Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1383,6 +1423,14 @@ func (response DeleteEnrollmentRequest401Response) VisitDeleteEnrollmentRequestR
 	return nil
 }
 
+type DeleteEnrollmentRequest404Response struct {
+}
+
+func (response DeleteEnrollmentRequest404Response) VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type ReadEnrollmentRequestRequestObject struct {
 	Name string `json:"name"`
 }
@@ -1405,6 +1453,14 @@ type ReadEnrollmentRequest401Response struct {
 
 func (response ReadEnrollmentRequest401Response) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReadEnrollmentRequest404Response struct {
+}
+
+func (response ReadEnrollmentRequest404Response) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1435,6 +1491,14 @@ func (response ReplaceEnrollmentRequest401Response) VisitReplaceEnrollmentReques
 	return nil
 }
 
+type ReplaceEnrollmentRequest404Response struct {
+}
+
+func (response ReplaceEnrollmentRequest404Response) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type ReplaceEnrollmentRequestApprovalRequestObject struct {
 	Name        string `json:"name"`
 	ContentType string
@@ -1459,6 +1523,14 @@ type ReplaceEnrollmentRequestApproval401Response struct {
 
 func (response ReplaceEnrollmentRequestApproval401Response) VisitReplaceEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceEnrollmentRequestApproval404Response struct {
+}
+
+func (response ReplaceEnrollmentRequestApproval404Response) VisitReplaceEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1487,6 +1559,14 @@ func (response ReadEnrollmentRequestStatus401Response) VisitReadEnrollmentReques
 	return nil
 }
 
+type ReadEnrollmentRequestStatus404Response struct {
+}
+
+func (response ReadEnrollmentRequestStatus404Response) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type ReplaceEnrollmentRequestStatusRequestObject struct {
 	Name        string `json:"name"`
 	ContentType string
@@ -1511,6 +1591,14 @@ type ReplaceEnrollmentRequestStatus401Response struct {
 
 func (response ReplaceEnrollmentRequestStatus401Response) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceEnrollmentRequestStatus404Response struct {
+}
+
+func (response ReplaceEnrollmentRequestStatus404Response) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1622,6 +1710,14 @@ func (response DeleteFleet401Response) VisitDeleteFleetResponse(w http.ResponseW
 	return nil
 }
 
+type DeleteFleet404Response struct {
+}
+
+func (response DeleteFleet404Response) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type ReadFleetRequestObject struct {
 	Name string `json:"name"`
 }
@@ -1644,6 +1740,14 @@ type ReadFleet401Response struct {
 
 func (response ReadFleet401Response) VisitReadFleetResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReadFleet404Response struct {
+}
+
+func (response ReadFleet404Response) VisitReadFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1674,6 +1778,14 @@ func (response ReplaceFleet401Response) VisitReplaceFleetResponse(w http.Respons
 	return nil
 }
 
+type ReplaceFleet404Response struct {
+}
+
+func (response ReplaceFleet404Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type ReadFleetStatusRequestObject struct {
 	Name string `json:"name"`
 }
@@ -1696,6 +1808,14 @@ type ReadFleetStatus401Response struct {
 
 func (response ReadFleetStatus401Response) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReadFleetStatus404Response struct {
+}
+
+func (response ReadFleetStatus404Response) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
@@ -1723,6 +1843,14 @@ type ReplaceFleetStatus401Response struct {
 
 func (response ReplaceFleetStatus401Response) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
 	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceFleetStatus404Response struct {
+}
+
+func (response ReplaceFleetStatus404Response) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
 	return nil
 }
 
