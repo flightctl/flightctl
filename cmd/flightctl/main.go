@@ -81,6 +81,7 @@ func NewCmdGet() *cobra.Command {
 			}
 			return RunGet(kind, name)
 		},
+		SilenceUsage: true,
 	}
 	return cmd
 }
@@ -97,6 +98,7 @@ func NewCmdApply() *cobra.Command {
 			}
 			return RunApply(kind, name)
 		},
+		SilenceUsage: true,
 	}
 	return cmd
 }
@@ -113,6 +115,7 @@ func NewCmdDelete() *cobra.Command {
 			}
 			return RunDelete(kind, name)
 		},
+		SilenceUsage: true,
 	}
 	return cmd
 }
