@@ -49,7 +49,7 @@ func (s *FleetStore) DeleteFleets(orgId uuid.UUID) error {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId},
 	}
-	result := s.db.Delete(&condition)
+	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
 
@@ -93,6 +93,6 @@ func (s *FleetStore) DeleteFleet(orgId uuid.UUID, name string) error {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.Delete(&condition)
+	result := s.db.Unscoped().Delete(&condition)
 	return result.Error
 }

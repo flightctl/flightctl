@@ -49,7 +49,7 @@ func (s *DeviceStore) DeleteDevices(orgId uuid.UUID) error {
 	condition := model.Device{
 		Resource: model.Resource{OrgID: orgId},
 	}
-	result := s.db.Delete(&condition)
+	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
 
@@ -93,6 +93,6 @@ func (s *DeviceStore) DeleteDevice(orgId uuid.UUID, name string) error {
 	condition := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.Delete(&condition)
+	result := s.db.Unscoped().Delete(&condition)
 	return result.Error
 }

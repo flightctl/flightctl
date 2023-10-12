@@ -49,7 +49,7 @@ func (s *EnrollmentRequestStore) DeleteEnrollmentRequests(orgId uuid.UUID) error
 	condition := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId},
 	}
-	result := s.db.Delete(&condition)
+	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
 
@@ -93,6 +93,6 @@ func (s *EnrollmentRequestStore) DeleteEnrollmentRequest(orgId uuid.UUID, name s
 	condition := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.Delete(&condition)
+	result := s.db.Unscoped().Delete(&condition)
 	return result.Error
 }
