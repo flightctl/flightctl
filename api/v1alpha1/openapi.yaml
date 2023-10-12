@@ -732,7 +732,8 @@ components:
         name:
           type: string
         inline:
-          type: string
+          type: object
+          additionalProperties: true
     DeviceList:
       type: object
       properties:

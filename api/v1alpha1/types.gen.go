@@ -41,8 +41,8 @@ type DeviceCondition struct {
 
 // DeviceConfigSpec defines model for DeviceConfigSpec.
 type DeviceConfigSpec struct {
-	Inline *string `json:"inline,omitempty"`
-	Name   *string `json:"name,omitempty"`
+	Inline *map[string]interface{} `json:"inline,omitempty"`
+	Name   *string                 `json:"name,omitempty"`
 }
 
 // DeviceList DeviceList is a list of Devices.
