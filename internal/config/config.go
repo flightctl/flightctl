@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/flightctl/flightctl/pkg/util"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 const (
