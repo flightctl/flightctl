@@ -1,5 +1,5 @@
 apiVersion: v1alpha1
-kind: DeviceFleet
+kind: Fleet
 metadata:
   name: default
 spec:
