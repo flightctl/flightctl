@@ -21,7 +21,7 @@ type EnrollmentRequestStoreInterface interface {
 	CreateEnrollmentRequest(orgId uuid.UUID, req *model.EnrollmentRequest) (*model.EnrollmentRequest, error)
 	ListEnrollmentRequests(orgId uuid.UUID) ([]model.EnrollmentRequest, error)
 	GetEnrollmentRequest(orgId uuid.UUID, name string) (*model.EnrollmentRequest, error)
-	UpdateEnrollmentRequest(orgId uuid.UUID, enrollmentrequest *model.EnrollmentRequest) (*model.EnrollmentRequest, error)
+	CreateOrUpdateEnrollmentRequest(orgId uuid.UUID, enrollmentrequest *model.EnrollmentRequest) (*model.EnrollmentRequest, bool, error)
 	UpdateEnrollmentRequestStatus(orgId uuid.UUID, enrollmentrequest *model.EnrollmentRequest) (*model.EnrollmentRequest, error)
 	DeleteEnrollmentRequests(orgId uuid.UUID) error
 	DeleteEnrollmentRequest(orgId uuid.UUID, name string) error
@@ -53,7 +53,7 @@ func autoApproveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.E
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 		Certificate: util.StrToPtr(string(certData)),
 		Conditions: &[]api.EnrollmentRequestCondition{
-			api.EnrollmentRequestCondition{
+			{
 				Type:               "Approved",
 				Status:             "True",
 				Reason:             util.StrToPtr("AutoApproved"),
@@ -170,10 +170,14 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 	}
 
 	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
-	enrollmentrequest, err := h.enrollmentRequestStore.UpdateEnrollmentRequest(orgId, modelResource)
+	enrollmentrequest, created, err := h.enrollmentRequestStore.CreateOrUpdateEnrollmentRequest(orgId, modelResource)
 	switch err {
 	case nil:
-		return server.ReplaceEnrollmentRequest200JSONResponse(enrollmentrequest.ToApiResource()), nil
+		if created {
+			return server.ReplaceEnrollmentRequest201JSONResponse(enrollmentrequest.ToApiResource()), nil
+		} else {
+			return server.ReplaceEnrollmentRequest200JSONResponse(enrollmentrequest.ToApiResource()), nil
+		}
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceEnrollmentRequest404Response{}, nil
 	default:

@@ -62,17 +62,18 @@ func (s *FleetStore) GetFleet(orgId uuid.UUID, name string) (*model.Fleet, error
 	return &fleet, result.Error
 }
 
-func (s *FleetStore) UpdateFleet(orgId uuid.UUID, resource *model.Fleet) (*model.Fleet, error) {
+func (s *FleetStore) CreateOrUpdateFleet(orgId uuid.UUID, resource *model.Fleet) (*model.Fleet, bool, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, false, fmt.Errorf("resource is nil")
 	}
-	fleet := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	if resource.Spec != nil {
+		resource.Spec = nil
 	}
-	result := s.db.Model(&fleet).Updates(map[string]interface{}{
-		"spec": model.MakeJSONField(resource.Spec),
-	})
-	return &fleet, result.Error
+	resource.OrgID = orgId
+	where := model.Fleet{Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name}}
+	result := s.db.Where(where).Assign(resource).FirstOrCreate(resource)
+	created := (result.RowsAffected == 0)
+	return resource, created, result.Error
 }
 
 func (s *FleetStore) UpdateFleetStatus(orgId uuid.UUID, resource *model.Fleet) (*model.Fleet, error) {

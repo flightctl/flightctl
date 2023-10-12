@@ -62,17 +62,18 @@ func (s *EnrollmentRequestStore) GetEnrollmentRequest(orgId uuid.UUID, name stri
 	return &enrollmentRequest, result.Error
 }
 
-func (s *EnrollmentRequestStore) UpdateEnrollmentRequest(orgId uuid.UUID, resource *model.EnrollmentRequest) (*model.EnrollmentRequest, error) {
+func (s *EnrollmentRequestStore) CreateOrUpdateEnrollmentRequest(orgId uuid.UUID, resource *model.EnrollmentRequest) (*model.EnrollmentRequest, bool, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, false, fmt.Errorf("resource is nil")
 	}
-	enrollmentRequest := model.EnrollmentRequest{
-		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	if resource.Spec != nil {
+		resource.Spec = nil
 	}
-	result := s.db.Model(&enrollmentRequest).Updates(map[string]interface{}{
-		"spec": model.MakeJSONField(resource.Spec),
-	})
-	return &enrollmentRequest, result.Error
+	resource.OrgID = orgId
+	where := model.EnrollmentRequest{Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name}}
+	result := s.db.Where(where).Assign(resource).FirstOrCreate(resource)
+	created := (result.RowsAffected == 0)
+	return resource, created, result.Error
 }
 
 func (s *EnrollmentRequestStore) UpdateEnrollmentRequestStatus(orgId uuid.UUID, resource *model.EnrollmentRequest) (*model.EnrollmentRequest, error) {

@@ -133,6 +133,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
           content: {}
@@ -342,6 +348,12 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "201":
+          description: Created
           content:
             application/json:
               schema:
@@ -591,6 +603,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
           content: {}
@@ -725,8 +743,6 @@ components:
           description: Type of device condition.
       description: DeviceCondition contains condition information for a device.
     DeviceConfigSpec:
-      required:
-        - image
       type: object
       properties:
         name:
@@ -734,6 +750,8 @@ components:
         inline:
           type: object
           additionalProperties: true
+      required:
+      - name
     DeviceList:
       type: object
       properties:
@@ -757,13 +775,13 @@ components:
         - metadata
         - items
     DeviceOSSpec:
-      required:
-        - image
       type: object
       properties:
         image:
           type: string
           description: 'ostree image name or URL.'
+      required:
+        - image
     DeviceSpec:
       type: object
       properties:

@@ -14,7 +14,7 @@ type FleetStoreInterface interface {
 	CreateFleet(orgId uuid.UUID, req *model.Fleet) (*model.Fleet, error)
 	ListFleets(orgId uuid.UUID) ([]model.Fleet, error)
 	GetFleet(orgId uuid.UUID, name string) (*model.Fleet, error)
-	UpdateFleet(orgId uuid.UUID, fleet *model.Fleet) (*model.Fleet, error)
+	CreateOrUpdateFleet(orgId uuid.UUID, fleet *model.Fleet) (*model.Fleet, bool, error)
 	UpdateFleetStatus(orgId uuid.UUID, fleet *model.Fleet) (*model.Fleet, error)
 	DeleteFleets(orgId uuid.UUID) error
 	DeleteFleet(orgId uuid.UUID, name string) error
@@ -91,10 +91,14 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return nil, err
 	}
 
-	fleet, err := h.fleetStore.UpdateFleet(orgId, updatedFleet)
+	fleet, created, err := h.fleetStore.CreateOrUpdateFleet(orgId, updatedFleet)
 	switch err {
 	case nil:
-		return server.ReplaceFleet200JSONResponse(fleet.ToApiResource()), nil
+		if created {
+			return server.ReplaceFleet201JSONResponse(fleet.ToApiResource()), nil
+		} else {
+			return server.ReplaceFleet200JSONResponse(fleet.ToApiResource()), nil
+		}
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceFleet404Response{}, nil
 	default:

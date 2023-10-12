@@ -62,17 +62,18 @@ func (s *DeviceStore) GetDevice(orgId uuid.UUID, name string) (*model.Device, er
 	return &device, result.Error
 }
 
-func (s *DeviceStore) UpdateDevice(orgId uuid.UUID, resource *model.Device) (*model.Device, error) {
+func (s *DeviceStore) CreateOrUpdateDevice(orgId uuid.UUID, resource *model.Device) (*model.Device, bool, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, false, fmt.Errorf("resource not specified")
 	}
-	device := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+	if resource.Spec != nil {
+		resource.Spec = nil
 	}
-	result := s.db.Model(&device).Updates(map[string]interface{}{
-		"spec": model.MakeJSONField(resource.Spec),
-	})
-	return &device, result.Error
+	resource.OrgID = orgId
+	where := model.Device{Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name}}
+	result := s.db.Where(where).Assign(resource).FirstOrCreate(resource)
+	created := (result.RowsAffected == 0)
+	return resource, created, result.Error
 }
 
 func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *model.Device) (*model.Device, error) {

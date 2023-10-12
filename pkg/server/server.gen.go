@@ -1231,6 +1231,15 @@ func (response ReplaceDevice200JSONResponse) VisitReplaceDeviceResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ReplaceDevice201JSONResponse Device
+
+func (response ReplaceDevice201JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceDevice401Response struct {
 }
 
@@ -1479,6 +1488,15 @@ type ReplaceEnrollmentRequest200JSONResponse EnrollmentRequest
 func (response ReplaceEnrollmentRequest200JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceEnrollmentRequest201JSONResponse EnrollmentRequest
+
+func (response ReplaceEnrollmentRequest201JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -1766,6 +1784,15 @@ type ReplaceFleet200JSONResponse Fleet
 func (response ReplaceFleet200JSONResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceFleet201JSONResponse Fleet
+
+func (response ReplaceFleet201JSONResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
 }

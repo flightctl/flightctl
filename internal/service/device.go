@@ -18,7 +18,7 @@ type DeviceStoreInterface interface {
 	CreateDevice(orgId uuid.UUID, device *model.Device) (*model.Device, error)
 	ListDevices(orgId uuid.UUID) ([]model.Device, error)
 	GetDevice(orgId uuid.UUID, name string) (*model.Device, error)
-	UpdateDevice(orgId uuid.UUID, device *model.Device) (*model.Device, error)
+	CreateOrUpdateDevice(orgId uuid.UUID, device *model.Device) (*model.Device, bool, error)
 	UpdateDeviceStatus(orgId uuid.UUID, device *model.Device) (*model.Device, error)
 	DeleteDevices(orgId uuid.UUID) error
 	DeleteDevice(orgId uuid.UUID, name string) error
@@ -95,10 +95,14 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return nil, err
 	}
 
-	device, err := h.deviceStore.UpdateDevice(orgId, updatedDevice)
+	device, created, err := h.deviceStore.CreateOrUpdateDevice(orgId, updatedDevice)
 	switch err {
 	case nil:
-		return server.ReplaceDevice200JSONResponse(device.ToApiResource()), nil
+		if created {
+			return server.ReplaceDevice201JSONResponse(device.ToApiResource()), nil
+		} else {
+			return server.ReplaceDevice200JSONResponse(device.ToApiResource()), nil
+		}
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceDevice404Response{}, nil
 	default:
