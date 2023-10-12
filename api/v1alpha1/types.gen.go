@@ -6,13 +6,13 @@ package v1alpha1
 // Device Device represents a physical device.
 type Device struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-	ApiVersion *string `json:"apiVersion,omitempty"`
+	ApiVersion string `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-	Kind *string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata *ObjectMeta `json:"metadata,omitempty"`
+	Metadata ObjectMeta `json:"metadata"`
 
 	// Spec DeviceSpec is a description of a device's target state.
 	Spec *DeviceSpec `json:"spec,omitempty"`
@@ -48,16 +48,16 @@ type DeviceConfigSpec struct {
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-	ApiVersion *string `json:"apiVersion,omitempty"`
+	ApiVersion string `json:"apiVersion"`
 
 	// Items List of Devices.
 	Items []Device `json:"items"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-	Kind *string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
-	Metadata *ListMeta `json:"metadata,omitempty"`
+	Metadata ListMeta `json:"metadata"`
 }
 
 // DeviceOSSpec defines model for DeviceOSSpec.
@@ -100,13 +100,13 @@ type DeviceSystemInfo struct {
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-	ApiVersion *string `json:"apiVersion,omitempty"`
+	ApiVersion string `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-	Kind *string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata *ObjectMeta `json:"metadata,omitempty"`
+	Metadata ObjectMeta `json:"metadata"`
 
 	// Spec EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
 	Spec *EnrollmentRequestSpec `json:"spec,omitempty"`
@@ -135,16 +135,16 @@ type EnrollmentRequestCondition struct {
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
 type EnrollmentRequestList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-	ApiVersion *string `json:"apiVersion,omitempty"`
+	ApiVersion string `json:"apiVersion"`
 
 	// Items List of EnrollmentRequest.
 	Items []EnrollmentRequest `json:"items"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-	Kind *string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
-	Metadata *ListMeta `json:"metadata,omitempty"`
+	Metadata ListMeta `json:"metadata"`
 }
 
 // EnrollmentRequestSpec EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
@@ -168,13 +168,13 @@ type EnrollmentRequestStatus struct {
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-	ApiVersion *string `json:"apiVersion,omitempty"`
+	ApiVersion string `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-	Kind *string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata *ObjectMeta `json:"metadata,omitempty"`
+	Metadata ObjectMeta `json:"metadata"`
 
 	// Spec FleetSpec is a description of a fleet's target state.
 	Spec *FleetSpec `json:"spec,omitempty"`
@@ -203,16 +203,16 @@ type FleetCondition struct {
 // FleetList FleetList is a list of Fleets.
 type FleetList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-	ApiVersion *string `json:"apiVersion,omitempty"`
+	ApiVersion string `json:"apiVersion"`
 
 	// Items List of Fleets.
 	Items []Fleet `json:"items"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-	Kind *string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
-	Metadata *ListMeta `json:"metadata,omitempty"`
+	Metadata ListMeta `json:"metadata"`
 }
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
@@ -245,7 +245,7 @@ type ObjectMeta struct {
 	Labels *map[string]string `json:"labels,omitempty"`
 
 	// Name name of the object
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name"`
 }
 
 // Status Status is a return value for calls that don't return other objects.

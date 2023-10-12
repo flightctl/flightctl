@@ -696,6 +696,10 @@ components:
           $ref: '#/components/schemas/DeviceSpec'
         status:
           $ref: '#/components/schemas/DeviceStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
       description: Device represents a physical device.
     DeviceCondition:
       required:
@@ -730,8 +734,6 @@ components:
         inline:
           type: string
     DeviceList:
-      required:
-        - items
       type: object
       properties:
         apiVersion:
@@ -748,6 +750,11 @@ components:
           items:
             $ref: '#/components/schemas/Device'
       description: DeviceList is a list of Devices.
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
     DeviceOSSpec:
       required:
         - image
@@ -814,6 +821,10 @@ components:
           $ref: '#/components/schemas/EnrollmentRequestSpec'
         status:
           $ref: '#/components/schemas/EnrollmentRequestStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
       description: EnrollmentRequest represents a request for approval to enroll a device.
     EnrollmentRequestCondition:
       required:
@@ -837,8 +848,6 @@ components:
           description: Type of fleet condition.
       description: EnrollmentRequestCondition contains condition information for a EnrollmentRequest.
     EnrollmentRequestList:
-      required:
-        - items
       type: object
       properties:
         apiVersion:
@@ -854,6 +863,11 @@ components:
           description: 'List of EnrollmentRequest.'
           items:
             $ref: '#/components/schemas/EnrollmentRequest'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
       description: EnrollmentRequestList is a list of EnrollmentRequest.
     EnrollmentRequestSpec:
       required:
@@ -893,6 +907,10 @@ components:
           $ref: '#/components/schemas/FleetSpec'
         status:
           $ref: '#/components/schemas/FleetStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
       description: Fleet represents a set of devices.
     FleetCondition:
       required:
@@ -916,8 +934,6 @@ components:
           description: Type of fleet condition.
       description: DeviceCondition contains condition information for a device.
     FleetList:
-      required:
-        - items
       type: object
       properties:
         apiVersion:
@@ -933,6 +949,11 @@ components:
           description: 'List of Fleets.'
           items:
             $ref: '#/components/schemas/Fleet'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
       description: FleetList is a list of Fleets.
     FleetSpec:
       type: object
@@ -975,6 +996,8 @@ components:
           additionalProperties:
             type: string
           description: 'Map of string keys and values that can be used to organize and categorize (scope and select) objects.'
+      required:
+        - name
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
     Status:
       type: object

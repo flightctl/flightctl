@@ -42,7 +42,7 @@ func NewEnrollmentRequestFromApiResource(res *api.EnrollmentRequest) *Enrollment
 	}
 	return &EnrollmentRequest{
 		Resource: Resource{
-			Name: *res.Metadata.Name,
+			Name: res.Metadata.Name,
 		},
 		Spec:   MakeJSONField(spec),
 		Status: MakeJSONField(status),
@@ -63,10 +63,10 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 		status = &e.Status.Data
 	}
 	return api.EnrollmentRequest{
-		ApiVersion: &EnrollmentRequestAPI,
-		Kind:       &EnrollmentRequestKind,
-		Metadata: &api.ObjectMeta{
-			Name:              util.StrToPtr(e.Name),
+		ApiVersion: EnrollmentRequestAPI,
+		Kind:       EnrollmentRequestKind,
+		Metadata: api.ObjectMeta{
+			Name:              e.Name,
 			CreationTimestamp: util.StrToPtr(e.CreatedAt.UTC().Format(time.RFC3339)),
 		},
 		Spec:   spec,
@@ -77,8 +77,8 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 func (el EnrollmentRequestList) ToApiResource() api.EnrollmentRequestList {
 	if el == nil {
 		return api.EnrollmentRequestList{
-			ApiVersion: &EnrollmentRequestAPI,
-			Kind:       &EnrollmentRequestListKind,
+			ApiVersion: EnrollmentRequestAPI,
+			Kind:       EnrollmentRequestListKind,
 			Items:      []api.EnrollmentRequest{},
 		}
 	}
@@ -88,8 +88,8 @@ func (el EnrollmentRequestList) ToApiResource() api.EnrollmentRequestList {
 		EnrollmentRequestList[i] = EnrollmentRequest.ToApiResource()
 	}
 	return api.EnrollmentRequestList{
-		ApiVersion: &EnrollmentRequestAPI,
-		Kind:       &EnrollmentRequestListKind,
+		ApiVersion: EnrollmentRequestAPI,
+		Kind:       EnrollmentRequestListKind,
 		Items:      EnrollmentRequestList,
 	}
 }

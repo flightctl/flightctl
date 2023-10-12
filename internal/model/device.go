@@ -54,7 +54,7 @@ func NewDeviceFromApiResource(res *api.Device) *Device {
 	}
 	return &Device{
 		Resource: Resource{
-			Name: *res.Metadata.Name,
+			Name: res.Metadata.Name,
 		},
 		Spec:   MakeJSONField(spec),
 		Status: MakeJSONField(status),
@@ -75,10 +75,10 @@ func (d *Device) ToApiResource() api.Device {
 		status = &d.Status.Data
 	}
 	return api.Device{
-		ApiVersion: &DeviceAPI,
-		Kind:       &DeviceKind,
-		Metadata: &api.ObjectMeta{
-			Name:              util.StrToPtr(d.Name),
+		ApiVersion: DeviceAPI,
+		Kind:       DeviceKind,
+		Metadata: api.ObjectMeta{
+			Name:              d.Name,
 			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
 		},
 		Spec:   spec,
@@ -89,8 +89,8 @@ func (d *Device) ToApiResource() api.Device {
 func (dl DeviceList) ToApiResource() api.DeviceList {
 	if dl == nil {
 		return api.DeviceList{
-			ApiVersion: &DeviceAPI,
-			Kind:       &DeviceListKind,
+			ApiVersion: DeviceAPI,
+			Kind:       DeviceListKind,
 			Items:      []api.Device{},
 		}
 	}
@@ -100,8 +100,8 @@ func (dl DeviceList) ToApiResource() api.DeviceList {
 		deviceList[i] = device.ToApiResource()
 	}
 	return api.DeviceList{
-		ApiVersion: &DeviceAPI,
-		Kind:       &DeviceListKind,
+		ApiVersion: DeviceAPI,
+		Kind:       DeviceListKind,
 		Items:      deviceList,
 	}
 }

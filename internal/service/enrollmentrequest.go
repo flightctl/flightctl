@@ -67,7 +67,7 @@ func autoApproveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.E
 
 func createDeviceFromEnrollmentRequest(deviceStore DeviceStoreInterface, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
 	apiResource := &api.Device{
-		Metadata: &api.ObjectMeta{
+		Metadata: api.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
 	}
