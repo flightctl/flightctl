@@ -230,7 +230,7 @@ paths:
   /api/v1/enrollmentrequests:
     get:
       tags:
-        - enrollmentrequests
+        - enrollmentrequest
       description: list Enrollment Requests
       operationId: listEnrollmentRequests
       parameters:
@@ -264,7 +264,7 @@ paths:
           content: {}
     post:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: request enrollment of a Device
       operationId: createEnrollmentRequest
       requestBody:
@@ -288,7 +288,7 @@ paths:
           content: {}
     delete:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: delete collection of Enrollments
       operationId: deleteEnrollmentRequests
       responses:
@@ -304,7 +304,7 @@ paths:
   /api/v1/enrollmentrequests/{name}:
     get:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: read the specified Enrollment
       operationId: readEnrollmentRequest
       parameters:
@@ -329,7 +329,7 @@ paths:
           content: {}
     put:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: replace the specified Enrollment Request
       operationId: replaceEnrollmentRequest
       parameters:
@@ -366,7 +366,7 @@ paths:
           content: {}
     delete:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: delete a Enrollment Request
       operationId: deleteEnrollmentRequest
       parameters:
@@ -392,7 +392,7 @@ paths:
   /api/v1/enrollmentrequests/{name}/status:
     get:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: read status of the specified EnrollmentRequest
       operationId: readEnrollmentRequestStatus
       parameters:
@@ -417,7 +417,7 @@ paths:
           content: {}
     put:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: replace status of the specified EnrollmentRequest
       operationId: replaceEnrollmentRequestStatus
       parameters:
@@ -449,7 +449,7 @@ paths:
   /api/v1/enrollmentrequests/{name}/approval:
     put:
       tags:
-        - enrollment
+        - enrollmentrequest
       description: replace approval of the specified EnrollmentRequest
       operationId: replaceEnrollmentRequestApproval
       parameters:
