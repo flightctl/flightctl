@@ -18,11 +18,14 @@ tidy:
 lint: tools
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && $(GOBIN)/golangci-lint run ./...'
 
-build:
+build: bin
 	go build -o $(GOBIN) ./cmd/...
 
 test:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go test -cover ./...'
+
+bin:
+	mkdir -p bin
 
 .PHONY: tools
 tools: $(GOBIN)/golangci-lint
