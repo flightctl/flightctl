@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/flightctl/flightctl/pkg/util"
+	"github.com/flightctl/flightctl/internal/util"
 	"gopkg.in/yaml.v3"
 )
 

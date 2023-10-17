@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/model"
-	"github.com/flightctl/flightctl/pkg/server"
+	"github.com/flightctl/flightctl/internal/server"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
