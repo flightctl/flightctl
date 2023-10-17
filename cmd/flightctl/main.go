@@ -15,9 +15,9 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/pkg/client"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
