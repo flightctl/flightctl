@@ -2,7 +2,7 @@ package service
 
 import (
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/pkg/server"
+	"github.com/flightctl/flightctl/internal/server"
 )
 
 type DataStoreInterface interface {

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/pkg/util"
+	"github.com/flightctl/flightctl/internal/util"
 )
 
 var (

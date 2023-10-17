@@ -9,8 +9,8 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/model"
-	"github.com/flightctl/flightctl/pkg/server"
-	"github.com/flightctl/flightctl/pkg/util"
+	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
