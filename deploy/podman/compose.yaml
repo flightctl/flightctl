@@ -17,5 +17,17 @@ services:
       - flightctl-db:/var/lib/pgsql/data
     restart: always
 
+  flightctl-server:
+    container_name: flightctl-server
+    image: localhost/flightctl-server:latest
+    ports:
+      - "3333:3333"
+    restart: always
+    volumes:
+      - flightctl-server-certs:/app/certs
+      - ${PWD}/config.yaml:/root/.flightctl/config.yaml
 volumes:
   flightctl-db:
+  flightctl-server-certs:
+  config:
+    external: true
