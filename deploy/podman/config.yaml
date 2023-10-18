@@ -1,0 +1,10 @@
+database:
+  hostname: flightctl-db
+  type: pgsql
+  port: 5432
+  name: flightctl
+  user: admin
+  password: adminpass
+service:
+  address: :3333
+  baseUrl: http://localhost:3333/api
