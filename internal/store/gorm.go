@@ -2,12 +2,12 @@ package store
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"k8s.io/klog/v2"
 )
 
 func InitDB(cfg *config.Config) (*gorm.DB, error) {
@@ -28,18 +28,26 @@ func InitDB(cfg *config.Config) (*gorm.DB, error) {
 
 	newDB, err := gorm.Open(dia, &gorm.Config{})
 	if err != nil {
-		log.Fatalf("failed to connect database: %v", err)
+		klog.Fatalf("failed to connect database: %v", err)
 		return nil, err
 	}
+
+	sqlDB, err := newDB.DB()
+	if err != nil {
+		klog.Fatalf("failed to configure connections: %v", err)
+		return nil, err
+	}
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
 
 	if cfg.Database.Type == "pgsql" {
 		var minorVersion string
 		if result := newDB.Raw("SELECT version()").Scan(&minorVersion); result.Error != nil {
-			log.Printf(result.Error.Error())
+			klog.Infoln(result.Error.Error())
 			return nil, result.Error
 		}
 
-		log.Printf("PostgreSQL information: '%s'", minorVersion)
+		klog.Infof("PostgreSQL information: '%s'", minorVersion)
 	}
 
 	return newDB, nil
