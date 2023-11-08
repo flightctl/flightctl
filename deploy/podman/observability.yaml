@@ -1,0 +1,47 @@
+version: '4.4'
+
+services:
+  grafana:
+    container_name: grafana
+    image: docker.io/grafana/grafana
+    user: "472"
+    depends_on:
+      - prometheus
+    env_file:
+      - ./grafana/config.monitoring
+    ports:
+      - 3000:3000
+    network_mode: "host"
+    # networks:
+    #   - monitoring
+    volumes:
+      - ./grafana/provisioning/:/etc/grafana/provisioning/:z
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+
+  prometheus:
+    container_name: prometheus
+    image: docker.io/prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - 9090:9090
+    network_mode: "host"
+    # networks:
+    #   - monitoring
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:z
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+# networks:
+#   monitoring:
+#     driver: bridge
+
+volumes:
+  grafana_data: {}
+  prometheus_data: {}
