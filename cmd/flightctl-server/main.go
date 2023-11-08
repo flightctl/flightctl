@@ -26,9 +26,9 @@ const (
 	caCertValidityDays          = 365 * 10
 	serverCertValidityDays      = 365 * 1
 	clientBootStrapValidityDays = 365 * 1
-	signerCertName              = "csr-signer-ca"
+	signerCertName              = "ca"
 	serverCertName              = "server"
-	clientBootstrapCertName     = "client-bootstrap"
+	clientBootstrapCertName     = "client-enrollment"
 )
 
 func main() {

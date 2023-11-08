@@ -149,11 +149,11 @@ func NewCmdDelete() *cobra.Command {
 
 func getClient() (*client.ClientWithResponses, error) {
 	certDir := config.CertificateDir()
-	caCert, err := crypto.GetTLSCertificateConfig(filepath.Join(certDir, "csr-signer-ca.crt"), filepath.Join(certDir, "csr-signer-ca.key"))
+	caCert, err := crypto.GetTLSCertificateConfig(filepath.Join(certDir, "ca.crt"), filepath.Join(certDir, "ca.key"))
 	if err != nil {
 		log.Fatalf("reading CA cert and key: %v", err)
 	}
-	clientCert, err := crypto.GetTLSCertificateConfig(filepath.Join(certDir, "client-bootstrap.crt"), filepath.Join(certDir, "client-bootstrap.key"))
+	clientCert, err := crypto.GetTLSCertificateConfig(filepath.Join(certDir, "client-enrollment.crt"), filepath.Join(certDir, "client-enrollment.key"))
 	if err != nil {
 		log.Fatalf("reading client cert and key: %v", err)
 	}
