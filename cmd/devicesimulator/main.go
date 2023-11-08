@@ -22,7 +22,7 @@ import (
 
 func main() {
 	serverUrl := flag.String("server", "https://localhost:3333", "device server URL")
-	metricsAddr := flag.String("metrics", "localhost:8080", "address for the metrics endpoint")
+	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
 	fetchSpecInterval := flag.Duration("fetch-spec-interval", agent.DefaultFetchSpecInterval, "Duration between two reads of the remote device spec")

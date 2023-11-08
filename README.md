@@ -31,9 +31,25 @@ bin/flightctl-server
 
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`.
 
-Use the `flightctl` CLI to apply, get, or delete resources"
+Use the `flightctl` CLI to apply, get, or delete resources:
 
 ```
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```
+
+Use the `devicesimulator` to simulate load from devices:
+
+```
+bin/devicesimulator --count=100
+```
+
+## Metrics
+
+Start the observability stack:
+
+```
+podman-compose deploy/podman/observability.yaml up
+```
+
+The Grafana and Prometheus web UIs are then accessible on `http://localhost:3000` and `http://localhost:9090`, respectively.
