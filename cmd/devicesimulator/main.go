@@ -22,6 +22,7 @@ import (
 
 func main() {
 	serverUrl := flag.String("server", "https://localhost:3333", "device server URL")
+	metricsAddr := flag.String("metrics", "localhost:8080", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
 	fetchSpecInterval := flag.Duration("fetch-spec-interval", agent.DefaultFetchSpecInterval, "Duration between two reads of the remote device spec")
@@ -50,7 +51,8 @@ func main() {
 			SetName(agentName).
 			AddController(controller.NewSystemInfoController()).
 			SetFetchSpecInterval(*fetchSpecInterval, 0).
-			SetStatusUpdateInterval(*statusUpdateInterval, 0)
+			SetStatusUpdateInterval(*statusUpdateInterval, 0).
+			SetRpcMetricsCallbackFunction(rpcMetricsCallback)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,6 +64,9 @@ func main() {
 		log.Printf("Shutdown signal received (%v).", sig)
 		cancel()
 	}()
+
+	klog.Infoln("setting up metrics endpoint")
+	setupMetricsEndpoint(*metricsAddr)
 
 	klog.Infoln("running agents")
 	wg := new(sync.WaitGroup)
