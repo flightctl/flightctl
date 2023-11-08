@@ -95,6 +95,8 @@ type DeviceAgent struct {
 	statusUpdateInterval time.Duration
 
 	statusUpdateJitter time.Duration
+
+	rpcMetricsCallbackFunc func(operation string, duractionSeconds float64, err error)
 }
 
 func NewDeviceAgent(enrollmentServerUrl string, managementServerUrl string, certificateDir string) *DeviceAgent {
@@ -117,11 +119,12 @@ func NewDeviceAgent(enrollmentServerUrl string, managementServerUrl string, cert
 			Spec:       &api.DeviceSpec{},
 			Status:     &api.DeviceStatus{},
 		},
-		controllers:          []DeviceAgentController{},
-		fetchSpecInterval:    DefaultFetchSpecInterval,
-		fetchSpecJitter:      0,
-		statusUpdateInterval: DefaultStatusUpdateInterval,
-		statusUpdateJitter:   0,
+		controllers:            []DeviceAgentController{},
+		fetchSpecInterval:      DefaultFetchSpecInterval,
+		fetchSpecJitter:        0,
+		statusUpdateInterval:   DefaultStatusUpdateInterval,
+		statusUpdateJitter:     0,
+		rpcMetricsCallbackFunc: nil,
 	}
 }
 
@@ -143,6 +146,11 @@ func (a *DeviceAgent) SetFetchSpecInterval(interval time.Duration, jitter time.D
 func (a *DeviceAgent) SetStatusUpdateInterval(interval time.Duration, jitter time.Duration) *DeviceAgent {
 	a.statusUpdateInterval = interval
 	a.statusUpdateJitter = jitter
+	return a
+}
+
+func (a *DeviceAgent) SetRpcMetricsCallbackFunction(callback func(operation string, duractionSeconds float64, err error)) *DeviceAgent {
+	a.rpcMetricsCallbackFunc = callback
 	return a
 }
 
@@ -290,7 +298,11 @@ func (a *DeviceAgent) FetchSpec(ctx context.Context) error {
 
 	klog.Infof("%sfetching spec", a.name)
 
+	t0 := time.Now()
 	response, err := a.managementClient.ReadDeviceWithResponse(ctx, a.fingerprint)
+	if a.rpcMetricsCallbackFunc != nil {
+		a.rpcMetricsCallbackFunc("get_spec", time.Since(t0).Seconds(), err)
+	}
 	if err != nil {
 		return fmt.Errorf("%sfetching spec: %v", a.name, err)
 	}
@@ -313,7 +325,11 @@ func (a *DeviceAgent) PostStatus(ctx context.Context) error {
 		return err
 	}
 
+	t0 := time.Now()
 	_, err := a.managementClient.ReplaceDeviceStatusWithBodyWithResponse(ctx, a.fingerprint, "application/json", &buf)
+	if a.rpcMetricsCallbackFunc != nil {
+		a.rpcMetricsCallbackFunc("update_status", time.Since(t0).Seconds(), err)
+	}
 	if err != nil {
 		return err
 	}

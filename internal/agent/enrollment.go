@@ -60,7 +60,11 @@ func (a *DeviceAgent) sendEnrollmentRequest(ctx context.Context) error {
 		return err
 	}
 
+	t0 := time.Now()
 	_, err = a.enrollmentClient.CreateEnrollmentRequestWithBodyWithResponse(ctx, "application/json", &buf)
+	if a.rpcMetricsCallbackFunc != nil {
+		a.rpcMetricsCallbackFunc("create_enrollmentrequest", time.Since(t0).Seconds(), err)
+	}
 	if err != nil {
 		return err
 	}
@@ -91,7 +95,11 @@ func (a *DeviceAgent) checkEnrollment(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
+	t0 := time.Now()
 	response, err := a.enrollmentClient.ReadEnrollmentRequestStatusWithResponse(ctx, a.fingerprint)
+	if a.rpcMetricsCallbackFunc != nil {
+		a.rpcMetricsCallbackFunc("get_enrollmentrequest_status", time.Since(t0).Seconds(), err)
+	}
 	if err != nil {
 		klog.Infof("%serror checking enrollment status: %v", a.name, err)
 		return false, nil
