@@ -17,19 +17,34 @@ services:
       - flightctl-db:/var/lib/pgsql/data
     networks:
       - flightctl-network
-    restart: always
+    restart: unless-stopped
+
+  flighctl-db-metrics-exporter:
+    container_name: flightctl-db-metrics-exporter
+    image: quay.io/prometheuscommunity/postgres-exporter
+    command:
+      - '--web.listen-address=:9091'
+    environment:
+      - DATA_SOURCE_NAME=postgresql://admin:adminpass@localhost:5432/flightctl?sslmode=disable
+      - PG_EXPORTER_METRIC_PREFIX=flightctl_db
+    ports:
+      - "9091:9091"
+    networks:
+      - flightctl-network
+    restart: unless-stopped
 
   flightctl-server:
     container_name: flightctl-server
     image: localhost/flightctl-server:latest
     ports:
       - "3333:3333"
-    restart: always
+    restart: unless-stopped
     volumes:
       - flightctl-server-certs:/root/.flightctl/certs/
       - ./config.yaml:/root/.flightctl/config.yaml
     networks:
       - flightctl-network
+
 volumes:
   flightctl-db:
   flightctl-server-certs:
