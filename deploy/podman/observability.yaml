@@ -12,8 +12,6 @@ services:
     ports:
       - 3000:3000
     network_mode: "host"
-    # networks:
-    #   - monitoring
     volumes:
       - ./grafana/provisioning/:/etc/grafana/provisioning/:z
       - grafana_data:/var/lib/grafana
@@ -31,16 +29,21 @@ services:
     ports:
       - 9090:9090
     network_mode: "host"
-    # networks:
-    #   - monitoring
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:z
       - prometheus_data:/prometheus
     restart: unless-stopped
 
-# networks:
-#   monitoring:
-#     driver: bridge
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - '--path.rootfs=/host'
+    network_mode: host
+    pid: host
+    restart: unless-stopped
+    volumes:
+      - '/:/host:ro,rslave'
 
 volumes:
   grafana_data: {}
