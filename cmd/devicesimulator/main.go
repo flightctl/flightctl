@@ -48,7 +48,7 @@ func main() {
 			}
 		}
 		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, agentDir).
-			SetName(agentName).
+			SetDisplayName(agentName).
 			AddController(controller.NewSystemInfoController()).
 			SetFetchSpecInterval(*fetchSpecInterval, 0).
 			SetStatusUpdateInterval(*statusUpdateInterval, 0).
