@@ -48,8 +48,8 @@ const (
 )
 
 type DeviceAgent struct {
-	// The agent's name, which is only used to prefix log messages when running multipe agents.
-	name string
+	// The agent's logPrefix, which is only used to prefix log messages when running multipe agents.
+	logPrefix string
 
 	// The agent's crypto identity used in calls to the FlightCtl API.
 	// It is the hash of the agent's public key.
@@ -101,7 +101,7 @@ type DeviceAgent struct {
 
 func NewDeviceAgent(enrollmentServerUrl string, managementServerUrl string, certificateDir string) *DeviceAgent {
 	return &DeviceAgent{
-		name:                 "",
+		logPrefix:            "",
 		fingerprint:          "",
 		key:                  nil,
 		certDir:              certificateDir,
@@ -129,11 +129,13 @@ func NewDeviceAgent(enrollmentServerUrl string, managementServerUrl string, cert
 }
 
 func (a *DeviceAgent) GetName() string {
-	return a.name
+	return a.logPrefix
 }
 
-func (a *DeviceAgent) SetName(name string) *DeviceAgent {
-	a.name = name + " "
+func (a *DeviceAgent) SetDisplayName(name string) *DeviceAgent {
+	// for the time being, the display name is not persisted in the API, but we use it as a log prefix
+	// which is useful in device simulator when running multiple agents at once.
+	a.logPrefix = name + " "
 	return a
 }
 
@@ -194,12 +196,12 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 			return nil
 		case <-fetchSpecTicker.C:
 			if err := a.FetchSpec(ctx); err != nil {
-				klog.Errorf("%sfetching spec: %v", a.name, err)
+				klog.Errorf("%sfetching spec: %v", a.logPrefix, err)
 			}
 			a.Reconcile(ctx, ctrl.Request{})
 		case <-statusUpdateTicker.C:
 			if _, err := a.SetStatus(&a.device); err != nil {
-				klog.Errorf("%ssetting status: %v", a.name, err)
+				klog.Errorf("%ssetting status: %v", a.logPrefix, err)
 			}
 			a.PostStatus(ctx)
 		}
@@ -254,7 +256,7 @@ func (a *DeviceAgent) haveValidClientCerts() bool {
 }
 
 func (a *DeviceAgent) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	klog.Infof("%srunning reconciler", a.name)
+	klog.Infof("%srunning reconciler", a.logPrefix)
 
 	if !a.NeedsUpdate(&a.device) {
 		return ctrl.Result{}, nil
@@ -296,7 +298,7 @@ func (a *DeviceAgent) FetchSpec(ctx context.Context) error {
 		return err
 	}
 
-	klog.Infof("%sfetching spec", a.name)
+	klog.Infof("%sfetching spec", a.logPrefix)
 
 	t0 := time.Now()
 	response, err := a.managementClient.ReadDeviceWithResponse(ctx, a.fingerprint)
@@ -304,10 +306,10 @@ func (a *DeviceAgent) FetchSpec(ctx context.Context) error {
 		a.rpcMetricsCallbackFunc("get_spec", time.Since(t0).Seconds(), err)
 	}
 	if err != nil {
-		return fmt.Errorf("%sfetching spec: %v", a.name, err)
+		return fmt.Errorf("%sfetching spec: %v", a.logPrefix, err)
 	}
 	if response.StatusCode() != http.StatusOK || response.JSON200 == nil {
-		return fmt.Errorf("%sfetching spec: %v", a.name, response.Status())
+		return fmt.Errorf("%sfetching spec: %v", a.logPrefix, response.Status())
 	}
 	a.device = *response.JSON200
 	return nil
@@ -318,7 +320,7 @@ func (a *DeviceAgent) PostStatus(ctx context.Context) error {
 		return err
 	}
 
-	klog.Infof("%sposting status", a.name)
+	klog.Infof("%sposting status", a.logPrefix)
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(a.device); err != nil {
