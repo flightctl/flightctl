@@ -78,10 +78,12 @@ func main() {
 			// stagger the start of each agent
 			time.Sleep(time.Duration(rand.Float64() * float64(*statusUpdateInterval)))
 
+			activeAgents.Inc()
 			err := agents[i].Run(ctx)
 			if err != nil {
 				klog.Errorf("%s: %v", agents[i].GetName(), err)
 			}
+			activeAgents.Dec()
 		}(i)
 	}
 	wg.Wait()
