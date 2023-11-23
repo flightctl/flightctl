@@ -20,7 +20,7 @@ make build
 Start the Flight Control database:
 
 ```
-podman-compose deploy/podman/compose.yaml up
+podman-compose -f deploy/podman/compose.yaml up
 ```
 
 Start the Flight Control API server:
