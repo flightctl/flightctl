@@ -823,6 +823,7 @@ components:
         - bootID
         - machineID
         - operatingSystem
+        - measurements
       type: object
       properties:
         architecture:
@@ -837,6 +838,11 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
+        measurements:
+          type: object
+          additionalProperties:
+            type: string
+          description: The integrity measurements of the system.
       description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
     ContainerStatus:
       required:

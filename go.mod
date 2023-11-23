@@ -1,13 +1,14 @@
 module github.com/flightctl/flightctl
 
-go 1.19
+go 1.20
 
 require (
 	github.com/containers/podman/v4 v4.8.0
 	github.com/deepmap/oapi-codegen v1.15.0
-	github.com/getkin/kin-openapi v0.120.0
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/google/cadvisor v0.48.1
+	github.com/google/go-tpm v0.9.0
+	github.com/google/go-tpm-tools v0.4.2
 	github.com/google/uuid v1.4.0
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/oapi-codegen/runtime v1.0.0
@@ -62,6 +63,7 @@ require (
 	github.com/docker/go-connections v0.4.1-0.20231031175723-0b8c1f4e07a0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/getkin/kin-openapi v0.120.0 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/go-openapi/analysis v0.21.4 // indirect

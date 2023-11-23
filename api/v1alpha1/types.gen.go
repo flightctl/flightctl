@@ -114,6 +114,9 @@ type DeviceSystemInfo struct {
 	// MachineID MachineID reported by the device.
 	MachineID string `json:"machineID"`
 
+	// Measurements The integrity measurements of the system.
+	Measurements map[string]string `json:"measurements"`
+
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem string `json:"operatingSystem"`
 }
