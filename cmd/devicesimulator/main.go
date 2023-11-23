@@ -71,6 +71,7 @@ func main() {
 			SetDisplayName(agentName).
 			AddController(controller.NewSystemInfoController(tpmChannel)).
 			AddController(controller.NewContainerController()).
+			AddController(controller.NewSystemDController()).
 			SetFetchSpecInterval(*fetchSpecInterval, 0).
 			SetStatusUpdateInterval(*statusUpdateInterval, 0).
 			SetRpcMetricsCallbackFunction(rpcMetricsCallback)

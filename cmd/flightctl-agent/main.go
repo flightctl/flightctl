@@ -55,6 +55,7 @@ func main() {
 	agentInstance := agent.NewDeviceAgent(*serverUrl, *serverUrl, *dataDir).
 		AddController(controller.NewSystemInfoController(tpmChannel)).
 		AddController(controller.NewContainerController()).
+		AddController(controller.NewSystemDController()).
 		SetFetchSpecInterval(*fetchSpecInterval, 0).
 		SetStatusUpdateInterval(*statusUpdateInterval, 0)
 

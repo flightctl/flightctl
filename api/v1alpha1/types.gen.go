@@ -88,7 +88,10 @@ type DeviceSpec struct {
 	Containers *struct {
 		MatchPattern *[]string `json:"matchPattern,omitempty"`
 	} `json:"containers,omitempty"`
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	Os      *DeviceOSSpec `json:"os,omitempty"`
+	Systemd *struct {
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
+	} `json:"systemd,omitempty"`
 }
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
@@ -101,6 +104,9 @@ type DeviceStatus struct {
 
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 	SystemInfo *DeviceSystemInfo `json:"systemInfo,omitempty"`
+
+	// SystemdUnits Current state of systemd units on the device.
+	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
 }
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
@@ -119,6 +125,18 @@ type DeviceSystemInfo struct {
 
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem string `json:"operatingSystem"`
+}
+
+// DeviceSystemdUnitStatus The status of the systemd unit.
+type DeviceSystemdUnitStatus struct {
+	// ActiveState The active state of the systemd unit.
+	ActiveState string `json:"activeState"`
+
+	// LoadState The load state of the systemd unit.
+	LoadState string `json:"loadState"`
+
+	// Name The name of the systemd unit.
+	Name interface{} `json:"name"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.

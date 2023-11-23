@@ -13,10 +13,15 @@ spec:
         ignition:
           version: 3.4.0
         storage:
-        files:
-          - contents:
-              source: >-
-                data:,This%20system%20is%20managed%20by%20flightctl.%0A
-            mode: 422
-            overwrite: true
-            path: "/etc/motd"
+          files:
+            - contents:
+                source: >-
+                  data:,This%20system%20is%20managed%20by%20flightctl.%0A
+              mode: 422
+              overwrite: true
+              path: "/etc/motd"
+  systemd:
+    matchPatterns:
+      - chronyd.service
+      - firewalld.service
+      - sshd*.service
