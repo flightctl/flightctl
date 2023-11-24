@@ -3,6 +3,11 @@ package service
 import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/google/uuid"
+)
+
+var (
+	NullOrgId = uuid.MustParse("00000000-0000-0000-0000-000000000000")
 )
 
 type DataStoreInterface interface {
