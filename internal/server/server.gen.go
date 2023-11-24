@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	. "github.com/flightctl/flightctl/api/v1alpha1"
@@ -1113,8 +1112,7 @@ func (response ListDevices401Response) VisitListDevicesResponse(w http.ResponseW
 }
 
 type CreateDeviceRequestObject struct {
-	ContentType string
-	Body        io.Reader
+	Body *CreateDeviceJSONRequestBody
 }
 
 type CreateDeviceResponseObject interface {
@@ -1213,9 +1211,8 @@ func (response ReadDevice404Response) VisitReadDeviceResponse(w http.ResponseWri
 }
 
 type ReplaceDeviceRequestObject struct {
-	Name        string `json:"name"`
-	ContentType string
-	Body        io.Reader
+	Name string `json:"name"`
+	Body *ReplaceDeviceJSONRequestBody
 }
 
 type ReplaceDeviceResponseObject interface {
@@ -1290,9 +1287,8 @@ func (response ReadDeviceStatus404Response) VisitReadDeviceStatusResponse(w http
 }
 
 type ReplaceDeviceStatusRequestObject struct {
-	Name        string `json:"name"`
-	ContentType string
-	Body        io.Reader
+	Name string `json:"name"`
+	Body *ReplaceDeviceStatusJSONRequestBody
 }
 
 type ReplaceDeviceStatusResponseObject interface {
@@ -1374,8 +1370,7 @@ func (response ListEnrollmentRequests401Response) VisitListEnrollmentRequestsRes
 }
 
 type CreateEnrollmentRequestRequestObject struct {
-	ContentType string
-	Body        io.Reader
+	Body *CreateEnrollmentRequestJSONRequestBody
 }
 
 type CreateEnrollmentRequestResponseObject interface {
@@ -1474,9 +1469,8 @@ func (response ReadEnrollmentRequest404Response) VisitReadEnrollmentRequestRespo
 }
 
 type ReplaceEnrollmentRequestRequestObject struct {
-	Name        string `json:"name"`
-	ContentType string
-	Body        io.Reader
+	Name string `json:"name"`
+	Body *ReplaceEnrollmentRequestJSONRequestBody
 }
 
 type ReplaceEnrollmentRequestResponseObject interface {
@@ -1518,9 +1512,8 @@ func (response ReplaceEnrollmentRequest404Response) VisitReplaceEnrollmentReques
 }
 
 type ReplaceEnrollmentRequestApprovalRequestObject struct {
-	Name        string `json:"name"`
-	ContentType string
-	Body        io.Reader
+	Name string `json:"name"`
+	Body *ReplaceEnrollmentRequestApprovalJSONRequestBody
 }
 
 type ReplaceEnrollmentRequestApprovalResponseObject interface {
@@ -1586,9 +1579,8 @@ func (response ReadEnrollmentRequestStatus404Response) VisitReadEnrollmentReques
 }
 
 type ReplaceEnrollmentRequestStatusRequestObject struct {
-	Name        string `json:"name"`
-	ContentType string
-	Body        io.Reader
+	Name string `json:"name"`
+	Body *ReplaceEnrollmentRequestStatusJSONRequestBody
 }
 
 type ReplaceEnrollmentRequestStatusResponseObject interface {
@@ -1670,8 +1662,7 @@ func (response ListFleets401Response) VisitListFleetsResponse(w http.ResponseWri
 }
 
 type CreateFleetRequestObject struct {
-	ContentType string
-	Body        io.Reader
+	Body *CreateFleetJSONRequestBody
 }
 
 type CreateFleetResponseObject interface {
@@ -1770,9 +1761,8 @@ func (response ReadFleet404Response) VisitReadFleetResponse(w http.ResponseWrite
 }
 
 type ReplaceFleetRequestObject struct {
-	Name        string `json:"name"`
-	ContentType string
-	Body        io.Reader
+	Name string `json:"name"`
+	Body *ReplaceFleetJSONRequestBody
 }
 
 type ReplaceFleetResponseObject interface {
@@ -1847,9 +1837,8 @@ func (response ReadFleetStatus404Response) VisitReadFleetStatusResponse(w http.R
 }
 
 type ReplaceFleetStatusRequestObject struct {
-	Name        string `json:"name"`
-	ContentType string
-	Body        io.Reader
+	Name string `json:"name"`
+	Body *ReplaceFleetStatusJSONRequestBody
 }
 
 type ReplaceFleetStatusResponseObject interface {
@@ -2043,9 +2032,12 @@ func (sh *strictHandler) ListDevices(w http.ResponseWriter, r *http.Request, par
 func (sh *strictHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	var request CreateDeviceRequestObject
 
-	request.ContentType = r.Header.Get("Content-Type")
-
-	request.Body = r.Body
+	var body CreateDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CreateDevice(ctx, request.(CreateDeviceRequestObject))
@@ -2124,9 +2116,13 @@ func (sh *strictHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request, n
 	var request ReplaceDeviceRequestObject
 
 	request.Name = name
-	request.ContentType = r.Header.Get("Content-Type")
 
-	request.Body = r.Body
+	var body ReplaceDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReplaceDevice(ctx, request.(ReplaceDeviceRequestObject))
@@ -2179,9 +2175,13 @@ func (sh *strictHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Requ
 	var request ReplaceDeviceStatusRequestObject
 
 	request.Name = name
-	request.ContentType = r.Header.Get("Content-Type")
 
-	request.Body = r.Body
+	var body ReplaceDeviceStatusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReplaceDeviceStatus(ctx, request.(ReplaceDeviceStatusRequestObject))
@@ -2257,9 +2257,12 @@ func (sh *strictHandler) ListEnrollmentRequests(w http.ResponseWriter, r *http.R
 func (sh *strictHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	var request CreateEnrollmentRequestRequestObject
 
-	request.ContentType = r.Header.Get("Content-Type")
-
-	request.Body = r.Body
+	var body CreateEnrollmentRequestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CreateEnrollmentRequest(ctx, request.(CreateEnrollmentRequestRequestObject))
@@ -2338,9 +2341,13 @@ func (sh *strictHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http
 	var request ReplaceEnrollmentRequestRequestObject
 
 	request.Name = name
-	request.ContentType = r.Header.Get("Content-Type")
 
-	request.Body = r.Body
+	var body ReplaceEnrollmentRequestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReplaceEnrollmentRequest(ctx, request.(ReplaceEnrollmentRequestRequestObject))
@@ -2367,9 +2374,13 @@ func (sh *strictHandler) ReplaceEnrollmentRequestApproval(w http.ResponseWriter,
 	var request ReplaceEnrollmentRequestApprovalRequestObject
 
 	request.Name = name
-	request.ContentType = r.Header.Get("Content-Type")
 
-	request.Body = r.Body
+	var body ReplaceEnrollmentRequestApprovalJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReplaceEnrollmentRequestApproval(ctx, request.(ReplaceEnrollmentRequestApprovalRequestObject))
@@ -2422,9 +2433,13 @@ func (sh *strictHandler) ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r
 	var request ReplaceEnrollmentRequestStatusRequestObject
 
 	request.Name = name
-	request.ContentType = r.Header.Get("Content-Type")
 
-	request.Body = r.Body
+	var body ReplaceEnrollmentRequestStatusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReplaceEnrollmentRequestStatus(ctx, request.(ReplaceEnrollmentRequestStatusRequestObject))
@@ -2500,9 +2515,12 @@ func (sh *strictHandler) ListFleets(w http.ResponseWriter, r *http.Request, para
 func (sh *strictHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	var request CreateFleetRequestObject
 
-	request.ContentType = r.Header.Get("Content-Type")
-
-	request.Body = r.Body
+	var body CreateFleetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CreateFleet(ctx, request.(CreateFleetRequestObject))
@@ -2581,9 +2599,13 @@ func (sh *strictHandler) ReplaceFleet(w http.ResponseWriter, r *http.Request, na
 	var request ReplaceFleetRequestObject
 
 	request.Name = name
-	request.ContentType = r.Header.Get("Content-Type")
 
-	request.Body = r.Body
+	var body ReplaceFleetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReplaceFleet(ctx, request.(ReplaceFleetRequestObject))
@@ -2636,9 +2658,13 @@ func (sh *strictHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Reque
 	var request ReplaceFleetStatusRequestObject
 
 	request.Name = name
-	request.ContentType = r.Header.Get("Content-Type")
 
-	request.Body = r.Body
+	var body ReplaceFleetStatusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReplaceFleetStatus(ctx, request.(ReplaceFleetStatusRequestObject))

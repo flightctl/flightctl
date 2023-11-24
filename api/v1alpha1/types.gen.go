@@ -295,3 +295,33 @@ type ListFleetsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
+type CreateDeviceJSONRequestBody = Device
+
+// ReplaceDeviceJSONRequestBody defines body for ReplaceDevice for application/json ContentType.
+type ReplaceDeviceJSONRequestBody = Device
+
+// ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
+type ReplaceDeviceStatusJSONRequestBody = Device
+
+// CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
+type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
+
+// ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
+type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
+
+// ReplaceEnrollmentRequestApprovalJSONRequestBody defines body for ReplaceEnrollmentRequestApproval for application/json ContentType.
+type ReplaceEnrollmentRequestApprovalJSONRequestBody = EnrollmentRequest
+
+// ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
+type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest
+
+// CreateFleetJSONRequestBody defines body for CreateFleet for application/json ContentType.
+type CreateFleetJSONRequestBody = Fleet
+
+// ReplaceFleetJSONRequestBody defines body for ReplaceFleet for application/json ContentType.
+type ReplaceFleetJSONRequestBody = Fleet
+
+// ReplaceFleetStatusJSONRequestBody defines body for ReplaceFleetStatus for application/json ContentType.
+type ReplaceFleetStatusJSONRequestBody = Fleet

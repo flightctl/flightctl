@@ -2,9 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
@@ -22,28 +19,11 @@ type DeviceStoreInterface interface {
 	DeleteDevice(orgId uuid.UUID, name string) error
 }
 
-func DeviceFromReader(r io.Reader) (*api.Device, error) {
-	var device api.Device
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&device)
-	return &device, err
-}
-
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := DeviceFromReader(request.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := h.deviceStore.CreateDevice(orgId, apiResource)
+	result, err := h.deviceStore.CreateDevice(orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
@@ -97,16 +77,7 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := DeviceFromReader(request.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	result, created, err := h.deviceStore.CreateOrUpdateDevice(orgId, apiResource)
+	result, created, err := h.deviceStore.CreateOrUpdateDevice(orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -155,16 +126,7 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := DeviceFromReader(request.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := h.deviceStore.UpdateDeviceStatus(orgId, apiResource)
+	result, err := h.deviceStore.UpdateDeviceStatus(orgId, request.Body)
 	switch err {
 	case nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil

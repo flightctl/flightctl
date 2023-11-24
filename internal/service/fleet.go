@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -34,16 +33,7 @@ func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := FleetFromReader(request.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := h.fleetStore.CreateFleet(orgId, apiResource)
+	result, err := h.fleetStore.CreateFleet(orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateFleet201JSONResponse(*result), nil
@@ -97,16 +87,7 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := FleetFromReader(request.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	result, created, err := h.fleetStore.CreateOrUpdateFleet(orgId, apiResource)
+	result, created, err := h.fleetStore.CreateOrUpdateFleet(orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -155,16 +136,7 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := FleetFromReader(request.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := h.fleetStore.UpdateFleetStatus(orgId, apiResource)
+	result, err := h.fleetStore.UpdateFleetStatus(orgId, request.Body)
 	switch err {
 	case nil:
 		return server.ReplaceFleetStatus200JSONResponse(*result), nil
