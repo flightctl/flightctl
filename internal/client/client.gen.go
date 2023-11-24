@@ -4,6 +4,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -98,6 +99,8 @@ type ClientInterface interface {
 	// CreateDeviceWithBody request with any body
 	CreateDeviceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	CreateDevice(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteDevice request
 	DeleteDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -107,11 +110,15 @@ type ClientInterface interface {
 	// ReplaceDeviceWithBody request with any body
 	ReplaceDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ReadDeviceStatus request
 	ReadDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReplaceDeviceStatusWithBody request with any body
 	ReplaceDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteEnrollmentRequests request
 	DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -122,6 +129,8 @@ type ClientInterface interface {
 	// CreateEnrollmentRequestWithBody request with any body
 	CreateEnrollmentRequestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	CreateEnrollmentRequest(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteEnrollmentRequest request
 	DeleteEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -131,14 +140,20 @@ type ClientInterface interface {
 	// ReplaceEnrollmentRequestWithBody request with any body
 	ReplaceEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	ReplaceEnrollmentRequest(ctx context.Context, name string, body ReplaceEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ReplaceEnrollmentRequestApprovalWithBody request with any body
 	ReplaceEnrollmentRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReplaceEnrollmentRequestApproval(ctx context.Context, name string, body ReplaceEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReadEnrollmentRequestStatus request
 	ReadEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReplaceEnrollmentRequestStatusWithBody request with any body
 	ReplaceEnrollmentRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReplaceEnrollmentRequestStatus(ctx context.Context, name string, body ReplaceEnrollmentRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteFleets request
 	DeleteFleets(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -149,6 +164,8 @@ type ClientInterface interface {
 	// CreateFleetWithBody request with any body
 	CreateFleetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	CreateFleet(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteFleet request
 	DeleteFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -158,11 +175,15 @@ type ClientInterface interface {
 	// ReplaceFleetWithBody request with any body
 	ReplaceFleetWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	ReplaceFleet(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ReadFleetStatus request
 	ReadFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReplaceFleetStatusWithBody request with any body
 	ReplaceFleetStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -191,6 +212,18 @@ func (c *Client) ListDevices(ctx context.Context, params *ListDevicesParams, req
 
 func (c *Client) CreateDeviceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateDeviceRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateDevice(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateDeviceRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +270,18 @@ func (c *Client) ReplaceDeviceWithBody(ctx context.Context, name string, content
 	return c.Client.Do(req)
 }
 
+func (c *Client) ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceDeviceRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) ReadDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReadDeviceStatusRequest(c.Server, name)
 	if err != nil {
@@ -251,6 +296,18 @@ func (c *Client) ReadDeviceStatus(ctx context.Context, name string, reqEditors .
 
 func (c *Client) ReplaceDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceDeviceStatusRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceDeviceStatusRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -297,6 +354,18 @@ func (c *Client) CreateEnrollmentRequestWithBody(ctx context.Context, contentTyp
 	return c.Client.Do(req)
 }
 
+func (c *Client) CreateEnrollmentRequest(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnrollmentRequestRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) DeleteEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteEnrollmentRequestRequest(c.Server, name)
 	if err != nil {
@@ -333,8 +402,32 @@ func (c *Client) ReplaceEnrollmentRequestWithBody(ctx context.Context, name stri
 	return c.Client.Do(req)
 }
 
+func (c *Client) ReplaceEnrollmentRequest(ctx context.Context, name string, body ReplaceEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceEnrollmentRequestRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) ReplaceEnrollmentRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceEnrollmentRequestApprovalRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceEnrollmentRequestApproval(ctx context.Context, name string, body ReplaceEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceEnrollmentRequestApprovalRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -359,6 +452,18 @@ func (c *Client) ReadEnrollmentRequestStatus(ctx context.Context, name string, r
 
 func (c *Client) ReplaceEnrollmentRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceEnrollmentRequestStatusRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceEnrollmentRequestStatus(ctx context.Context, name string, body ReplaceEnrollmentRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceEnrollmentRequestStatusRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -405,6 +510,18 @@ func (c *Client) CreateFleetWithBody(ctx context.Context, contentType string, bo
 	return c.Client.Do(req)
 }
 
+func (c *Client) CreateFleet(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateFleetRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) DeleteFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteFleetRequest(c.Server, name)
 	if err != nil {
@@ -441,6 +558,18 @@ func (c *Client) ReplaceFleetWithBody(ctx context.Context, name string, contentT
 	return c.Client.Do(req)
 }
 
+func (c *Client) ReplaceFleet(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceFleetRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) ReadFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReadFleetStatusRequest(c.Server, name)
 	if err != nil {
@@ -455,6 +584,18 @@ func (c *Client) ReadFleetStatus(ctx context.Context, name string, reqEditors ..
 
 func (c *Client) ReplaceFleetStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceFleetStatusRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceFleetStatusRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -573,6 +714,17 @@ func NewListDevicesRequest(server string, params *ListDevicesParams) (*http.Requ
 	return req, nil
 }
 
+// NewCreateDeviceRequest calls the generic CreateDevice builder with application/json body
+func NewCreateDeviceRequest(server string, body CreateDeviceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateDeviceRequestWithBody(server, "application/json", bodyReader)
+}
+
 // NewCreateDeviceRequestWithBody generates requests for CreateDevice with any type of body
 func NewCreateDeviceRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
@@ -670,6 +822,17 @@ func NewReadDeviceRequest(server string, name string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewReplaceDeviceRequest calls the generic ReplaceDevice builder with application/json body
+func NewReplaceDeviceRequest(server string, name string, body ReplaceDeviceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceDeviceRequestWithBody(server, name, "application/json", bodyReader)
+}
+
 // NewReplaceDeviceRequestWithBody generates requests for ReplaceDevice with any type of body
 func NewReplaceDeviceRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
@@ -738,6 +901,17 @@ func NewReadDeviceStatusRequest(server string, name string) (*http.Request, erro
 	}
 
 	return req, nil
+}
+
+// NewReplaceDeviceStatusRequest calls the generic ReplaceDeviceStatus builder with application/json body
+func NewReplaceDeviceStatusRequest(server string, name string, body ReplaceDeviceStatusJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceDeviceStatusRequestWithBody(server, name, "application/json", bodyReader)
 }
 
 // NewReplaceDeviceStatusRequestWithBody generates requests for ReplaceDeviceStatus with any type of body
@@ -884,6 +1058,17 @@ func NewListEnrollmentRequestsRequest(server string, params *ListEnrollmentReque
 	return req, nil
 }
 
+// NewCreateEnrollmentRequestRequest calls the generic CreateEnrollmentRequest builder with application/json body
+func NewCreateEnrollmentRequestRequest(server string, body CreateEnrollmentRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateEnrollmentRequestRequestWithBody(server, "application/json", bodyReader)
+}
+
 // NewCreateEnrollmentRequestRequestWithBody generates requests for CreateEnrollmentRequest with any type of body
 func NewCreateEnrollmentRequestRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
@@ -981,6 +1166,17 @@ func NewReadEnrollmentRequestRequest(server string, name string) (*http.Request,
 	return req, nil
 }
 
+// NewReplaceEnrollmentRequestRequest calls the generic ReplaceEnrollmentRequest builder with application/json body
+func NewReplaceEnrollmentRequestRequest(server string, name string, body ReplaceEnrollmentRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceEnrollmentRequestRequestWithBody(server, name, "application/json", bodyReader)
+}
+
 // NewReplaceEnrollmentRequestRequestWithBody generates requests for ReplaceEnrollmentRequest with any type of body
 func NewReplaceEnrollmentRequestRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
@@ -1015,6 +1211,17 @@ func NewReplaceEnrollmentRequestRequestWithBody(server string, name string, cont
 	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
+}
+
+// NewReplaceEnrollmentRequestApprovalRequest calls the generic ReplaceEnrollmentRequestApproval builder with application/json body
+func NewReplaceEnrollmentRequestApprovalRequest(server string, name string, body ReplaceEnrollmentRequestApprovalJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceEnrollmentRequestApprovalRequestWithBody(server, name, "application/json", bodyReader)
 }
 
 // NewReplaceEnrollmentRequestApprovalRequestWithBody generates requests for ReplaceEnrollmentRequestApproval with any type of body
@@ -1085,6 +1292,17 @@ func NewReadEnrollmentRequestStatusRequest(server string, name string) (*http.Re
 	}
 
 	return req, nil
+}
+
+// NewReplaceEnrollmentRequestStatusRequest calls the generic ReplaceEnrollmentRequestStatus builder with application/json body
+func NewReplaceEnrollmentRequestStatusRequest(server string, name string, body ReplaceEnrollmentRequestStatusJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceEnrollmentRequestStatusRequestWithBody(server, name, "application/json", bodyReader)
 }
 
 // NewReplaceEnrollmentRequestStatusRequestWithBody generates requests for ReplaceEnrollmentRequestStatus with any type of body
@@ -1231,6 +1449,17 @@ func NewListFleetsRequest(server string, params *ListFleetsParams) (*http.Reques
 	return req, nil
 }
 
+// NewCreateFleetRequest calls the generic CreateFleet builder with application/json body
+func NewCreateFleetRequest(server string, body CreateFleetJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateFleetRequestWithBody(server, "application/json", bodyReader)
+}
+
 // NewCreateFleetRequestWithBody generates requests for CreateFleet with any type of body
 func NewCreateFleetRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
@@ -1328,6 +1557,17 @@ func NewReadFleetRequest(server string, name string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewReplaceFleetRequest calls the generic ReplaceFleet builder with application/json body
+func NewReplaceFleetRequest(server string, name string, body ReplaceFleetJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceFleetRequestWithBody(server, name, "application/json", bodyReader)
+}
+
 // NewReplaceFleetRequestWithBody generates requests for ReplaceFleet with any type of body
 func NewReplaceFleetRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
@@ -1396,6 +1636,17 @@ func NewReadFleetStatusRequest(server string, name string) (*http.Request, error
 	}
 
 	return req, nil
+}
+
+// NewReplaceFleetStatusRequest calls the generic ReplaceFleetStatus builder with application/json body
+func NewReplaceFleetStatusRequest(server string, name string, body ReplaceFleetStatusJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceFleetStatusRequestWithBody(server, name, "application/json", bodyReader)
 }
 
 // NewReplaceFleetStatusRequestWithBody generates requests for ReplaceFleetStatus with any type of body
@@ -1486,6 +1737,8 @@ type ClientWithResponsesInterface interface {
 	// CreateDeviceWithBodyWithResponse request with any body
 	CreateDeviceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error)
 
+	CreateDeviceWithResponse(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error)
+
 	// DeleteDeviceWithResponse request
 	DeleteDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error)
 
@@ -1495,11 +1748,15 @@ type ClientWithResponsesInterface interface {
 	// ReplaceDeviceWithBodyWithResponse request with any body
 	ReplaceDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceDeviceResponse, error)
 
+	ReplaceDeviceWithResponse(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceResponse, error)
+
 	// ReadDeviceStatusWithResponse request
 	ReadDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceStatusResponse, error)
 
 	// ReplaceDeviceStatusWithBodyWithResponse request with any body
 	ReplaceDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
+
+	ReplaceDeviceStatusWithResponse(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
 
 	// DeleteEnrollmentRequestsWithResponse request
 	DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error)
@@ -1510,6 +1767,8 @@ type ClientWithResponsesInterface interface {
 	// CreateEnrollmentRequestWithBodyWithResponse request with any body
 	CreateEnrollmentRequestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestResponse, error)
 
+	CreateEnrollmentRequestWithResponse(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestResponse, error)
+
 	// DeleteEnrollmentRequestWithResponse request
 	DeleteEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestResponse, error)
 
@@ -1519,14 +1778,20 @@ type ClientWithResponsesInterface interface {
 	// ReplaceEnrollmentRequestWithBodyWithResponse request with any body
 	ReplaceEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestResponse, error)
 
+	ReplaceEnrollmentRequestWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestResponse, error)
+
 	// ReplaceEnrollmentRequestApprovalWithBodyWithResponse request with any body
 	ReplaceEnrollmentRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestApprovalResponse, error)
+
+	ReplaceEnrollmentRequestApprovalWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestApprovalResponse, error)
 
 	// ReadEnrollmentRequestStatusWithResponse request
 	ReadEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestStatusResponse, error)
 
 	// ReplaceEnrollmentRequestStatusWithBodyWithResponse request with any body
 	ReplaceEnrollmentRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestStatusResponse, error)
+
+	ReplaceEnrollmentRequestStatusWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestStatusResponse, error)
 
 	// DeleteFleetsWithResponse request
 	DeleteFleetsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteFleetsResponse, error)
@@ -1537,6 +1802,8 @@ type ClientWithResponsesInterface interface {
 	// CreateFleetWithBodyWithResponse request with any body
 	CreateFleetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateFleetResponse, error)
 
+	CreateFleetWithResponse(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateFleetResponse, error)
+
 	// DeleteFleetWithResponse request
 	DeleteFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteFleetResponse, error)
 
@@ -1546,11 +1813,15 @@ type ClientWithResponsesInterface interface {
 	// ReplaceFleetWithBodyWithResponse request with any body
 	ReplaceFleetWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceFleetResponse, error)
 
+	ReplaceFleetWithResponse(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetResponse, error)
+
 	// ReadFleetStatusWithResponse request
 	ReadFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetStatusResponse, error)
 
 	// ReplaceFleetStatusWithBodyWithResponse request with any body
 	ReplaceFleetStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
+
+	ReplaceFleetStatusWithResponse(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
 }
 
 type DeleteDevicesResponse struct {
@@ -2133,6 +2404,14 @@ func (c *ClientWithResponses) CreateDeviceWithBodyWithResponse(ctx context.Conte
 	return ParseCreateDeviceResponse(rsp)
 }
 
+func (c *ClientWithResponses) CreateDeviceWithResponse(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error) {
+	rsp, err := c.CreateDevice(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateDeviceResponse(rsp)
+}
+
 // DeleteDeviceWithResponse request returning *DeleteDeviceResponse
 func (c *ClientWithResponses) DeleteDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error) {
 	rsp, err := c.DeleteDevice(ctx, name, reqEditors...)
@@ -2160,6 +2439,14 @@ func (c *ClientWithResponses) ReplaceDeviceWithBodyWithResponse(ctx context.Cont
 	return ParseReplaceDeviceResponse(rsp)
 }
 
+func (c *ClientWithResponses) ReplaceDeviceWithResponse(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceResponse, error) {
+	rsp, err := c.ReplaceDevice(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceDeviceResponse(rsp)
+}
+
 // ReadDeviceStatusWithResponse request returning *ReadDeviceStatusResponse
 func (c *ClientWithResponses) ReadDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceStatusResponse, error) {
 	rsp, err := c.ReadDeviceStatus(ctx, name, reqEditors...)
@@ -2172,6 +2459,14 @@ func (c *ClientWithResponses) ReadDeviceStatusWithResponse(ctx context.Context, 
 // ReplaceDeviceStatusWithBodyWithResponse request with arbitrary body returning *ReplaceDeviceStatusResponse
 func (c *ClientWithResponses) ReplaceDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error) {
 	rsp, err := c.ReplaceDeviceStatusWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceDeviceStatusResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReplaceDeviceStatusWithResponse(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error) {
+	rsp, err := c.ReplaceDeviceStatus(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -2205,6 +2500,14 @@ func (c *ClientWithResponses) CreateEnrollmentRequestWithBodyWithResponse(ctx co
 	return ParseCreateEnrollmentRequestResponse(rsp)
 }
 
+func (c *ClientWithResponses) CreateEnrollmentRequestWithResponse(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestResponse, error) {
+	rsp, err := c.CreateEnrollmentRequest(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnrollmentRequestResponse(rsp)
+}
+
 // DeleteEnrollmentRequestWithResponse request returning *DeleteEnrollmentRequestResponse
 func (c *ClientWithResponses) DeleteEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestResponse, error) {
 	rsp, err := c.DeleteEnrollmentRequest(ctx, name, reqEditors...)
@@ -2232,9 +2535,25 @@ func (c *ClientWithResponses) ReplaceEnrollmentRequestWithBodyWithResponse(ctx c
 	return ParseReplaceEnrollmentRequestResponse(rsp)
 }
 
+func (c *ClientWithResponses) ReplaceEnrollmentRequestWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestResponse, error) {
+	rsp, err := c.ReplaceEnrollmentRequest(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceEnrollmentRequestResponse(rsp)
+}
+
 // ReplaceEnrollmentRequestApprovalWithBodyWithResponse request with arbitrary body returning *ReplaceEnrollmentRequestApprovalResponse
 func (c *ClientWithResponses) ReplaceEnrollmentRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestApprovalResponse, error) {
 	rsp, err := c.ReplaceEnrollmentRequestApprovalWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceEnrollmentRequestApprovalResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReplaceEnrollmentRequestApprovalWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestApprovalResponse, error) {
+	rsp, err := c.ReplaceEnrollmentRequestApproval(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -2253,6 +2572,14 @@ func (c *ClientWithResponses) ReadEnrollmentRequestStatusWithResponse(ctx contex
 // ReplaceEnrollmentRequestStatusWithBodyWithResponse request with arbitrary body returning *ReplaceEnrollmentRequestStatusResponse
 func (c *ClientWithResponses) ReplaceEnrollmentRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestStatusResponse, error) {
 	rsp, err := c.ReplaceEnrollmentRequestStatusWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceEnrollmentRequestStatusResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReplaceEnrollmentRequestStatusWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestStatusResponse, error) {
+	rsp, err := c.ReplaceEnrollmentRequestStatus(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -2286,6 +2613,14 @@ func (c *ClientWithResponses) CreateFleetWithBodyWithResponse(ctx context.Contex
 	return ParseCreateFleetResponse(rsp)
 }
 
+func (c *ClientWithResponses) CreateFleetWithResponse(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateFleetResponse, error) {
+	rsp, err := c.CreateFleet(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateFleetResponse(rsp)
+}
+
 // DeleteFleetWithResponse request returning *DeleteFleetResponse
 func (c *ClientWithResponses) DeleteFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteFleetResponse, error) {
 	rsp, err := c.DeleteFleet(ctx, name, reqEditors...)
@@ -2313,6 +2648,14 @@ func (c *ClientWithResponses) ReplaceFleetWithBodyWithResponse(ctx context.Conte
 	return ParseReplaceFleetResponse(rsp)
 }
 
+func (c *ClientWithResponses) ReplaceFleetWithResponse(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetResponse, error) {
+	rsp, err := c.ReplaceFleet(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceFleetResponse(rsp)
+}
+
 // ReadFleetStatusWithResponse request returning *ReadFleetStatusResponse
 func (c *ClientWithResponses) ReadFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetStatusResponse, error) {
 	rsp, err := c.ReadFleetStatus(ctx, name, reqEditors...)
@@ -2325,6 +2668,14 @@ func (c *ClientWithResponses) ReadFleetStatusWithResponse(ctx context.Context, n
 // ReplaceFleetStatusWithBodyWithResponse request with arbitrary body returning *ReplaceFleetStatusResponse
 func (c *ClientWithResponses) ReplaceFleetStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error) {
 	rsp, err := c.ReplaceFleetStatusWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceFleetStatusResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReplaceFleetStatusWithResponse(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error) {
+	rsp, err := c.ReplaceFleetStatus(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}

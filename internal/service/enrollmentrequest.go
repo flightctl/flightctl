@@ -2,9 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -75,38 +72,21 @@ func createDeviceFromEnrollmentRequest(deviceStore DeviceStoreInterface, orgId u
 	return err
 }
 
-func EnrollmentRequestFromReader(r io.Reader) (*api.EnrollmentRequest, error) {
-	var enrollmentrequest api.EnrollmentRequest
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&enrollmentrequest)
-	return &enrollmentrequest, err
-}
-
 // (POST /api/v1/enrollmentrequests)
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
+	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
+		return nil, err
 	}
-
-	apiResource, err := EnrollmentRequestFromReader(request.Body)
-	if err != nil {
+	if err := autoApproveAndSignEnrollmentRequest(h.ca, request.Body); err != nil {
+		return nil, err
+	}
+	if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, request.Body); err != nil {
 		return nil, err
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
-		return nil, err
-	}
-	if err := autoApproveAndSignEnrollmentRequest(h.ca, apiResource); err != nil {
-		return nil, err
-	}
-	if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, apiResource); err != nil {
-		return nil, err
-	}
-
-	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(orgId, apiResource)
+	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
@@ -160,20 +140,11 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := EnrollmentRequestFromReader(request.Body)
-	if err != nil {
+	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
-		return nil, err
-	}
-
-	result, created, err := h.enrollmentRequestStore.CreateOrUpdateEnrollmentRequest(orgId, apiResource)
+	result, created, err := h.enrollmentRequestStore.CreateOrUpdateEnrollmentRequest(orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -222,20 +193,11 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 func (h *ServiceHandler) ReplaceEnrollmentRequestApproval(ctx context.Context, request server.ReplaceEnrollmentRequestApprovalRequestObject) (server.ReplaceEnrollmentRequestApprovalResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := EnrollmentRequestFromReader(request.Body)
-	if err != nil {
+	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
-		return nil, err
-	}
-
-	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, apiResource)
+	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, request.Body)
 	switch err {
 	case nil:
 		return server.ReplaceEnrollmentRequestApproval200JSONResponse(*result), nil
@@ -250,20 +212,11 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestApproval(ctx context.Context, r
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
 	orgId := NullOrgId
 
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
-
-	apiResource, err := EnrollmentRequestFromReader(request.Body)
-	if err != nil {
+	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
-		return nil, err
-	}
-
-	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, apiResource)
+	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, request.Body)
 	switch err {
 	case nil:
 		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
