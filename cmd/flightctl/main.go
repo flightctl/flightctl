@@ -303,7 +303,7 @@ func ignoreFile(path string, extensions []string) bool {
 	return true
 }
 
-type gemericResource struct {
+type genericResource struct {
 	ApiVersion string         `yaml:"apiVersion"`
 	Kind       string         `yaml:"kind"`
 	Metadata   api.ObjectMeta `yaml:"metadata"`
@@ -320,7 +320,7 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 
 	errs := make([]error, 0)
 	for {
-		resource := &gemericResource{}
+		resource := &genericResource{}
 		err := d.Decode(&resource)
 		if errors.Is(err, io.EOF) {
 			break
