@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"io"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -30,17 +29,6 @@ type FleetList []Fleet
 func (d Fleet) String() string {
 	val, _ := json.Marshal(d)
 	return string(val)
-}
-
-func NewFleetFromApiResourceReader(r io.Reader) (*Fleet, error) {
-	var res api.Fleet
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&res)
-	if err != nil {
-		return nil, err
-	}
-	return NewFleetFromApiResource(&res), nil
 }
 
 func NewFleetFromApiResource(res *api.Fleet) *Fleet {

@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"io"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -30,17 +29,6 @@ type EnrollmentRequestList []EnrollmentRequest
 func (e EnrollmentRequest) String() string {
 	val, _ := json.Marshal(e)
 	return string(val)
-}
-
-func EnrollmentRequestFromApiResourceReader(r io.Reader) (*EnrollmentRequest, error) {
-	var res api.EnrollmentRequest
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&res)
-	if err != nil {
-		return nil, err
-	}
-	return NewEnrollmentRequestFromApiResource(&res), nil
 }
 
 func NewEnrollmentRequestFromApiResource(res *api.EnrollmentRequest) *EnrollmentRequest {

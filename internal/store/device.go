@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/flightctl/flightctl/internal/model"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -25,24 +26,26 @@ func (s *DeviceStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Device{})
 }
 
-func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *model.Device) (*model.Device, error) {
+func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
-	resource.OrgID = orgId
-	result := s.db.Create(resource)
-	log.Printf("db.Create: %s, %d rows affected, error is %v", resource, result.RowsAffected, result.Error)
+	device := model.NewDeviceFromApiResource(resource)
+	device.OrgID = orgId
+	result := s.db.Create(device)
+	log.Printf("db.Create(%s): %d rows affected, error is %v", device, result.RowsAffected, result.Error)
 	return resource, result.Error
 }
 
-func (s *DeviceStore) ListDevices(orgId uuid.UUID) ([]model.Device, error) {
+func (s *DeviceStore) ListDevices(orgId uuid.UUID) (*api.DeviceList, error) {
 	condition := model.Device{
 		Resource: model.Resource{OrgID: orgId},
 	}
-	var devices []model.Device
+	var devices model.DeviceList
 	result := s.db.Where(condition).Find(&devices)
-	log.Printf("db.Find: %s, %d rows affected, error is %v", devices, result.RowsAffected, result.Error)
-	return devices, result.Error
+	log.Printf("db.Where(%s).Find(): %d rows affected, error is %v", condition, result.RowsAffected, result.Error)
+	apiDevicelist := devices.ToApiResource()
+	return &apiDevicelist, result.Error
 }
 
 func (s *DeviceStore) DeleteDevices(orgId uuid.UUID) error {
@@ -53,40 +56,43 @@ func (s *DeviceStore) DeleteDevices(orgId uuid.UUID) error {
 	return result.Error
 }
 
-func (s *DeviceStore) GetDevice(orgId uuid.UUID, name string) (*model.Device, error) {
+func (s *DeviceStore) GetDevice(orgId uuid.UUID, name string) (*api.Device, error) {
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.First(&device)
-	log.Printf("db.Find: %s, %d rows affected, error is %v", device, result.RowsAffected, result.Error)
-	return &device, result.Error
+	log.Printf("db.Find(%s): %d rows affected, error is %v", device, result.RowsAffected, result.Error)
+	apiDevice := device.ToApiResource()
+	return &apiDevice, result.Error
 }
 
-func (s *DeviceStore) CreateOrUpdateDevice(orgId uuid.UUID, resource *model.Device) (*model.Device, bool, error) {
+func (s *DeviceStore) CreateOrUpdateDevice(orgId uuid.UUID, resource *api.Device) (*api.Device, bool, error) {
 	if resource == nil {
-		return nil, false, fmt.Errorf("resource not specified")
+		return nil, false, fmt.Errorf("resource is nil")
 	}
-	if resource.Spec != nil {
-		resource.Spec = nil
-	}
-	resource.OrgID = orgId
-	where := model.Device{Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name}}
-	result := s.db.Where(where).Assign(resource).FirstOrCreate(resource)
+	device := model.NewDeviceFromApiResource(resource)
+	device.OrgID = orgId
+
+	// don't overwrite status
+	device.Status = nil
+
+	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
+	result := s.db.Where(where).Assign(device).FirstOrCreate(device)
 	created := (result.RowsAffected == 0)
 	return resource, created, result.Error
 }
 
-func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *model.Device) (*model.Device, error) {
+func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
 	device := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: resource.Name},
+		Resource: model.Resource{OrgID: orgId, Name: resource.Metadata.Name},
 	}
 	result := s.db.Model(&device).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
-	return &device, result.Error
+	return resource, result.Error
 }
 
 func (s *DeviceStore) DeleteDevice(orgId uuid.UUID, name string) error {

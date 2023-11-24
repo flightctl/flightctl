@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"io"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -30,17 +29,6 @@ type DeviceList []Device
 func (d Device) String() string {
 	val, _ := json.Marshal(d)
 	return string(val)
-}
-
-func NewDeviceFromApiResourceReader(r io.Reader) (*Device, error) {
-	var res api.Device
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&res)
-	if err != nil {
-		return nil, err
-	}
-	return NewDeviceFromApiResource(&res), nil
 }
 
 func NewDeviceFromApiResource(res *api.Device) *Device {
