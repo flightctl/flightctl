@@ -2,40 +2,51 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 
-	"github.com/flightctl/flightctl/internal/model"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type FleetStoreInterface interface {
-	CreateFleet(orgId uuid.UUID, req *model.Fleet) (*model.Fleet, error)
-	ListFleets(orgId uuid.UUID) ([]model.Fleet, error)
-	GetFleet(orgId uuid.UUID, name string) (*model.Fleet, error)
-	CreateOrUpdateFleet(orgId uuid.UUID, fleet *model.Fleet) (*model.Fleet, bool, error)
-	UpdateFleetStatus(orgId uuid.UUID, fleet *model.Fleet) (*model.Fleet, error)
+	CreateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
+	ListFleets(orgId uuid.UUID) (*api.FleetList, error)
+	GetFleet(orgId uuid.UUID, name string) (*api.Fleet, error)
+	CreateOrUpdateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, bool, error)
+	UpdateFleetStatus(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 	DeleteFleets(orgId uuid.UUID) error
 	DeleteFleet(orgId uuid.UUID, name string) error
+}
+
+func FleetFromReader(r io.Reader) (*api.Fleet, error) {
+	var fleet api.Fleet
+	decoder := json.NewDecoder(r)
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&fleet)
+	return &fleet, err
 }
 
 // (POST /api/v1/fleets)
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
 	orgId := NullOrgId
+
 	if request.ContentType != "application/json" {
 		return nil, fmt.Errorf("bad content type %s", request.ContentType)
 	}
 
-	newFleet, err := model.NewFleetFromApiResourceReader(request.Body)
+	apiResource, err := FleetFromReader(request.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := h.fleetStore.CreateFleet(orgId, newFleet)
+	result, err := h.fleetStore.CreateFleet(orgId, apiResource)
 	switch err {
 	case nil:
-		return server.CreateFleet201JSONResponse(result.ToApiResource()), nil
+		return server.CreateFleet201JSONResponse(*result), nil
 	default:
 		return nil, err
 	}
@@ -44,10 +55,11 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 // (GET /api/v1/fleets)
 func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
 	orgId := NullOrgId
-	fleets, err := h.fleetStore.ListFleets(orgId)
+
+	result, err := h.fleetStore.ListFleets(orgId)
 	switch err {
 	case nil:
-		return server.ListFleets200JSONResponse(model.FleetList(fleets).ToApiResource()), nil
+		return server.ListFleets200JSONResponse(*result), nil
 	default:
 		return nil, err
 	}
@@ -56,6 +68,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 // (DELETE /api/v1/fleets)
 func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
 	orgId := NullOrgId
+
 	err := h.fleetStore.DeleteFleets(orgId)
 	switch err {
 	case nil:
@@ -68,10 +81,11 @@ func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.Delete
 // (GET /api/v1/fleets/{name})
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
 	orgId := NullOrgId
-	fleet, err := h.fleetStore.GetFleet(orgId, request.Name)
+
+	result, err := h.fleetStore.GetFleet(orgId, request.Name)
 	switch err {
 	case nil:
-		return server.ReadFleet200JSONResponse(fleet.ToApiResource()), nil
+		return server.ReadFleet200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
 		return server.ReadFleet404Response{}, nil
 	default:
@@ -82,22 +96,23 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
 	orgId := NullOrgId
+
 	if request.ContentType != "application/json" {
 		return nil, fmt.Errorf("bad content type %s", request.ContentType)
 	}
 
-	updatedFleet, err := model.NewFleetFromApiResourceReader(request.Body)
+	apiResource, err := FleetFromReader(request.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	fleet, created, err := h.fleetStore.CreateOrUpdateFleet(orgId, updatedFleet)
+	result, created, err := h.fleetStore.CreateOrUpdateFleet(orgId, apiResource)
 	switch err {
 	case nil:
 		if created {
-			return server.ReplaceFleet201JSONResponse(fleet.ToApiResource()), nil
+			return server.ReplaceFleet201JSONResponse(*result), nil
 		} else {
-			return server.ReplaceFleet200JSONResponse(fleet.ToApiResource()), nil
+			return server.ReplaceFleet200JSONResponse(*result), nil
 		}
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceFleet404Response{}, nil
@@ -109,6 +124,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 // (DELETE /api/v1/fleets/{name})
 func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
 	orgId := NullOrgId
+
 	err := h.fleetStore.DeleteFleet(orgId, request.Name)
 	switch err {
 	case nil:
@@ -123,10 +139,11 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 // (GET /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
 	orgId := NullOrgId
-	fleet, err := h.fleetStore.GetFleet(orgId, request.Name)
+
+	result, err := h.fleetStore.GetFleet(orgId, request.Name)
 	switch err {
 	case nil:
-		return server.ReadFleetStatus200JSONResponse(fleet.ToApiResource()), nil
+		return server.ReadFleetStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
 		return server.ReadFleetStatus404Response{}, nil
 	default:
@@ -137,19 +154,20 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 // (PUT /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
 	orgId := NullOrgId
+
 	if request.ContentType != "application/json" {
 		return nil, fmt.Errorf("bad content type %s", request.ContentType)
 	}
 
-	updatedFleet, err := model.NewFleetFromApiResourceReader(request.Body)
+	apiResource, err := FleetFromReader(request.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := h.fleetStore.UpdateFleetStatus(orgId, updatedFleet)
+	result, err := h.fleetStore.UpdateFleetStatus(orgId, apiResource)
 	switch err {
 	case nil:
-		return server.ReplaceFleetStatus200JSONResponse(result.ToApiResource()), nil
+		return server.ReplaceFleetStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceFleetStatus404Response{}, nil
 	default:

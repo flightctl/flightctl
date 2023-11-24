@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/model"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -18,11 +18,11 @@ import (
 const ClientCertExpiryDays = 365
 
 type EnrollmentRequestStoreInterface interface {
-	CreateEnrollmentRequest(orgId uuid.UUID, req *model.EnrollmentRequest) (*model.EnrollmentRequest, error)
-	ListEnrollmentRequests(orgId uuid.UUID) ([]model.EnrollmentRequest, error)
-	GetEnrollmentRequest(orgId uuid.UUID, name string) (*model.EnrollmentRequest, error)
-	CreateOrUpdateEnrollmentRequest(orgId uuid.UUID, enrollmentrequest *model.EnrollmentRequest) (*model.EnrollmentRequest, bool, error)
-	UpdateEnrollmentRequestStatus(orgId uuid.UUID, enrollmentrequest *model.EnrollmentRequest) (*model.EnrollmentRequest, error)
+	CreateEnrollmentRequest(orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
+	ListEnrollmentRequests(orgId uuid.UUID) (*api.EnrollmentRequestList, error)
+	GetEnrollmentRequest(orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
+	CreateOrUpdateEnrollmentRequest(orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error)
+	UpdateEnrollmentRequestStatus(orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
 	DeleteEnrollmentRequests(orgId uuid.UUID) error
 	DeleteEnrollmentRequest(orgId uuid.UUID, name string) error
 }
@@ -71,42 +71,45 @@ func createDeviceFromEnrollmentRequest(deviceStore DeviceStoreInterface, orgId u
 			Name: enrollmentRequest.Metadata.Name,
 		},
 	}
-	newDevice := model.NewDeviceFromApiResource(apiResource)
-	_, err := deviceStore.CreateDevice(orgId, newDevice)
+	_, err := deviceStore.CreateDevice(orgId, apiResource)
 	return err
+}
+
+func EnrollmentRequestFromReader(r io.Reader) (*api.EnrollmentRequest, error) {
+	var enrollmentrequest api.EnrollmentRequest
+	decoder := json.NewDecoder(r)
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&enrollmentrequest)
+	return &enrollmentrequest, err
 }
 
 // (POST /api/v1/enrollmentrequests)
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
+
 	if request.ContentType != "application/json" {
 		return nil, fmt.Errorf("bad content type %s", request.ContentType)
 	}
 
-	var apiResource api.EnrollmentRequest
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&apiResource)
+	apiResource, err := EnrollmentRequestFromReader(request.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(&apiResource); err != nil {
+	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
+		return nil, err
+	}
+	if err := autoApproveAndSignEnrollmentRequest(h.ca, apiResource); err != nil {
+		return nil, err
+	}
+	if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, apiResource); err != nil {
 		return nil, err
 	}
 
-	if err := autoApproveAndSignEnrollmentRequest(h.ca, &apiResource); err != nil {
-		return nil, err
-	}
-	if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, &apiResource); err != nil {
-		return nil, err
-	}
-
-	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
-	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(orgId, modelResource)
+	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(orgId, apiResource)
 	switch err {
 	case nil:
-		return server.CreateEnrollmentRequest201JSONResponse(result.ToApiResource()), nil
+		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
 	default:
 		return nil, err
 	}
@@ -115,10 +118,11 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 // (GET /api/v1/enrollmentrequests)
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
 	orgId := NullOrgId
-	enrollmentRequests, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId)
+
+	result, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId)
 	switch err {
 	case nil:
-		return server.ListEnrollmentRequests200JSONResponse(model.EnrollmentRequestList(enrollmentRequests).ToApiResource()), nil
+		return server.ListEnrollmentRequests200JSONResponse(*result), nil
 	default:
 		return nil, err
 	}
@@ -127,6 +131,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 // (DELETE /api/v1/enrollmentrequests)
 func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
 	orgId := NullOrgId
+
 	err := h.enrollmentRequestStore.DeleteEnrollmentRequests(orgId)
 	switch err {
 	case nil:
@@ -139,10 +144,11 @@ func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request s
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
-	enrollmentRequest, err := h.enrollmentRequestStore.GetEnrollmentRequest(orgId, request.Name)
+
+	result, err := h.enrollmentRequestStore.GetEnrollmentRequest(orgId, request.Name)
 	switch err {
 	case nil:
-		return server.ReadEnrollmentRequest200JSONResponse(enrollmentRequest.ToApiResource()), nil
+		return server.ReadEnrollmentRequest200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
 		return server.ReadEnrollmentRequest404Response{}, nil
 	default:
@@ -153,30 +159,27 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 // (PUT /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
+
 	if request.ContentType != "application/json" {
 		return nil, fmt.Errorf("bad content type %s", request.ContentType)
 	}
 
-	var apiResource api.EnrollmentRequest
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&apiResource)
+	apiResource, err := EnrollmentRequestFromReader(request.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(&apiResource); err != nil {
+	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
 		return nil, err
 	}
 
-	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
-	enrollmentrequest, created, err := h.enrollmentRequestStore.CreateOrUpdateEnrollmentRequest(orgId, modelResource)
+	result, created, err := h.enrollmentRequestStore.CreateOrUpdateEnrollmentRequest(orgId, apiResource)
 	switch err {
 	case nil:
 		if created {
-			return server.ReplaceEnrollmentRequest201JSONResponse(enrollmentrequest.ToApiResource()), nil
+			return server.ReplaceEnrollmentRequest201JSONResponse(*result), nil
 		} else {
-			return server.ReplaceEnrollmentRequest200JSONResponse(enrollmentrequest.ToApiResource()), nil
+			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
 		}
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceEnrollmentRequest404Response{}, nil
@@ -188,6 +191,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
+
 	err := h.enrollmentRequestStore.DeleteEnrollmentRequest(orgId, request.Name)
 	switch err {
 	case nil:
@@ -199,46 +203,44 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 	}
 }
 
-// (PUT /api/v1/enrollmentrequests/{name}/approval)
-func (h *ServiceHandler) ReplaceEnrollmentRequestApproval(ctx context.Context, request server.ReplaceEnrollmentRequestApprovalRequestObject) (server.ReplaceEnrollmentRequestApprovalResponseObject, error) {
+// (GET /api/v1/enrollmentrequests/{name}/status)
+func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
 	orgId := NullOrgId
-	if request.ContentType != "application/json" {
-		return nil, fmt.Errorf("bad content type %s", request.ContentType)
-	}
 
-	var apiResource api.EnrollmentRequest
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&apiResource)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := validateAndCompleteEnrollmentRequest(&apiResource); err != nil {
-		return nil, err
-	}
-
-	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
-	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, modelResource)
+	result, err := h.enrollmentRequestStore.GetEnrollmentRequest(orgId, request.Name)
 	switch err {
 	case nil:
-		return server.ReplaceEnrollmentRequestApproval200JSONResponse(result.ToApiResource()), nil
+		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceEnrollmentRequestApproval404Response{}, nil
+		return server.ReadEnrollmentRequestStatus404Response{}, nil
 	default:
 		return nil, err
 	}
 }
 
-// (GET /api/v1/enrollmentrequests/{name}/status)
-func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
+// (PUT /api/v1/enrollmentrequests/{name}/approval)
+func (h *ServiceHandler) ReplaceEnrollmentRequestApproval(ctx context.Context, request server.ReplaceEnrollmentRequestApprovalRequestObject) (server.ReplaceEnrollmentRequestApprovalResponseObject, error) {
 	orgId := NullOrgId
-	enrollmentRequest, err := h.enrollmentRequestStore.GetEnrollmentRequest(orgId, request.Name)
+
+	if request.ContentType != "application/json" {
+		return nil, fmt.Errorf("bad content type %s", request.ContentType)
+	}
+
+	apiResource, err := EnrollmentRequestFromReader(request.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
+		return nil, err
+	}
+
+	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, apiResource)
 	switch err {
 	case nil:
-		return server.ReadEnrollmentRequestStatus200JSONResponse(enrollmentRequest.ToApiResource()), nil
+		return server.ReplaceEnrollmentRequestApproval200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadEnrollmentRequestStatus404Response{}, nil
+		return server.ReplaceEnrollmentRequestApproval404Response{}, nil
 	default:
 		return nil, err
 	}
@@ -247,27 +249,24 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 // (PUT /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
 	orgId := NullOrgId
+
 	if request.ContentType != "application/json" {
 		return nil, fmt.Errorf("bad content type %s", request.ContentType)
 	}
 
-	var apiResource api.EnrollmentRequest
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&apiResource)
+	apiResource, err := EnrollmentRequestFromReader(request.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(&apiResource); err != nil {
+	if err := validateAndCompleteEnrollmentRequest(apiResource); err != nil {
 		return nil, err
 	}
 
-	modelResource := model.NewEnrollmentRequestFromApiResource(&apiResource)
-	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, modelResource)
+	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, apiResource)
 	switch err {
 	case nil:
-		return server.ReplaceEnrollmentRequestStatus200JSONResponse(result.ToApiResource()), nil
+		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceEnrollmentRequestStatus404Response{}, nil
 	default:
