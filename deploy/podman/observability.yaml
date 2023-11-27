@@ -11,10 +11,11 @@ services:
       - ./grafana/config.monitoring
     ports:
       - 3000:3000
-    network_mode: "host"
     volumes:
       - ./grafana/provisioning/:/etc/grafana/provisioning/:z
       - grafana_data:/var/lib/grafana
+    networks:
+      - flightctl-network
     restart: unless-stopped
 
   prometheus:
@@ -28,10 +29,11 @@ services:
       - '--web.enable-lifecycle'
     ports:
       - 9090:9090
-    network_mode: "host"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:z
       - prometheus_data:/prometheus
+    networks:
+      - flightctl-network
     restart: unless-stopped
 
   node_exporter:
@@ -39,12 +41,20 @@ services:
     container_name: node_exporter
     command:
       - '--path.rootfs=/host'
-    network_mode: host
     pid: host
     restart: unless-stopped
     volumes:
       - '/:/host:ro,rslave'
+    networks:
+      - flightctl-network
 
 volumes:
   grafana_data: {}
   prometheus_data: {}
+networks:
+  flightctl-network:
+
+
+
+
+
