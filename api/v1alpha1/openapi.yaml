@@ -792,6 +792,14 @@ components:
           description: List of config resources.
           items:
             $ref: '#/components/schemas/DeviceConfigSpec'
+        containers:
+          type: object
+          properties:
+            matchPattern:
+              type: array
+              items:
+                type: string
+                additionalProperties: true
       description: DeviceSpec is a description of a device's target state.
     DeviceStatus:
       type: object
@@ -803,6 +811,11 @@ components:
             $ref: '#/components/schemas/DeviceCondition'
         systemInfo:
           $ref: '#/components/schemas/DeviceSystemInfo'
+        containers:
+          type: array
+          description: Statuses of containers in the device.
+          items:
+            $ref: '#/components/schemas/ContainerStatus'
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
     DeviceSystemInfo:
       required:
@@ -825,6 +838,26 @@ components:
           type: string
           description: The Operating System reported by the device.
       description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+    ContainerStatus:
+      required:
+        - id
+        - image
+        - name
+        - status
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the container.
+        id:
+          type: string
+          description: ID of the container.
+        status:
+          type: string
+          description: Status of the container (e.g., running, stopped, etc.).
+        image:
+          type: string
+          description: Image of the container.
     EnrollmentRequest:
       type: object
       properties:
