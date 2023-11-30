@@ -1,5 +1,6 @@
 GOBASE=$(shell pwd)
 GOBIN=$(GOBASE)/bin
+GO_BUILD_FLAGS :=-tags 'containers_image_openpgp osusergo exclude_graphdriver_btrfs exclude_graphdriver_devicemapper'
 
 help:
 	@echo "Targets:"
@@ -10,6 +11,7 @@ help:
 	@echo "    test:        run all tests"
 	@echo "    deploy:      deploy flightctl-server and db as containers in podman"
 	@echo "    deploy-db:   deploy only the database as a container in podman"
+	@echo "    clean:       clean up all containers and volumes"
 
 generate:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go generate ./...'
@@ -21,7 +23,7 @@ lint: tools
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && $(GOBIN)/golangci-lint run ./...'
 
 build: bin
-	go build -buildvcs=false -o $(GOBIN) ./cmd/...
+	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
 
 test:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go test -cover ./...'
@@ -38,6 +40,12 @@ deploy: flightctl-server-container
 
 bin:
 	mkdir -p bin
+
+clean:
+	-podman-compose -f deploy/podman/compose.yaml down
+	-podman-compose -f deploy/podman/observability.yaml down
+	-rm -r ~/.flightctl
+	-podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
 
 .PHONY: tools deploy deploy-db flightctl-server-container
 tools: $(GOBIN)/golangci-lint
