@@ -185,6 +185,8 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 		}
 	}
 
+	a.PostStatus(ctx)
+
 	fetchSpecTicker := jitterbug.New(a.fetchSpecInterval, &jitterbug.Norm{Stdev: a.fetchSpecJitter, Mean: 0})
 	defer fetchSpecTicker.Stop()
 	statusUpdateTicker := jitterbug.New(a.statusUpdateInterval, &jitterbug.Norm{Stdev: a.statusUpdateJitter, Mean: 0})
@@ -321,6 +323,10 @@ func (a *DeviceAgent) PostStatus(ctx context.Context) error {
 	}
 
 	klog.Infof("%sposting status", a.logPrefix)
+
+	if _, err := a.SetStatus(&a.device); err != nil {
+		return err
+	}
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(a.device); err != nil {
