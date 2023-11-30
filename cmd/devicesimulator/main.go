@@ -50,6 +50,7 @@ func main() {
 		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, agentDir).
 			SetDisplayName(agentName).
 			AddController(controller.NewSystemInfoController()).
+			AddController(controller.NewContainerController()).
 			SetFetchSpecInterval(*fetchSpecInterval, 0).
 			SetStatusUpdateInterval(*statusUpdateInterval, 0).
 			SetRpcMetricsCallbackFunction(rpcMetricsCallback)
