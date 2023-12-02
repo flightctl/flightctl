@@ -18,10 +18,11 @@ require (
 	gorm.io/driver/postgres v1.5.2
 	gorm.io/driver/sqlite v1.5.3
 	gorm.io/gorm v1.25.4
-	k8s.io/apimachinery v0.28.3
+	k8s.io/apimachinery v0.28.4
 	k8s.io/client-go v0.28.3
 	k8s.io/klog/v2 v2.100.1
 	sigs.k8s.io/controller-runtime v0.16.3
+	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
@@ -164,6 +165,6 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	k8s.io/apiserver v0.28.3 // indirect
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
+	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	tags.cncf.io/container-device-interface v0.6.2 // indirect
 )
