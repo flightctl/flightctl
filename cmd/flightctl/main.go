@@ -19,7 +19,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
+	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -303,55 +304,51 @@ func ignoreFile(path string, extensions []string) bool {
 	return true
 }
 
-type genericResource struct {
-	ApiVersion string         `yaml:"apiVersion"`
-	Kind       string         `yaml:"kind"`
-	Metadata   api.ObjectMeta `yaml:"metadata"`
-	Spec       interface{}    `yaml:"spec,omitempty"`
-	Status     interface{}    `yaml:"status,omitempty"`
-}
+type genericResource map[string]interface{}
 
 func applyFromReader(client *client.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
-	var buf bytes.Buffer
-	r = io.TeeReader(r, &buf)
+	decoder := yamlutil.NewYAMLOrJSONDecoder(r, 100)
+	resources := []genericResource{}
 
-	d := yaml.NewDecoder(r)
-	d.KnownFields(true)
-
-	errs := make([]error, 0)
+	var err error
 	for {
-		resource := &genericResource{}
-		err := d.Decode(&resource)
-		if errors.Is(err, io.EOF) {
+		var resource genericResource
+		err = decoder.Decode(&resource)
+		if err != nil {
 			break
 		}
-		if err != nil {
-			errs = append(errs, fmt.Errorf("error decoding resource from %q: %v", filename, err))
+		resources = append(resources, resource)
+	}
+	if !errors.Is(err, io.EOF) {
+		return []error{err}
+	}
+
+	errs := make([]error, 0)
+	for _, resource := range resources {
+		kind, ok := resource["kind"].(string)
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s: skipping resource of unspecified kind: %v", filename, resource))
 			continue
 		}
-		if r == nil {
-			errs = append(errs, fmt.Errorf("error decoding resource from %q, skipping", filename))
+		buf, err := json.Marshal(resource)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %v", filename, kind, err))
 			continue
 		}
 
-		switch resource.Kind {
+		switch kind {
 		case "Device":
 			device := &api.Device{}
-			err := yaml.Unmarshal(buf.Bytes(), device)
+			err := yaml.Unmarshal(buf, device)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("decoding Device resource from %s: %v", filename, err))
+				errs = append(errs, fmt.Errorf("%s: decoding Device resource from: %v", filename, err))
 				continue
 			}
 			if dryRun {
 				fmt.Printf("%s: applying device/%s (dry run only)\n", filename, device.Metadata.Name)
 			} else {
-				var body bytes.Buffer
-				if err := json.NewEncoder(&body).Encode(device); err != nil {
-					errs = append(errs, err)
-					continue
-				}
 				fmt.Printf("%s: applying device/%s: ", filename, device.Metadata.Name)
-				response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), device.Metadata.Name, "application/json", bytes.NewReader(body.Bytes()))
+				response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), device.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
 					continue
@@ -360,21 +357,16 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 			}
 		case "EnrollmentRequest":
 			enrollmentRequest := &api.EnrollmentRequest{}
-			err := yaml.Unmarshal(buf.Bytes(), enrollmentRequest)
+			err := yaml.Unmarshal(buf, enrollmentRequest)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("decoding EnrollmentRequest resource from %s: %v", filename, err))
+				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: %v", filename, err))
 				continue
 			}
 			if dryRun {
 				fmt.Printf("%s: applying enrollmentrequest/%s (dry run only)\n", filename, enrollmentRequest.Metadata.Name)
 			} else {
-				var body bytes.Buffer
-				if err := json.NewEncoder(&body).Encode(enrollmentRequest); err != nil {
-					errs = append(errs, err)
-					continue
-				}
 				fmt.Printf("%s: applying enrollmentrequest/%s: ", filename, enrollmentRequest.Metadata.Name)
-				response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), enrollmentRequest.Metadata.Name, "application/json", bytes.NewReader(body.Bytes()))
+				response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), enrollmentRequest.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
 					continue
@@ -383,21 +375,16 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 			}
 		case "Fleet":
 			fleet := &api.Fleet{}
-			err := yaml.Unmarshal(buf.Bytes(), fleet)
+			err := yaml.Unmarshal(buf, fleet)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("decoding Fleet resource from %s: %v", filename, err))
+				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: %v", filename, err))
 				continue
 			}
 			if dryRun {
 				fmt.Printf("%s: applying fleet/%s (dry run only)\n", filename, fleet.Metadata.Name)
 			} else {
-				var body bytes.Buffer
-				if err := json.NewEncoder(&body).Encode(fleet); err != nil {
-					errs = append(errs, err)
-					continue
-				}
 				fmt.Printf("%s: applying fleet/%s: ", filename, fleet.Metadata.Name)
-				response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), fleet.Metadata.Name, "application/json", bytes.NewReader(body.Bytes()))
+				response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), fleet.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
 					continue
@@ -405,7 +392,7 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				fmt.Printf("%s\n", response.HTTPResponse.Status)
 			}
 		default:
-			fmt.Printf("unsupported resource kind %q\n", resource.Kind)
+			errs = append(errs, fmt.Errorf("%s: skipping resource of unkown kind %q: %v", filename, kind, resource))
 		}
 	}
 	return errs
