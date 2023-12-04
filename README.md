@@ -21,6 +21,14 @@ make build
 
 ## Running
 
+Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
+image with:
+```
+export PGSQL_IMAGE=registry.redhat.io/rhel8/postgresql-12
+podman login registry.redhat.io
+```
+
+
 Start the Flight Control database:
 
 ```
