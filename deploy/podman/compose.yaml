@@ -3,7 +3,7 @@ version: '4.4'
 services:
   flightctl-db:
     container_name: flightctl-db
-    image: quay.io/cloudservices/postgresql-rds:12-9ee2984
+    image: ${PGSQL_IMAGE:-quay.io/cloudservices/postgresql-rds:12-9ee2984}
     environment:
       - POSTGRESQL_DATABASE=flightctl
       - POSTGRESQL_USER=demouser
