@@ -67,6 +67,9 @@ type DeviceAgent struct {
 	// The URL of the enrollment service
 	enrollmentServerUrl string
 
+	// The URL of the enrollment UI
+	enrollmentUiUrl string
+
 	// The client certificate used to authenticate with the enrollment service
 	enrollmentClientCert *tls.Certificate
 
@@ -99,7 +102,7 @@ type DeviceAgent struct {
 	rpcMetricsCallbackFunc func(operation string, duractionSeconds float64, err error)
 }
 
-func NewDeviceAgent(enrollmentServerUrl string, managementServerUrl string, certificateDir string) *DeviceAgent {
+func NewDeviceAgent(enrollmentServerUrl, managementServerUrl, enrollmentUiUrl, certificateDir string) *DeviceAgent {
 	return &DeviceAgent{
 		logPrefix:            "",
 		fingerprint:          "",
@@ -107,6 +110,7 @@ func NewDeviceAgent(enrollmentServerUrl string, managementServerUrl string, cert
 		certDir:              certificateDir,
 		caCertPool:           nil,
 		enrollmentServerUrl:  enrollmentServerUrl,
+		enrollmentUiUrl:      enrollmentUiUrl,
 		enrollmentClientCert: nil,
 		enrollmentClient:     nil,
 		managementServerUrl:  managementServerUrl,
@@ -177,6 +181,7 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 		if _, err := a.SetStatus(&a.device); err != nil {
 			return err
 		}
+
 		if err := a.requestAndWaitForEnrollment(ctx); err != nil {
 			return err
 		}
@@ -184,6 +189,8 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 			return err
 		}
 	}
+
+	a.writeManagementBanner()
 
 	a.PostStatus(ctx)
 

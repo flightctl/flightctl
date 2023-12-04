@@ -17,6 +17,7 @@ import (
 func main() {
 
 	serverUrl := flag.String("server", "", "device server URL")
+	enrollmentUiUrl := flag.String("enrollment-ui", "", "enrollment UI URL base")
 	dataDir := flag.String("data-dir", "/var/lib/flightctl", "device agent data directory")
 
 	tpmPath := flag.String("tpm", "", "Path to TPM device")
@@ -52,7 +53,12 @@ func main() {
 		}
 	}
 
-	agentInstance := agent.NewDeviceAgent(*serverUrl, *serverUrl, *dataDir).
+	if *enrollmentUiUrl == "" {
+		klog.Warningf("flightctl enrollment UI URL is missing, using enrollment server URL")
+		*enrollmentUiUrl = *serverUrl
+	}
+
+	agentInstance := agent.NewDeviceAgent(*serverUrl, *serverUrl, *enrollmentUiUrl, *dataDir).
 		AddController(controller.NewSystemInfoController(tpmChannel)).
 		AddController(controller.NewContainerController()).
 		AddController(controller.NewSystemDController()).
