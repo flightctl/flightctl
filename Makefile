@@ -34,7 +34,7 @@ flightctl-server-container:
 deploy-db:
 	cd deploy/podman && podman-compose up -d flightctl-db
 
-deploy: flightctl-server-container
+deploy: build flightctl-server-container
 	cd deploy/podman && podman-compose up -d
 	podman cp flightctl-server:/root/.flightctl "${HOME}"
 
@@ -46,6 +46,7 @@ clean:
 	-podman-compose -f deploy/podman/observability.yaml down
 	-rm -r ~/.flightctl
 	-podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
+	- rm -r bin
 
 .PHONY: tools deploy deploy-db flightctl-server-container
 tools: $(GOBIN)/golangci-lint

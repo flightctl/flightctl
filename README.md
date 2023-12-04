@@ -1,13 +1,17 @@
 # Flight Control
 Flight Control is a service for declarative, GitOps-driven management of edge device fleets running [ostree-based](https://github.com/ostreedev/ostree) Linux system images.
 
-> [!NOTE]  
+> [!NOTE]
 > Flight Control is still in early stage development!
 
 ## Building
 
 Prerequisites:
 * `git`, `make`, and `go` (>= 1.20), and `podman-compose`
+
+Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
+
+`systemctl --user enable --now podman.socket`
 
 Checkout the repo and from within the repo run:
 
