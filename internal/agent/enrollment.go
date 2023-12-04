@@ -15,12 +15,17 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/mdp/qrterminal/v3"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
 	"k8s.io/klog/v2"
 )
 
 func (a *DeviceAgent) requestAndWaitForEnrollment(ctx context.Context) error {
+
+	if err := a.writeEnrollmentBanner(); err != nil {
+		return fmt.Errorf("requestAndWaitForEnrollment: %w", err)
+	}
 	a.sendEnrollmentRequest(ctx)
 
 	klog.Infof("%swaiting for enrollment to be approved", a.logPrefix)
@@ -33,6 +38,47 @@ func (a *DeviceAgent) requestAndWaitForEnrollment(ctx context.Context) error {
 	return wait.ExponentialBackoff(backoff, func() (bool, error) {
 		return a.checkEnrollment(ctx)
 	})
+}
+
+func (a *DeviceAgent) writeEnrollmentBanner() error {
+	if a.enrollmentUiUrl == "" {
+		klog.Warningf("%sflightctl enrollment UI URL is missing, skipping enrollment banner", a.logPrefix)
+		return nil
+	}
+	url := a.enrollmentUiUrl + "/enroll/" + a.fingerprint
+	if err := a.writeQRBanner("\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
+		return fmt.Errorf("writeEnrollmentBanner: %w", err)
+	}
+	return nil
+}
+
+func (a *DeviceAgent) writeManagementBanner() error {
+	// write a banner that explains that the device is enrolled
+	if a.enrollmentUiUrl == "" {
+		klog.Warningf("%sflightctl enrollment UI URL is missing, skipping enrollment banner", a.logPrefix)
+		return nil
+	}
+	url := a.enrollmentUiUrl + "/manage/" + a.fingerprint
+	if err := a.writeQRBanner("\nYour device is enrolled to flightctl,\nyou can manage your device scanning the above QR. or following this URL:\n%s\n\n", url); err != nil {
+		return fmt.Errorf("writeManagementBanner: %w", err)
+	}
+	return nil
+}
+
+func (a *DeviceAgent) writeQRBanner(message, url string) error {
+	// write a banner that explains that the device is enrolled
+	buffer := bytes.NewBufferString("")
+
+	qrterminal.Generate(url, qrterminal.L, buffer)
+	fmt.Fprintf(buffer, message, url)
+	// write buffer to /run/flightctl-banner
+	if err := os.WriteFile("/run/flightctl-banner", buffer.Bytes(), os.FileMode(0666)); err != nil {
+		return fmt.Errorf("writeQRBanner: %w", err)
+	}
+
+	// additionally print the banner into the output console
+	fmt.Print(buffer.String())
+	return nil
 }
 
 func (a *DeviceAgent) sendEnrollmentRequest(ctx context.Context) error {
