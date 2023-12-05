@@ -89,8 +89,11 @@ func (s *FleetStore) UpdateFleetStatus(orgId uuid.UUID, resource *api.Fleet) (*a
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
+	if resource.Metadata.Name == nil {
+		return nil, fmt.Errorf("resource.metadata.name is nil")
+	}
 	fleet := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: resource.Metadata.Name},
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
 	result := s.db.Model(&fleet).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),

@@ -89,8 +89,11 @@ func (s *EnrollmentRequestStore) UpdateEnrollmentRequestStatus(orgId uuid.UUID, 
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
+	if resource.Metadata.Name == nil {
+		return nil, fmt.Errorf("resource.metadata.name is nil")
+	}
 	enrollmentRequest := model.EnrollmentRequest{
-		Resource: model.Resource{OrgID: orgId, Name: resource.Metadata.Name},
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
 	result := s.db.Model(&enrollmentRequest).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),

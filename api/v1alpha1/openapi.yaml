@@ -718,6 +718,7 @@ components:
         - apiVersion
         - kind
         - metadata
+        - spec
       description: Device represents a physical device.
     DeviceCondition:
       required:
@@ -742,7 +743,49 @@ components:
           type: string
           description: Type of device condition.
       description: DeviceCondition contains condition information for a device.
-    DeviceConfigSpec:
+    GitConfigProviderSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        gitRef:
+          type: object
+          properties:
+            repoURL:
+              type: string
+            targetRevision:
+              type: string
+            path:
+              type: string
+          required:
+            - repoURL
+            - targetRevision
+            - path
+      required:
+      - name
+      - gitRef
+    KubernetesSecretProviderSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        secretRef:
+          type: object
+          properties:
+            name:
+              type: string
+            namespace:
+              type: string
+            mountPath:
+              type: string
+          required:
+            - name
+            - namespace
+            - mountPath
+      required:
+      - name
+      - secretRef
+    InlineConfigProviderSpec:
       type: object
       properties:
         name:
@@ -752,6 +795,7 @@ components:
           additionalProperties: true
       required:
       - name
+      - inline
     DeviceList:
       type: object
       properties:
@@ -791,7 +835,11 @@ components:
           type: array
           description: List of config resources.
           items:
-            $ref: '#/components/schemas/DeviceConfigSpec'
+            type: object
+            oneOf:
+              - $ref: "#/components/schemas/GitConfigProviderSpec"
+              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
+              - $ref: "#/components/schemas/InlineConfigProviderSpec"
         containers:
           type: object
           properties:
@@ -911,6 +959,7 @@ components:
         - apiVersion
         - kind
         - metadata
+        - spec
       description: EnrollmentRequest represents a request for approval to enroll a device.
     EnrollmentRequestCondition:
       required:
@@ -997,6 +1046,7 @@ components:
         - apiVersion
         - kind
         - metadata
+        - spec
       description: Fleet represents a set of devices.
     FleetCondition:
       required:
@@ -1044,8 +1094,19 @@ components:
     FleetSpec:
       type: object
       properties:
+        selector:
+          $ref: '#/components/schemas/LabelSelector'
         template:
-          $ref: '#/components/schemas/DeviceSpec'
+          type: object
+          properties:
+            metadata:
+              $ref: '#/components/schemas/ObjectMeta'
+            spec:
+              $ref: '#/components/schemas/DeviceSpec'
+          required:
+            - spec
+      required:
+        - template
       description: FleetSpec is a description of a fleet's target state.
     FleetStatus:
       type: object
@@ -1082,9 +1143,16 @@ components:
           additionalProperties:
             type: string
           description: 'Map of string keys and values that can be used to organize and categorize (scope and select) objects.'
-      required:
-        - name
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+    LabelSelector:
+      type: object
+      properties:
+        matchLabels:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - matchLabels
     Status:
       type: object
       properties:

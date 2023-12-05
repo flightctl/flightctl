@@ -31,46 +31,42 @@ func (d Fleet) String() string {
 	return string(val)
 }
 
-func NewFleetFromApiResource(res *api.Fleet) *Fleet {
-	spec := api.FleetSpec{}
-	status := api.FleetStatus{}
-	if res.Spec != nil {
-		spec = api.FleetSpec(*res.Spec)
+func NewFleetFromApiResource(resource *api.Fleet) *Fleet {
+	if resource == nil || resource.Metadata.Name == nil {
+		return &Fleet{}
 	}
-	if res.Status != nil {
-		status = api.FleetStatus(*res.Status)
+
+	var status api.FleetStatus
+	if resource.Status != nil {
+		status = *resource.Status
 	}
 	return &Fleet{
 		Resource: Resource{
-			Name: res.Metadata.Name,
+			Name: *resource.Metadata.Name,
 		},
-		Spec:   MakeJSONField(spec),
+		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
 	}
 }
 
-func (d *Fleet) ToApiResource() api.Fleet {
-	if d == nil {
+func (f *Fleet) ToApiResource() api.Fleet {
+	if f == nil {
 		return api.Fleet{}
 	}
 
-	var spec *api.FleetSpec
-	if d.Spec != nil {
-		spec = &d.Spec.Data
-	}
-	var status *api.FleetStatus
-	if d.Status != nil {
-		status = &d.Status.Data
+	var status api.FleetStatus
+	if f.Status != nil {
+		status = f.Status.Data
 	}
 	return api.Fleet{
 		ApiVersion: FleetAPI,
 		Kind:       FleetKind,
 		Metadata: api.ObjectMeta{
-			Name:              d.Name,
-			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
+			Name:              &f.Name,
+			CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
 		},
-		Spec:   spec,
-		Status: status,
+		Spec:   f.Spec.Data,
+		Status: &status,
 	}
 }
 

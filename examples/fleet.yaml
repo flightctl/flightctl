@@ -14,24 +14,25 @@ spec:
       os:
         image: quay.io/redhat/rhde:9.2
       config:
-        # - name: selectedDeviceConfigs
-        #   configSelector:
-        #     matchLabels:
-        #       app: nginx-config
-        # - name: configFromGit
-        #   git:
-        #     repoUrl: https://github.com/flightctl/flightctl-demos.git
-        #     ref:  main
-        #     path: /nginx-config/
+        - name: base
+          gitRef:
+            repoURL: https://github.com/flightctl/flightctl-demos.git
+            targetRevision: main
+            path: /production
+        - name: acm-secrets
+          secretRef:
+            name: DEVICENAME
+            namespace: devices
+            mountPath: /etc/microshift/manifests
         - name: motd-update
           inline:
             ignition:
               version: 3.4.0
             storage:
-            files:
-              - contents:
-                  source: >-
-                    data:,This%20system%20is%20managed%20by%20flightctl.%0A
-                mode: 422
-                overwrite: true
-                path: "/etc/motd"
+              files:
+                - contents:
+                    source: >-
+                      data:,This%20system%20is%20managed%20by%20flightctl.%0A
+                  mode: 422
+                  overwrite: true
+                  path: "/etc/motd"

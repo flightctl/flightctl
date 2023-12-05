@@ -341,14 +341,18 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 			var device api.Device
 			err := yaml.Unmarshal(buf, &device)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Device resource from: %v", filename, err))
+				errs = append(errs, fmt.Errorf("%s: decoding Device resource: %v", filename, err))
+				continue
+			}
+			if device.Metadata.Name == nil {
+				errs = append(errs, fmt.Errorf("%s: decoding Device resource: missing field .metadata.name", filename, err))
 				continue
 			}
 			if dryRun {
-				fmt.Printf("%s: applying device/%s (dry run only)\n", filename, device.Metadata.Name)
+				fmt.Printf("%s: applying device/%s (dry run only)\n", filename, *device.Metadata.Name)
 			} else {
 				fmt.Printf("%s: applying device/%s: ", filename, device.Metadata.Name)
-				response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), device.Metadata.Name, "application/json", bytes.NewReader(buf))
+				response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), *device.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
 					continue
@@ -362,11 +366,15 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: %v", filename, err))
 				continue
 			}
+			if enrollmentRequest.Metadata.Name == nil {
+				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: missing field .metadata.name", filename, err))
+				continue
+			}
 			if dryRun {
 				fmt.Printf("%s: applying enrollmentrequest/%s (dry run only)\n", filename, enrollmentRequest.Metadata.Name)
 			} else {
 				fmt.Printf("%s: applying enrollmentrequest/%s: ", filename, enrollmentRequest.Metadata.Name)
-				response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), enrollmentRequest.Metadata.Name, "application/json", bytes.NewReader(buf))
+				response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), *enrollmentRequest.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
 					continue
@@ -380,11 +388,15 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: %v", filename, err))
 				continue
 			}
+			if fleet.Metadata.Name == nil {
+				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: missing field .metadata.name", filename, err))
+				continue
+			}
 			if dryRun {
 				fmt.Printf("%s: applying fleet/%s (dry run only)\n", filename, fleet.Metadata.Name)
 			} else {
 				fmt.Printf("%s: applying fleet/%s: ", filename, fleet.Metadata.Name)
-				response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), fleet.Metadata.Name, "application/json", bytes.NewReader(buf))
+				response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), *fleet.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
 					continue
