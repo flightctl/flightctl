@@ -10,9 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	cacheutil "github.com/argoproj/argo-cd/v2/util/cache"
 	oapimiddleware "github.com/deepmap/oapi-codegen/pkg/chi-middleware"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/configprovider/git"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/service"
@@ -23,6 +25,7 @@ import (
 
 const (
 	gracefulShutdownTimeout     = 5 * time.Second
+	cacheExpirationTime         = 10 * time.Minute
 	caCertValidityDays          = 365 * 10
 	serverCertValidityDays      = 365 * 1
 	clientBootStrapValidityDays = 365 * 1
@@ -54,7 +57,7 @@ func main() {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}
 
-	log.Println("Initializing data store...")
+	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
@@ -64,6 +67,13 @@ func main() {
 		log.Fatalf("running initial migration: %v", err)
 	}
 
+	log.Println("Initializing caching layer")
+	cache := cacheutil.NewCache(cacheutil.NewInMemoryCache(cacheExpirationTime))
+
+	log.Println("Initializing config providers")
+	_ = git.NewGitConfigProvider(cache, cacheExpirationTime, cacheExpirationTime)
+
+	log.Println("Initializing API server")
 	swagger, err := api.GetSwagger()
 	if err != nil {
 		log.Fatalf("loading swagger spec: %v", err)
