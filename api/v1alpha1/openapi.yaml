@@ -800,6 +800,13 @@ components:
               items:
                 type: string
                 additionalProperties: true
+        systemd:
+          type: object
+          properties:
+            matchPatterns:
+              type: array
+              items:
+                type: string
       description: DeviceSpec is a description of a device's target state.
     DeviceStatus:
       type: object
@@ -816,6 +823,11 @@ components:
           description: Statuses of containers in the device.
           items:
             $ref: '#/components/schemas/ContainerStatus'
+        systemdUnits:
+          type: array
+          description: 'Current state of systemd units on the device.'
+          items:
+            $ref: '#/components/schemas/DeviceSystemdUnitStatus'
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
     DeviceSystemInfo:
       required:
@@ -823,6 +835,7 @@ components:
         - bootID
         - machineID
         - operatingSystem
+        - measurements
       type: object
       properties:
         architecture:
@@ -837,6 +850,11 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
+        measurements:
+          type: object
+          additionalProperties:
+            type: string
+          description: The integrity measurements of the system.
       description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
     ContainerStatus:
       required:
@@ -858,6 +876,22 @@ components:
         image:
           type: string
           description: Image of the container.
+    DeviceSystemdUnitStatus:
+      required:
+        - name
+        - loadState
+        - activeState
+      type: object
+      properties:
+        name:
+          description: The name of the systemd unit.
+        loadState:
+          type: string
+          description: The load state of the systemd unit.
+        activeState:
+          type: string
+          description: The active state of the systemd unit.
+      description: The status of the systemd unit.
     EnrollmentRequest:
       type: object
       properties:
