@@ -76,10 +76,13 @@ func (s *FleetStore) CreateOrUpdateFleet(orgId uuid.UUID, resource *api.Fleet) (
 	// don't overwrite status
 	fleet.Status = nil
 
+	var updatedFleet model.Fleet
 	where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
-	result := s.db.Where(where).Assign(resource).FirstOrCreate(fleet)
+	result := s.db.Where(where).Assign(fleet).FirstOrCreate(&updatedFleet)
 	created := (result.RowsAffected == 0)
-	return resource, created, result.Error
+
+	updatedResource := updatedFleet.ToApiResource()
+	return &updatedResource, created, result.Error
 }
 
 func (s *FleetStore) UpdateFleetStatus(orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {

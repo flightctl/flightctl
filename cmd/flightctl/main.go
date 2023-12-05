@@ -338,8 +338,8 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 
 		switch kind {
 		case "Device":
-			device := &api.Device{}
-			err := yaml.Unmarshal(buf, device)
+			var device api.Device
+			err := yaml.Unmarshal(buf, &device)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: decoding Device resource from: %v", filename, err))
 				continue
@@ -356,8 +356,8 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				fmt.Printf("%s\n", response.HTTPResponse.Status)
 			}
 		case "EnrollmentRequest":
-			enrollmentRequest := &api.EnrollmentRequest{}
-			err := yaml.Unmarshal(buf, enrollmentRequest)
+			var enrollmentRequest api.EnrollmentRequest
+			err := yaml.Unmarshal(buf, &enrollmentRequest)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: %v", filename, err))
 				continue
@@ -374,8 +374,8 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				fmt.Printf("%s\n", response.HTTPResponse.Status)
 			}
 		case "Fleet":
-			fleet := &api.Fleet{}
-			err := yaml.Unmarshal(buf, fleet)
+			var fleet api.Fleet
+			err := yaml.Unmarshal(buf, &fleet)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: %v", filename, err))
 				continue

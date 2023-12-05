@@ -76,10 +76,13 @@ func (s *DeviceStore) CreateOrUpdateDevice(orgId uuid.UUID, resource *api.Device
 	// don't overwrite status
 	device.Status = nil
 
+	var updatedDevice model.Device
 	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
-	result := s.db.Where(where).Assign(device).FirstOrCreate(device)
+	result := s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice)
 	created := (result.RowsAffected == 0)
-	return resource, created, result.Error
+
+	updatedResource := updatedDevice.ToApiResource()
+	return &updatedResource, created, result.Error
 }
 
 func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
