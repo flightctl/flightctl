@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/agent/controller"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"k8s.io/klog/v2"
 )
 
@@ -27,6 +28,7 @@ func main() {
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
 	fetchSpecInterval := flag.Duration("fetch-spec-interval", agent.DefaultFetchSpecInterval, "Duration between two reads of the remote device spec")
 	statusUpdateInterval := flag.Duration("status-update-interval", agent.DefaultStatusUpdateInterval, "Duration between two status updates")
+	tpmPath := flag.String("tpm", "", "Path to TPM device")
 	flag.Parse()
 
 	klog.Infoln("starting device simulator")
@@ -36,6 +38,24 @@ func main() {
 	flag.CommandLine.VisitAll(func(flg *flag.Flag) {
 		klog.Infof("  %s=%s", flg.Name, flg.Value)
 	})
+
+	klog.Infoln("setting up metrics endpoint")
+	setupMetricsEndpoint(*metricsAddr)
+
+	klog.Infoln("setting up TPM")
+	var err error
+	var tpmChannel *tpm.TPM
+	if len(*tpmPath) > 0 {
+		tpmChannel, err = tpm.OpenTPM(*tpmPath)
+		if err != nil {
+			klog.Errorf("opening TPM channel: %v", err)
+		}
+	} else {
+		tpmChannel, err = tpm.OpenTPMSimulator()
+		if err != nil {
+			klog.Errorf("opening TPM simulator channel: %v", err)
+		}
+	}
 
 	klog.Infoln("creating agents")
 	agents := make([]*agent.DeviceAgent, *numDevices)
@@ -49,8 +69,9 @@ func main() {
 		}
 		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, agentDir).
 			SetDisplayName(agentName).
-			AddController(controller.NewSystemInfoController()).
+			AddController(controller.NewSystemInfoController(tpmChannel)).
 			AddController(controller.NewContainerController()).
+			AddController(controller.NewSystemDController()).
 			SetFetchSpecInterval(*fetchSpecInterval, 0).
 			SetStatusUpdateInterval(*statusUpdateInterval, 0).
 			SetRpcMetricsCallbackFunction(rpcMetricsCallback)
@@ -65,9 +86,6 @@ func main() {
 		log.Printf("Shutdown signal received (%v).", sig)
 		cancel()
 	}()
-
-	klog.Infoln("setting up metrics endpoint")
-	setupMetricsEndpoint(*metricsAddr)
 
 	klog.Infoln("running agents")
 	wg := new(sync.WaitGroup)

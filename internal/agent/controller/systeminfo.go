@@ -5,6 +5,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/google/cadvisor/fs"
 	"github.com/google/cadvisor/machine"
 	"github.com/google/cadvisor/utils/sysfs"
@@ -12,13 +13,14 @@ import (
 )
 
 type SystemInfoController struct {
-	agent *agent.DeviceAgent
+	agent      *agent.DeviceAgent
+	tpmChannel *tpm.TPM
 
 	systemInfo *api.DeviceSystemInfo
 }
 
-func NewSystemInfoController() *SystemInfoController {
-	return &SystemInfoController{}
+func NewSystemInfoController(tpmChannel *tpm.TPM) *SystemInfoController {
+	return &SystemInfoController{tpmChannel: tpmChannel}
 }
 
 func (c *SystemInfoController) SetDeviceAgent(a *agent.DeviceAgent) {
@@ -45,6 +47,7 @@ func (c *SystemInfoController) SetStatus(r *api.Device) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
+
 	if c.systemInfo == nil {
 		c.systemInfo = &api.DeviceSystemInfo{
 			Architecture:    runtime.GOARCH,
@@ -65,6 +68,9 @@ func (c *SystemInfoController) SetStatus(r *api.Device) (bool, error) {
 				c.systemInfo.MachineID = info.MachineID
 			}
 		}
+
+		c.systemInfo.Measurements = map[string]string{}
+		c.tpmChannel.GetPCRValues(c.systemInfo.Measurements)
 	}
 	r.Status.SystemInfo = c.systemInfo
 	return true, nil
