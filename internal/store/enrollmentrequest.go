@@ -76,10 +76,13 @@ func (s *EnrollmentRequestStore) CreateOrUpdateEnrollmentRequest(orgId uuid.UUID
 	// don't overwrite status
 	enrollmentrequest.Status = nil
 
+	var updatedEnrollmentRequest model.EnrollmentRequest
 	where := model.EnrollmentRequest{Resource: model.Resource{OrgID: enrollmentrequest.OrgID, Name: enrollmentrequest.Name}}
-	result := s.db.Where(where).Assign(resource).FirstOrCreate(enrollmentrequest)
+	result := s.db.Where(where).Assign(enrollmentrequest).FirstOrCreate(&updatedEnrollmentRequest)
 	created := (result.RowsAffected == 0)
-	return resource, created, result.Error
+
+	updatedResource := updatedEnrollmentRequest.ToApiResource()
+	return &updatedResource, created, result.Error
 }
 
 func (s *EnrollmentRequestStore) UpdateEnrollmentRequestStatus(orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
