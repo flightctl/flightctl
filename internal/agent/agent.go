@@ -119,8 +119,8 @@ func NewDeviceAgent(enrollmentServerUrl, managementServerUrl, enrollmentUiUrl, c
 		device: api.Device{
 			ApiVersion: "v1alpha1",
 			Kind:       "Device",
-			Metadata:   api.ObjectMeta{Name: ""},
-			Spec:       &api.DeviceSpec{},
+			Metadata:   api.ObjectMeta{},
+			Spec:       api.DeviceSpec{},
 			Status:     &api.DeviceStatus{},
 		},
 		controllers:            []DeviceAgentController{},
@@ -228,7 +228,7 @@ func (a *DeviceAgent) ensureKeyPairAndFingerprint() error {
 	}
 	a.key = &privateKey
 	a.fingerprint = hex.EncodeToString(publicKeyHash)
-	a.device.Metadata.Name = a.fingerprint
+	a.device.Metadata.Name = &a.fingerprint
 	return nil
 }
 

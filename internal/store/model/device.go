@@ -31,20 +31,20 @@ func (d Device) String() string {
 	return string(val)
 }
 
-func NewDeviceFromApiResource(res *api.Device) *Device {
-	spec := api.DeviceSpec{}
-	status := api.DeviceStatus{}
-	if res.Spec != nil {
-		spec = api.DeviceSpec(*res.Spec)
+func NewDeviceFromApiResource(resource *api.Device) *Device {
+	if resource == nil || resource.Metadata.Name == nil {
+		return &Device{}
 	}
-	if res.Status != nil {
-		status = api.DeviceStatus(*res.Status)
+
+	var status api.DeviceStatus
+	if resource.Status != nil {
+		status = *resource.Status
 	}
 	return &Device{
 		Resource: Resource{
-			Name: res.Metadata.Name,
+			Name: *resource.Metadata.Name,
 		},
-		Spec:   MakeJSONField(spec),
+		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
 	}
 }
@@ -54,23 +54,19 @@ func (d *Device) ToApiResource() api.Device {
 		return api.Device{}
 	}
 
-	var spec *api.DeviceSpec
-	if d.Spec != nil {
-		spec = &d.Spec.Data
-	}
-	var status *api.DeviceStatus
+	var status api.DeviceStatus
 	if d.Status != nil {
-		status = &d.Status.Data
+		status = d.Status.Data
 	}
 	return api.Device{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceKind,
 		Metadata: api.ObjectMeta{
-			Name:              d.Name,
+			Name:              &d.Name,
 			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
 		},
-		Spec:   spec,
-		Status: status,
+		Spec:   d.Spec.Data,
+		Status: &status,
 	}
 }
 

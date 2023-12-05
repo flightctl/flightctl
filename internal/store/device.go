@@ -89,8 +89,11 @@ func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *api.Device) 
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
+	if resource.Metadata.Name == nil {
+		return nil, fmt.Errorf("resource.metadata.name is nil")
+	}
 	device := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: resource.Metadata.Name},
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
 	result := s.db.Model(&device).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),

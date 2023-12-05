@@ -31,20 +31,20 @@ func (e EnrollmentRequest) String() string {
 	return string(val)
 }
 
-func NewEnrollmentRequestFromApiResource(res *api.EnrollmentRequest) *EnrollmentRequest {
-	spec := api.EnrollmentRequestSpec{}
-	status := api.EnrollmentRequestStatus{}
-	if res.Spec != nil {
-		spec = api.EnrollmentRequestSpec(*res.Spec)
+func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) *EnrollmentRequest {
+	if resource == nil || resource.Metadata.Name == nil {
+		return &EnrollmentRequest{}
 	}
-	if res.Status != nil {
-		status = api.EnrollmentRequestStatus(*res.Status)
+
+	var status api.EnrollmentRequestStatus
+	if resource.Status != nil {
+		status = *resource.Status
 	}
 	return &EnrollmentRequest{
 		Resource: Resource{
-			Name: res.Metadata.Name,
+			Name: *resource.Metadata.Name,
 		},
-		Spec:   MakeJSONField(spec),
+		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
 	}
 }
@@ -54,23 +54,19 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 		return api.EnrollmentRequest{}
 	}
 
-	var spec *api.EnrollmentRequestSpec
-	if e.Spec != nil {
-		spec = &e.Spec.Data
-	}
-	var status *api.EnrollmentRequestStatus
+	var status api.EnrollmentRequestStatus
 	if e.Status != nil {
-		status = &e.Status.Data
+		status = e.Status.Data
 	}
 	return api.EnrollmentRequest{
 		ApiVersion: EnrollmentRequestAPI,
 		Kind:       EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
-			Name:              e.Name,
+			Name:              &e.Name,
 			CreationTimestamp: util.StrToPtr(e.CreatedAt.UTC().Format(time.RFC3339)),
 		},
-		Spec:   spec,
-		Status: status,
+		Spec:   e.Spec.Data,
+		Status: &status,
 	}
 }
 

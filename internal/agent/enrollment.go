@@ -94,8 +94,8 @@ func (a *DeviceAgent) sendEnrollmentRequest(ctx context.Context) error {
 	req := &api.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
-		Metadata:   api.ObjectMeta{Name: a.fingerprint},
-		Spec: &api.EnrollmentRequestSpec{
+		Metadata:   api.ObjectMeta{Name: &a.fingerprint},
+		Spec: api.EnrollmentRequestSpec{
 			Csr:          string(csr),
 			DeviceStatus: a.device.Status,
 		},
