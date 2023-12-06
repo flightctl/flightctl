@@ -19,6 +19,24 @@ services:
       - flightctl-network
     restart: unless-stopped
 
+  flightctl-auth-db:
+    container_name: flightctl-auth-db
+    image: ${PGSQL_IMAGE:-quay.io/cloudservices/postgresql-rds:12-9ee2984}
+    environment:
+      - POSTGRESQL_DATABASE=keycloak
+      - POSTGRESQL_USER=keycloak
+      - POSTGRESQL_PASSWORD=keycloak
+      - POSTGRESQL_MASTER_USER=admin
+      - POSTGRESQL_MASTER_PASSWORD=adminpass
+      - PGPASSWORD=adminpass
+    ports:
+      - "5433:5433"
+    volumes:
+      - flightctl-auth-db:/var/lib/pgsql/data
+    networks:
+      - flightctl-network
+    restart: unless-stopped
+
   flighctl-db-metrics-exporter:
     container_name: flightctl-db-metrics-exporter
     image: quay.io/prometheuscommunity/postgres-exporter
@@ -45,9 +63,36 @@ services:
     networks:
       - flightctl-network
 
+  flightctl-auth:
+    container_name: flightctl-auth
+    image: quay.io/keycloak/keycloak
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+    command:
+      - start-dev
+      - --http-port=9080
+      - --https-port=9443
+      - --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: adminpass
+      DB_VENDOR: postgres
+      DB_ADDR: flightctl-auth-db:5433
+      DB_DATABSE: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD: keycloak
+    volumes:
+      - ./keycloak/realm-flightctl.json:/opt/keycloak/data/import/realm.json
+    networks:
+      - flightctl-network
+    restart: unless-stopped
+
 volumes:
   flightctl-db:
   flightctl-server-certs:
+  flightctl-auth-db:
+  flightctl-auth:
   config:
     external: true
 networks:
