@@ -41,12 +41,21 @@ deploy: build flightctl-server-container
 bin:
 	mkdir -p bin
 
+rpm: build
+	mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+	mkdir -p bin/flightctl-agent-0.0.1
+	cp bin/flightctl-agent bin/flightctl-agent-0.0.1
+	cp packaging/systemd/flightctl-agent.service bin/flightctl-agent-0.0.1
+	tar cvf rpmbuild/SOURCES/flightctl-agent-0.0.1.tar -C bin/ flightctl-agent-0.0.1
+	rpmbuild --define "_topdir /home/oglok/flightctl/rpmbuild" -ba /home/oglok/flightctl/packaging/rpm/flightctl-agent.spec
+
 clean:
-	-podman-compose -f deploy/podman/compose.yaml down
-	-podman-compose -f deploy/podman/observability.yaml down
-	-rm -r ~/.flightctl
-	-podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
+	- podman-compose -f deploy/podman/compose.yaml down
+	- podman-compose -f deploy/podman/observability.yaml down
+	- rm -r ~/.flightctl
+	- podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
 	- rm -r bin
+	- rm -r rpmbuild
 
 .PHONY: tools deploy deploy-db flightctl-server-container
 tools: $(GOBIN)/golangci-lint
