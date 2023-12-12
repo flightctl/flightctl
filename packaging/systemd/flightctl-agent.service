@@ -1,0 +1,13 @@
+
+[Unit]
+Description=Flightctl Agent
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/flightctl-agent
+Restart=always
+User=flightctl
+Group=flightctl
+
+[Install]
+WantedBy=multi-user.target
