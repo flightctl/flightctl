@@ -67,7 +67,8 @@ func main() {
 				log.Fatalf("copying %s: %v", filename, err)
 			}
 		}
-		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, *serverUrl, agentDir).
+		enrollmentUiUrl := ""
+		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, enrollmentUiUrl, agentDir).
 			SetDisplayName(agentName).
 			AddController(controller.NewSystemInfoController(tpmChannel)).
 			AddController(controller.NewContainerController()).
