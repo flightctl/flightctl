@@ -18,7 +18,7 @@ func main() {
 
 	serverUrl := flag.String("server", "", "device server URL")
 	enrollmentUiUrl := flag.String("enrollment-ui", "", "enrollment UI URL base")
-	dataDir := flag.String("data-dir", "/var/lib/flightctl", "device agent data directory")
+	dataDir := flag.String("data-dir", "/etc/flightctl", "device agent data directory")
 
 	tpmPath := flag.String("tpm", "", "Path to TPM device")
 
