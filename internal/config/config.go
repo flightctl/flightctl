@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/util"
 	"gopkg.in/yaml.v3"
 )
@@ -15,8 +17,9 @@ const (
 )
 
 type Config struct {
-	Database *dbConfig  `json:"database,omitempty"`
-	Service  *svcConfig `json:"service,omitempty"`
+	Database *dbConfig    `json:"database,omitempty"`
+	Service  *svcConfig   `json:"service,omitempty"`
+	Agent    *agentConfig `json:"agent,omitempty"`
 }
 
 type dbConfig struct {
@@ -36,6 +39,14 @@ type svcConfig struct {
 	CaKeyFile   string `json:"caKeyFile,omitempty"`
 	SrvCertFile string `json:"srvCertFile,omitempty"`
 	SrvKeyFile  string `json:"srvKeyFile,omitempty"`
+}
+
+type agentConfig struct {
+	Server               string        `json:"server,omitempty"`
+	EnrollmentUi         string        `json:"enrollment-ui,omitempty"`
+	TpmPath              string        `json:"tpm,omitempty"`
+	FetchSpecInterval    time.Duration `json:"fetch-spec-interval,omitempty"`
+	StatusUpdateInterval time.Duration `json:"status-update-interval,omitempty"`
 }
 
 func ConfigDir() string {
@@ -64,6 +75,13 @@ func NewDefault() *Config {
 			Address:   ":3333",
 			CertStore: CertificateDir(),
 			BaseUrl:   "http://localhost:3333/api",
+		},
+		Agent: &agentConfig{
+			Server:               "https://localhost:3333",
+			EnrollmentUi:         "",
+			TpmPath:              "",
+			FetchSpecInterval:    agent.DefaultFetchSpecInterval,
+			StatusUpdateInterval: agent.DefaultStatusUpdateInterval,
 		},
 	}
 	return c
