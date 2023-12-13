@@ -6,24 +6,27 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/agent/controller"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"k8s.io/klog/v2"
 )
 
 func main() {
-
-	serverUrl := flag.String("server", "", "device server URL")
-	enrollmentUiUrl := flag.String("enrollment-ui", "", "enrollment UI URL base")
 	dataDir := flag.String("data-dir", "/etc/flightctl", "device agent data directory")
 
-	tpmPath := flag.String("tpm", "", "Path to TPM device")
+	agentConfig, _ := config.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
 
-	fetchSpecInterval := flag.Duration("fetch-spec-interval", agent.DefaultFetchSpecInterval, "Duration between two reads of the remote device spec")
-	statusUpdateInterval := flag.Duration("status-update-interval", agent.DefaultStatusUpdateInterval, "Duration between two status updates")
+	serverUrl := flag.String("server", agentConfig.Agent.Server, "device server URL")
+	enrollmentUiUrl := flag.String("enrollment-ui", agentConfig.Agent.EnrollmentUi, "enrollment UI URL base")
+	tpmPath := flag.String("tpm", agentConfig.Agent.TpmPath, "Path to TPM device")
+
+	fetchSpecInterval := flag.Duration("fetch-spec-interval", agentConfig.Agent.FetchSpecInterval, "Duration between two reads of the remote device spec")
+	statusUpdateInterval := flag.Duration("status-update-interval", agentConfig.Agent.StatusUpdateInterval, "Duration between two status updates")
 	flag.Parse()
 
 	klog.Infoln("starting flightctl device agent")
