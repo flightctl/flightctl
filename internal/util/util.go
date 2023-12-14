@@ -1,7 +1,9 @@
 package util
 
 import (
+	"encoding/json"
 	"fmt"
+	"time"
 )
 
 type StringerWithError func() (string, error)
@@ -52,4 +54,26 @@ func SingleQuote(input []string) []string {
 		output[i] = fmt.Sprintf("'%s'", val)
 	}
 	return output
+}
+
+type Duration time.Duration
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	err := json.Unmarshal(b, &s)
+	if err != nil {
+		return err
+	}
+
+	duration, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+
+	*d = Duration(duration)
+	return nil
 }

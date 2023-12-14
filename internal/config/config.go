@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/util"
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -43,10 +42,10 @@ type svcConfig struct {
 
 type agentConfig struct {
 	Server               string        `json:"server,omitempty"`
-	EnrollmentUi         string        `json:"enrollment-ui,omitempty"`
-	TpmPath              string        `json:"tpm,omitempty"`
-	FetchSpecInterval    time.Duration `json:"fetch-spec-interval,omitempty"`
-	StatusUpdateInterval time.Duration `json:"status-update-interval,omitempty"`
+	EnrollmentUi         string        `json:"enrollmentUi,omitempty"`
+	TpmPath              string        `json:"tpmPath,omitempty"`
+	FetchSpecInterval    util.Duration `json:"fetchSpecInterval,omitempty"`
+	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
 }
 
 func ConfigDir() string {
@@ -80,8 +79,8 @@ func NewDefault() *Config {
 			Server:               "https://localhost:3333",
 			EnrollmentUi:         "",
 			TpmPath:              "",
-			FetchSpecInterval:    agent.DefaultFetchSpecInterval,
-			StatusUpdateInterval: agent.DefaultStatusUpdateInterval,
+			FetchSpecInterval:    util.Duration(agent.DefaultFetchSpecInterval),
+			StatusUpdateInterval: util.Duration(agent.DefaultStatusUpdateInterval),
 		},
 	}
 	return c
