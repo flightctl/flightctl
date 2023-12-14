@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/agent/controller"
@@ -25,8 +26,8 @@ func main() {
 	enrollmentUiUrl := flag.String("enrollment-ui", agentConfig.Agent.EnrollmentUi, "enrollment UI URL base")
 	tpmPath := flag.String("tpm", agentConfig.Agent.TpmPath, "Path to TPM device")
 
-	fetchSpecInterval := flag.Duration("fetch-spec-interval", agentConfig.Agent.FetchSpecInterval, "Duration between two reads of the remote device spec")
-	statusUpdateInterval := flag.Duration("status-update-interval", agentConfig.Agent.StatusUpdateInterval, "Duration between two status updates")
+	fetchSpecInterval := flag.Duration("fetch-spec-interval", time.Duration(agentConfig.Agent.FetchSpecInterval), "Duration between two reads of the remote device spec")
+	statusUpdateInterval := flag.Duration("status-update-interval", time.Duration(agentConfig.Agent.StatusUpdateInterval), "Duration between two status updates")
 	flag.Parse()
 
 	klog.Infoln("starting flightctl device agent")
