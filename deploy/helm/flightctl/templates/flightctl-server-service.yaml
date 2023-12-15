@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-server
+  name: flightctl-server
+  namespace: {{ .Values.flightctl.server.namespace }}
+spec:
+  ports:
+    - name: "3333"
+      port: 3333
+      targetPort: 3333
+  selector:
+    flightctl.service: flightctl-server
+

@@ -1,0 +1,15 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-flightctl
+  namespace: {{ .Values.flightctl.db.namespace }}
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Values.flightctl.server.namespace }}
+      podSelector: {}
+  podSelector: {}
+  policyTypes:
+  - Ingress
