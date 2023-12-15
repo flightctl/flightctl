@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"os/user"
 	"time"
 
 	"github.com/containers/podman/v4/pkg/bindings"
@@ -43,11 +45,24 @@ func (c *ContainerController) SetStatus(r *api.Device) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
-
 	ctx, _ := context.WithTimeout(context.Background(), time.Second)
 
-	//TODO: Get the unix socket path depending on the user
-	conn, err := bindings.NewConnection(ctx, "unix:///run/user/1000/podman/podman.sock")
+	// Get the current user.
+	currentUser, err := user.Current()
+	if err != nil {
+		klog.Errorf("Cannot get current user: %v", err)
+		return false, err
+	}
+
+	// Set the socket path based on the user ID.
+	var socketPath string
+	if currentUser.Uid == "0" {
+		socketPath = "unix:///run/podman/podman.sock"
+	} else {
+		socketPath = fmt.Sprintf("unix:///run/user/%s/podman/podman.sock", currentUser.Uid)
+	}
+
+	conn, err := bindings.NewConnection(ctx, socketPath)
 	if err != nil {
 		klog.Errorf("Connection cannot be created: %v", err)
 		return false, err
