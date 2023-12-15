@@ -1,0 +1,22 @@
+flightctl:
+  db:
+    namespace: flightctl-internal
+    image: quay.io/cloudservices/postgresql-rds:12-9ee2984
+    password: adminpass
+    masterPassword: adminpass
+    masterUser: admin
+    user: demouser
+    userPassword: demopass
+  server:
+    namespace: flightctl-external
+    image: quay.io/flightctl/flightctl-server:latest
+    imagePullPolicy: Always
+    hostName: api.flightctl.example.com
+
+
+storageClassName: aws-ebs
+storageClassNameRWM: aws-efs-tier-c4
+
+
+# This is only related to deployment in Red Hat's PAAS
+appCode: MYAPP

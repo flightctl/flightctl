@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    kubernetes.io/reclaimPolicy: Delete
+  labels:
+    paas.redhat.com/appcode: {{ .Values.appCode }}
+  name: flightctl-db
+  namespace: {{ .Values.flightctl.db.namespace }}
+spec:
+  storageClassName: {{ .Values.storageClassName }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
