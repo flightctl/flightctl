@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-db
+  name: flightctl-db
+  namespace: {{ .Values.flightctl.db.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-db
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-db
+    spec:
+      containers:
+        - env:
+            - name: PGPASSWORD
+              value: {{ .Values.flightctl.db.password }}
+            - name: POSTGRESQL_DATABASE
+              value: flightctl
+            - name: POSTGRESQL_MASTER_PASSWORD
+              value: {{ .Values.flightctl.db.masterPassword }}
+            - name: POSTGRESQL_MASTER_USER
+              value: {{ .Values.flightctl.db.masterUser }}
+            - name: POSTGRESQL_PASSWORD
+              value: {{ .Values.flightctl.db.userPassword }}
+            - name: POSTGRESQL_USER
+              value: {{ .Values.flightctl.db.user }}
+          image: {{ .Values.flightctl.db.image }}
+          name: flightctl-db
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /var/lib/pgsql/data
+              name: flightctl-db
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-db
+          persistentVolumeClaim:
+            claimName: flightctl-db
+

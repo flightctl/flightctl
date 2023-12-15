@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-db
+  name: flightctl-db
+  namespace: {{ .Values.flightctl.db.namespace }}
+spec:
+  ports:
+    - name: "5432"
+      port: 5432
+      targetPort: 5432
+  selector:
+    flightctl.service: flightctl-db
