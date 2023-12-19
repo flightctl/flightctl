@@ -162,6 +162,24 @@ type EnrollmentRequest struct {
 	Status *EnrollmentRequestStatus `json:"status,omitempty"`
 }
 
+// EnrollmentRequestApproval defines model for EnrollmentRequestApproval.
+type EnrollmentRequestApproval struct {
+	// Approved approved indicates whether the request has been approved.
+	Approved bool `json:"approved"`
+
+	// ApprovedAt approvedAt is the time at which the request was approved.
+	ApprovedAt *string `json:"approvedAt,omitempty"`
+
+	// ApprovedBy approvedBy is the name of the approver.
+	ApprovedBy *string `json:"approvedBy,omitempty"`
+
+	// Labels labels is a set of labels to apply to the device.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Region region is the region in which the device should be enrolled.
+	Region *string `json:"region,omitempty"`
+}
+
 // EnrollmentRequestCondition EnrollmentRequestCondition contains condition information for a EnrollmentRequest.
 type EnrollmentRequestCondition struct {
 	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
@@ -205,6 +223,8 @@ type EnrollmentRequestSpec struct {
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 type EnrollmentRequestStatus struct {
+	Approval *EnrollmentRequestApproval `json:"approval,omitempty"`
+
 	// Certificate certificate is a PEM-encoded signed certificate.
 	Certificate *string `json:"certificate,omitempty"`
 
@@ -344,6 +364,12 @@ type Status struct {
 	Status *string `json:"status,omitempty"`
 }
 
+// UnprocessableEntityResponse UnprocessableEntityResponse is returned when the request is not valid.
+type UnprocessableEntityResponse struct {
+	// Error Error message.
+	Error string `json:"error"`
+}
+
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -395,8 +421,8 @@ type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
 // ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
 type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
-// ReplaceEnrollmentRequestApprovalJSONRequestBody defines body for ReplaceEnrollmentRequestApproval for application/json ContentType.
-type ReplaceEnrollmentRequestApprovalJSONRequestBody = EnrollmentRequest
+// CreateEnrollmentRequestApprovalJSONRequestBody defines body for CreateEnrollmentRequestApproval for application/json ContentType.
+type CreateEnrollmentRequestApprovalJSONRequestBody = EnrollmentRequestApproval
 
 // ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
 type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest

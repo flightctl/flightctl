@@ -3,7 +3,10 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+
+	"k8s.io/klog/v2"
 )
 
 type StringerWithError func() (string, error)
@@ -48,10 +51,58 @@ func StrToPtr(s string) *string {
 	return &s
 }
 
+func TimeStampStringPtr() *string {
+	return StrToPtr(time.Now().Format(time.RFC3339))
+}
+
 func SingleQuote(input []string) []string {
 	output := make([]string, len(input))
 	for i, val := range input {
 		output[i] = fmt.Sprintf("'%s'", val)
+	}
+	return output
+}
+
+func LabelMapToArray(labels *map[string]string) []string {
+	if labels == nil {
+		return []string{}
+	}
+	output := make([]string, len(*labels))
+	i := 0
+	for key, val := range *labels {
+		output[i] = fmt.Sprintf("%s=%s", key, val)
+		i++
+	}
+	return output
+}
+
+func splitLabel(label string) (string, string, error) {
+	parts := strings.SplitN(label, "=", 2)
+
+	switch {
+	case len(parts) > 2:
+		return "", "", fmt.Errorf("invalid label: %s", label)
+	case len(parts) == 1:
+		return parts[0], "", nil
+	case len(parts) == 2:
+		return parts[0], parts[1], nil
+	}
+	return "", "", nil
+}
+
+func LabelArrayToMap(labels []string) map[string]string {
+	output := make(map[string]string)
+	for _, label := range labels {
+		key, val, err := splitLabel(label)
+		// if our serialized labels have a weird format (DB has been manipulated directly), skip them
+		// eventually will get overwriten by correct labels on next update.
+		if err != nil {
+			klog.Errorf("invalid label in array: %q, must be in the xxxx=yyy or xxxx, or xxxx= format", label)
+		}
+		if key == "" && val == "" {
+			continue
+		}
+		output[key] = val
 	}
 	return output
 }
