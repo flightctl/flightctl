@@ -31,13 +31,14 @@ type dbConfig struct {
 }
 
 type svcConfig struct {
-	Address     string `json:"address,omitempty"`
-	CertStore   string `json:"cert,omitempty"`
-	BaseUrl     string `json:"baseUrl,omitempty"`
-	CaCertFile  string `json:"caCertFile,omitempty"`
-	CaKeyFile   string `json:"caKeyFile,omitempty"`
-	SrvCertFile string `json:"srvCertFile,omitempty"`
-	SrvKeyFile  string `json:"srvKeyFile,omitempty"`
+	Address     string   `json:"address,omitempty"`
+	CertStore   string   `json:"cert,omitempty"`
+	BaseUrl     string   `json:"baseUrl,omitempty"`
+	CaCertFile  string   `json:"caCertFile,omitempty"`
+	CaKeyFile   string   `json:"caKeyFile,omitempty"`
+	SrvCertFile string   `json:"srvCertFile,omitempty"`
+	SrvKeyFile  string   `json:"srvKeyFile,omitempty"`
+	AltNames    []string `json:"altNames,omitempty"`
 }
 
 type agentConfig struct {

@@ -48,7 +48,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("ensuring CA cert: %v", err)
 	}
-	serverCerts, _, err := ca.EnsureServerCertificate(certFile(serverCertName), keyFile(serverCertName), []string{"localhost"}, serverCertValidityDays)
+
+	// default certificate hostnames to localhost if nothing else is configured
+	if len(cfg.Service.AltNames) == 0 {
+		cfg.Service.AltNames = []string{"localhost"}
+	}
+
+	serverCerts, _, err := ca.EnsureServerCertificate(certFile(serverCertName), keyFile(serverCertName), cfg.Service.AltNames, serverCertValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring server cert: %v", err)
 	}
