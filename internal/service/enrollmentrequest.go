@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
-	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
@@ -55,9 +55,38 @@ func autoApproveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.E
 				Status:             "True",
 				Reason:             util.StrToPtr("AutoApproved"),
 				Message:            util.StrToPtr("Approved by auto approver"),
-				LastTransitionTime: util.StrToPtr(time.Now().Format(time.RFC3339)),
+				LastTransitionTime: util.TimeStampStringPtr(),
 			},
 		},
+	}
+	return nil
+}
+
+func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
+	csrPEM := enrollmentRequest.Spec.Csr
+	csr, err := crypto.ParseCSR([]byte(csrPEM))
+	if err != nil {
+		return err
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return err
+	}
+	certData, err := ca.IssueRequestedClientCertificate(csr, ClientCertExpiryDays)
+	if err != nil {
+		return err
+	}
+	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+		Certificate: util.StrToPtr(string(certData)),
+		Conditions: &[]api.EnrollmentRequestCondition{
+			{
+				Type:               "Approved",
+				Status:             "True",
+				Reason:             util.StrToPtr("ManuallyApproved"),
+				Message:            util.StrToPtr("Approved by " + *approval.ApprovedBy),
+				LastTransitionTime: approval.ApprovedAt,
+			},
+		},
+		Approval: approval,
 	}
 	return nil
 }
@@ -67,6 +96,13 @@ func createDeviceFromEnrollmentRequest(deviceStore DeviceStoreInterface, orgId u
 		Metadata: api.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
+	}
+	if enrollmentRequest.Status.Approval != nil {
+		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
+		if apiResource.Metadata.Labels == nil {
+			apiResource.Metadata.Labels = &map[string]string{}
+		}
+		(*apiResource.Metadata.Labels)["region"] = *enrollmentRequest.Status.Approval.Region
 	}
 	_, err := deviceStore.CreateDevice(orgId, apiResource)
 	return err
@@ -79,12 +115,14 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
-	if err := autoApproveAndSignEnrollmentRequest(h.ca, request.Body); err != nil {
-		return nil, err
-	}
-	if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, request.Body); err != nil {
-		return nil, err
-	}
+	/*
+		if err := autoApproveAndSignEnrollmentRequest(h.ca, request.Body); err != nil {
+			return nil, err
+		}
+		if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, request.Body); err != nil {
+			return nil, err
+		}
+	*/
 
 	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(orgId, request.Body)
 	switch err {
@@ -189,20 +227,50 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 	}
 }
 
-// (PUT /api/v1/enrollmentrequests/{name}/approval)
-func (h *ServiceHandler) ReplaceEnrollmentRequestApproval(ctx context.Context, request server.ReplaceEnrollmentRequestApprovalRequestObject) (server.ReplaceEnrollmentRequestApprovalResponseObject, error) {
+// (POST /api/v1/enrollmentrequests/{name}/approval)
+func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, request server.CreateEnrollmentRequestApprovalRequestObject) (server.CreateEnrollmentRequestApprovalResponseObject, error) {
 	orgId := NullOrgId
 
-	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
+	enrollmentReq, err := h.enrollmentRequestStore.GetEnrollmentRequest(orgId, request.Name)
+	switch err {
+	default:
 		return nil, err
+	case gorm.ErrRecordNotFound:
+		return server.CreateEnrollmentRequestApproval404Response{}, nil
+	case nil:
 	}
 
-	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, request.Body)
+	if request.Body.Approved {
+
+		if request.Body.ApprovedAt != nil {
+			return server.CreateEnrollmentRequestApproval422JSONResponse{
+				Error: "ApprovedAt is not allowed to be set when approving enrollment requests",
+			}, nil
+		}
+
+		request.Body.ApprovedAt = util.TimeStampStringPtr()
+
+		// The same check should happen for ApprovedBy, but we don't have a way to identify
+		// users yet, so we'll let the UI set it for now.
+		if request.Body.ApprovedBy == nil {
+			request.Body.ApprovedBy = util.StrToPtr("unknown")
+		}
+
+		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
+			return nil, err
+		}
+
+		if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, enrollmentReq); err != nil {
+			return nil, err
+		}
+	}
+
+	_, err = h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(orgId, enrollmentReq)
 	switch err {
 	case nil:
-		return server.ReplaceEnrollmentRequestApproval200JSONResponse(*result), nil
+		return server.CreateEnrollmentRequestApproval200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceEnrollmentRequestApproval404Response{}, nil
+		return server.CreateEnrollmentRequestApproval404Response{}, nil
 	default:
 		return nil, err
 	}

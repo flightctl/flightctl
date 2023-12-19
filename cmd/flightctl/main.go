@@ -73,6 +73,7 @@ func NewFlightctlCommand() *cobra.Command {
 	cmd.AddCommand(NewCmdGet())
 	cmd.AddCommand(NewCmdApply())
 	cmd.AddCommand(NewCmdDelete())
+	cmd.AddCommand(NewCmdApprove())
 	return cmd
 }
 
