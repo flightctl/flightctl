@@ -23,7 +23,24 @@ func NewDeviceStore(db *gorm.DB) *DeviceStore {
 }
 
 func (s *DeviceStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.Device{})
+	if err := s.db.AutoMigrate(&model.Device{}); err != nil {
+		return err
+	}
+
+	// TODO: generalize this for fleet, enrollmentrequest, etc. Make part of the base resource
+	if !s.db.Migrator().HasIndex(&model.Device{}, "device_labels") {
+		// see https://github.com/go-gorm/gorm/discussions/6695
+		if s.db.Dialector.Name() == "postgres" {
+			// GiST index could also be used: https://www.postgresql.org/docs/9.1/textsearch-indexes.html
+			if err := s.db.Exec("CREATE INDEX device_labels ON devices USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			return s.db.Migrator().CreateIndex(&model.Device{}, "Labels")
+		}
+	}
+
+	return nil
 }
 
 func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
@@ -32,6 +49,7 @@ func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *api.Device) (*api.
 	}
 	device := model.NewDeviceFromApiResource(resource)
 	device.OrgID = orgId
+
 	result := s.db.Create(device)
 	log.Printf("db.Create(%s): %d rows affected, error is %v", device, result.RowsAffected, result.Error)
 	return resource, result.Error

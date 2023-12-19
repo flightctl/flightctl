@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/lib/pq"
 )
 
 var (
@@ -16,6 +17,10 @@ var (
 
 type Device struct {
 	Resource
+
+	// Labels are inserted in the device column as a string array, in a way
+	// that we can perform indexing and queries on them.
+	Labels pq.StringArray `gorm:"type:text[]"`
 
 	// The desired state, stored as opaque JSON object.
 	Spec *JSONField[api.DeviceSpec]
@@ -40,10 +45,12 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 	if resource.Status != nil {
 		status = *resource.Status
 	}
+
 	return &Device{
 		Resource: Resource{
 			Name: *resource.Metadata.Name,
 		},
+		Labels: util.LabelMapToArray(resource.Metadata.Labels),
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
 	}
@@ -58,12 +65,16 @@ func (d *Device) ToApiResource() api.Device {
 	if d.Status != nil {
 		status = d.Status.Data
 	}
+
+	metadataLabels := util.LabelArrayToMap(d.Labels)
+
 	return api.Device{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(d.Name),
 			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
+			Labels:            &metadataLabels,
 		},
 		Spec:   d.Spec.Data,
 		Status: &status,

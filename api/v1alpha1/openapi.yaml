@@ -447,11 +447,11 @@ paths:
           description: NotFound
           content: {}
   /api/v1/enrollmentrequests/{name}/approval:
-    put:
+    post:
       tags:
         - enrollmentrequest
-      description: replace approval of the specified EnrollmentRequest
-      operationId: replaceEnrollmentRequestApproval
+      description: create approval of the specified EnrollmentRequest
+      operationId: createEnrollmentRequestApproval
       parameters:
         - name: name
           in: path
@@ -463,7 +463,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
+              $ref: '#/components/schemas/EnrollmentRequestApproval'
         required: true
       responses:
         "200":
@@ -471,7 +471,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/EnrollmentRequestApproval'
+        "422":
+          description: UnprocessableEntity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnprocessableEntityResponse'
         "401":
           description: Unauthorized
           content: {}
@@ -940,6 +946,28 @@ components:
           type: string
           description: The active state of the systemd unit.
       description: The status of the systemd unit.
+    EnrollmentRequestApproval:
+      type: object
+      properties:
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'labels is a set of labels to apply to the device.'
+        region:
+          type: string
+          description: 'region is the region in which the device should be enrolled.'
+        approved:
+          type: boolean
+          description: 'approved indicates whether the request has been approved.'
+        approvedBy:
+          type: string
+          description: 'approvedBy is the name of the approver.'
+        approvedAt:
+          type: string
+          description: 'approvedAt is the time at which the request was approved.'
+      required:
+        - approved
     EnrollmentRequest:
       type: object
       properties:
@@ -1026,6 +1054,8 @@ components:
           description: 'Current state of the EnrollmentRequest.'
           items:
             $ref: '#/components/schemas/EnrollmentRequestCondition'
+        approval:
+          $ref: '#/components/schemas/EnrollmentRequestApproval'
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
     Fleet:
       type: object
@@ -1166,3 +1196,12 @@ components:
           type: string
           description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
       description: Status is a return value for calls that don't return other objects.
+    UnprocessableEntityResponse:
+      description: UnprocessableEntityResponse is returned when the request is not valid.
+      type: object
+      properties:
+        error:
+          type: string
+          description: 'Error message.'
+      required:
+        - error
