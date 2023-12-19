@@ -8,3 +8,6 @@ database:
 service:
   address: :3333
   baseUrl: http://localhost:3333/api
+  altNames:
+    - my-host.abc.com
+    - localhost
