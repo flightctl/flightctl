@@ -19,6 +19,7 @@ require (
 	github.com/oapi-codegen/runtime v1.0.0
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
 	github.com/prometheus/client_golang v1.17.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.8.0
 	google.golang.org/grpc v1.58.3
 	gorm.io/driver/postgres v1.5.2
@@ -26,16 +27,12 @@ require (
 	gorm.io/gorm v1.25.4
 	k8s.io/apimachinery v0.28.2
 	k8s.io/client-go v0.28.2
-	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.100.1
 	sigs.k8s.io/controller-runtime v0.14.6
 	sigs.k8s.io/yaml v1.4.0
 )
 
-require (
-	gopkg.in/yaml.v3 v3.0.1 // indirect
-	rsc.io/qr v0.2.0 // indirect
-)
+require gopkg.in/yaml.v3 v3.0.1 // indirect
 
 require (
 	cloud.google.com/go/compute v1.23.0 // indirect
@@ -161,7 +158,6 @@ require (
 	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/mattn/go-sqlite3 v1.14.18 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
-	github.com/mdp/qrterminal/v3 v3.2.0
 	github.com/miekg/pkcs11 v1.1.1 // indirect
 	github.com/mistifyio/go-zfs v2.1.2-0.20190413222219-f784269be439+incompatible // indirect
 	github.com/mistifyio/go-zfs/v3 v3.0.1 // indirect

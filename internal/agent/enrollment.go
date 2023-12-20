@@ -15,7 +15,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
-	"github.com/mdp/qrterminal/v3"
+	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
 	"k8s.io/klog/v2"
@@ -66,18 +66,32 @@ func (a *DeviceAgent) writeManagementBanner() error {
 }
 
 func (a *DeviceAgent) writeQRBanner(message, url string) error {
-	// write a banner that explains that the device is enrolled
-	buffer := bytes.NewBufferString("")
+	qrCode, err := qrcode.New(url, qrcode.High)
+	if err != nil {
+		return fmt.Errorf("writeQRBanner: %w", err)
+	}
 
-	qrterminal.Generate(url, qrterminal.L, buffer)
+	// Convert the QR code to a string.
+	qrString := qrCode.ToSmallString(false)
+
+	// write a banner that explains that the device is enrolled
+	buffer := bytes.NewBufferString("\n")
+	buffer.WriteString(qrString)
+
+	// write the QR code to the buffer
 	fmt.Fprintf(buffer, message, url)
 	// write buffer to /run/flightctl-banner
 	if err := os.WriteFile("/run/flightctl-banner", buffer.Bytes(), os.FileMode(0666)); err != nil {
 		return fmt.Errorf("writeQRBanner: %w", err)
 	}
 
+	// duplicate file to /etc/issue.d/flightctl-banner.issue
+	if err := os.WriteFile("/etc/issue.d/flightctl-banner.issue", buffer.Bytes(), os.FileMode(0666)); err != nil {
+		return fmt.Errorf("writeQRBanner: %w", err)
+	}
+
 	// additionally print the banner into the output console
-	fmt.Print(buffer.String())
+	klog.Info(buffer.String())
 	return nil
 }
 
