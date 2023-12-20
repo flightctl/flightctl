@@ -2,6 +2,7 @@
 [Unit]
 Description=Flightctl Agent
 After=network.target
+Before=getty@tty1.service
 
 [Service]
 ExecStart=/usr/bin/flightctl-agent

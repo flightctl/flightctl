@@ -1,0 +1,19 @@
+FROM quay.io/centos-bootc/fedora-bootc:eln
+
+COPY rpmbuild/RPMS/x86_64/flightctl-agent-0.0.1-1.el9.x86_64.rpm /tmp/
+
+COPY packaging/flightctl-custom-assets/flightctl_rsa.pub /usr/etc-system/root.keys
+RUN touch /etc/ssh/sshd_config.d/30-auth-system.conf; \
+    mkdir -p /usr/etc-system/; \
+    echo 'AuthorizedKeysFile /usr/etc-system/%u.keys' >> /etc/ssh/sshd_config.d/30-auth-system.conf; \
+    chmod 0600 /usr/etc-system/root.keys
+VOLUME /var/roothome
+
+ADD packaging/flightctl-custom-assets/config.yaml /etc/flightctl/
+ADD packaging/flightctl-custom-assets/ca.crt /etc/flightctl
+ADD packaging/flightctl-custom-assets/client-enrollment.* /etc/flightctl/
+
+RUN rpm-ostree install -y /tmp/flightctl-agent-0.0.1-1.el9.x86_64.rpm
+RUN ln -s /usr/lib/systemd/system/podman.socket /usr/lib/systemd/system/multi-user.target.wants/
+RUN ln -s /usr/lib/systemd/system/flightctl-agent.service /usr/lib/systemd/system/multi-user.target.wants/
+RUN ostree container commit 
