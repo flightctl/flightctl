@@ -62,7 +62,7 @@ func (d *Device) ToApiResource() api.Device {
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceKind,
 		Metadata: api.ObjectMeta{
-			Name:              &d.Name,
+			Name:              util.StrToPtr(d.Name),
 			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
 		},
 		Spec:   d.Spec.Data,
