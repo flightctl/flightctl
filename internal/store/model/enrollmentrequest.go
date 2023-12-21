@@ -62,7 +62,7 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 		ApiVersion: EnrollmentRequestAPI,
 		Kind:       EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
-			Name:              &e.Name,
+			Name:              util.StrToPtr(e.Name),
 			CreationTimestamp: util.StrToPtr(e.CreatedAt.UTC().Format(time.RFC3339)),
 		},
 		Spec:   e.Spec.Data,
@@ -79,13 +79,13 @@ func (el EnrollmentRequestList) ToApiResource() api.EnrollmentRequestList {
 		}
 	}
 
-	EnrollmentRequestList := make([]api.EnrollmentRequest, len(el))
-	for i, EnrollmentRequest := range el {
-		EnrollmentRequestList[i] = EnrollmentRequest.ToApiResource()
+	enrollmentRequestList := make([]api.EnrollmentRequest, len(el))
+	for i, enrollmentRequest := range el {
+		enrollmentRequestList[i] = enrollmentRequest.ToApiResource()
 	}
 	return api.EnrollmentRequestList{
 		ApiVersion: EnrollmentRequestAPI,
 		Kind:       EnrollmentRequestListKind,
-		Items:      EnrollmentRequestList,
+		Items:      enrollmentRequestList,
 	}
 }

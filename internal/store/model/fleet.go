@@ -62,7 +62,7 @@ func (f *Fleet) ToApiResource() api.Fleet {
 		ApiVersion: FleetAPI,
 		Kind:       FleetKind,
 		Metadata: api.ObjectMeta{
-			Name:              &f.Name,
+			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
 		},
 		Spec:   f.Spec.Data,
