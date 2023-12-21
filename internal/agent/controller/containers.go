@@ -64,30 +64,30 @@ func (c *ContainerController) SetStatus(r *api.Device) (bool, error) {
 
 	conn, err := bindings.NewConnection(ctx, socketPath)
 	if err != nil {
-		klog.Errorf("Connection cannot be created: %v", err)
+		klog.Warningf("Warning: connection cannot be created: %v", err)
 		return false, err
-	}
+	} else {
+		// Get a list of all containers
+		all := true
+		containerOptions := &containers.ListOptions{
+			All: &all,
+		}
 
-	// Get a list of all containers
-	all := true
-	containerOptions := &containers.ListOptions{
-		All: &all,
-	}
+		containers, err := containers.List(conn, containerOptions)
+		if err != nil {
+			klog.Errorf("Error getting containers: %v", err)
+			return false, err
+		}
 
-	containers, err := containers.List(conn, containerOptions)
-	if err != nil {
-		klog.Errorf("Error getting containers: %v", err)
-		return false, err
-	}
+		deviceContainerStatus := make([]api.ContainerStatus, len(containers))
+		for i, c := range containers {
+			deviceContainerStatus[i].Name = c.Names[0]
+			deviceContainerStatus[i].Status = c.State
+			deviceContainerStatus[i].Image = c.Image
+			deviceContainerStatus[i].Id = c.ID
+		}
+		r.Status.Containers = &deviceContainerStatus
 
-	deviceContainerStatus := make([]api.ContainerStatus, len(containers))
-	for i, c := range containers {
-		deviceContainerStatus[i].Name = c.Names[0]
-		deviceContainerStatus[i].Status = c.State
-		deviceContainerStatus[i].Image = c.Image
-		deviceContainerStatus[i].Id = c.ID
+		return true, nil
 	}
-	r.Status.Containers = &deviceContainerStatus
-
-	return true, nil
 }
