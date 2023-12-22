@@ -47,7 +47,7 @@ rpm: build
 	cp bin/flightctl-agent bin/flightctl-agent-0.0.1
 	cp packaging/systemd/flightctl-agent.service bin/flightctl-agent-0.0.1
 	tar cvf rpmbuild/SOURCES/flightctl-agent-0.0.1.tar -C bin/ flightctl-agent-0.0.1
-	rpmbuild --define "_topdir /home/oglok/flightctl/rpmbuild" -ba /home/oglok/flightctl/packaging/rpm/flightctl-agent.spec
+	rpmbuild --define "_topdir $(GOBASE)/rpmbuild" -ba $(GOBASE)/packaging/rpm/flightctl-agent.spec
 
 clean:
 	- podman-compose -f deploy/podman/compose.yaml down
