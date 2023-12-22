@@ -80,10 +80,6 @@ func (a *DeviceAgent) writeQRBanner(message, url string) error {
 
 	// write the QR code to the buffer
 	fmt.Fprintf(buffer, message, url)
-	// write buffer to /run/flightctl-banner
-	if err := os.WriteFile("/run/flightctl-banner", buffer.Bytes(), os.FileMode(0666)); err != nil {
-		return fmt.Errorf("writeQRBanner: %w", err)
-	}
 
 	// duplicate file to /etc/issue.d/flightctl-banner.issue
 	if err := os.WriteFile("/etc/issue.d/flightctl-banner.issue", buffer.Bytes(), os.FileMode(0666)); err != nil {
