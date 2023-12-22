@@ -98,7 +98,7 @@ RUN ostree container commit
 
 In order to make this work for your own service, first you need to have deployed the service (by following the section above where the podman-compose manifests is applied).
 
-Execute `make rpm` to build the agent RPM package. It will be picked up and injected into the image.
+Install the rpm build tools with `sudo dnf install -y rpmdevtool` and execute `make rpm` to build the agent RPM package. It will be picked up and injected into the image.
 Now, add the following assets to the directory `packaging/flightctl-custom-assets/`:
 
 - The public SSH key you want to inject as `packaging/flightctl-custom-assets/flightctl_rsa.pub`
