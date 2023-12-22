@@ -42,7 +42,8 @@ func NewFleetFromApiResource(resource *api.Fleet) *Fleet {
 	}
 	return &Fleet{
 		Resource: Resource{
-			Name: *resource.Metadata.Name,
+			Name:   *resource.Metadata.Name,
+			Labels: util.LabelMapToArray(resource.Metadata.Labels),
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
@@ -58,12 +59,16 @@ func (f *Fleet) ToApiResource() api.Fleet {
 	if f.Status != nil {
 		status = f.Status.Data
 	}
+
+	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
+
 	return api.Fleet{
 		ApiVersion: FleetAPI,
 		Kind:       FleetKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
+			Labels:            &metadataLabels,
 		},
 		Spec:   f.Spec.Data,
 		Status: &status,

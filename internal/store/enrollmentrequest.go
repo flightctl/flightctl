@@ -37,13 +37,16 @@ func (s *EnrollmentRequestStore) CreateEnrollmentRequest(orgId uuid.UUID, resour
 	return resource, result.Error
 }
 
-func (s *EnrollmentRequestStore) ListEnrollmentRequests(orgId uuid.UUID) (*api.EnrollmentRequestList, error) {
-	condition := model.EnrollmentRequest{
+func (s *EnrollmentRequestStore) ListEnrollmentRequests(orgId uuid.UUID, labels map[string]string) (*api.EnrollmentRequestList, error) {
+	orgCondition := model.Device{
 		Resource: model.Resource{OrgID: orgId},
 	}
+	query := s.db.Where(orgCondition)
+	query = LabelSelectionQuery(query, labels)
+
 	var enrollmentRequests model.EnrollmentRequestList
-	result := s.db.Where(condition).Find(&enrollmentRequests)
-	log.Printf("db.Where(%s).Find(): %d rows affected, error is %v", condition, result.RowsAffected, result.Error)
+	result := query.Find(&enrollmentRequests)
+	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	apiEnrollmentRequestList := enrollmentRequests.ToApiResource()
 	return &apiEnrollmentRequestList, result.Error
 }

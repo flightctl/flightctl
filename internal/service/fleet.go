@@ -9,11 +9,12 @@ import (
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 type FleetStoreInterface interface {
 	CreateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
-	ListFleets(orgId uuid.UUID) (*api.FleetList, error)
+	ListFleets(orgId uuid.UUID, labels map[string]string) (*api.FleetList, error)
 	GetFleet(orgId uuid.UUID, name string) (*api.Fleet, error)
 	CreateOrUpdateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, bool, error)
 	UpdateFleetStatus(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
@@ -45,8 +46,17 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 // (GET /api/v1/fleets)
 func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
 	orgId := NullOrgId
+	labelSelector := ""
+	if request.Params.LabelSelector != nil {
+		labelSelector = *request.Params.LabelSelector
+	}
 
-	result, err := h.fleetStore.ListFleets(orgId)
+	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.fleetStore.ListFleets(orgId, labelMap)
 	switch err {
 	case nil:
 		return server.ListFleets200JSONResponse(*result), nil
