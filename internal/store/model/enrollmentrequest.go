@@ -42,7 +42,8 @@ func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) *Enrol
 	}
 	return &EnrollmentRequest{
 		Resource: Resource{
-			Name: *resource.Metadata.Name,
+			Name:   *resource.Metadata.Name,
+			Labels: util.LabelMapToArray(resource.Metadata.Labels),
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
@@ -58,12 +59,16 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 	if e.Status != nil {
 		status = e.Status.Data
 	}
+
+	metadataLabels := util.LabelArrayToMap(e.Resource.Labels)
+
 	return api.EnrollmentRequest{
 		ApiVersion: EnrollmentRequestAPI,
 		Kind:       EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(e.Name),
 			CreationTimestamp: util.StrToPtr(e.CreatedAt.UTC().Format(time.RFC3339)),
+			Labels:            &metadataLabels,
 		},
 		Spec:   e.Spec.Data,
 		Status: &status,

@@ -7,11 +7,12 @@ import (
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 type DeviceStoreInterface interface {
 	CreateDevice(orgId uuid.UUID, device *api.Device) (*api.Device, error)
-	ListDevices(orgId uuid.UUID) (*api.DeviceList, error)
+	ListDevices(orgId uuid.UUID, labels map[string]string) (*api.DeviceList, error)
 	GetDevice(orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdateDevice(orgId uuid.UUID, device *api.Device) (*api.Device, bool, error)
 	UpdateDeviceStatus(orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -35,8 +36,17 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 // (GET /api/v1/devices)
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
 	orgId := NullOrgId
+	labelSelector := ""
+	if request.Params.LabelSelector != nil {
+		labelSelector = *request.Params.LabelSelector
+	}
 
-	result, err := h.deviceStore.ListDevices(orgId)
+	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.deviceStore.ListDevices(orgId, labelMap)
 	switch err {
 	case nil:
 		return server.ListDevices200JSONResponse(*result), nil

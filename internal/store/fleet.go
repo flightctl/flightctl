@@ -37,13 +37,16 @@ func (s *FleetStore) CreateFleet(orgId uuid.UUID, resource *api.Fleet) (*api.Fle
 	return resource, result.Error
 }
 
-func (s *FleetStore) ListFleets(orgId uuid.UUID) (*api.FleetList, error) {
-	condition := model.Fleet{
+func (s *FleetStore) ListFleets(orgId uuid.UUID, labels map[string]string) (*api.FleetList, error) {
+	orgCondition := model.Device{
 		Resource: model.Resource{OrgID: orgId},
 	}
+	query := s.db.Where(orgCondition)
+	query = LabelSelectionQuery(query, labels)
+
 	var fleets model.FleetList
-	result := s.db.Where(condition).Find(&fleets)
-	log.Printf("db.Where(%s).Find(): %d rows affected, error is %v", condition, result.RowsAffected, result.Error)
+	result := query.Find(&fleets)
+	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	apiFleetList := fleets.ToApiResource()
 	return &apiFleetList, result.Error
 }
