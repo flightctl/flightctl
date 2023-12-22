@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -24,7 +25,9 @@ type Resource struct {
 	// Owner string
 
 	// User-defined labels, used to select resources in queries.
-	// Labels StringArray
+	// Labels are inserted in the device column as a string array, in a way
+	// that we can perform indexing and queries on them.
+	Labels pq.StringArray `gorm:"type:text[]"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

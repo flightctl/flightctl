@@ -55,13 +55,16 @@ func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *api.Device) (*api.
 	return resource, result.Error
 }
 
-func (s *DeviceStore) ListDevices(orgId uuid.UUID) (*api.DeviceList, error) {
-	condition := model.Device{
+func (s *DeviceStore) ListDevices(orgId uuid.UUID, labels map[string]string) (*api.DeviceList, error) {
+	orgCondition := model.Device{
 		Resource: model.Resource{OrgID: orgId},
 	}
+	query := s.db.Where(orgCondition)
+	query = LabelSelectionQuery(query, labels)
+
 	var devices model.DeviceList
-	result := s.db.Where(condition).Find(&devices)
-	log.Printf("db.Where(%s).Find(): %d rows affected, error is %v", condition, result.RowsAffected, result.Error)
+	result := query.Find(&devices)
+	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	apiDevicelist := devices.ToApiResource()
 	return &apiDevicelist, result.Error
 }

@@ -77,7 +77,13 @@ func NewFlightctlCommand() *cobra.Command {
 	return cmd
 }
 
+type GetOptions struct {
+	LabelSelector string
+}
+
 func NewCmdGet() *cobra.Command {
+	o := &GetOptions{LabelSelector: ""}
+
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "get resources",
@@ -87,10 +93,15 @@ func NewCmdGet() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return RunGet(kind, name)
+			if len(name) > 0 && cmd.Flags().Lookup("labelselector").Changed {
+				return fmt.Errorf("cannot specify label selector together when fetching a single resource")
+			}
+			return RunGet(kind, name, o.LabelSelector)
 		},
 		SilenceUsage: true,
 	}
+
+	cmd.Flags().StringVarP(&o.LabelSelector, "labelselector", "l", o.LabelSelector, "label selector as a comma-separated list of key=value")
 	return cmd
 }
 
@@ -171,7 +182,7 @@ func getClient() (*client.ClientWithResponses, error) {
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
 }
 
-func RunGet(kind, name string) error {
+func RunGet(kind, name string, labelSelector string) error {
 	c, err := getClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
@@ -195,6 +206,9 @@ func RunGet(kind, name string) error {
 			fmt.Printf("%s\n", string(marshalled))
 		} else {
 			params := &api.ListDevicesParams{}
+			if len(labelSelector) > 0 {
+				params.LabelSelector = &labelSelector
+			}
 			response, err := c.ListDevicesWithResponse(context.Background(), params)
 			if err != nil {
 				return fmt.Errorf("listing devices: %v", err)
@@ -226,6 +240,9 @@ func RunGet(kind, name string) error {
 			fmt.Printf("%s\n", string(marshalled))
 		} else {
 			params := &api.ListEnrollmentRequestsParams{}
+			if len(labelSelector) > 0 {
+				params.LabelSelector = &labelSelector
+			}
 			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), params)
 			if err != nil {
 				return fmt.Errorf("listing enrollmentrequests: %v", err)
@@ -257,6 +274,9 @@ func RunGet(kind, name string) error {
 			fmt.Printf("%s\n", string(marshalled))
 		} else {
 			params := &api.ListFleetsParams{}
+			if len(labelSelector) > 0 {
+				params.LabelSelector = &labelSelector
+			}
 			response, err := c.ListFleetsWithResponse(context.Background(), params)
 			if err != nil {
 				return fmt.Errorf("listing fleets: %v", err)
@@ -346,13 +366,13 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				continue
 			}
 			if device.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Device resource: missing field .metadata.name", filename, err))
+				errs = append(errs, fmt.Errorf("%s: decoding Device resource: missing field .metadata.name: %v", filename, err))
 				continue
 			}
 			if dryRun {
 				fmt.Printf("%s: applying device/%s (dry run only)\n", filename, *device.Metadata.Name)
 			} else {
-				fmt.Printf("%s: applying device/%s: ", filename, device.Metadata.Name)
+				fmt.Printf("%s: applying device/%s: ", filename, *device.Metadata.Name)
 				response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), *device.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
@@ -368,13 +388,13 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				continue
 			}
 			if enrollmentRequest.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: missing field .metadata.name", filename, err))
+				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: missing field .metadata.name: %v", filename, err))
 				continue
 			}
 			if dryRun {
-				fmt.Printf("%s: applying enrollmentrequest/%s (dry run only)\n", filename, enrollmentRequest.Metadata.Name)
+				fmt.Printf("%s: applying enrollmentrequest/%s (dry run only)\n", filename, *enrollmentRequest.Metadata.Name)
 			} else {
-				fmt.Printf("%s: applying enrollmentrequest/%s: ", filename, enrollmentRequest.Metadata.Name)
+				fmt.Printf("%s: applying enrollmentrequest/%s: ", filename, *enrollmentRequest.Metadata.Name)
 				response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), *enrollmentRequest.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)
@@ -390,13 +410,13 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				continue
 			}
 			if fleet.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: missing field .metadata.name", filename, err))
+				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: missing field .metadata.name: %v", filename, err))
 				continue
 			}
 			if dryRun {
-				fmt.Printf("%s: applying fleet/%s (dry run only)\n", filename, fleet.Metadata.Name)
+				fmt.Printf("%s: applying fleet/%s (dry run only)\n", filename, *fleet.Metadata.Name)
 			} else {
-				fmt.Printf("%s: applying fleet/%s: ", filename, fleet.Metadata.Name)
+				fmt.Printf("%s: applying fleet/%s: ", filename, *fleet.Metadata.Name)
 				response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), *fleet.Metadata.Name, "application/json", bytes.NewReader(buf))
 				if err != nil {
 					errs = append(errs, err)

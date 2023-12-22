@@ -10,13 +10,14 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 const ClientCertExpiryDays = 365
 
 type EnrollmentRequestStoreInterface interface {
 	CreateEnrollmentRequest(orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
-	ListEnrollmentRequests(orgId uuid.UUID) (*api.EnrollmentRequestList, error)
+	ListEnrollmentRequests(orgId uuid.UUID, labels map[string]string) (*api.EnrollmentRequestList, error)
 	GetEnrollmentRequest(orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
 	CreateOrUpdateEnrollmentRequest(orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error)
 	UpdateEnrollmentRequestStatus(orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
@@ -136,8 +137,17 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 // (GET /api/v1/enrollmentrequests)
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
 	orgId := NullOrgId
+	labelSelector := ""
+	if request.Params.LabelSelector != nil {
+		labelSelector = *request.Params.LabelSelector
+	}
 
-	result, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId)
+	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId, labelMap)
 	switch err {
 	case nil:
 		return server.ListEnrollmentRequests200JSONResponse(*result), nil
