@@ -32,7 +32,10 @@ require (
 	sigs.k8s.io/yaml v1.4.0
 )
 
-require gopkg.in/yaml.v3 v3.0.1 // indirect
+require (
+	github.com/thoas/go-funk v0.9.3 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
 
 require (
 	cloud.google.com/go/compute v1.23.0 // indirect

@@ -13,14 +13,21 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"text/tabwriter"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/spf13/cobra"
+	"github.com/thoas/go-funk"
+
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
+)
+
+const (
+	yamlFormat = "yaml"
 )
 
 var (
@@ -33,6 +40,7 @@ var (
 	serverUrl         = "https://localhost:3333"
 	fileExtensions    = []string{".json", ".yaml", ".yml"}
 	inputExtensions   = append(fileExtensions, "stdin")
+	legalOutputTypes  = []string{yamlFormat}
 )
 
 func main() {
@@ -79,6 +87,7 @@ func NewFlightctlCommand() *cobra.Command {
 
 type GetOptions struct {
 	LabelSelector string
+	Output        string
 }
 
 func NewCmdGet() *cobra.Command {
@@ -96,12 +105,17 @@ func NewCmdGet() *cobra.Command {
 			if len(name) > 0 && cmd.Flags().Lookup("labelselector").Changed {
 				return fmt.Errorf("cannot specify label selector together when fetching a single resource")
 			}
-			return RunGet(kind, name, o.LabelSelector)
+
+			if cmd.Flags().Lookup("output").Changed && !funk.Contains(legalOutputTypes, o.Output) {
+				return fmt.Errorf("output format must be one of %s", strings.Join(legalOutputTypes, ", "))
+			}
+			return RunGet(kind, name, o.LabelSelector, o.Output)
 		},
 		SilenceUsage: true,
 	}
 
 	cmd.Flags().StringVarP(&o.LabelSelector, "labelselector", "l", o.LabelSelector, "label selector as a comma-separated list of key=value")
+	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, "output format (yaml)")
 	return cmd
 }
 
@@ -182,7 +196,7 @@ func getClient() (*client.ClientWithResponses, error) {
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
 }
 
-func RunGet(kind, name string, labelSelector string) error {
+func RunGet(kind, name string, labelSelector string, output string) error {
 	c, err := getClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
@@ -203,7 +217,7 @@ func RunGet(kind, name string, labelSelector string) error {
 			if err != nil {
 				return fmt.Errorf("marshalling device: %v", err)
 			}
-			fmt.Printf("%s\n", string(marshalled))
+			fmt.Println(string(marshalled))
 		} else {
 			params := &api.ListDevicesParams{}
 			if len(labelSelector) > 0 {
@@ -217,11 +231,21 @@ func RunGet(kind, name string, labelSelector string) error {
 				return fmt.Errorf("listing devices: %s", response.HTTPResponse.Status)
 			}
 
-			marshalled, err := yaml.Marshal(response.JSON200)
-			if err != nil {
-				return fmt.Errorf("marshalling device list: %v", err)
+			if output == yamlFormat {
+				marshalled, err := yaml.Marshal(response.JSON200)
+				if err != nil {
+					return fmt.Errorf("marshalling device list: %v", err)
+				}
+				fmt.Println(string(marshalled))
+			} else {
+				// Tabular
+				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+				fmt.Fprintln(w, "NAME")
+				for _, d := range response.JSON200.Items {
+					fmt.Fprintln(w, *d.Metadata.Name)
+				}
+				w.Flush()
 			}
-			fmt.Printf("%s\n", string(marshalled))
 		}
 	case "enrollmentrequest":
 		if len(name) > 0 {
@@ -237,7 +261,7 @@ func RunGet(kind, name string, labelSelector string) error {
 			if err != nil {
 				return fmt.Errorf("marshalling enrollmentrequest: %v", err)
 			}
-			fmt.Printf("%s\n", string(marshalled))
+			fmt.Println(string(marshalled))
 		} else {
 			params := &api.ListEnrollmentRequestsParams{}
 			if len(labelSelector) > 0 {
@@ -251,11 +275,27 @@ func RunGet(kind, name string, labelSelector string) error {
 				return fmt.Errorf("listing enrollmentrequests: %s", response.HTTPResponse.Status)
 			}
 
-			marshalled, err := yaml.Marshal(response.JSON200)
-			if err != nil {
-				return fmt.Errorf("marshalling enrollmentrequest list: %v", err)
+			if output == yamlFormat {
+				marshalled, err := yaml.Marshal(response.JSON200)
+				if err != nil {
+					return fmt.Errorf("marshalling enrollmentrequest list: %v", err)
+				}
+				fmt.Println(string(marshalled))
+			} else {
+				// Tabular
+				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+				fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
+				for _, e := range response.JSON200.Items {
+					approved := ""
+					region := ""
+					if e.Status.Approval != nil {
+						approved = fmt.Sprintf("%t", e.Status.Approval.Approved)
+						region = *e.Status.Approval.Region
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\n", *e.Metadata.Name, approved, region)
+				}
+				w.Flush()
 			}
-			fmt.Printf("%s\n", string(marshalled))
 		}
 	case "fleet":
 		if len(name) > 0 {
@@ -271,7 +311,7 @@ func RunGet(kind, name string, labelSelector string) error {
 			if err != nil {
 				return fmt.Errorf("marshalling fleet: %v", err)
 			}
-			fmt.Printf("%s\n", string(marshalled))
+			fmt.Println(string(marshalled))
 		} else {
 			params := &api.ListFleetsParams{}
 			if len(labelSelector) > 0 {
@@ -285,11 +325,21 @@ func RunGet(kind, name string, labelSelector string) error {
 				return fmt.Errorf("listing fleets: %s", response.HTTPResponse.Status)
 			}
 
-			marshalled, err := yaml.Marshal(response.JSON200)
-			if err != nil {
-				return fmt.Errorf("marshalling fleet list: %v", err)
+			if output == yamlFormat {
+				marshalled, err := yaml.Marshal(response.JSON200)
+				if err != nil {
+					return fmt.Errorf("marshalling fleet list: %v", err)
+				}
+				fmt.Println(string(marshalled))
+			} else {
+				// Tabular
+				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+				fmt.Fprintln(w, "NAME")
+				for _, f := range response.JSON200.Items {
+					fmt.Fprintln(w, *f.Metadata.Name)
+				}
+				w.Flush()
 			}
-			fmt.Printf("%s\n", string(marshalled))
 		}
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
