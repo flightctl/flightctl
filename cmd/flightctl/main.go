@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"text/tabwriter"
@@ -209,21 +210,14 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 			if err != nil {
 				return fmt.Errorf("reading device/%s: %v", name, err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("reading device/%s: %s", name, response.HTTPResponse.Status)
-			}
-
-			marshalled, err := yaml.Marshal(response.JSON200)
+			err = printSingleResourceResponse(response, fmt.Sprintf("device/%s", name))
 			if err != nil {
-				return fmt.Errorf("marshalling device: %v", err)
+				return err
 			}
-			fmt.Println(string(marshalled))
 		} else {
-			params := &api.ListDevicesParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
-			}
-			response, err := c.ListDevicesWithResponse(context.Background(), params)
+			params := api.ListDevicesParams{}
+			setListResourcesParams(params, labelSelector)
+			response, err := c.ListDevicesWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing devices: %v", err)
 			}
@@ -231,20 +225,9 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 				return fmt.Errorf("listing devices: %s", response.HTTPResponse.Status)
 			}
 
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling device list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
-				fmt.Fprintln(w, "NAME")
-				for _, d := range response.JSON200.Items {
-					fmt.Fprintln(w, *d.Metadata.Name)
-				}
-				w.Flush()
+			err = printListResourcesResponse(response, output, []string{"Metadata.Name"})
+			if err != nil {
+				return err
 			}
 		}
 	case "enrollmentrequest":
@@ -253,21 +236,14 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 			if err != nil {
 				return fmt.Errorf("reading enrollmentrequest/%s: %v", name, err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("reading enrollmentrequest/%s: %s", name, response.HTTPResponse.Status)
-			}
-
-			marshalled, err := yaml.Marshal(response.JSON200)
+			err = printSingleResourceResponse(response, fmt.Sprintf("enrollmentrequest/%s", name))
 			if err != nil {
-				return fmt.Errorf("marshalling enrollmentrequest: %v", err)
+				return err
 			}
-			fmt.Println(string(marshalled))
 		} else {
-			params := &api.ListEnrollmentRequestsParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
-			}
-			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), params)
+			params := api.ListEnrollmentRequestsParams{}
+			setListResourcesParams(params, labelSelector)
+			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing enrollmentrequests: %v", err)
 			}
@@ -275,26 +251,9 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 				return fmt.Errorf("listing enrollmentrequests: %s", response.HTTPResponse.Status)
 			}
 
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling enrollmentrequest list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
-				fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
-				for _, e := range response.JSON200.Items {
-					approved := ""
-					region := ""
-					if e.Status.Approval != nil {
-						approved = fmt.Sprintf("%t", e.Status.Approval.Approved)
-						region = *e.Status.Approval.Region
-					}
-					fmt.Fprintf(w, "%s\t%s\t%s\n", *e.Metadata.Name, approved, region)
-				}
-				w.Flush()
+			err = printListResourcesResponse(response, output, []string{"Metadata.Name", "Status.Approval.Approved", "Status.Approval.Region"})
+			if err != nil {
+				return err
 			}
 		}
 	case "fleet":
@@ -303,21 +262,14 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 			if err != nil {
 				return fmt.Errorf("reading fleet/%s: %v", name, err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("reading fleet/%s: %s", name, response.HTTPResponse.Status)
-			}
-
-			marshalled, err := yaml.Marshal(response.JSON200)
+			err = printSingleResourceResponse(response, fmt.Sprintf("fleet/%s", name))
 			if err != nil {
-				return fmt.Errorf("marshalling fleet: %v", err)
+				return err
 			}
-			fmt.Println(string(marshalled))
 		} else {
-			params := &api.ListFleetsParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
-			}
-			response, err := c.ListFleetsWithResponse(context.Background(), params)
+			params := api.ListFleetsParams{}
+			setListResourcesParams(params, labelSelector)
+			response, err := c.ListFleetsWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing fleets: %v", err)
 			}
@@ -325,26 +277,89 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 				return fmt.Errorf("listing fleets: %s", response.HTTPResponse.Status)
 			}
 
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling fleet list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
-				fmt.Fprintln(w, "NAME")
-				for _, f := range response.JSON200.Items {
-					fmt.Fprintln(w, *f.Metadata.Name)
-				}
-				w.Flush()
+			err = printListResourcesResponse(response, output, []string{"Metadata.Name"})
+			if err != nil {
+				return err
 			}
 		}
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
 
+	return nil
+}
+
+func printSingleResourceResponse(response interface{}, name string) error {
+	v := reflect.ValueOf(response).Elem()
+	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
+		return fmt.Errorf("reading %s: %s", name, v.FieldByName("HTTPResponse").FieldByName("StatusCode").String())
+	}
+
+	marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
+	if err != nil {
+		return fmt.Errorf("marshalling resource: %v", err)
+	}
+
+	fmt.Printf("%s\n", string(marshalled))
+	return nil
+}
+
+func setListResourcesParams(params interface{}, labelSelector string) {
+	v := reflect.ValueOf(params)
+	if len(labelSelector) > 0 {
+		v.FieldByName("LabelSelector").Elem().SetString(labelSelector)
+	}
+}
+
+func printListResourcesResponse(response interface{}, outputType string, fields []string) error {
+	v := reflect.ValueOf(response).Elem()
+	if outputType == yamlFormat {
+		marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
+		if err != nil {
+			return fmt.Errorf("marshalling resource list: %v", err)
+		}
+		fmt.Println(string(marshalled))
+	} else {
+		// Tabular
+		w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+
+		header := make([]string, len(fields))
+		for i, field := range fields {
+			split := strings.Split(field, ".")
+			header[i] = strings.ToUpper(split[len(split)-1])
+		}
+		fmt.Fprintln(w, strings.Join(header, "\t"))
+
+		resources := v.FieldByName("JSON200").Elem().FieldByName("Items")
+		for i := 0; i < resources.Len(); i++ {
+			resource := resources.Index(i)
+			row := make([]string, len(fields))
+		FIELD:
+			for i, field := range fields {
+				info := resource
+				for _, elem := range strings.Split(field, ".") {
+					if info.Kind() == reflect.Pointer {
+						if info.UnsafePointer() == nil {
+							row[i] = ""
+							continue FIELD
+						} else {
+							info = reflect.Indirect(info).FieldByName(elem)
+						}
+					} else {
+						info = info.FieldByName(elem)
+					}
+				}
+				if info.Kind() == reflect.Bool {
+					row[i] = fmt.Sprintf("%t", info.Bool())
+				} else {
+					row[i] = info.Elem().String()
+				}
+
+			}
+			fmt.Fprintln(w, strings.Join(row, "\t"))
+		}
+		w.Flush()
+	}
 	return nil
 }
 
