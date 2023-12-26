@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"text/tabwriter"
@@ -209,21 +210,14 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 			if err != nil {
 				return fmt.Errorf("reading device/%s: %v", name, err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("reading device/%s: %s", name, response.HTTPResponse.Status)
-			}
-
-			marshalled, err := yaml.Marshal(response.JSON200)
+			err = printSingleResourceResponse(response, fmt.Sprintf("device/%s", name))
 			if err != nil {
-				return fmt.Errorf("marshalling device: %v", err)
+				return err
 			}
-			fmt.Println(string(marshalled))
 		} else {
-			params := &api.ListDevicesParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
-			}
-			response, err := c.ListDevicesWithResponse(context.Background(), params)
+			params := api.ListDevicesParams{}
+			setListResourcesParams(params, labelSelector)
+			response, err := c.ListDevicesWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing devices: %v", err)
 			}
@@ -253,21 +247,14 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 			if err != nil {
 				return fmt.Errorf("reading enrollmentrequest/%s: %v", name, err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("reading enrollmentrequest/%s: %s", name, response.HTTPResponse.Status)
-			}
-
-			marshalled, err := yaml.Marshal(response.JSON200)
+			err = printSingleResourceResponse(response, fmt.Sprintf("enrollmentrequest/%s", name))
 			if err != nil {
-				return fmt.Errorf("marshalling enrollmentrequest: %v", err)
+				return err
 			}
-			fmt.Println(string(marshalled))
 		} else {
-			params := &api.ListEnrollmentRequestsParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
-			}
-			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), params)
+			params := api.ListEnrollmentRequestsParams{}
+			setListResourcesParams(params, labelSelector)
+			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing enrollmentrequests: %v", err)
 			}
@@ -303,21 +290,14 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 			if err != nil {
 				return fmt.Errorf("reading fleet/%s: %v", name, err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("reading fleet/%s: %s", name, response.HTTPResponse.Status)
-			}
-
-			marshalled, err := yaml.Marshal(response.JSON200)
+			err = printSingleResourceResponse(response, fmt.Sprintf("fleet/%s", name))
 			if err != nil {
-				return fmt.Errorf("marshalling fleet: %v", err)
+				return err
 			}
-			fmt.Println(string(marshalled))
 		} else {
-			params := &api.ListFleetsParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
-			}
-			response, err := c.ListFleetsWithResponse(context.Background(), params)
+			params := api.ListFleetsParams{}
+			setListResourcesParams(params, labelSelector)
+			response, err := c.ListFleetsWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing fleets: %v", err)
 			}
@@ -346,6 +326,28 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 	}
 
 	return nil
+}
+
+func printSingleResourceResponse(response interface{}, name string) error {
+	v := reflect.ValueOf(response).Elem()
+	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
+		return fmt.Errorf("reading %s: %s", name, v.FieldByName("HTTPResponse").FieldByName("StatusCode").String())
+	}
+
+	marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
+	if err != nil {
+		return fmt.Errorf("marshalling resource: %v", err)
+	}
+
+	fmt.Printf("%s\n", string(marshalled))
+	return nil
+}
+
+func setListResourcesParams(params interface{}, labelSelector string) {
+	v := reflect.ValueOf(params)
+	if len(labelSelector) > 0 {
+		v.FieldByName("LabelSelector").Elem().SetString(labelSelector)
+	}
 }
 
 func expandIfFilePattern(pattern string) ([]string, error) {
