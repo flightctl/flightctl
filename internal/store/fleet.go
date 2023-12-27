@@ -37,17 +37,20 @@ func (s *FleetStore) CreateFleet(orgId uuid.UUID, resource *api.Fleet) (*api.Fle
 	return resource, result.Error
 }
 
-func (s *FleetStore) ListFleets(orgId uuid.UUID, labels map[string]string) (*api.FleetList, error) {
-	orgCondition := model.Device{
-		Resource: model.Resource{OrgID: orgId},
-	}
-	query := s.db.Where(orgCondition)
-	query = LabelSelectionQuery(query, labels)
-
+func (s *FleetStore) ListFleets(orgId uuid.UUID, listParams service.ListParams) (*api.FleetList, error) {
 	var fleets model.FleetList
+	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams.Labels)
+	query = AddPaginationToQuery(query, listParams.Limit, listParams.Continue)
 	result := query.Find(&fleets)
 	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	apiFleetList := fleets.ToApiResource()
+
+	var nextCont *string
+	var numRemaining *int64
+	if len(fleets) > 0 {
+		countQuery := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams.Labels)
+		nextCont, numRemaining = FormatResourcesAfterPagination(countQuery, listParams.Limit, fleets[len(fleets)-1].Name)
+	}
+	apiFleetList := fleets.ToApiResource(nextCont, numRemaining)
 	return &apiFleetList, result.Error
 }
 

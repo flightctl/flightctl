@@ -10,6 +10,12 @@ var (
 	NullOrgId = uuid.MustParse("00000000-0000-0000-0000-000000000000")
 )
 
+type ListParams struct {
+	Labels   map[string]string
+	Limit    int
+	Continue string
+}
+
 type DataStoreInterface interface {
 	GetDeviceStore() DeviceStoreInterface
 	GetEnrollmentRequestStore() EnrollmentRequestStoreInterface

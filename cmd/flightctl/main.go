@@ -89,10 +89,12 @@ func NewFlightctlCommand() *cobra.Command {
 type GetOptions struct {
 	LabelSelector string
 	Output        string
+	Limit         int32
+	Continue      string
 }
 
 func NewCmdGet() *cobra.Command {
-	o := &GetOptions{LabelSelector: ""}
+	o := &GetOptions{LabelSelector: "", Limit: 0, Continue: ""}
 
 	cmd := &cobra.Command{
 		Use:   "get",
@@ -106,17 +108,33 @@ func NewCmdGet() *cobra.Command {
 			if len(name) > 0 && cmd.Flags().Lookup("labelselector").Changed {
 				return fmt.Errorf("cannot specify label selector together when fetching a single resource")
 			}
-
 			if cmd.Flags().Lookup("output").Changed && !funk.Contains(legalOutputTypes, o.Output) {
 				return fmt.Errorf("output format must be one of %s", strings.Join(legalOutputTypes, ", "))
 			}
-			return RunGet(kind, name, o.LabelSelector, o.Output)
+			if o.Limit < 0 {
+				return fmt.Errorf("limit must be greater than 0")
+			}
+			var labelSelector *string
+			if cmd.Flags().Lookup("labelselector").Changed {
+				labelSelector = &o.LabelSelector
+			}
+			var limit *int32
+			if cmd.Flags().Lookup("limit").Changed {
+				limit = &o.Limit
+			}
+			var cont *string
+			if cmd.Flags().Lookup("continue").Changed {
+				cont = &o.Continue
+			}
+			return RunGet(kind, name, labelSelector, o.Output, limit, cont)
 		},
 		SilenceUsage: true,
 	}
 
 	cmd.Flags().StringVarP(&o.LabelSelector, "labelselector", "l", o.LabelSelector, "label selector as a comma-separated list of key=value")
 	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, "output format (yaml)")
+	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "the maximum number of results returned in the list response")
+	cmd.Flags().StringVar(&o.Continue, "continue", o.Continue, "query more results starting from the value of the 'continue' field in the previous response")
 	return cmd
 }
 
@@ -197,7 +215,7 @@ func getClient() (*client.ClientWithResponses, error) {
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
 }
 
-func RunGet(kind, name string, labelSelector string, output string) error {
+func RunGet(kind, name string, labelSelector *string, output string, limit *int32, cont *string) error {
 	c, err := getClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
@@ -215,10 +233,12 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 				return err
 			}
 		} else {
-			params := api.ListDevicesParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
+			params := api.ListDevicesParams{
+				LabelSelector: labelSelector,
+				Limit:         limit,
+				Continue:      cont,
 			}
+
 			response, err := c.ListDevicesWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing devices: %v", err)
@@ -254,10 +274,12 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 				return err
 			}
 		} else {
-			params := api.ListEnrollmentRequestsParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
+			params := api.ListEnrollmentRequestsParams{
+				LabelSelector: labelSelector,
+				Limit:         limit,
+				Continue:      cont,
 			}
+
 			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing enrollmentrequests: %v", err)
@@ -299,10 +321,12 @@ func RunGet(kind, name string, labelSelector string, output string) error {
 				return err
 			}
 		} else {
-			params := api.ListFleetsParams{}
-			if len(labelSelector) > 0 {
-				params.LabelSelector = &labelSelector
+			params := api.ListFleetsParams{
+				LabelSelector: labelSelector,
+				Limit:         limit,
+				Continue:      cont,
 			}
+
 			response, err := c.ListFleetsWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing fleets: %v", err)

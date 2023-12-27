@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
@@ -17,7 +18,7 @@ const ClientCertExpiryDays = 365
 
 type EnrollmentRequestStoreInterface interface {
 	CreateEnrollmentRequest(orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
-	ListEnrollmentRequests(orgId uuid.UUID, labels map[string]string) (*api.EnrollmentRequestList, error)
+	ListEnrollmentRequests(orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
 	GetEnrollmentRequest(orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
 	CreateOrUpdateEnrollmentRequest(orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error)
 	UpdateEnrollmentRequestStatus(orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
@@ -147,7 +148,12 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		return nil, err
 	}
 
-	result, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId, labelMap)
+	listParams := ListParams{
+		Labels:   labelMap,
+		Limit:    int(swag.Int32Value(request.Params.Limit)),
+		Continue: swag.StringValue(request.Params.Continue),
+	}
+	result, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListEnrollmentRequests200JSONResponse(*result), nil

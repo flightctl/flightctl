@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
@@ -14,7 +15,7 @@ import (
 
 type FleetStoreInterface interface {
 	CreateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
-	ListFleets(orgId uuid.UUID, labels map[string]string) (*api.FleetList, error)
+	ListFleets(orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
 	GetFleet(orgId uuid.UUID, name string) (*api.Fleet, error)
 	CreateOrUpdateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, bool, error)
 	UpdateFleetStatus(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
@@ -56,7 +57,12 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return nil, err
 	}
 
-	result, err := h.fleetStore.ListFleets(orgId, labelMap)
+	listParams := ListParams{
+		Labels:   labelMap,
+		Limit:    int(swag.Int32Value(request.Params.Limit)),
+		Continue: swag.StringValue(request.Params.Continue),
+	}
+	result, err := h.fleetStore.ListFleets(orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListFleets200JSONResponse(*result), nil

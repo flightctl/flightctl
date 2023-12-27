@@ -55,17 +55,20 @@ func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *api.Device) (*api.
 	return resource, result.Error
 }
 
-func (s *DeviceStore) ListDevices(orgId uuid.UUID, labels map[string]string) (*api.DeviceList, error) {
-	orgCondition := model.Device{
-		Resource: model.Resource{OrgID: orgId},
-	}
-	query := s.db.Where(orgCondition)
-	query = LabelSelectionQuery(query, labels)
-
+func (s *DeviceStore) ListDevices(orgId uuid.UUID, listParams service.ListParams) (*api.DeviceList, error) {
 	var devices model.DeviceList
+	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams.Labels)
+	query = AddPaginationToQuery(query, listParams.Limit, listParams.Continue)
 	result := query.Find(&devices)
 	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	apiDevicelist := devices.ToApiResource()
+
+	var nextCont *string
+	var numRemaining *int64
+	if len(devices) > 0 {
+		countQuery := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams.Labels)
+		nextCont, numRemaining = FormatResourcesAfterPagination(countQuery, listParams.Limit, devices[len(devices)-1].Name)
+	}
+	apiDevicelist := devices.ToApiResource(nextCont, numRemaining)
 	return &apiDevicelist, result.Error
 }
 

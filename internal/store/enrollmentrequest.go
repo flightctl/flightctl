@@ -37,17 +37,20 @@ func (s *EnrollmentRequestStore) CreateEnrollmentRequest(orgId uuid.UUID, resour
 	return resource, result.Error
 }
 
-func (s *EnrollmentRequestStore) ListEnrollmentRequests(orgId uuid.UUID, labels map[string]string) (*api.EnrollmentRequestList, error) {
-	orgCondition := model.Device{
-		Resource: model.Resource{OrgID: orgId},
-	}
-	query := s.db.Where(orgCondition)
-	query = LabelSelectionQuery(query, labels)
-
+func (s *EnrollmentRequestStore) ListEnrollmentRequests(orgId uuid.UUID, listParams service.ListParams) (*api.EnrollmentRequestList, error) {
 	var enrollmentRequests model.EnrollmentRequestList
+	query := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams.Labels)
+	query = AddPaginationToQuery(query, listParams.Limit, listParams.Continue)
 	result := query.Find(&enrollmentRequests)
 	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	apiEnrollmentRequestList := enrollmentRequests.ToApiResource()
+
+	var nextCont *string
+	var numRemaining *int64
+	if len(enrollmentRequests) > 0 {
+		countQuery := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams.Labels)
+		nextCont, numRemaining = FormatResourcesAfterPagination(countQuery, listParams.Limit, enrollmentRequests[len(enrollmentRequests)-1].Name)
+	}
+	apiEnrollmentRequestList := enrollmentRequests.ToApiResource(nextCont, numRemaining)
 	return &apiEnrollmentRequestList, result.Error
 }
 
