@@ -1,6 +1,9 @@
 package store
 
 import (
+	"log"
+
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -11,27 +14,18 @@ func BuildBaseListQuery(db *gorm.DB, orgId uuid.UUID, labels map[string]string) 
 	return query
 }
 
-func AddPaginationToQuery(query *gorm.DB, limit int, cont string) *gorm.DB {
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	if cont != "" {
-		query = query.Where("name > ?", cont)
+func AddPaginationToQuery(query *gorm.DB, limit int, cont *service.Continue) *gorm.DB {
+	query = query.Limit(limit)
+	if cont != nil {
+		query = query.Where("name >= ?", cont.Name)
 	}
 
 	return query
 }
 
-func FormatResourcesAfterPagination(query *gorm.DB, limit int, lastItemName string) (*string, *int64) {
-	if limit == 0 {
-		return nil, nil
-	}
-
+func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
 	var count int64
-	query.Where("name > ?", lastItemName).Count(&count)
-
-	if count == 0 {
-		return nil, nil
-	}
-	return &lastItemName, &count
+	result := query.Where("name >= ?", lastItemName).Count(&count)
+	log.Printf("db.Count(): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	return count
 }

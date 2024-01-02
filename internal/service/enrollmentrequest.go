@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -148,11 +149,23 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		return nil, err
 	}
 
+	cont, err := ParseContinueString(request.Params.Continue)
+	if err != nil {
+		return server.ListEnrollmentRequests400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+	}
+
 	listParams := ListParams{
 		Labels:   labelMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: swag.StringValue(request.Params.Continue),
+		Continue: cont,
 	}
+	if listParams.Limit == 0 {
+		listParams.Limit = MaxRecordsPerListRequest
+	}
+	if listParams.Limit > MaxRecordsPerListRequest {
+		return server.ListEnrollmentRequests400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
+	}
+
 	result, err := h.enrollmentRequestStore.ListEnrollmentRequests(orgId, listParams)
 	switch err {
 	case nil:
