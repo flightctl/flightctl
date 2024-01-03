@@ -9,6 +9,7 @@ type Store struct {
 	deviceStore            *DeviceStore
 	enrollmentRequestStore *EnrollmentRequestStore
 	fleetStore             *FleetStore
+	repositoryStore        *RepositoryStore
 }
 
 func NewStore(db *gorm.DB) *Store {
@@ -16,7 +17,12 @@ func NewStore(db *gorm.DB) *Store {
 		deviceStore:            NewDeviceStore(db),
 		enrollmentRequestStore: NewEnrollmentRequestStoreStore(db),
 		fleetStore:             NewFleetStore(db),
+		repositoryStore:        NewRepositoryStore(db),
 	}
+}
+
+func (s *Store) GetRepositoryStore() service.RepositoryStoreInterface {
+	return s.repositoryStore
 }
 
 func (s *Store) GetDeviceStore() service.DeviceStoreInterface {
@@ -39,6 +45,9 @@ func (s *Store) InitialMigration() error {
 		return err
 	}
 	if err := s.fleetStore.InitialMigration(); err != nil {
+		return err
+	}
+	if err := s.repositoryStore.InitialMigration(); err != nil {
 		return err
 	}
 	return nil
