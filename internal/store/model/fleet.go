@@ -75,7 +75,7 @@ func (f *Fleet) ToApiResource() api.Fleet {
 	}
 }
 
-func (dl FleetList) ToApiResource() api.FleetList {
+func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetList {
 	if dl == nil {
 		return api.FleetList{
 			ApiVersion: FleetAPI,
@@ -88,9 +88,15 @@ func (dl FleetList) ToApiResource() api.FleetList {
 	for i, fleet := range dl {
 		fleetList[i] = fleet.ToApiResource()
 	}
-	return api.FleetList{
+	ret := api.FleetList{
 		ApiVersion: FleetAPI,
 		Kind:       FleetListKind,
 		Items:      fleetList,
+		Metadata:   api.ListMeta{},
 	}
+	if cont != nil {
+		ret.Metadata.Continue = cont
+		ret.Metadata.RemainingItemCount = numRemaining
+	}
+	return ret
 }

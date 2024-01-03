@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
@@ -12,7 +14,7 @@ import (
 
 type DeviceStoreInterface interface {
 	CreateDevice(orgId uuid.UUID, device *api.Device) (*api.Device, error)
-	ListDevices(orgId uuid.UUID, labels map[string]string) (*api.DeviceList, error)
+	ListDevices(orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	GetDevice(orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdateDevice(orgId uuid.UUID, device *api.Device) (*api.Device, bool, error)
 	UpdateDeviceStatus(orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -46,7 +48,24 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		return nil, err
 	}
 
-	result, err := h.deviceStore.ListDevices(orgId, labelMap)
+	cont, err := ParseContinueString(request.Params.Continue)
+	if err != nil {
+		return server.ListDevices400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+	}
+
+	listParams := ListParams{
+		Labels:   labelMap,
+		Limit:    int(swag.Int32Value(request.Params.Limit)),
+		Continue: cont,
+	}
+	if listParams.Limit == 0 {
+		listParams.Limit = MaxRecordsPerListRequest
+	}
+	if listParams.Limit > MaxRecordsPerListRequest {
+		return server.ListDevices400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
+	}
+
+	result, err := h.deviceStore.ListDevices(orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListDevices200JSONResponse(*result), nil

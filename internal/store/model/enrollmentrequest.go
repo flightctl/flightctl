@@ -75,7 +75,7 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 	}
 }
 
-func (el EnrollmentRequestList) ToApiResource() api.EnrollmentRequestList {
+func (el EnrollmentRequestList) ToApiResource(cont *string, numRemaining *int64) api.EnrollmentRequestList {
 	if el == nil {
 		return api.EnrollmentRequestList{
 			ApiVersion: EnrollmentRequestAPI,
@@ -88,9 +88,15 @@ func (el EnrollmentRequestList) ToApiResource() api.EnrollmentRequestList {
 	for i, enrollmentRequest := range el {
 		enrollmentRequestList[i] = enrollmentRequest.ToApiResource()
 	}
-	return api.EnrollmentRequestList{
+	ret := api.EnrollmentRequestList{
 		ApiVersion: EnrollmentRequestAPI,
 		Kind:       EnrollmentRequestListKind,
 		Items:      enrollmentRequestList,
+		Metadata:   api.ListMeta{},
 	}
+	if cont != nil {
+		ret.Metadata.Continue = cont
+		ret.Metadata.RemainingItemCount = numRemaining
+	}
+	return ret
 }

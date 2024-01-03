@@ -1,8 +1,11 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+
+	b64 "encoding/base64"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
@@ -37,17 +40,43 @@ func (s *EnrollmentRequestStore) CreateEnrollmentRequest(orgId uuid.UUID, resour
 	return resource, result.Error
 }
 
-func (s *EnrollmentRequestStore) ListEnrollmentRequests(orgId uuid.UUID, labels map[string]string) (*api.EnrollmentRequestList, error) {
-	orgCondition := model.Device{
-		Resource: model.Resource{OrgID: orgId},
-	}
-	query := s.db.Where(orgCondition)
-	query = LabelSelectionQuery(query, labels)
-
+func (s *EnrollmentRequestStore) ListEnrollmentRequests(orgId uuid.UUID, listParams service.ListParams) (*api.EnrollmentRequestList, error) {
 	var enrollmentRequests model.EnrollmentRequestList
+	var nextContinue *string
+	var numRemaining *int64
+
+	query := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams.Labels)
+	// Request 1 more than the user asked for to see if we need to return "continue"
+	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&enrollmentRequests)
 	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	apiEnrollmentRequestList := enrollmentRequests.ToApiResource()
+
+	// If we got more than the user requested, remove one record and calculate "continue"
+	if len(enrollmentRequests) > listParams.Limit {
+		nextContinueStruct := service.Continue{
+			Name:    enrollmentRequests[len(enrollmentRequests)-1].Name,
+			Version: service.CurrentContinueVersion,
+		}
+		enrollmentRequests = enrollmentRequests[:len(enrollmentRequests)-1]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			countQuery := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams.Labels)
+			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
+		}
+		nextContinueStruct.Count = numRemainingVal
+		contByte, _ := json.Marshal(nextContinueStruct)
+		contStr := b64.StdEncoding.EncodeToString(contByte)
+		nextContinue = &contStr
+		numRemaining = &numRemainingVal
+	}
+
+	apiEnrollmentRequestList := enrollmentRequests.ToApiResource(nextContinue, numRemaining)
 	return &apiEnrollmentRequestList, result.Error
 }
 

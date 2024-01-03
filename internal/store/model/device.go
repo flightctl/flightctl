@@ -76,7 +76,7 @@ func (d *Device) ToApiResource() api.Device {
 	}
 }
 
-func (dl DeviceList) ToApiResource() api.DeviceList {
+func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.DeviceList {
 	if dl == nil {
 		return api.DeviceList{
 			ApiVersion: DeviceAPI,
@@ -89,9 +89,15 @@ func (dl DeviceList) ToApiResource() api.DeviceList {
 	for i, device := range dl {
 		deviceList[i] = device.ToApiResource()
 	}
-	return api.DeviceList{
+	ret := api.DeviceList{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceListKind,
 		Items:      deviceList,
+		Metadata:   api.ListMeta{},
 	}
+	if cont != nil {
+		ret.Metadata.Continue = cont
+		ret.Metadata.RemainingItemCount = numRemaining
+	}
+	return ret
 }
