@@ -1,0 +1,8 @@
+apiVersion: v1alpha1
+kind: Repository
+metadata:
+  name: defaultRepo
+spec:
+  repo: https://github.com/flightctl/flightctl.git
+  username: myuser
+  password: mypassword

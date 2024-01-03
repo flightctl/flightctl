@@ -8,6 +8,177 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/repositories:
+    get:
+      tags:
+        - repository
+      description: list repositories
+      operationId: listRepositories
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryList'
+        "400":
+          description: Bad Request
+          content: {}
+        "401":
+          description: Unauthorized
+          content: {}
+    post:
+      tags:
+        - repository
+      description: create a repository
+      operationId: createRepository
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Repository'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryRead'
+        "400":
+          description: Bad Request
+          content: {}
+        "401":
+          description: Unauthorized
+          content: {}
+        "409":
+          description: StatusConflict
+          content: {}
+    delete:
+      tags:
+        - device
+      description: delete collection of Repositories
+      operationId: deleteRepositories
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/repositories/{name}:
+    get:
+      tags:
+        - repository
+      description: read the specified repository
+      operationId: readRepository
+      parameters:
+        - name: name
+          in: path
+          description: name of the repository
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryRead'
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
+    put:
+      tags:
+        - repository
+      description: replace the specified repository
+      operationId: replaceRepository
+      parameters:
+        - name: name
+          in: path
+          description: name of the repository
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Repository'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryRead'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryRead'
+        "400":
+          description: Bad Request
+          content: {}
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
+    delete:
+      tags:
+        - repository
+      description: delete a repository
+      operationId: deleteRepository
+      parameters:
+        - name: name
+          in: path
+          description: name of the repository
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryRead'
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
   /api/v1/devices:
     get:
       tags:
@@ -714,6 +885,111 @@ paths:
           content: {}
 components:
   schemas:
+    Repository:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/RepositorySpec'
+        status:
+          $ref: '#/components/schemas/RepositoryStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      description: Repository represents a git repository
+    RepositoryRead:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'        
+        status:
+          $ref: '#/components/schemas/RepositoryStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+      description: RepositoryRead represents a git repository's status
+    RepositorySpec:
+      type: object
+      properties:
+        repo:
+          type: string
+          description: 'The (possibly remote) repository URL to clone from'
+        username:
+          type: string
+          description: 'The username for auth with HTTP transport'
+        password:
+          type: string
+          description: 'The password for auth with HTTP transport'
+    RepositoryCondition:
+      required:
+        - status
+        - type
+      type: object
+      properties:
+        lastHeartbeatTime:
+          type: string
+        lastTransitionTime:
+          type: string
+        message:
+          type: string
+          description: Human readable message indicating details about last transition.
+        reason:
+          type: string
+          description: (brief) reason for the condition's last transition.
+        status:
+          type: string
+          description: Status of the condition, one of True, False, Unknown.
+        type:
+          type: string
+          description: Type of repository condition.
+      description: RepositoryCondition contains condition information for a repository.
+    RepositoryStatus:
+      type: object
+      properties:
+        conditions:
+          type: array
+          description: 'Current state of the repository.'
+          items:
+            $ref: '#/components/schemas/RepositoryCondition'
+      description: RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+    RepositoryList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of repositories.'
+          items:
+            $ref: '#/components/schemas/RepositoryRead'
+      description: RepositoryList is a list of Repositories.
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
     Device:
       type: object
       properties:

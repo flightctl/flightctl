@@ -54,12 +54,14 @@ type DataStoreInterface interface {
 	GetDeviceStore() DeviceStoreInterface
 	GetEnrollmentRequestStore() EnrollmentRequestStoreInterface
 	GetFleetStore() FleetStoreInterface
+	GetRepositoryStore() RepositoryStoreInterface
 }
 
 type ServiceHandler struct {
 	deviceStore            DeviceStoreInterface
 	enrollmentRequestStore EnrollmentRequestStoreInterface
 	fleetStore             FleetStoreInterface
+	repositoryStore        RepositoryStoreInterface
 	ca                     *crypto.CA
 }
 
@@ -71,6 +73,7 @@ func NewServiceHandler(store DataStoreInterface, ca *crypto.CA) *ServiceHandler 
 		deviceStore:            store.GetDeviceStore(),
 		enrollmentRequestStore: store.GetEnrollmentRequestStore(),
 		fleetStore:             store.GetFleetStore(),
+		repositoryStore:        store.GetRepositoryStore(),
 		ca:                     ca,
 	}
 }
