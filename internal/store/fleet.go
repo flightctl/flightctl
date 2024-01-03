@@ -1,8 +1,11 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+
+	b64 "encoding/base64"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
@@ -37,17 +40,43 @@ func (s *FleetStore) CreateFleet(orgId uuid.UUID, resource *api.Fleet) (*api.Fle
 	return resource, result.Error
 }
 
-func (s *FleetStore) ListFleets(orgId uuid.UUID, labels map[string]string) (*api.FleetList, error) {
-	orgCondition := model.Device{
-		Resource: model.Resource{OrgID: orgId},
-	}
-	query := s.db.Where(orgCondition)
-	query = LabelSelectionQuery(query, labels)
-
+func (s *FleetStore) ListFleets(orgId uuid.UUID, listParams service.ListParams) (*api.FleetList, error) {
 	var fleets model.FleetList
+	var nextContinue *string
+	var numRemaining *int64
+
+	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams.Labels)
+	// Request 1 more than the user asked for to see if we need to return "continue"
+	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&fleets)
 	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	apiFleetList := fleets.ToApiResource()
+
+	// If we got more than the user requested, remove one record and calculate "continue"
+	if len(fleets) > listParams.Limit {
+		nextContinueStruct := service.Continue{
+			Name:    fleets[len(fleets)-1].Name,
+			Version: service.CurrentContinueVersion,
+		}
+		fleets = fleets[:len(fleets)-1]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			countQuery := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams.Labels)
+			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
+		}
+		nextContinueStruct.Count = numRemainingVal
+		contByte, _ := json.Marshal(nextContinueStruct)
+		contStr := b64.StdEncoding.EncodeToString(contByte)
+		nextContinue = &contStr
+		numRemaining = &numRemainingVal
+	}
+
+	apiFleetList := fleets.ToApiResource(nextContinue, numRemaining)
 	return &apiFleetList, result.Error
 }
 

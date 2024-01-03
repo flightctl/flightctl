@@ -1103,6 +1103,14 @@ func (response ListDevices200JSONResponse) VisitListDevicesResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListDevices400Response struct {
+}
+
+func (response ListDevices400Response) VisitListDevicesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
 type ListDevices401Response struct {
 }
 
@@ -1359,6 +1367,14 @@ func (response ListEnrollmentRequests200JSONResponse) VisitListEnrollmentRequest
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEnrollmentRequests400Response struct {
+}
+
+func (response ListEnrollmentRequests400Response) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
 }
 
 type ListEnrollmentRequests401Response struct {
@@ -1660,6 +1676,14 @@ func (response ListFleets200JSONResponse) VisitListFleetsResponse(w http.Respons
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
+}
+
+type ListFleets400Response struct {
+}
+
+func (response ListFleets400Response) VisitListFleetsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
 }
 
 type ListFleets401Response struct {

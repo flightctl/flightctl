@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
@@ -14,7 +16,7 @@ import (
 
 type FleetStoreInterface interface {
 	CreateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
-	ListFleets(orgId uuid.UUID, labels map[string]string) (*api.FleetList, error)
+	ListFleets(orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
 	GetFleet(orgId uuid.UUID, name string) (*api.Fleet, error)
 	CreateOrUpdateFleet(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, bool, error)
 	UpdateFleetStatus(orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
@@ -56,7 +58,24 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return nil, err
 	}
 
-	result, err := h.fleetStore.ListFleets(orgId, labelMap)
+	cont, err := ParseContinueString(request.Params.Continue)
+	if err != nil {
+		return server.ListFleets400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+	}
+
+	listParams := ListParams{
+		Labels:   labelMap,
+		Limit:    int(swag.Int32Value(request.Params.Limit)),
+		Continue: cont,
+	}
+	if listParams.Limit == 0 {
+		listParams.Limit = MaxRecordsPerListRequest
+	}
+	if listParams.Limit > MaxRecordsPerListRequest {
+		return server.ListFleets400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
+	}
+
+	result, err := h.fleetStore.ListFleets(orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListFleets200JSONResponse(*result), nil

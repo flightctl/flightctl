@@ -40,6 +40,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeviceList'
+        "400":
+          description: Bad Request
+          content: {}
         "401":
           description: Unauthorized
           content: {}
@@ -259,6 +262,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequestList'
+        "400":
+          description: Bad Request
+          content: {}
         "401":
           description: Unauthorized
           content: {}
@@ -516,6 +522,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FleetList'
+        "400":
+          description: Bad Request
+          content: {}
         "401":
           description: Unauthorized
           content: {}
