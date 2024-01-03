@@ -92,6 +92,21 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/git-sources)
+	ListGitSources(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/v1/git-sources)
+	CreateGitSource(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /api/v1/git-sources/{name})
+	DeleteGitSource(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/git-sources/{name})
+	ReadGitSource(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/git-sources/{name})
+	ReplaceGitSource(w http.ResponseWriter, r *http.Request, name string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -220,6 +235,31 @@ func (_ Unimplemented) ReadFleetStatus(w http.ResponseWriter, r *http.Request, n
 
 // (PUT /api/v1/fleets/{name}/status)
 func (_ Unimplemented) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/git-sources)
+func (_ Unimplemented) ListGitSources(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/git-sources)
+func (_ Unimplemented) CreateGitSource(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/git-sources/{name})
+func (_ Unimplemented) DeleteGitSource(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/git-sources/{name})
+func (_ Unimplemented) ReadGitSource(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/git-sources/{name})
+func (_ Unimplemented) ReplaceGitSource(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -870,6 +910,114 @@ func (siw *ServerInterfaceWrapper) ReplaceFleetStatus(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// ListGitSources operation middleware
+func (siw *ServerInterfaceWrapper) ListGitSources(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListGitSources(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// CreateGitSource operation middleware
+func (siw *ServerInterfaceWrapper) CreateGitSource(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGitSource(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteGitSource operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGitSource(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGitSource(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadGitSource operation middleware
+func (siw *ServerInterfaceWrapper) ReadGitSource(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadGitSource(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceGitSource operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceGitSource(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceGitSource(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1057,6 +1205,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReplaceFleetStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/git-sources", wrapper.ListGitSources)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/git-sources", wrapper.CreateGitSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/git-sources/{name}", wrapper.DeleteGitSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/git-sources/{name}", wrapper.ReadGitSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/git-sources/{name}", wrapper.ReplaceGitSource)
 	})
 
 	return r
@@ -1903,6 +2066,172 @@ func (response ReplaceFleetStatus404Response) VisitReplaceFleetStatusResponse(w 
 	return nil
 }
 
+type ListGitSourcesRequestObject struct {
+}
+
+type ListGitSourcesResponseObject interface {
+	VisitListGitSourcesResponse(w http.ResponseWriter) error
+}
+
+type ListGitSources200JSONResponse GitSourceList
+
+func (response ListGitSources200JSONResponse) VisitListGitSourcesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListGitSources401Response struct {
+}
+
+func (response ListGitSources401Response) VisitListGitSourcesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateGitSourceRequestObject struct {
+	Body *CreateGitSourceJSONRequestBody
+}
+
+type CreateGitSourceResponseObject interface {
+	VisitCreateGitSourceResponse(w http.ResponseWriter) error
+}
+
+type CreateGitSource201JSONResponse GitSource
+
+func (response CreateGitSource201JSONResponse) VisitCreateGitSourceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateGitSource401Response struct {
+}
+
+func (response CreateGitSource401Response) VisitCreateGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateGitSource409Response struct {
+}
+
+func (response CreateGitSource409Response) VisitCreateGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
+type DeleteGitSourceRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DeleteGitSourceResponseObject interface {
+	VisitDeleteGitSourceResponse(w http.ResponseWriter) error
+}
+
+type DeleteGitSource200JSONResponse GitSource
+
+func (response DeleteGitSource200JSONResponse) VisitDeleteGitSourceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteGitSource401Response struct {
+}
+
+func (response DeleteGitSource401Response) VisitDeleteGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type DeleteGitSource404Response struct {
+}
+
+func (response DeleteGitSource404Response) VisitDeleteGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ReadGitSourceRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadGitSourceResponseObject interface {
+	VisitReadGitSourceResponse(w http.ResponseWriter) error
+}
+
+type ReadGitSource200JSONResponse GitSource
+
+func (response ReadGitSource200JSONResponse) VisitReadGitSourceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadGitSource401Response struct {
+}
+
+func (response ReadGitSource401Response) VisitReadGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReadGitSource404Response struct {
+}
+
+func (response ReadGitSource404Response) VisitReadGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ReplaceGitSourceRequestObject struct {
+	Name string `json:"name"`
+	Body *ReplaceGitSourceJSONRequestBody
+}
+
+type ReplaceGitSourceResponseObject interface {
+	VisitReplaceGitSourceResponse(w http.ResponseWriter) error
+}
+
+type ReplaceGitSource200JSONResponse GitSource
+
+func (response ReplaceGitSource200JSONResponse) VisitReplaceGitSourceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceGitSource201JSONResponse GitSource
+
+func (response ReplaceGitSource201JSONResponse) VisitReplaceGitSourceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceGitSource401Response struct {
+}
+
+func (response ReplaceGitSource401Response) VisitReplaceGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceGitSource404Response struct {
+}
+
+func (response ReplaceGitSource404Response) VisitReplaceGitSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -1980,6 +2309,21 @@ type StrictServerInterface interface {
 
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(ctx context.Context, request ReplaceFleetStatusRequestObject) (ReplaceFleetStatusResponseObject, error)
+
+	// (GET /api/v1/git-sources)
+	ListGitSources(ctx context.Context, request ListGitSourcesRequestObject) (ListGitSourcesResponseObject, error)
+
+	// (POST /api/v1/git-sources)
+	CreateGitSource(ctx context.Context, request CreateGitSourceRequestObject) (CreateGitSourceResponseObject, error)
+
+	// (DELETE /api/v1/git-sources/{name})
+	DeleteGitSource(ctx context.Context, request DeleteGitSourceRequestObject) (DeleteGitSourceResponseObject, error)
+
+	// (GET /api/v1/git-sources/{name})
+	ReadGitSource(ctx context.Context, request ReadGitSourceRequestObject) (ReadGitSourceResponseObject, error)
+
+	// (PUT /api/v1/git-sources/{name})
+	ReplaceGitSource(ctx context.Context, request ReplaceGitSourceRequestObject) (ReplaceGitSourceResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHttpHandlerFunc
@@ -2712,6 +3056,146 @@ func (sh *strictHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceFleetStatusResponseObject); ok {
 		if err := validResponse.VisitReplaceFleetStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListGitSources operation middleware
+func (sh *strictHandler) ListGitSources(w http.ResponseWriter, r *http.Request) {
+	var request ListGitSourcesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListGitSources(ctx, request.(ListGitSourcesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListGitSources")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListGitSourcesResponseObject); ok {
+		if err := validResponse.VisitListGitSourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGitSource operation middleware
+func (sh *strictHandler) CreateGitSource(w http.ResponseWriter, r *http.Request) {
+	var request CreateGitSourceRequestObject
+
+	var body CreateGitSourceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGitSource(ctx, request.(CreateGitSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGitSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGitSourceResponseObject); ok {
+		if err := validResponse.VisitCreateGitSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGitSource operation middleware
+func (sh *strictHandler) DeleteGitSource(w http.ResponseWriter, r *http.Request, name string) {
+	var request DeleteGitSourceRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGitSource(ctx, request.(DeleteGitSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGitSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGitSourceResponseObject); ok {
+		if err := validResponse.VisitDeleteGitSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadGitSource operation middleware
+func (sh *strictHandler) ReadGitSource(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadGitSourceRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadGitSource(ctx, request.(ReadGitSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadGitSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadGitSourceResponseObject); ok {
+		if err := validResponse.VisitReadGitSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceGitSource operation middleware
+func (sh *strictHandler) ReplaceGitSource(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceGitSourceRequestObject
+
+	request.Name = name
+
+	var body ReplaceGitSourceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceGitSource(ctx, request.(ReplaceGitSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceGitSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceGitSourceResponseObject); ok {
+		if err := validResponse.VisitReplaceGitSourceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

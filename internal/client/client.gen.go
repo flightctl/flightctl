@@ -184,6 +184,25 @@ type ClientInterface interface {
 	ReplaceFleetStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListGitSources request
+	ListGitSources(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateGitSourceWithBody request with any body
+	CreateGitSourceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateGitSource(ctx context.Context, body CreateGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteGitSource request
+	DeleteGitSource(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadGitSource request
+	ReadGitSource(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReplaceGitSourceWithBody request with any body
+	ReplaceGitSourceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReplaceGitSource(ctx context.Context, name string, body ReplaceGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -596,6 +615,90 @@ func (c *Client) ReplaceFleetStatusWithBody(ctx context.Context, name string, co
 
 func (c *Client) ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceFleetStatusRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListGitSources(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListGitSourcesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateGitSourceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateGitSourceRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateGitSource(ctx context.Context, body CreateGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateGitSourceRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteGitSource(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteGitSourceRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReadGitSource(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadGitSourceRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceGitSourceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceGitSourceRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceGitSource(ctx context.Context, name string, body ReplaceGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceGitSourceRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1685,6 +1788,188 @@ func NewReplaceFleetStatusRequestWithBody(server string, name string, contentTyp
 	return req, nil
 }
 
+// NewListGitSourcesRequest generates requests for ListGitSources
+func NewListGitSourcesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/git-sources")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateGitSourceRequest calls the generic CreateGitSource builder with application/json body
+func NewCreateGitSourceRequest(server string, body CreateGitSourceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateGitSourceRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateGitSourceRequestWithBody generates requests for CreateGitSource with any type of body
+func NewCreateGitSourceRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/git-sources")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteGitSourceRequest generates requests for DeleteGitSource
+func NewDeleteGitSourceRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/git-sources/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadGitSourceRequest generates requests for ReadGitSource
+func NewReadGitSourceRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/git-sources/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReplaceGitSourceRequest calls the generic ReplaceGitSource builder with application/json body
+func NewReplaceGitSourceRequest(server string, name string, body ReplaceGitSourceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceGitSourceRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewReplaceGitSourceRequestWithBody generates requests for ReplaceGitSource with any type of body
+func NewReplaceGitSourceRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/git-sources/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1822,6 +2107,25 @@ type ClientWithResponsesInterface interface {
 	ReplaceFleetStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
 
 	ReplaceFleetStatusWithResponse(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
+
+	// ListGitSourcesWithResponse request
+	ListGitSourcesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGitSourcesResponse, error)
+
+	// CreateGitSourceWithBodyWithResponse request with any body
+	CreateGitSourceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGitSourceResponse, error)
+
+	CreateGitSourceWithResponse(ctx context.Context, body CreateGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateGitSourceResponse, error)
+
+	// DeleteGitSourceWithResponse request
+	DeleteGitSourceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteGitSourceResponse, error)
+
+	// ReadGitSourceWithResponse request
+	ReadGitSourceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadGitSourceResponse, error)
+
+	// ReplaceGitSourceWithBodyWithResponse request with any body
+	ReplaceGitSourceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceGitSourceResponse, error)
+
+	ReplaceGitSourceWithResponse(ctx context.Context, name string, body ReplaceGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceGitSourceResponse, error)
 }
 
 type DeleteDevicesResponse struct {
@@ -2378,6 +2682,117 @@ func (r ReplaceFleetStatusResponse) StatusCode() int {
 	return 0
 }
 
+type ListGitSourcesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GitSourceList
+}
+
+// Status returns HTTPResponse.Status
+func (r ListGitSourcesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListGitSourcesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CreateGitSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *GitSource
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateGitSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateGitSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteGitSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GitSource
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteGitSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteGitSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ReadGitSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GitSource
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadGitSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadGitSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ReplaceGitSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GitSource
+	JSON201      *GitSource
+}
+
+// Status returns HTTPResponse.Status
+func (r ReplaceGitSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReplaceGitSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // DeleteDevicesWithResponse request returning *DeleteDevicesResponse
 func (c *ClientWithResponses) DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error) {
 	rsp, err := c.DeleteDevices(ctx, reqEditors...)
@@ -2681,6 +3096,67 @@ func (c *ClientWithResponses) ReplaceFleetStatusWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReplaceFleetStatusResponse(rsp)
+}
+
+// ListGitSourcesWithResponse request returning *ListGitSourcesResponse
+func (c *ClientWithResponses) ListGitSourcesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGitSourcesResponse, error) {
+	rsp, err := c.ListGitSources(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListGitSourcesResponse(rsp)
+}
+
+// CreateGitSourceWithBodyWithResponse request with arbitrary body returning *CreateGitSourceResponse
+func (c *ClientWithResponses) CreateGitSourceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGitSourceResponse, error) {
+	rsp, err := c.CreateGitSourceWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateGitSourceResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateGitSourceWithResponse(ctx context.Context, body CreateGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateGitSourceResponse, error) {
+	rsp, err := c.CreateGitSource(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateGitSourceResponse(rsp)
+}
+
+// DeleteGitSourceWithResponse request returning *DeleteGitSourceResponse
+func (c *ClientWithResponses) DeleteGitSourceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteGitSourceResponse, error) {
+	rsp, err := c.DeleteGitSource(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteGitSourceResponse(rsp)
+}
+
+// ReadGitSourceWithResponse request returning *ReadGitSourceResponse
+func (c *ClientWithResponses) ReadGitSourceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadGitSourceResponse, error) {
+	rsp, err := c.ReadGitSource(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadGitSourceResponse(rsp)
+}
+
+// ReplaceGitSourceWithBodyWithResponse request with arbitrary body returning *ReplaceGitSourceResponse
+func (c *ClientWithResponses) ReplaceGitSourceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceGitSourceResponse, error) {
+	rsp, err := c.ReplaceGitSourceWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceGitSourceResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReplaceGitSourceWithResponse(ctx context.Context, name string, body ReplaceGitSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceGitSourceResponse, error) {
+	rsp, err := c.ReplaceGitSource(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceGitSourceResponse(rsp)
 }
 
 // ParseDeleteDevicesResponse parses an HTTP response from a DeleteDevicesWithResponse call
@@ -3355,6 +3831,143 @@ func ParseReplaceFleetStatusResponse(rsp *http.Response) (*ReplaceFleetStatusRes
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListGitSourcesResponse parses an HTTP response from a ListGitSourcesWithResponse call
+func ParseListGitSourcesResponse(rsp *http.Response) (*ListGitSourcesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListGitSourcesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitSourceList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateGitSourceResponse parses an HTTP response from a CreateGitSourceWithResponse call
+func ParseCreateGitSourceResponse(rsp *http.Response) (*CreateGitSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateGitSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest GitSource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteGitSourceResponse parses an HTTP response from a DeleteGitSourceWithResponse call
+func ParseDeleteGitSourceResponse(rsp *http.Response) (*DeleteGitSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteGitSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitSource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadGitSourceResponse parses an HTTP response from a ReadGitSourceWithResponse call
+func ParseReadGitSourceResponse(rsp *http.Response) (*ReadGitSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadGitSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitSource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReplaceGitSourceResponse parses an HTTP response from a ReplaceGitSourceWithResponse call
+func ParseReplaceGitSourceResponse(rsp *http.Response) (*ReplaceGitSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReplaceGitSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitSource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest GitSource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	}
 

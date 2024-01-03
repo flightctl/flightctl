@@ -310,6 +310,54 @@ type GitConfigProviderSpec struct {
 	Name string `json:"name"`
 }
 
+// GitSource Device represents a physical device.
+type GitSource struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Auth Auth credentials, if required, to use with the remote repository
+	Auth *struct {
+		// HttpAuth Auth for HTTP repositories. Use either username and password, or token
+		HttpAuth *struct {
+			// Password The password for auth with HTTP transport
+			Password *string `json:"password,omitempty"`
+
+			// Token The token for token auth (also known as bearer auth) with HTTP transport
+			Token *string `json:"token,omitempty"`
+
+			// Username The username for auth with HTTP transport
+			Username *string `json:"username,omitempty"`
+		} `json:"httpAuth,omitempty"`
+	} `json:"auth,omitempty"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// ReferenceName Remote branch to clone
+	ReferenceName *string `json:"referenceName,omitempty"`
+
+	// RemoteName Name of the remote to be added, by default `origin`
+	RemoteName *string `json:"remoteName,omitempty"`
+
+	// Url The (possibly remote) repository URL to clone from
+	Url *string `json:"url,omitempty"`
+}
+
+// GitSourceList GitSourceList is a list of GitSources.
+type GitSourceList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of git sources.
+	Items []GitSource `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
 	Inline map[string]interface{} `json:"inline"`
@@ -435,6 +483,12 @@ type ReplaceFleetJSONRequestBody = Fleet
 
 // ReplaceFleetStatusJSONRequestBody defines body for ReplaceFleetStatus for application/json ContentType.
 type ReplaceFleetStatusJSONRequestBody = Fleet
+
+// CreateGitSourceJSONRequestBody defines body for CreateGitSource for application/json ContentType.
+type CreateGitSourceJSONRequestBody = GitSource
+
+// ReplaceGitSourceJSONRequestBody defines body for ReplaceGitSource for application/json ContentType.
+type ReplaceGitSourceJSONRequestBody = GitSource
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
