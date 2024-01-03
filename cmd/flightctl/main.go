@@ -36,6 +36,7 @@ var (
 		"device":            "",
 		"enrollmentrequest": "",
 		"fleet":             "",
+		"repository":        "",
 	}
 	resourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
 	serverUrl         = "https://localhost:3333"
@@ -64,7 +65,9 @@ func parseAndValidateKindName(arg string) (string, string, error) {
 }
 
 func singular(kind string) string {
-	if strings.HasSuffix(kind, "s") {
+	if kind == "repositories" {
+		return "repository"
+	} else if strings.HasSuffix(kind, "s") {
 		return kind[:len(kind)-1]
 	}
 	return kind
@@ -351,6 +354,47 @@ func RunGet(kind, name string, labelSelector *string, output string, limit *int3
 				w.Flush()
 			}
 		}
+	case "repository":
+		if len(name) > 0 {
+			response, err := c.ReadRepositoryWithResponse(context.Background(), name)
+			if err != nil {
+				return fmt.Errorf("reading repository/%s: %v", name, err)
+			}
+			err = printSingleResourceResponse(response, fmt.Sprintf("repository/%s", name))
+			if err != nil {
+				return err
+			}
+		} else {
+			params := api.ListRepositoriesParams{
+				LabelSelector: labelSelector,
+				Limit:         limit,
+				Continue:      cont,
+			}
+
+			response, err := c.ListRepositoriesWithResponse(context.Background(), &params)
+			if err != nil {
+				return fmt.Errorf("listing repositories: %v", err)
+			}
+			if response.HTTPResponse.StatusCode != http.StatusOK {
+				return fmt.Errorf("listing repositories: %s", response.HTTPResponse.Status)
+			}
+
+			if output == yamlFormat {
+				marshalled, err := yaml.Marshal(response.JSON200)
+				if err != nil {
+					return fmt.Errorf("marshalling repository list: %v", err)
+				}
+				fmt.Println(string(marshalled))
+			} else {
+				// Tabular
+				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+				fmt.Fprintln(w, "NAME")
+				for _, f := range response.JSON200.Items {
+					fmt.Fprintln(w, *f.Metadata.Name)
+				}
+				w.Flush()
+			}
+		}
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -499,6 +543,28 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 				}
 				fmt.Printf("%s\n", response.HTTPResponse.Status)
 			}
+		case "Repository":
+			var repository api.Repository
+			err := yaml.Unmarshal(buf, &repository)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: decoding Repository resource: %v", filename, err))
+				continue
+			}
+			if repository.Metadata.Name == nil {
+				errs = append(errs, fmt.Errorf("%s: decoding Repository resource: missing field .metadata.name: %v", filename, err))
+				continue
+			}
+			if dryRun {
+				fmt.Printf("%s: applying repository/%s (dry run only)\n", filename, *repository.Metadata.Name)
+			} else {
+				fmt.Printf("%s: applying repository/%s: ", filename, *repository.Metadata.Name)
+				response, err := client.ReplaceRepositoryWithBodyWithResponse(context.Background(), *repository.Metadata.Name, "application/json", bytes.NewReader(buf))
+				if err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				fmt.Printf("%s\n", response.HTTPResponse.Status)
+			}
 		default:
 			errs = append(errs, fmt.Errorf("%s: skipping resource of unkown kind %q: %v", filename, kind, resource))
 		}
@@ -612,6 +678,20 @@ func RunDelete(kind, name string) error {
 			response, err := c.DeleteFleetsWithResponse(context.Background())
 			if err != nil {
 				return fmt.Errorf("deleting fleets: %v", err)
+			}
+			fmt.Printf("%s\n", response.Status())
+		}
+	case "repository":
+		if len(name) > 0 {
+			response, err := c.DeleteRepositoryWithResponse(context.Background(), name)
+			if err != nil {
+				return fmt.Errorf("deleting repository/%s: %v", name, err)
+			}
+			fmt.Printf("%s\n", response.Status())
+		} else {
+			response, err := c.DeleteRepositoriesWithResponse(context.Background())
+			if err != nil {
+				return fmt.Errorf("deleting repositories: %v", err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		}

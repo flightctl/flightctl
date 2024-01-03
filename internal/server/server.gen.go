@@ -92,6 +92,24 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (DELETE /api/v1/repositories)
+	DeleteRepositories(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/repositories)
+	ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams)
+
+	// (POST /api/v1/repositories)
+	CreateRepository(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /api/v1/repositories/{name})
+	DeleteRepository(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/repositories/{name})
+	ReadRepository(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/repositories/{name})
+	ReplaceRepository(w http.ResponseWriter, r *http.Request, name string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -220,6 +238,36 @@ func (_ Unimplemented) ReadFleetStatus(w http.ResponseWriter, r *http.Request, n
 
 // (PUT /api/v1/fleets/{name}/status)
 func (_ Unimplemented) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/repositories)
+func (_ Unimplemented) DeleteRepositories(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/repositories)
+func (_ Unimplemented) ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/repositories)
+func (_ Unimplemented) CreateRepository(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/repositories/{name})
+func (_ Unimplemented) DeleteRepository(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/repositories/{name})
+func (_ Unimplemented) ReadRepository(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/repositories/{name})
+func (_ Unimplemented) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -870,6 +918,158 @@ func (siw *ServerInterfaceWrapper) ReplaceFleetStatus(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// DeleteRepositories operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRepositories(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRepositories(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ListRepositories operation middleware
+func (siw *ServerInterfaceWrapper) ListRepositories(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRepositoriesParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRepositories(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// CreateRepository operation middleware
+func (siw *ServerInterfaceWrapper) CreateRepository(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRepository(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteRepository operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRepository(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRepository(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadRepository operation middleware
+func (siw *ServerInterfaceWrapper) ReadRepository(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadRepository(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceRepository operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceRepository(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceRepository(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1057,6 +1257,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReplaceFleetStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/repositories", wrapper.DeleteRepositories)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/repositories", wrapper.ListRepositories)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/repositories", wrapper.CreateRepository)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/repositories/{name}", wrapper.DeleteRepository)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/repositories/{name}", wrapper.ReadRepository)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/repositories/{name}", wrapper.ReplaceRepository)
 	})
 
 	return r
@@ -1903,6 +2121,221 @@ func (response ReplaceFleetStatus404Response) VisitReplaceFleetStatusResponse(w 
 	return nil
 }
 
+type DeleteRepositoriesRequestObject struct {
+}
+
+type DeleteRepositoriesResponseObject interface {
+	VisitDeleteRepositoriesResponse(w http.ResponseWriter) error
+}
+
+type DeleteRepositories200JSONResponse Status
+
+func (response DeleteRepositories200JSONResponse) VisitDeleteRepositoriesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRepositories401Response struct {
+}
+
+func (response DeleteRepositories401Response) VisitDeleteRepositoriesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ListRepositoriesRequestObject struct {
+	Params ListRepositoriesParams
+}
+
+type ListRepositoriesResponseObject interface {
+	VisitListRepositoriesResponse(w http.ResponseWriter) error
+}
+
+type ListRepositories200JSONResponse RepositoryList
+
+func (response ListRepositories200JSONResponse) VisitListRepositoriesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRepositories400Response struct {
+}
+
+func (response ListRepositories400Response) VisitListRepositoriesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type ListRepositories401Response struct {
+}
+
+func (response ListRepositories401Response) VisitListRepositoriesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateRepositoryRequestObject struct {
+	Body *CreateRepositoryJSONRequestBody
+}
+
+type CreateRepositoryResponseObject interface {
+	VisitCreateRepositoryResponse(w http.ResponseWriter) error
+}
+
+type CreateRepository201JSONResponse RepositoryRead
+
+func (response CreateRepository201JSONResponse) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateRepository400Response struct {
+}
+
+func (response CreateRepository400Response) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type CreateRepository401Response struct {
+}
+
+func (response CreateRepository401Response) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateRepository409Response struct {
+}
+
+func (response CreateRepository409Response) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
+type DeleteRepositoryRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DeleteRepositoryResponseObject interface {
+	VisitDeleteRepositoryResponse(w http.ResponseWriter) error
+}
+
+type DeleteRepository200JSONResponse RepositoryRead
+
+func (response DeleteRepository200JSONResponse) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRepository401Response struct {
+}
+
+func (response DeleteRepository401Response) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type DeleteRepository404Response struct {
+}
+
+func (response DeleteRepository404Response) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ReadRepositoryRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadRepositoryResponseObject interface {
+	VisitReadRepositoryResponse(w http.ResponseWriter) error
+}
+
+type ReadRepository200JSONResponse RepositoryRead
+
+func (response ReadRepository200JSONResponse) VisitReadRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadRepository401Response struct {
+}
+
+func (response ReadRepository401Response) VisitReadRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReadRepository404Response struct {
+}
+
+func (response ReadRepository404Response) VisitReadRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ReplaceRepositoryRequestObject struct {
+	Name string `json:"name"`
+	Body *ReplaceRepositoryJSONRequestBody
+}
+
+type ReplaceRepositoryResponseObject interface {
+	VisitReplaceRepositoryResponse(w http.ResponseWriter) error
+}
+
+type ReplaceRepository200JSONResponse RepositoryRead
+
+func (response ReplaceRepository200JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceRepository201JSONResponse RepositoryRead
+
+func (response ReplaceRepository201JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceRepository400Response struct {
+}
+
+func (response ReplaceRepository400Response) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type ReplaceRepository401Response struct {
+}
+
+func (response ReplaceRepository401Response) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceRepository404Response struct {
+}
+
+func (response ReplaceRepository404Response) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -1980,6 +2413,24 @@ type StrictServerInterface interface {
 
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(ctx context.Context, request ReplaceFleetStatusRequestObject) (ReplaceFleetStatusResponseObject, error)
+
+	// (DELETE /api/v1/repositories)
+	DeleteRepositories(ctx context.Context, request DeleteRepositoriesRequestObject) (DeleteRepositoriesResponseObject, error)
+
+	// (GET /api/v1/repositories)
+	ListRepositories(ctx context.Context, request ListRepositoriesRequestObject) (ListRepositoriesResponseObject, error)
+
+	// (POST /api/v1/repositories)
+	CreateRepository(ctx context.Context, request CreateRepositoryRequestObject) (CreateRepositoryResponseObject, error)
+
+	// (DELETE /api/v1/repositories/{name})
+	DeleteRepository(ctx context.Context, request DeleteRepositoryRequestObject) (DeleteRepositoryResponseObject, error)
+
+	// (GET /api/v1/repositories/{name})
+	ReadRepository(ctx context.Context, request ReadRepositoryRequestObject) (ReadRepositoryResponseObject, error)
+
+	// (PUT /api/v1/repositories/{name})
+	ReplaceRepository(ctx context.Context, request ReplaceRepositoryRequestObject) (ReplaceRepositoryResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHttpHandlerFunc
@@ -2712,6 +3163,172 @@ func (sh *strictHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceFleetStatusResponseObject); ok {
 		if err := validResponse.VisitReplaceFleetStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteRepositories operation middleware
+func (sh *strictHandler) DeleteRepositories(w http.ResponseWriter, r *http.Request) {
+	var request DeleteRepositoriesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteRepositories(ctx, request.(DeleteRepositoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteRepositories")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteRepositoriesResponseObject); ok {
+		if err := validResponse.VisitDeleteRepositoriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRepositories operation middleware
+func (sh *strictHandler) ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams) {
+	var request ListRepositoriesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRepositories(ctx, request.(ListRepositoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRepositories")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRepositoriesResponseObject); ok {
+		if err := validResponse.VisitListRepositoriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateRepository operation middleware
+func (sh *strictHandler) CreateRepository(w http.ResponseWriter, r *http.Request) {
+	var request CreateRepositoryRequestObject
+
+	var body CreateRepositoryJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateRepository(ctx, request.(CreateRepositoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateRepository")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateRepositoryResponseObject); ok {
+		if err := validResponse.VisitCreateRepositoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteRepository operation middleware
+func (sh *strictHandler) DeleteRepository(w http.ResponseWriter, r *http.Request, name string) {
+	var request DeleteRepositoryRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteRepository(ctx, request.(DeleteRepositoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteRepository")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteRepositoryResponseObject); ok {
+		if err := validResponse.VisitDeleteRepositoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadRepository operation middleware
+func (sh *strictHandler) ReadRepository(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadRepositoryRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadRepository(ctx, request.(ReadRepositoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadRepository")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadRepositoryResponseObject); ok {
+		if err := validResponse.VisitReadRepositoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceRepository operation middleware
+func (sh *strictHandler) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceRepositoryRequestObject
+
+	request.Name = name
+
+	var body ReplaceRepositoryJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceRepository(ctx, request.(ReplaceRepositoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceRepository")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceRepositoryResponseObject); ok {
+		if err := validResponse.VisitReplaceRepositoryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

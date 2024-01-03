@@ -47,3 +47,6 @@ jobs:
 
       - name: Apply enrollmentrequest
         run: bin/flightctl apply -f examples/enrollmentrequest.yaml
+
+      - name: Apply repository
+        run: bin/flightctl apply -f examples/repository.yaml

@@ -352,6 +352,88 @@ type ObjectMeta struct {
 	Name *string `json:"name,omitempty"`
 }
 
+// Repository Repository represents a git repository
+type Repository struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta     `json:"metadata"`
+	Spec     RepositorySpec `json:"spec"`
+
+	// Status RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+	Status *RepositoryStatus `json:"status,omitempty"`
+}
+
+// RepositoryCondition RepositoryCondition contains condition information for a repository.
+type RepositoryCondition struct {
+	LastHeartbeatTime  *string `json:"lastHeartbeatTime,omitempty"`
+	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
+
+	// Message Human readable message indicating details about last transition.
+	Message *string `json:"message,omitempty"`
+
+	// Reason (brief) reason for the condition's last transition.
+	Reason *string `json:"reason,omitempty"`
+
+	// Status Status of the condition, one of True, False, Unknown.
+	Status string `json:"status"`
+
+	// Type Type of repository condition.
+	Type string `json:"type"`
+}
+
+// RepositoryList RepositoryList is a list of Repositories.
+type RepositoryList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of repositories.
+	Items []RepositoryRead `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// RepositoryRead RepositoryRead represents a git repository's status
+type RepositoryRead struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Status RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+	Status *RepositoryStatus `json:"status,omitempty"`
+}
+
+// RepositorySpec defines model for RepositorySpec.
+type RepositorySpec struct {
+	// Password The password for auth with HTTP transport
+	Password *string `json:"password,omitempty"`
+
+	// Repo The (possibly remote) repository URL to clone from
+	Repo *string `json:"repo,omitempty"`
+
+	// Username The username for auth with HTTP transport
+	Username *string `json:"username,omitempty"`
+}
+
+// RepositoryStatus RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+type RepositoryStatus struct {
+	// Conditions Current state of the repository.
+	Conditions *[]RepositoryCondition `json:"conditions,omitempty"`
+}
+
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {
 	// Message A human-readable description of the status of this operation.
@@ -406,6 +488,18 @@ type ListFleetsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListRepositoriesParams defines parameters for ListRepositories.
+type ListRepositoriesParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
@@ -435,6 +529,12 @@ type ReplaceFleetJSONRequestBody = Fleet
 
 // ReplaceFleetStatusJSONRequestBody defines body for ReplaceFleetStatus for application/json ContentType.
 type ReplaceFleetStatusJSONRequestBody = Fleet
+
+// CreateRepositoryJSONRequestBody defines body for CreateRepository for application/json ContentType.
+type CreateRepositoryJSONRequestBody = Repository
+
+// ReplaceRepositoryJSONRequestBody defines body for ReplaceRepository for application/json ContentType.
+type ReplaceRepositoryJSONRequestBody = Repository
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
