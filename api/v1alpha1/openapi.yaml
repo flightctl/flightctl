@@ -8,6 +8,134 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/git-sources:
+    get:
+      tags:
+        - gitsource
+      description: list git sources
+      operationId: listGitSources
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitSourceList'
+        "401":
+          description: Unauthorized
+          content: {}
+    post:
+      tags:
+        - gitsource
+      description: create a git source
+      operationId: createGitSource
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitSource'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitSource'
+        "401":
+          description: Unauthorized
+          content: {}
+        "409":
+          description: StatusConflict
+          content: {}
+  /api/v1/git-sources/{name}:
+    get:
+      tags:
+        - gitsource
+      description: read the specified git source
+      operationId: readGitSource
+      parameters:
+        - name: name
+          in: path
+          description: unique name of the git source
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitSource'
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
+    put:
+      tags:
+        - gitsource
+      description: replace the specified git source
+      operationId: replaceGitSource
+      parameters:
+        - name: name
+          in: path
+          description: name of the git source
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitSource'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitSource'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitSource'
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
+    delete:
+      tags:
+        - gitsource
+      description: delete a git source
+      operationId: deleteGitSource
+      parameters:
+        - name: name
+          in: path
+          description: name of the git source
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitSource'
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
   /api/v1/devices:
     get:
       tags:
@@ -714,6 +842,69 @@ paths:
           content: {}
 components:
   schemas:
+    GitSource:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        url:
+          type: string
+          description: 'The (possibly remote) repository URL to clone from'
+        auth:
+          type: object
+          description: 'Auth credentials, if required, to use with the remote repository'
+          properties:
+            httpAuth:
+              description: 'Auth for HTTP repositories. Use either username and password, or token'
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: 'The username for auth with HTTP transport'
+                password:
+                  type: string
+                  description: 'The password for auth with HTTP transport'
+                token:
+                  type: string
+                  description: 'The token for token auth (also known as bearer auth) with HTTP transport'
+        remoteName:
+          type: string
+          default: 'origin'
+          description: 'Name of the remote to be added, by default `origin`'
+        referenceName:
+          type: string
+          description: 'Remote branch to clone'
+      required:
+        - apiVersion
+        - kind
+        - URL
+      description: Device represents a physical device.
+    GitSourceList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of git sources.'
+          items:
+            $ref: '#/components/schemas/GitSource'
+      description: GitSourceList is a list of GitSources.
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
     Device:
       type: object
       properties:
