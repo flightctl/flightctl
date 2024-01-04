@@ -204,6 +204,12 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: fleetName
+          in: query
+          description: The name of the fleet to which the devices belong.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK
