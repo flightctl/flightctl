@@ -128,3 +128,13 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	*d = Duration(duration)
 	return nil
 }
+
+func MergeLabels(labels ...map[string]string) map[string]string {
+	result := make(map[string]string)
+	for _, l := range labels {
+		for k, v := range l {
+			result[k] = v
+		}
+	}
+	return result
+}
