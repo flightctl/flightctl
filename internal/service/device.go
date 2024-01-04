@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/flightctl/flightctl/internal/util"
+
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/go-openapi/swag"
@@ -46,6 +48,14 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
 		return nil, err
+	}
+
+	if request.Params.FleetName != nil {
+		fleet, err := h.fleetStore.GetFleet(ctx, orgId, *request.Params.FleetName)
+		if err != nil {
+			return server.ListDevices400Response{}, fmt.Errorf("fleet not found %q, %w", *request.Params.FleetName, err)
+		}
+		labelMap = util.MergeLabels(fleet.Spec.Selector.MatchLabels, labelMap)
 	}
 
 	cont, err := ParseContinueString(request.Params.Continue)

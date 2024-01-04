@@ -90,6 +90,7 @@ func NewFlightctlCommand() *cobra.Command {
 }
 
 type GetOptions struct {
+	FleetName     string
 	LabelSelector string
 	Output        string
 	Limit         int32
@@ -111,6 +112,16 @@ func NewCmdGet() *cobra.Command {
 			if len(name) > 0 && cmd.Flags().Lookup("labelselector").Changed {
 				return fmt.Errorf("cannot specify label selector together when fetching a single resource")
 			}
+
+			if cmd.Flags().Lookup("fleetname").Changed {
+				if kind != "device" {
+					return fmt.Errorf("fleetname can only be specified when fetching devices")
+				}
+				if len(name) > 0 {
+					return fmt.Errorf("cannot specify fleetname together with a device name")
+				}
+			}
+
 			if cmd.Flags().Lookup("output").Changed && !funk.Contains(legalOutputTypes, o.Output) {
 				return fmt.Errorf("output format must be one of %s", strings.Join(legalOutputTypes, ", "))
 			}
@@ -121,6 +132,10 @@ func NewCmdGet() *cobra.Command {
 			if cmd.Flags().Lookup("labelselector").Changed {
 				labelSelector = &o.LabelSelector
 			}
+			var fleetName *string
+			if cmd.Flags().Lookup("fleetname").Changed {
+				fleetName = &o.FleetName
+			}
 			var limit *int32
 			if cmd.Flags().Lookup("limit").Changed {
 				limit = &o.Limit
@@ -129,11 +144,12 @@ func NewCmdGet() *cobra.Command {
 			if cmd.Flags().Lookup("continue").Changed {
 				cont = &o.Continue
 			}
-			return RunGet(kind, name, labelSelector, o.Output, limit, cont)
+			return RunGet(kind, name, labelSelector, fleetName, o.Output, limit, cont)
 		},
 		SilenceUsage: true,
 	}
 
+	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "fleet name selector for listing devices")
 	cmd.Flags().StringVarP(&o.LabelSelector, "labelselector", "l", o.LabelSelector, "label selector as a comma-separated list of key=value")
 	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, "output format (yaml)")
 	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "the maximum number of results returned in the list response")
@@ -218,7 +234,7 @@ func getClient() (*client.ClientWithResponses, error) {
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
 }
 
-func RunGet(kind, name string, labelSelector *string, output string, limit *int32, cont *string) error {
+func RunGet(kind, name string, labelSelector, fleetName *string, output string, limit *int32, cont *string) error {
 	c, err := getClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
@@ -237,6 +253,7 @@ func RunGet(kind, name string, labelSelector *string, output string, limit *int3
 			}
 		} else {
 			params := api.ListDevicesParams{
+				FleetName:     fleetName,
 				LabelSelector: labelSelector,
 				Limit:         limit,
 				Continue:      cont,
