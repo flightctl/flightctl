@@ -1,0 +1,38 @@
+apiVersion: v1alpha1
+kind: Fleet
+metadata:
+  name: fleet-b
+spec:
+  selector:
+    matchLabels:
+      fleet: fleet-b
+  template:
+    metadata:
+      labels:
+        fleet: fleet-b
+    spec:
+      os:
+        image: quay.io/redhat/rhde:9.2
+      config:
+        - name: base
+          gitRef:
+            repoURL: https://github.com/flightctl/flightctl-demos.git
+            targetRevision: main
+            path: /production
+        - name: acm-secrets
+          secretRef:
+            name: DEVICENAME
+            namespace: devices
+            mountPath: /etc/microshift/manifests
+        - name: motd-update
+          inline:
+            ignition:
+              version: 3.4.0
+            storage:
+              files:
+                - contents:
+                    source: >-
+                      data:,This%20system%20is%20managed%20by%20flightctl.%0A
+                  mode: 422
+                  overwrite: true
+                  path: "/etc/motd"

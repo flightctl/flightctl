@@ -1,9 +1,9 @@
 apiVersion: v1alpha1
 kind: Device
 metadata:
-  name: f62dfb4f5d2cdbb9339362b5f18f2ce268d75649bdc80003f0e04292a7ef8c3f
+  name: fab9839018890a88b898b980f8f809f8e8ac333761977d987a777a777a987ccce
   labels:
-    fleet: default
+    fleet: fleet-b
 spec:
   os:
     image: quay.io/redhat/rhde:9.2
