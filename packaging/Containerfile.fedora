@@ -16,4 +16,5 @@ ADD packaging/flightctl-custom-assets/client-enrollment.* /etc/flightctl/
 RUN rpm-ostree install -y /tmp/flightctl-agent-0.0.1-1.el9.x86_64.rpm
 RUN ln -s /usr/lib/systemd/system/podman.socket /usr/lib/systemd/system/multi-user.target.wants/
 RUN ln -s /usr/lib/systemd/system/flightctl-agent.service /usr/lib/systemd/system/multi-user.target.wants/
+COPY packaging/flightctl-custom-assets/00-fedora.toml /usr/lib/bootc/install/
 RUN ostree container commit 
