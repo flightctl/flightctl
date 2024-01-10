@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -35,6 +35,7 @@ const (
 )
 
 func main() {
+	log := log.InitLogs()
 	log.Println("Starting device management service")
 	defer log.Println("Device management service stopped")
 
@@ -68,7 +69,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
-	store := store.NewStore(db)
+	store := store.NewStore(db, log.WithField("pkg", "store"))
 	if err := store.InitialMigration(); err != nil {
 		log.Fatalf("running initial migration: %v", err)
 	}

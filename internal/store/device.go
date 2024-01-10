@@ -1,28 +1,30 @@
 package store
 
 import (
+	"context"
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
-
-	b64 "encoding/base64"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type DeviceStore struct {
-	db *gorm.DB
+	db  *gorm.DB
+	log logrus.FieldLogger
 }
 
 // Make sure we conform to DeviceStoreInterface
 var _ service.DeviceStoreInterface = (*DeviceStore)(nil)
 
-func NewDeviceStore(db *gorm.DB) *DeviceStore {
-	return &DeviceStore{db: db}
+func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) *DeviceStore {
+	return &DeviceStore{db: db, log: log}
 }
 
 func (s *DeviceStore) InitialMigration() error {
@@ -46,7 +48,8 @@ func (s *DeviceStore) InitialMigration() error {
 	return nil
 }
 
-func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
+func (s *DeviceStore) CreateDevice(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
+	log := log.WithReqID(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -58,10 +61,11 @@ func (s *DeviceStore) CreateDevice(orgId uuid.UUID, resource *api.Device) (*api.
 	return resource, result.Error
 }
 
-func (s *DeviceStore) ListDevices(orgId uuid.UUID, listParams service.ListParams) (*api.DeviceList, error) {
+func (s *DeviceStore) ListDevices(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.DeviceList, error) {
 	var devices model.DeviceList
 	var nextContinue *string
 	var numRemaining *int64
+	log := log.WithReqID(ctx, s.log)
 
 	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams.Labels)
 	// Request 1 more than the user asked for to see if we need to return "continue"
@@ -98,7 +102,7 @@ func (s *DeviceStore) ListDevices(orgId uuid.UUID, listParams service.ListParams
 	return &apiDevicelist, result.Error
 }
 
-func (s *DeviceStore) DeleteDevices(orgId uuid.UUID) error {
+func (s *DeviceStore) DeleteDevices(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Device{
 		Resource: model.Resource{OrgID: orgId},
 	}
@@ -106,7 +110,8 @@ func (s *DeviceStore) DeleteDevices(orgId uuid.UUID) error {
 	return result.Error
 }
 
-func (s *DeviceStore) GetDevice(orgId uuid.UUID, name string) (*api.Device, error) {
+func (s *DeviceStore) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	log := log.WithReqID(ctx, s.log)
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
@@ -116,7 +121,7 @@ func (s *DeviceStore) GetDevice(orgId uuid.UUID, name string) (*api.Device, erro
 	return &apiDevice, result.Error
 }
 
-func (s *DeviceStore) CreateOrUpdateDevice(orgId uuid.UUID, resource *api.Device) (*api.Device, bool, error) {
+func (s *DeviceStore) CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -135,7 +140,7 @@ func (s *DeviceStore) CreateOrUpdateDevice(orgId uuid.UUID, resource *api.Device
 	return &updatedResource, created, result.Error
 }
 
-func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
+func (s *DeviceStore) UpdateDeviceStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -151,7 +156,7 @@ func (s *DeviceStore) UpdateDeviceStatus(orgId uuid.UUID, resource *api.Device) 
 	return resource, result.Error
 }
 
-func (s *DeviceStore) DeleteDevice(orgId uuid.UUID, name string) error {
+func (s *DeviceStore) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

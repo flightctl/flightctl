@@ -2,6 +2,7 @@ package store
 
 import (
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -12,12 +13,12 @@ type Store struct {
 	repositoryStore        *RepositoryStore
 }
 
-func NewStore(db *gorm.DB) *Store {
+func NewStore(db *gorm.DB, log logrus.FieldLogger) *Store {
 	return &Store{
-		deviceStore:            NewDeviceStore(db),
-		enrollmentRequestStore: NewEnrollmentRequestStoreStore(db),
-		fleetStore:             NewFleetStore(db),
-		repositoryStore:        NewRepositoryStore(db),
+		deviceStore:            NewDeviceStore(db, log),
+		enrollmentRequestStore: NewEnrollmentRequestStoreStore(db, log),
+		fleetStore:             NewFleetStore(db, log),
+		repositoryStore:        NewRepositoryStore(db, log),
 	}
 }
 

@@ -1,35 +1,38 @@
 package store
 
 import (
+	"context"
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
-
-	b64 "encoding/base64"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type FleetStore struct {
-	db *gorm.DB
+	db  *gorm.DB
+	log logrus.FieldLogger
 }
 
 // Make sure we conform to FleetStoreInterface
 var _ service.FleetStoreInterface = (*FleetStore)(nil)
 
-func NewFleetStore(db *gorm.DB) *FleetStore {
-	return &FleetStore{db: db}
+func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) *FleetStore {
+	return &FleetStore{db: db, log: log}
 }
 
 func (s *FleetStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Fleet{})
 }
 
-func (s *FleetStore) CreateFleet(orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+func (s *FleetStore) CreateFleet(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+	log := log.WithReqID(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -40,11 +43,12 @@ func (s *FleetStore) CreateFleet(orgId uuid.UUID, resource *api.Fleet) (*api.Fle
 	return resource, result.Error
 }
 
-func (s *FleetStore) ListFleets(orgId uuid.UUID, listParams service.ListParams) (*api.FleetList, error) {
+func (s *FleetStore) ListFleets(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.FleetList, error) {
 	var fleets model.FleetList
 	var nextContinue *string
 	var numRemaining *int64
 
+	log := log.WithReqID(ctx, s.log)
 	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams.Labels)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -80,7 +84,7 @@ func (s *FleetStore) ListFleets(orgId uuid.UUID, listParams service.ListParams) 
 	return &apiFleetList, result.Error
 }
 
-func (s *FleetStore) DeleteFleets(orgId uuid.UUID) error {
+func (s *FleetStore) DeleteFleets(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId},
 	}
@@ -88,7 +92,8 @@ func (s *FleetStore) DeleteFleets(orgId uuid.UUID) error {
 	return result.Error
 }
 
-func (s *FleetStore) GetFleet(orgId uuid.UUID, name string) (*api.Fleet, error) {
+func (s *FleetStore) GetFleet(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
+	log := log.WithReqID(ctx, s.log)
 	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
@@ -98,7 +103,7 @@ func (s *FleetStore) GetFleet(orgId uuid.UUID, name string) (*api.Fleet, error) 
 	return &apiFleet, result.Error
 }
 
-func (s *FleetStore) CreateOrUpdateFleet(orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
+func (s *FleetStore) CreateOrUpdateFleet(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -117,7 +122,7 @@ func (s *FleetStore) CreateOrUpdateFleet(orgId uuid.UUID, resource *api.Fleet) (
 	return &updatedResource, created, result.Error
 }
 
-func (s *FleetStore) UpdateFleetStatus(orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+func (s *FleetStore) UpdateFleetStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -133,7 +138,7 @@ func (s *FleetStore) UpdateFleetStatus(orgId uuid.UUID, resource *api.Fleet) (*a
 	return resource, result.Error
 }
 
-func (s *FleetStore) DeleteFleet(orgId uuid.UUID, name string) error {
+func (s *FleetStore) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
