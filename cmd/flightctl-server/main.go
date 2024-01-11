@@ -15,10 +15,12 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/configprovider/git"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/monitors/repotester"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/thread"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -123,6 +125,12 @@ func main() {
 		srv.SetKeepAlivesEnabled(false)
 		srv.Shutdown(ctxTimeout)
 	}()
+
+	repoTester := repotester.NewRepoTester(log, db, store)
+	repoTesterThread := thread.New(
+		log.WithField("pkg", "repository-tester"), "Repository tester", time.Duration(2*float64(time.Minute)), repoTester.TestRepo)
+	repoTesterThread.Start()
+	defer repoTesterThread.Stop()
 
 	log.Printf("Listening on %s...", srv.Addr)
 	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {

@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 )
 
 var (
@@ -74,6 +75,44 @@ func (f *Repository) ToApiResource() api.RepositoryRead {
 	}
 }
 
+type InternalRepository struct {
+	OrgID uuid.UUID
+	api.Repository
+}
+
+func (f *Repository) ToInternalResource() InternalRepository {
+	if f == nil {
+		return InternalRepository{}
+	}
+
+	var spec api.RepositorySpec
+	if f.Spec != nil {
+		spec = f.Spec.Data
+	}
+
+	var status api.RepositoryStatus
+	if f.Status != nil {
+		status = f.Status.Data
+	}
+
+	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
+
+	return InternalRepository{
+		OrgID: f.OrgID,
+		Repository: api.Repository{
+			ApiVersion: RepositoryAPI,
+			Kind:       RepositoryKind,
+			Metadata: api.ObjectMeta{
+				Name:              util.StrToPtr(f.Name),
+				CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
+				Labels:            &metadataLabels,
+			},
+			Spec:   spec,
+			Status: &status,
+		},
+	}
+}
+
 func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) api.RepositoryList {
 	if dl == nil {
 		return api.RepositoryList{
@@ -83,14 +122,14 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) api.Re
 		}
 	}
 
-	RepositoryList := make([]api.RepositoryRead, len(dl))
+	repositoryList := make([]api.RepositoryRead, len(dl))
 	for i, repository := range dl {
-		RepositoryList[i] = repository.ToApiResource()
+		repositoryList[i] = repository.ToApiResource()
 	}
 	ret := api.RepositoryList{
 		ApiVersion: RepositoryAPI,
 		Kind:       RepositoryListKind,
-		Items:      RepositoryList,
+		Items:      repositoryList,
 		Metadata:   api.ListMeta{},
 	}
 	if cont != nil {
@@ -98,4 +137,16 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) api.Re
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
 	return ret
+}
+
+func (dl RepositoryList) ToInternalResource() []InternalRepository {
+	if dl == nil {
+		return nil
+	}
+
+	repositoryList := make([]InternalRepository, len(dl))
+	for i, repository := range dl {
+		repositoryList[i] = repository.ToInternalResource()
+	}
+	return repositoryList
 }

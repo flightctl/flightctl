@@ -18,6 +18,10 @@ func init() {
 	prefix = hostname
 }
 
+func OverridePrefix(p string) {
+	prefix = p
+}
+
 // NextRequestID generates the next request ID in the sequence.
 func NextRequestID() string {
 	return fmt.Sprintf("%s-%09d", prefix, atomic.AddUint64(&reqid, 1))

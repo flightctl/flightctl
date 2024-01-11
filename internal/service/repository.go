@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -19,6 +20,8 @@ type RepositoryStoreInterface interface {
 	GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryRead, error)
 	CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.RepositoryRead, bool, error)
 	DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) error
+	ListAllRepositoriesInternal() ([]model.InternalRepository, error)
+	UpdateRepositoryStatusInternal(orgId uuid.UUID, repository *api.Repository) error
 }
 
 // (POST /api/v1/repositories)
