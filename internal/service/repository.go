@@ -13,19 +13,19 @@ import (
 )
 
 type RepositoryStoreInterface interface {
-	CreateRepository(orgId uuid.UUID, repository *api.Repository) (*api.RepositoryRead, error)
-	ListRepositories(orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
-	DeleteRepositories(orgId uuid.UUID) error
-	GetRepository(orgId uuid.UUID, name string) (*api.RepositoryRead, error)
-	CreateOrUpdateRepository(orgId uuid.UUID, repository *api.Repository) (*api.RepositoryRead, bool, error)
-	DeleteRepository(orgId uuid.UUID, name string) error
+	CreateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.RepositoryRead, error)
+	ListRepositories(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
+	DeleteRepositories(ctx context.Context, orgId uuid.UUID) error
+	GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryRead, error)
+	CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.RepositoryRead, bool, error)
+	DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) error
 }
 
 // (POST /api/v1/repositories)
 func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.CreateRepositoryRequestObject) (server.CreateRepositoryResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.repositoryStore.CreateRepository(orgId, request.Body)
+	result, err := h.repositoryStore.CreateRepository(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateRepository201JSONResponse(*result), nil
@@ -64,7 +64,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		return server.ListRepositories400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
 	}
 
-	result, err := h.repositoryStore.ListRepositories(orgId, listParams)
+	result, err := h.repositoryStore.ListRepositories(ctx, orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListRepositories200JSONResponse(*result), nil
@@ -77,7 +77,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.DeleteRepositoriesRequestObject) (server.DeleteRepositoriesResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.repositoryStore.DeleteRepositories(orgId)
+	err := h.repositoryStore.DeleteRepositories(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteRepositories200JSONResponse{}, nil
@@ -90,7 +90,7 @@ func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.
 func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.ReadRepositoryRequestObject) (server.ReadRepositoryResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.repositoryStore.GetRepository(orgId, request.Name)
+	result, err := h.repositoryStore.GetRepository(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadRepository200JSONResponse(*result), nil
@@ -105,7 +105,7 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.ReplaceRepositoryRequestObject) (server.ReplaceRepositoryResponseObject, error) {
 	orgId := NullOrgId
 
-	result, created, err := h.repositoryStore.CreateOrUpdateRepository(orgId, request.Body)
+	result, created, err := h.repositoryStore.CreateOrUpdateRepository(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -124,7 +124,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.DeleteRepositoryRequestObject) (server.DeleteRepositoryResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.repositoryStore.DeleteRepository(orgId, request.Name)
+	err := h.repositoryStore.DeleteRepository(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteRepository200JSONResponse{}, nil
