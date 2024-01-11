@@ -15,7 +15,11 @@ func InitLogs() *logrus.Logger {
 	return log
 }
 
-// WithReqID create logger with request id from the context, request id is set by middleware.RequestID
-func WithReqID(ctx context.Context, inner logrus.FieldLogger) logrus.FieldLogger {
+// WithReqIDFromCtx create logger with request id from the context, request id is set by middleware.RequestID
+func WithReqIDFromCtx(ctx context.Context, inner logrus.FieldLogger) logrus.FieldLogger {
 	return inner.WithField("request_id", middleware.GetReqID(ctx))
+}
+
+func WithReqID(reqID string, inner logrus.FieldLogger) logrus.FieldLogger {
+	return inner.WithField("request_id", reqID)
 }

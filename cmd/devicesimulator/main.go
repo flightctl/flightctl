@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -18,10 +17,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/controller"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/tpm"
-	"k8s.io/klog/v2"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 func main() {
+	log := log.InitLogs()
 	serverUrl := flag.String("server", "https://localhost:3333", "device server URL")
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
@@ -31,33 +31,33 @@ func main() {
 	tpmPath := flag.String("tpm", "", "Path to TPM device")
 	flag.Parse()
 
-	klog.Infoln("starting device simulator")
-	defer klog.Infoln("device simulator stopped")
+	log.Infoln("starting device simulator")
+	defer log.Infoln("device simulator stopped")
 
-	klog.Infoln("command line flags:")
+	log.Infoln("command line flags:")
 	flag.CommandLine.VisitAll(func(flg *flag.Flag) {
-		klog.Infof("  %s=%s", flg.Name, flg.Value)
+		log.Infof("  %s=%s", flg.Name, flg.Value)
 	})
 
-	klog.Infoln("setting up metrics endpoint")
+	log.Infoln("setting up metrics endpoint")
 	setupMetricsEndpoint(*metricsAddr)
 
-	klog.Infoln("setting up TPM")
+	log.Infoln("setting up TPM")
 	var err error
 	var tpmChannel *tpm.TPM
 	if len(*tpmPath) > 0 {
 		tpmChannel, err = tpm.OpenTPM(*tpmPath)
 		if err != nil {
-			klog.Errorf("opening TPM channel: %v", err)
+			log.Errorf("opening TPM channel: %v", err)
 		}
 	} else {
 		tpmChannel, err = tpm.OpenTPMSimulator()
 		if err != nil {
-			klog.Errorf("opening TPM simulator channel: %v", err)
+			log.Errorf("opening TPM simulator channel: %v", err)
 		}
 	}
 
-	klog.Infoln("creating agents")
+	log.Infoln("creating agents")
 	agents := make([]*agent.DeviceAgent, *numDevices)
 	for i := 0; i < *numDevices; i++ {
 		agentName := fmt.Sprintf("device-%04d", i)
@@ -68,7 +68,7 @@ func main() {
 			}
 		}
 		enrollmentUiUrl := ""
-		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, enrollmentUiUrl, agentDir).
+		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, enrollmentUiUrl, agentDir, log).
 			SetDisplayName(agentName).
 			AddController(controller.NewSystemInfoController(tpmChannel)).
 			AddController(controller.NewContainerController()).
@@ -88,7 +88,7 @@ func main() {
 		cancel()
 	}()
 
-	klog.Infoln("running agents")
+	log.Infoln("running agents")
 	wg := new(sync.WaitGroup)
 	wg.Add(*numDevices)
 	for i := 0; i < *numDevices; i++ {
@@ -101,7 +101,7 @@ func main() {
 			activeAgents.Inc()
 			err := agents[i].Run(ctx)
 			if err != nil {
-				klog.Errorf("%s: %v", agents[i].GetName(), err)
+				log.Errorf("%s: %v", agents[i].GetName(), err)
 			}
 			activeAgents.Dec()
 		}(i)

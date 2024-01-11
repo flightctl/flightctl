@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,10 +13,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/controller"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/tpm"
-	"k8s.io/klog/v2"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 func main() {
+	log := log.InitLogs()
 	dataDir := flag.String("data-dir", "/etc/flightctl", "device agent data directory")
 
 	agentConfig, _ := config.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
@@ -30,39 +30,39 @@ func main() {
 	statusUpdateInterval := flag.Duration("status-update-interval", time.Duration(agentConfig.Agent.StatusUpdateInterval), "Duration between two status updates")
 	flag.Parse()
 
-	klog.Infoln("starting flightctl device agent")
-	defer klog.Infoln("flightctl device agent stopped")
+	log.Infoln("starting flightctl device agent")
+	defer log.Infoln("flightctl device agent stopped")
 
-	klog.Infoln("command line flags:")
+	log.Infoln("command line flags:")
 	flag.CommandLine.VisitAll(func(flg *flag.Flag) {
-		klog.Infof("  %s=%s", flg.Name, flg.Value)
+		log.Infof("  %s=%s", flg.Name, flg.Value)
 	})
 
 	if *serverUrl == "" {
-		klog.Fatalf("flightctl server URL is required")
+		log.Fatalf("flightctl server URL is required")
 	}
 
-	klog.Infoln("setting up TPM")
+	log.Infoln("setting up TPM")
 	var err error
 	var tpmChannel *tpm.TPM
 	if len(*tpmPath) > 0 {
 		tpmChannel, err = tpm.OpenTPM(*tpmPath)
 		if err != nil {
-			klog.Errorf("opening TPM channel: %v", err)
+			log.Errorf("opening TPM channel: %v", err)
 		}
 	} else {
 		tpmChannel, err = tpm.OpenTPMSimulator()
 		if err != nil {
-			klog.Errorf("opening TPM simulator channel: %v", err)
+			log.Errorf("opening TPM simulator channel: %v", err)
 		}
 	}
 
 	if *enrollmentUiUrl == "" {
-		klog.Warningf("flightctl enrollment UI URL is missing, using enrollment server URL")
+		log.Warningf("flightctl enrollment UI URL is missing, using enrollment server URL")
 		*enrollmentUiUrl = *serverUrl
 	}
 
-	agentInstance := agent.NewDeviceAgent(*serverUrl, *serverUrl, *enrollmentUiUrl, *dataDir).
+	agentInstance := agent.NewDeviceAgent(*serverUrl, *serverUrl, *enrollmentUiUrl, *dataDir, log).
 		AddController(controller.NewSystemInfoController(tpmChannel)).
 		AddController(controller.NewContainerController()).
 		AddController(controller.NewSystemDController()).
