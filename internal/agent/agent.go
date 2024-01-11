@@ -16,9 +16,12 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/lthibault/jitterbug"
+	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/util/cert"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -100,11 +103,14 @@ type DeviceAgent struct {
 	statusUpdateJitter time.Duration
 
 	rpcMetricsCallbackFunc func(operation string, duractionSeconds float64, err error)
+
+	log logrus.FieldLogger
 }
 
-func NewDeviceAgent(enrollmentServerUrl, managementServerUrl, enrollmentUiUrl, certificateDir string) *DeviceAgent {
+func NewDeviceAgent(enrollmentServerUrl, managementServerUrl, enrollmentUiUrl, certificateDir string, log logrus.FieldLogger) *DeviceAgent {
 	return &DeviceAgent{
 		logPrefix:            "",
+		log:                  log,
 		fingerprint:          "",
 		key:                  nil,
 		certDir:              certificateDir,
@@ -161,6 +167,8 @@ func (a *DeviceAgent) SetRpcMetricsCallbackFunction(callback func(operation stri
 }
 
 func (a *DeviceAgent) Run(ctx context.Context) error {
+	a.log = log.WithReqID(reqid.NextRequestID(), a.log)
+
 	if err := a.ensureKeyPairAndFingerprint(); err != nil {
 		return err
 	}
@@ -204,13 +212,15 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-fetchSpecTicker.C:
+			a.log = log.WithReqID(reqid.NextRequestID(), a.log)
 			if err := a.FetchSpec(ctx); err != nil {
-				klog.Errorf("%sfetching spec: %v", a.logPrefix, err)
+				a.log.Errorf("%sfetching spec: %v", a.logPrefix, err)
 			}
 			a.Reconcile(ctx, ctrl.Request{})
 		case <-statusUpdateTicker.C:
+			a.log = log.WithReqID(reqid.NextRequestID(), a.log)
 			if _, err := a.SetStatus(&a.device); err != nil {
-				klog.Errorf("%ssetting status: %v", a.logPrefix, err)
+				a.log.Errorf("%ssetting status: %v", a.logPrefix, err)
 			}
 			a.PostStatus(ctx)
 		}
@@ -265,7 +275,7 @@ func (a *DeviceAgent) haveValidClientCerts() bool {
 }
 
 func (a *DeviceAgent) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	klog.Infof("%srunning reconciler", a.logPrefix)
+	a.log.Infof("%srunning reconciler", a.logPrefix)
 
 	if !a.NeedsUpdate(&a.device) {
 		return ctrl.Result{}, nil
@@ -307,7 +317,7 @@ func (a *DeviceAgent) FetchSpec(ctx context.Context) error {
 		return err
 	}
 
-	klog.Infof("%sfetching spec", a.logPrefix)
+	a.log.Infof("%sfetching spec", a.logPrefix)
 
 	t0 := time.Now()
 	response, err := a.managementClient.ReadDeviceWithResponse(ctx, a.fingerprint)
@@ -325,11 +335,12 @@ func (a *DeviceAgent) FetchSpec(ctx context.Context) error {
 }
 
 func (a *DeviceAgent) PostStatus(ctx context.Context) error {
+
 	if err := a.ensureManagementClient(); err != nil {
 		return err
 	}
 
-	klog.Infof("%sposting status", a.logPrefix)
+	a.log.Infof("%sposting status", a.logPrefix)
 
 	if _, err := a.SetStatus(&a.device); err != nil {
 		return err
@@ -361,7 +372,11 @@ func (a *DeviceAgent) ensureManagementClient() error {
 				},
 			},
 		}
-		c, err := client.NewClientWithResponses(a.managementServerUrl, client.WithHTTPClient(httpClient))
+		ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
+			return nil
+		})
+		c, err := client.NewClientWithResponses(a.managementServerUrl, client.WithHTTPClient(httpClient), ref)
 		if err != nil {
 			return err
 		}

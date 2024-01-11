@@ -49,7 +49,7 @@ func (s *DeviceStore) InitialMigration() error {
 }
 
 func (s *DeviceStore) CreateDevice(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -65,7 +65,7 @@ func (s *DeviceStore) ListDevices(ctx context.Context, orgId uuid.UUID, listPara
 	var devices model.DeviceList
 	var nextContinue *string
 	var numRemaining *int64
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 
 	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams.Labels)
 	// Request 1 more than the user asked for to see if we need to return "continue"
@@ -111,7 +111,7 @@ func (s *DeviceStore) DeleteDevices(ctx context.Context, orgId uuid.UUID) error 
 }
 
 func (s *DeviceStore) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

@@ -32,7 +32,7 @@ func (s *FleetStore) InitialMigration() error {
 }
 
 func (s *FleetStore) CreateFleet(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -48,7 +48,7 @@ func (s *FleetStore) ListFleets(ctx context.Context, orgId uuid.UUID, listParams
 	var nextContinue *string
 	var numRemaining *int64
 
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams.Labels)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -93,7 +93,7 @@ func (s *FleetStore) DeleteFleets(ctx context.Context, orgId uuid.UUID) error {
 }
 
 func (s *FleetStore) GetFleet(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

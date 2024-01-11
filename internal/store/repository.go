@@ -32,7 +32,7 @@ func (s *RepositoryStore) InitialMigration() error {
 }
 
 func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.RepositoryRead, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -50,7 +50,7 @@ func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID,
 	var nextContinue *string
 	var numRemaining *int64
 
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams.Labels)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -95,7 +95,7 @@ func (s *RepositoryStore) DeleteRepositories(ctx context.Context, orgId uuid.UUI
 }
 
 func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryRead, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
