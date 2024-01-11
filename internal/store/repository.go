@@ -1,35 +1,38 @@
 package store
 
 import (
+	"context"
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
-
-	b64 "encoding/base64"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type RepositoryStore struct {
-	db *gorm.DB
+	db  *gorm.DB
+	log logrus.FieldLogger
 }
 
 // Make sure we conform to RepositoryStoreInterface
 var _ service.RepositoryStoreInterface = (*RepositoryStore)(nil)
 
-func NewRepositoryStore(db *gorm.DB) *RepositoryStore {
-	return &RepositoryStore{db: db}
+func NewRepositoryStore(db *gorm.DB, log logrus.FieldLogger) *RepositoryStore {
+	return &RepositoryStore{db: db, log: log}
 }
 
 func (s *RepositoryStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Repository{})
 }
 
-func (s *RepositoryStore) CreateRepository(orgId uuid.UUID, resource *api.Repository) (*api.RepositoryRead, error) {
+func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.RepositoryRead, error) {
+	log := log.WithReqID(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -42,11 +45,12 @@ func (s *RepositoryStore) CreateRepository(orgId uuid.UUID, resource *api.Reposi
 	return &apiRepository, result.Error
 }
 
-func (s *RepositoryStore) ListRepositories(orgId uuid.UUID, listParams service.ListParams) (*api.RepositoryList, error) {
+func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.RepositoryList, error) {
 	var repositories model.RepositoryList
 	var nextContinue *string
 	var numRemaining *int64
 
+	log := log.WithReqID(ctx, s.log)
 	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams.Labels)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -82,7 +86,7 @@ func (s *RepositoryStore) ListRepositories(orgId uuid.UUID, listParams service.L
 	return &apiRepositoryList, result.Error
 }
 
-func (s *RepositoryStore) DeleteRepositories(orgId uuid.UUID) error {
+func (s *RepositoryStore) DeleteRepositories(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Repository{
 		Resource: model.Resource{OrgID: orgId},
 	}
@@ -90,7 +94,8 @@ func (s *RepositoryStore) DeleteRepositories(orgId uuid.UUID) error {
 	return result.Error
 }
 
-func (s *RepositoryStore) GetRepository(orgId uuid.UUID, name string) (*api.RepositoryRead, error) {
+func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryRead, error) {
+	log := log.WithReqID(ctx, s.log)
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
@@ -100,7 +105,7 @@ func (s *RepositoryStore) GetRepository(orgId uuid.UUID, name string) (*api.Repo
 	return &apiRepository, result.Error
 }
 
-func (s *RepositoryStore) CreateOrUpdateRepository(orgId uuid.UUID, resource *api.Repository) (*api.RepositoryRead, bool, error) {
+func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.RepositoryRead, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -119,7 +124,7 @@ func (s *RepositoryStore) CreateOrUpdateRepository(orgId uuid.UUID, resource *ap
 	return &updatedResource, created, result.Error
 }
 
-func (s *RepositoryStore) DeleteRepository(orgId uuid.UUID, name string) error {
+func (s *RepositoryStore) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

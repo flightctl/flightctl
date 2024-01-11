@@ -13,20 +13,20 @@ import (
 )
 
 type DeviceStoreInterface interface {
-	CreateDevice(orgId uuid.UUID, device *api.Device) (*api.Device, error)
-	ListDevices(orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
-	GetDevice(orgId uuid.UUID, name string) (*api.Device, error)
-	CreateOrUpdateDevice(orgId uuid.UUID, device *api.Device) (*api.Device, bool, error)
-	UpdateDeviceStatus(orgId uuid.UUID, device *api.Device) (*api.Device, error)
-	DeleteDevices(orgId uuid.UUID) error
-	DeleteDevice(orgId uuid.UUID, name string) error
+	CreateDevice(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+	ListDevices(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
+	CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, bool, error)
+	UpdateDeviceStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+	DeleteDevices(ctx context.Context, orgId uuid.UUID) error
+	DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) error
 }
 
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.deviceStore.CreateDevice(orgId, request.Body)
+	result, err := h.deviceStore.CreateDevice(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
@@ -65,7 +65,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		return server.ListDevices400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
 	}
 
-	result, err := h.deviceStore.ListDevices(orgId, listParams)
+	result, err := h.deviceStore.ListDevices(ctx, orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListDevices200JSONResponse(*result), nil
@@ -78,7 +78,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.deviceStore.DeleteDevices(orgId)
+	err := h.deviceStore.DeleteDevices(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteDevices200JSONResponse{}, nil
@@ -91,7 +91,7 @@ func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.Delet
 func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDeviceRequestObject) (server.ReadDeviceResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.deviceStore.GetDevice(orgId, request.Name)
+	result, err := h.deviceStore.GetDevice(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadDevice200JSONResponse(*result), nil
@@ -106,7 +106,7 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
 	orgId := NullOrgId
 
-	result, created, err := h.deviceStore.CreateOrUpdateDevice(orgId, request.Body)
+	result, created, err := h.deviceStore.CreateOrUpdateDevice(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -125,7 +125,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.deviceStore.DeleteDevice(orgId, request.Name)
+	err := h.deviceStore.DeleteDevice(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil
@@ -140,7 +140,7 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.ReadDeviceStatusRequestObject) (server.ReadDeviceStatusResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.deviceStore.GetDevice(orgId, request.Name)
+	result, err := h.deviceStore.GetDevice(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadDeviceStatus200JSONResponse(*result), nil
@@ -155,7 +155,7 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.deviceStore.UpdateDeviceStatus(orgId, request.Body)
+	result, err := h.deviceStore.UpdateDeviceStatus(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
