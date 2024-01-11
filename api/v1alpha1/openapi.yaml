@@ -959,10 +959,10 @@ components:
           type: string
           description: (brief) reason for the condition's last transition.
         status:
-          type: string
+          $ref: '#/components/schemas/ConditionStatus'
           description: Status of the condition, one of True, False, Unknown.
         type:
-          type: string
+          $ref: '#/components/schemas/RepositoryConditionType'
           description: Type of repository condition.
       description: RepositoryCondition contains condition information for a repository.
     RepositoryStatus:
@@ -974,6 +974,10 @@ components:
           items:
             $ref: '#/components/schemas/RepositoryCondition'
       description: RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+    RepositoryConditionType:
+      type: string
+      enum:
+      - 'Accessible'
     RepositoryList:
       type: object
       properties:
@@ -1034,7 +1038,7 @@ components:
           type: string
           description: (brief) reason for the condition's last transition.
         status:
-          type: string
+          $ref: '#/components/schemas/ConditionStatus'
           description: Status of the condition, one of True, False, Unknown.
         type:
           type: string
@@ -1295,7 +1299,7 @@ components:
           type: string
           description: (brief) reason for the condition's last transition.
         status:
-          type: string
+          $ref: '#/components/schemas/ConditionStatus'
           description: Status of the condition, one of True, False, Unknown.
         type:
           type: string
@@ -1384,7 +1388,7 @@ components:
           type: string
           description: (brief) reason for the condition's last transition.
         status:
-          type: string
+          $ref: '#/components/schemas/ConditionStatus'
           description: Status of the condition, one of True, False, Unknown.
         type:
           type: string
@@ -1496,3 +1500,9 @@ components:
           description: 'Error message.'
       required:
         - error
+    ConditionStatus:
+      type: string
+      enum:
+      - 'True'
+      - 'False'
+      - 'Unknown'

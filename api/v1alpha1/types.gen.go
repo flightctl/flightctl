@@ -9,6 +9,21 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ConditionStatus.
+const (
+	False   ConditionStatus = "False"
+	True    ConditionStatus = "True"
+	Unknown ConditionStatus = "Unknown"
+)
+
+// Defines values for RepositoryConditionType.
+const (
+	Accessible RepositoryConditionType = "Accessible"
+)
+
+// ConditionStatus defines model for ConditionStatus.
+type ConditionStatus string
+
 // ContainerStatus defines model for ContainerStatus.
 type ContainerStatus struct {
 	// Id ID of the container.
@@ -51,10 +66,8 @@ type DeviceCondition struct {
 	Message *string `json:"message,omitempty"`
 
 	// Reason (brief) reason for the condition's last transition.
-	Reason *string `json:"reason,omitempty"`
-
-	// Status Status of the condition, one of True, False, Unknown.
-	Status string `json:"status"`
+	Reason *string         `json:"reason,omitempty"`
+	Status ConditionStatus `json:"status"`
 
 	// Type Type of device condition.
 	Type string `json:"type"`
@@ -188,10 +201,8 @@ type EnrollmentRequestCondition struct {
 	Message *string `json:"message,omitempty"`
 
 	// Reason (brief) reason for the condition's last transition.
-	Reason *string `json:"reason,omitempty"`
-
-	// Status Status of the condition, one of True, False, Unknown.
-	Status string `json:"status"`
+	Reason *string         `json:"reason,omitempty"`
+	Status ConditionStatus `json:"status"`
 
 	// Type Type of fleet condition.
 	Type string `json:"type"`
@@ -258,10 +269,8 @@ type FleetCondition struct {
 	Message *string `json:"message,omitempty"`
 
 	// Reason (brief) reason for the condition's last transition.
-	Reason *string `json:"reason,omitempty"`
-
-	// Status Status of the condition, one of True, False, Unknown.
-	Status string `json:"status"`
+	Reason *string         `json:"reason,omitempty"`
+	Status ConditionStatus `json:"status"`
 
 	// Type Type of fleet condition.
 	Type string `json:"type"`
@@ -377,14 +386,13 @@ type RepositoryCondition struct {
 	Message *string `json:"message,omitempty"`
 
 	// Reason (brief) reason for the condition's last transition.
-	Reason *string `json:"reason,omitempty"`
-
-	// Status Status of the condition, one of True, False, Unknown.
-	Status string `json:"status"`
-
-	// Type Type of repository condition.
-	Type string `json:"type"`
+	Reason *string                 `json:"reason,omitempty"`
+	Status ConditionStatus         `json:"status"`
+	Type   RepositoryConditionType `json:"type"`
 }
+
+// RepositoryConditionType defines model for RepositoryConditionType.
+type RepositoryConditionType string
 
 // RepositoryList RepositoryList is a list of Repositories.
 type RepositoryList struct {
