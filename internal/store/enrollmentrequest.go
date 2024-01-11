@@ -32,7 +32,7 @@ func (s *EnrollmentRequestStore) InitialMigration() error {
 }
 
 func (s *EnrollmentRequestStore) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -47,7 +47,7 @@ func (s *EnrollmentRequestStore) ListEnrollmentRequests(ctx context.Context, org
 	var enrollmentRequests model.EnrollmentRequestList
 	var nextContinue *string
 	var numRemaining *int64
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 
 	query := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams.Labels)
 	// Request 1 more than the user asked for to see if we need to return "continue"
@@ -93,7 +93,7 @@ func (s *EnrollmentRequestStore) DeleteEnrollmentRequests(ctx context.Context, o
 }
 
 func (s *EnrollmentRequestStore) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error) {
-	log := log.WithReqID(ctx, s.log)
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	enrollmentRequest := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
