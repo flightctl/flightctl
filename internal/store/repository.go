@@ -39,10 +39,23 @@ func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID,
 	repository := model.NewRepositoryFromApiResource(resource)
 	repository.OrgID = orgId
 	result := s.db.Create(repository)
-	log.Printf("db.Create(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
+	log.Debugf("db.Create(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
 
 	apiRepository := repository.ToApiResource()
 	return &apiRepository, result.Error
+}
+
+// A method to get all Repositories with Spec, regardless ownership. Used internally by the RepoTester.
+// TODO: Add pagination, perhaps via gorm scopes.
+func (s *RepositoryStore) ListAllRepositoriesInternal() ([]model.InternalRepository, error) {
+	var repositories model.RepositoryList
+
+	result := s.db.Model(&repositories).Find(&repositories)
+	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return repositories.ToInternalResource(), nil
 }
 
 func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.RepositoryList, error) {
@@ -55,7 +68,7 @@ func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID,
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&repositories)
-	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(repositories) > listParams.Limit {
@@ -100,7 +113,7 @@ func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, na
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.First(&repository)
-	log.Printf("db.Find(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
+	log.Debugf("db.Find(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
 	apiRepository := repository.ToApiResource()
 	return &apiRepository, result.Error
 }
@@ -122,6 +135,22 @@ func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uu
 
 	updatedResource := updatedRepository.ToApiResource()
 	return &updatedResource, created, result.Error
+}
+
+func (s *RepositoryStore) UpdateRepositoryStatusInternal(orgId uuid.UUID, resource *api.Repository) error {
+	if resource == nil {
+		return fmt.Errorf("resource is nil")
+	}
+	if resource.Metadata.Name == nil {
+		return fmt.Errorf("resource.metadata.name is nil")
+	}
+	repository := model.Repository{
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	}
+	result := s.db.Model(&repository).Updates(map[string]interface{}{
+		"status": model.MakeJSONField(resource.Status),
+	})
+	return result.Error
 }
 
 func (s *RepositoryStore) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) error {

@@ -275,7 +275,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 				fmt.Println(string(marshalled))
 			} else {
 				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 				fmt.Fprintln(w, "NAME")
 				for _, d := range response.JSON200.Items {
 					fmt.Fprintln(w, *d.Metadata.Name)
@@ -316,7 +316,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 				fmt.Println(string(marshalled))
 			} else {
 				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 				fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
 				for _, e := range response.JSON200.Items {
 					approved := ""
@@ -363,7 +363,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 				fmt.Println(string(marshalled))
 			} else {
 				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
+				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 				fmt.Fprintln(w, "NAME")
 				for _, f := range response.JSON200.Items {
 					fmt.Fprintln(w, *f.Metadata.Name)
@@ -404,10 +404,23 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 				fmt.Println(string(marshalled))
 			} else {
 				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 10, 1, 5, ' ', 0)
-				fmt.Fprintln(w, "NAME")
+				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
+				fmt.Fprintln(w, "NAME\tACCESSIBLE\tREASON\tMESSAGE")
+
 				for _, f := range response.JSON200.Items {
-					fmt.Fprintln(w, *f.Metadata.Name)
+					accessible := "-"
+					reason := ""
+					message := ""
+					if f.Status != nil && f.Status.Conditions != nil && len(*f.Status.Conditions) > 0 {
+						accessible = string((*f.Status.Conditions)[0].Status)
+						if (*f.Status.Conditions)[0].Reason != nil {
+							reason = *(*f.Status.Conditions)[0].Reason
+						}
+						if (*f.Status.Conditions)[0].Message != nil {
+							message = *(*f.Status.Conditions)[0].Message
+						}
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", *f.Metadata.Name, accessible, reason, message)
 				}
 				w.Flush()
 			}
