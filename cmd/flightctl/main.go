@@ -422,7 +422,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 func printSingleResourceResponse(response interface{}, name string) error {
 	v := reflect.ValueOf(response).Elem()
 	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf("reading %s: %s", name, v.FieldByName("HTTPResponse").FieldByName("StatusCode").String())
+		return fmt.Errorf("reading %s: %d", name, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
 	}
 
 	marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
