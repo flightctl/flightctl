@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -260,6 +261,8 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, request server.CreateEnrollmentRequestApprovalRequestObject) (server.CreateEnrollmentRequestApprovalResponseObject, error) {
 	orgId := NullOrgId
 
+	log := log.WithReqIDFromCtx(ctx, h.log)
+
 	enrollmentReq, err := h.enrollmentRequestStore.GetEnrollmentRequest(ctx, orgId, request.Name)
 	switch err {
 	default:
@@ -286,11 +289,17 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 		}
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
-			return nil, err
+			log.Errorf("Error approving and signing enrollment request: %s", err)
+			return server.CreateEnrollmentRequestApproval422JSONResponse{
+				Error: "Error approving and signing enrollment request: " + err.Error(),
+			}, nil
 		}
 
 		if err := createDeviceFromEnrollmentRequest(ctx, h.deviceStore, orgId, enrollmentReq); err != nil {
-			return nil, err
+			log.Errorf("Error creating device from enrollment request: %s", err)
+			return server.CreateEnrollmentRequestApproval422JSONResponse{
+				Error: "Error creating device from enrollment request: " + err.Error(),
+			}, nil
 		}
 	}
 
