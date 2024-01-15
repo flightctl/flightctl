@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -63,17 +64,19 @@ type ServiceHandler struct {
 	fleetStore             FleetStoreInterface
 	repositoryStore        RepositoryStoreInterface
 	ca                     *crypto.CA
+	log                    logrus.FieldLogger
 }
 
 // Make sure we conform to StrictServerInterface
 var _ server.StrictServerInterface = (*ServiceHandler)(nil)
 
-func NewServiceHandler(store DataStoreInterface, ca *crypto.CA) *ServiceHandler {
+func NewServiceHandler(store DataStoreInterface, ca *crypto.CA, log logrus.FieldLogger) *ServiceHandler {
 	return &ServiceHandler{
 		deviceStore:            store.GetDeviceStore(),
 		enrollmentRequestStore: store.GetEnrollmentRequestStore(),
 		fleetStore:             store.GetFleetStore(),
 		repositoryStore:        store.GetRepositoryStore(),
 		ca:                     ca,
+		log:                    log,
 	}
 }
