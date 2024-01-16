@@ -31,7 +31,7 @@ func (s *RepositoryStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Repository{})
 }
 
-func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.RepositoryRead, error) {
+func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
@@ -43,19 +43,6 @@ func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID,
 
 	apiRepository := repository.ToApiResource()
 	return &apiRepository, result.Error
-}
-
-// A method to get all Repositories with Spec, regardless ownership. Used internally by the RepoTester.
-// TODO: Add pagination, perhaps via gorm scopes.
-func (s *RepositoryStore) ListAllRepositoriesInternal() ([]model.InternalRepository, error) {
-	var repositories model.RepositoryList
-
-	result := s.db.Model(&repositories).Find(&repositories)
-	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	return repositories.ToInternalResource(), nil
 }
 
 func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.RepositoryList, error) {
@@ -99,6 +86,19 @@ func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID,
 	return &apiRepositoryList, result.Error
 }
 
+// A method to get all Repositories with secrets, regardless of ownership. Used internally by the RepoTester.
+// TODO: Add pagination, perhaps via gorm scopes.
+func (s *RepositoryStore) ListAllRepositoriesInternal() ([]model.Repository, error) {
+	var repositories model.RepositoryList
+
+	result := s.db.Model(&repositories).Find(&repositories)
+	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return repositories, nil
+}
+
 func (s *RepositoryStore) DeleteRepositories(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Repository{
 		Resource: model.Resource{OrgID: orgId},
@@ -107,7 +107,7 @@ func (s *RepositoryStore) DeleteRepositories(ctx context.Context, orgId uuid.UUI
 	return result.Error
 }
 
-func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryRead, error) {
+func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
@@ -118,7 +118,7 @@ func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, na
 	return &apiRepository, result.Error
 }
 
-func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.RepositoryRead, bool, error) {
+func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -137,15 +137,9 @@ func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uu
 	return &updatedResource, created, result.Error
 }
 
-func (s *RepositoryStore) UpdateRepositoryStatusInternal(orgId uuid.UUID, resource *api.Repository) error {
-	if resource == nil {
-		return fmt.Errorf("resource is nil")
-	}
-	if resource.Metadata.Name == nil {
-		return fmt.Errorf("resource.metadata.name is nil")
-	}
+func (s *RepositoryStore) UpdateRepositoryStatusInternal(resource *model.Repository) error {
 	repository := model.Repository{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+		Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name},
 	}
 	result := s.db.Model(&repository).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),

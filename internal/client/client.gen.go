@@ -2844,7 +2844,7 @@ func (r ListRepositoriesResponse) StatusCode() int {
 type CreateRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON201      *RepositoryRead
+	JSON201      *Repository
 }
 
 // Status returns HTTPResponse.Status
@@ -2866,7 +2866,7 @@ func (r CreateRepositoryResponse) StatusCode() int {
 type DeleteRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *RepositoryRead
+	JSON200      *Repository
 }
 
 // Status returns HTTPResponse.Status
@@ -2888,7 +2888,7 @@ func (r DeleteRepositoryResponse) StatusCode() int {
 type ReadRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *RepositoryRead
+	JSON200      *Repository
 }
 
 // Status returns HTTPResponse.Status
@@ -2910,8 +2910,8 @@ func (r ReadRepositoryResponse) StatusCode() int {
 type ReplaceRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *RepositoryRead
-	JSON201      *RepositoryRead
+	JSON200      *Repository
+	JSON201      *Repository
 }
 
 // Status returns HTTPResponse.Status
@@ -4050,7 +4050,7 @@ func ParseCreateRepositoryResponse(rsp *http.Response) (*CreateRepositoryRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest RepositoryRead
+		var dest Repository
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -4076,7 +4076,7 @@ func ParseDeleteRepositoryResponse(rsp *http.Response) (*DeleteRepositoryRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest RepositoryRead
+		var dest Repository
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -4102,7 +4102,7 @@ func ParseReadRepositoryResponse(rsp *http.Response) (*ReadRepositoryResponse, e
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest RepositoryRead
+		var dest Repository
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -4128,14 +4128,14 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest RepositoryRead
+		var dest Repository
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest RepositoryRead
+		var dest Repository
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

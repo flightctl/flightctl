@@ -2194,7 +2194,7 @@ type CreateRepositoryResponseObject interface {
 	VisitCreateRepositoryResponse(w http.ResponseWriter) error
 }
 
-type CreateRepository201JSONResponse RepositoryRead
+type CreateRepository201JSONResponse Repository
 
 func (response CreateRepository201JSONResponse) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -2235,7 +2235,7 @@ type DeleteRepositoryResponseObject interface {
 	VisitDeleteRepositoryResponse(w http.ResponseWriter) error
 }
 
-type DeleteRepository200JSONResponse RepositoryRead
+type DeleteRepository200JSONResponse Repository
 
 func (response DeleteRepository200JSONResponse) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -2268,7 +2268,7 @@ type ReadRepositoryResponseObject interface {
 	VisitReadRepositoryResponse(w http.ResponseWriter) error
 }
 
-type ReadRepository200JSONResponse RepositoryRead
+type ReadRepository200JSONResponse Repository
 
 func (response ReadRepository200JSONResponse) VisitReadRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -2302,7 +2302,7 @@ type ReplaceRepositoryResponseObject interface {
 	VisitReplaceRepositoryResponse(w http.ResponseWriter) error
 }
 
-type ReplaceRepository200JSONResponse RepositoryRead
+type ReplaceRepository200JSONResponse Repository
 
 func (response ReplaceRepository200JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -2311,7 +2311,7 @@ func (response ReplaceRepository200JSONResponse) VisitReplaceRepositoryResponse(
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceRepository201JSONResponse RepositoryRead
+type ReplaceRepository201JSONResponse Repository
 
 func (response ReplaceRepository201JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
