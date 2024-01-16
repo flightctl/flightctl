@@ -19,7 +19,9 @@ jobs:
 
       # The `run` key tells the job to execute a command on the runner. In this example, `npm ci` is used to install the npm software packages for the project.
       - name: Install dependencies
-        run: sudo apt install -y make golang-1.20 python3-pip
+        run: |
+          sudo apt-get update -y # fix broken repo cache
+          sudo apt install -y make golang-1.20 python3-pip
       - name: Install podman-compose
         run: pip3 install podman-compose
 
