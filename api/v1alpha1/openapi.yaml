@@ -63,7 +63,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RepositoryRead'
+                $ref: '#/components/schemas/Repository'
         "400":
           description: Bad Request
           content: {}
@@ -107,7 +107,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RepositoryRead'
+                $ref: '#/components/schemas/Repository'
         "401":
           description: Unauthorized
           content: {}
@@ -138,13 +138,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RepositoryRead'
+                $ref: '#/components/schemas/Repository'
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RepositoryRead'
+                $ref: '#/components/schemas/Repository'
         "400":
           description: Bad Request
           content: {}
@@ -172,7 +172,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RepositoryRead'
+                $ref: '#/components/schemas/Repository'
         "401":
           description: Unauthorized
           content: {}
@@ -912,24 +912,6 @@ components:
         - metadata
         - spec
       description: Repository represents a git repository
-    RepositoryRead:
-      type: object
-      properties:
-        apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-        kind:
-          type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'        
-        status:
-          $ref: '#/components/schemas/RepositoryStatus'
-      required:
-        - apiVersion
-        - kind
-        - metadata
-      description: RepositoryRead represents a git repository's status
     RepositorySpec:
       type: object
       properties:
@@ -942,6 +924,7 @@ components:
         password:
           type: string
           description: 'The password for auth with HTTP transport'
+          format: password
     RepositoryCondition:
       required:
         - status
@@ -993,7 +976,7 @@ components:
           type: array
           description: 'List of repositories.'
           items:
-            $ref: '#/components/schemas/RepositoryRead'
+            $ref: '#/components/schemas/Repository'
       description: RepositoryList is a list of Repositories.
       required:
         - apiVersion
