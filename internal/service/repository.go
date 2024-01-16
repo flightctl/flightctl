@@ -14,14 +14,14 @@ import (
 )
 
 type RepositoryStoreInterface interface {
-	CreateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.RepositoryRead, error)
+	CreateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, error)
 	ListRepositories(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
+	ListAllRepositoriesInternal() ([]model.Repository, error)
 	DeleteRepositories(ctx context.Context, orgId uuid.UUID) error
-	GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryRead, error)
-	CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.RepositoryRead, bool, error)
+	GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
+	CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error)
 	DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) error
-	ListAllRepositoriesInternal() ([]model.InternalRepository, error)
-	UpdateRepositoryStatusInternal(orgId uuid.UUID, repository *api.Repository) error
+	UpdateRepositoryStatusInternal(repository *model.Repository) error
 }
 
 // (POST /api/v1/repositories)

@@ -53,23 +53,23 @@ func (r *RepoTester) TestRepo() {
 
 	for _, repository := range repositories {
 		remote := git.NewRemote(memory.NewStorage(), &config.RemoteConfig{
-			Name:  *repository.Metadata.Name,
-			URLs:  []string{*repository.Spec.Repo},
+			Name:  repository.Name,
+			URLs:  []string{*repository.Spec.Data.Repo},
 			Fetch: []config.RefSpec{"HEAD"},
 		})
 
 		_, err = remote.List(&git.ListOptions{
 			Auth: &http.BasicAuth{
-				Username: *repository.Spec.Username,
-				Password: *repository.Spec.Password,
+				Username: *repository.Spec.Data.Username,
+				Password: *repository.Spec.Data.Password,
 			},
 		})
 
-		r.setAccessCondition(log, repository, err)
+		r.setAccessCondition(log, &repository, err)
 	}
 }
 
-func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository model.InternalRepository, err error) {
+func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository *model.Repository, err error) {
 	var condition api.RepositoryCondition
 	if err == nil {
 		condition = api.RepositoryCondition{
@@ -87,10 +87,13 @@ func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository model
 			Reason:             util.StrToPtr("Inaccessible"),
 			Message:            util.StrToPtr(err.Error()),
 		}
-		log.Debugf("repository %s inaccessible: %s", *repository.Metadata.Name, err)
+		log.Debugf("repository %s inaccessible: %s", repository.Name, err)
 	}
 
-	conditions := []api.RepositoryCondition{condition}
-	repository.Status.Conditions = &conditions
-	r.repoStore.UpdateRepositoryStatusInternal(repository.OrgID, &repository.Repository)
+	status := api.RepositoryStatus{
+		Conditions: &[]api.RepositoryCondition{condition},
+	}
+	repository.Status = model.MakeJSONField(status)
+
+	r.repoStore.UpdateRepositoryStatusInternal(repository)
 }

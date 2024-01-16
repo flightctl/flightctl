@@ -6,7 +6,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/google/uuid"
 )
 
 var (
@@ -51,38 +50,9 @@ func NewRepositoryFromApiResource(resource *api.Repository) *Repository {
 	}
 }
 
-func (f *Repository) ToApiResource() api.RepositoryRead {
+func (f *Repository) ToApiResource() api.Repository {
 	if f == nil {
-		return api.RepositoryRead{}
-	}
-
-	var status api.RepositoryStatus
-	if f.Status != nil {
-		status = f.Status.Data
-	}
-
-	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
-
-	return api.RepositoryRead{
-		ApiVersion: RepositoryAPI,
-		Kind:       RepositoryKind,
-		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(f.Name),
-			CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
-			Labels:            &metadataLabels,
-		},
-		Status: &status,
-	}
-}
-
-type InternalRepository struct {
-	OrgID uuid.UUID
-	api.Repository
-}
-
-func (f *Repository) ToInternalResource() InternalRepository {
-	if f == nil {
-		return InternalRepository{}
+		return api.Repository{}
 	}
 
 	var spec api.RepositorySpec
@@ -95,21 +65,22 @@ func (f *Repository) ToInternalResource() InternalRepository {
 		status = f.Status.Data
 	}
 
+	if spec.Password != nil {
+		spec.Password = util.StrToPtr("*****")
+	}
+
 	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
 
-	return InternalRepository{
-		OrgID: f.OrgID,
-		Repository: api.Repository{
-			ApiVersion: RepositoryAPI,
-			Kind:       RepositoryKind,
-			Metadata: api.ObjectMeta{
-				Name:              util.StrToPtr(f.Name),
-				CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
-				Labels:            &metadataLabels,
-			},
-			Spec:   spec,
-			Status: &status,
+	return api.Repository{
+		ApiVersion: RepositoryAPI,
+		Kind:       RepositoryKind,
+		Metadata: api.ObjectMeta{
+			Name:              util.StrToPtr(f.Name),
+			CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
+			Labels:            &metadataLabels,
 		},
+		Spec:   spec,
+		Status: &status,
 	}
 }
 
@@ -118,11 +89,11 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) api.Re
 		return api.RepositoryList{
 			ApiVersion: RepositoryAPI,
 			Kind:       RepositoryListKind,
-			Items:      []api.RepositoryRead{},
+			Items:      []api.Repository{},
 		}
 	}
 
-	repositoryList := make([]api.RepositoryRead, len(dl))
+	repositoryList := make([]api.Repository, len(dl))
 	for i, repository := range dl {
 		repositoryList[i] = repository.ToApiResource()
 	}
@@ -137,16 +108,4 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) api.Re
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
 	return ret
-}
-
-func (dl RepositoryList) ToInternalResource() []InternalRepository {
-	if dl == nil {
-		return nil
-	}
-
-	repositoryList := make([]InternalRepository, len(dl))
-	for i, repository := range dl {
-		repositoryList[i] = repository.ToInternalResource()
-	}
-	return repositoryList
 }
