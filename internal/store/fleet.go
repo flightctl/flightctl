@@ -85,9 +85,7 @@ func (s *FleetStore) ListFleets(ctx context.Context, orgId uuid.UUID, listParams
 }
 
 func (s *FleetStore) DeleteFleets(ctx context.Context, orgId uuid.UUID) error {
-	condition := model.Fleet{
-		Resource: model.Resource{OrgID: orgId},
-	}
+	condition := model.Fleet{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
@@ -99,8 +97,11 @@ func (s *FleetStore) GetFleet(ctx context.Context, orgId uuid.UUID, name string)
 	}
 	result := s.db.First(&fleet)
 	log.Printf("db.Find(%s): %d rows affected, error is %v", fleet, result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
 	apiFleet := fleet.ToApiResource()
-	return &apiFleet, result.Error
+	return &apiFleet, nil
 }
 
 func (s *FleetStore) CreateOrUpdateFleet(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
@@ -113,10 +114,22 @@ func (s *FleetStore) CreateOrUpdateFleet(ctx context.Context, orgId uuid.UUID, r
 	// don't overwrite status
 	fleet.Status = nil
 
+	created := false
+	findFleet := model.Fleet{
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	}
+	result := s.db.First(&findFleet)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			created = true
+		} else {
+			return nil, false, result.Error
+		}
+	}
+
 	var updatedFleet model.Fleet
 	where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
-	result := s.db.Where(where).Assign(fleet).FirstOrCreate(&updatedFleet)
-	created := (result.RowsAffected == 0)
+	result = s.db.Where(where).Assign(fleet).FirstOrCreate(&updatedFleet)
 
 	updatedResource := updatedFleet.ToApiResource()
 	return &updatedResource, created, result.Error
