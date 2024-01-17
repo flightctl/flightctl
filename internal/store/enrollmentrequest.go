@@ -85,9 +85,7 @@ func (s *EnrollmentRequestStore) ListEnrollmentRequests(ctx context.Context, org
 }
 
 func (s *EnrollmentRequestStore) DeleteEnrollmentRequests(ctx context.Context, orgId uuid.UUID) error {
-	condition := model.EnrollmentRequest{
-		Resource: model.Resource{OrgID: orgId},
-	}
+	condition := model.EnrollmentRequest{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
@@ -99,8 +97,11 @@ func (s *EnrollmentRequestStore) GetEnrollmentRequest(ctx context.Context, orgId
 	}
 	result := s.db.First(&enrollmentRequest)
 	log.Printf("db.Find(%s): %d rows affected, error is %v", name, result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
 	apiEnrollmentRequest := enrollmentRequest.ToApiResource()
-	return &apiEnrollmentRequest, result.Error
+	return &apiEnrollmentRequest, nil
 }
 
 func (s *EnrollmentRequestStore) CreateOrUpdateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error) {
@@ -113,10 +114,22 @@ func (s *EnrollmentRequestStore) CreateOrUpdateEnrollmentRequest(ctx context.Con
 	// don't overwrite status
 	enrollmentrequest.Status = nil
 
+	created := false
+	findEnrollmentRequest := model.EnrollmentRequest{
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	}
+	result := s.db.First(&findEnrollmentRequest)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			created = true
+		} else {
+			return nil, false, result.Error
+		}
+	}
+
 	var updatedEnrollmentRequest model.EnrollmentRequest
 	where := model.EnrollmentRequest{Resource: model.Resource{OrgID: enrollmentrequest.OrgID, Name: enrollmentrequest.Name}}
-	result := s.db.Where(where).Assign(enrollmentrequest).FirstOrCreate(&updatedEnrollmentRequest)
-	created := (result.RowsAffected == 0)
+	result = s.db.Where(where).Assign(enrollmentrequest).FirstOrCreate(&updatedEnrollmentRequest)
 
 	updatedResource := updatedEnrollmentRequest.ToApiResource()
 	return &updatedResource, created, result.Error
