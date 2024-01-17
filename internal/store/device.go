@@ -103,10 +103,10 @@ func (s *DeviceStore) ListDevices(ctx context.Context, orgId uuid.UUID, listPara
 }
 
 func (s *DeviceStore) DeleteDevices(ctx context.Context, orgId uuid.UUID) error {
-	condition := model.Device{
-		Resource: model.Resource{OrgID: orgId},
-	}
+	log := log.WithReqIDFromCtx(ctx, s.log)
+	condition := model.Device{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+	log.Printf("db.Delete(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	return result.Error
 }
 
@@ -117,8 +117,11 @@ func (s *DeviceStore) GetDevice(ctx context.Context, orgId uuid.UUID, name strin
 	}
 	result := s.db.First(&device)
 	log.Printf("db.Find(%s): %d rows affected, error is %v", device, result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
 	apiDevice := device.ToApiResource()
-	return &apiDevice, result.Error
+	return &apiDevice, nil
 }
 
 func (s *DeviceStore) CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, bool, error) {
@@ -131,10 +134,22 @@ func (s *DeviceStore) CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID,
 	// don't overwrite status
 	device.Status = nil
 
+	created := false
+	findDevice := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	}
+	result := s.db.First(&findDevice)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			created = true
+		} else {
+			return nil, false, result.Error
+		}
+	}
+
 	var updatedDevice model.Device
 	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
-	result := s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice)
-	created := (result.RowsAffected == 0)
+	result = s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice)
 
 	updatedResource := updatedDevice.ToApiResource()
 	return &updatedResource, created, result.Error

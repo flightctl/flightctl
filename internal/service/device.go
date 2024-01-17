@@ -115,6 +115,9 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
 	orgId := NullOrgId
+	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceDevice400Response{}, nil
+	}
 
 	result, created, err := h.deviceStore.CreateOrUpdateDevice(ctx, orgId, request.Body)
 	switch err {
