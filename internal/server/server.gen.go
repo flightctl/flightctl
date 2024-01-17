@@ -1471,6 +1471,14 @@ func (response ReplaceDevice201JSONResponse) VisitReplaceDeviceResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ReplaceDevice400Response struct {
+}
+
+func (response ReplaceDevice400Response) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
 type ReplaceDevice401Response struct {
 }
 
@@ -1735,6 +1743,14 @@ func (response ReplaceEnrollmentRequest201JSONResponse) VisitReplaceEnrollmentRe
 	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceEnrollmentRequest400Response struct {
+}
+
+func (response ReplaceEnrollmentRequest400Response) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
 }
 
 type ReplaceEnrollmentRequest401Response struct {
@@ -2044,6 +2060,14 @@ func (response ReplaceFleet201JSONResponse) VisitReplaceFleetResponse(w http.Res
 	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceFleet400Response struct {
+}
+
+func (response ReplaceFleet400Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
 }
 
 type ReplaceFleet401Response struct {
