@@ -14,13 +14,15 @@ func InitDB(cfg *config.Config) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
 	if cfg.Database.Type == "pgsql" {
-		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d",
+		dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
 			cfg.Database.Hostname,
 			cfg.Database.User,
 			cfg.Database.Password,
-			cfg.Database.Name,
 			cfg.Database.Port,
 		)
+		if cfg.Database.Name != "" {
+			dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
+		}
 		dia = postgres.Open(dsn)
 	} else {
 		dia = sqlite.Open(cfg.Database.Name)

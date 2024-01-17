@@ -19,6 +19,10 @@ Checkout the repo and from within the repo run:
 make build
 ```
 
+To run unit tests, use `make unit-test`.  This requires installing gotestsum:
+
+`go install gotest.tools/gotestsum@latest`
+
 ## Running
 
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
