@@ -100,9 +100,7 @@ func (s *RepositoryStore) ListAllRepositoriesInternal() ([]model.Repository, err
 }
 
 func (s *RepositoryStore) DeleteRepositories(ctx context.Context, orgId uuid.UUID) error {
-	condition := model.Repository{
-		Resource: model.Resource{OrgID: orgId},
-	}
+	condition := model.Repository{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
@@ -114,24 +112,39 @@ func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, na
 	}
 	result := s.db.First(&repository)
 	log.Debugf("db.Find(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
 	apiRepository := repository.ToApiResource()
-	return &apiRepository, result.Error
+	return &apiRepository, nil
 }
 
 func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
-	Repository := model.NewRepositoryFromApiResource(resource)
-	Repository.OrgID = orgId
+	repository := model.NewRepositoryFromApiResource(resource)
+	repository.OrgID = orgId
 
 	// don't overwrite status
-	Repository.Status = nil
+	repository.Status = nil
+
+	created := false
+	findRepository := model.Repository{
+		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	}
+	result := s.db.First(&findRepository)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			created = true
+		} else {
+			return nil, false, result.Error
+		}
+	}
 
 	var updatedRepository model.Repository
-	where := model.Repository{Resource: model.Resource{OrgID: Repository.OrgID, Name: Repository.Name}}
-	result := s.db.Where(where).Assign(Repository).FirstOrCreate(&updatedRepository)
-	created := (result.RowsAffected == 0)
+	where := model.Repository{Resource: model.Resource{OrgID: repository.OrgID, Name: repository.Name}}
+	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedRepository)
 
 	updatedResource := updatedRepository.ToApiResource()
 	return &updatedResource, created, result.Error

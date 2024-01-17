@@ -107,6 +107,9 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 // (PUT /api/v1/repositories/{name})
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.ReplaceRepositoryRequestObject) (server.ReplaceRepositoryResponseObject, error) {
 	orgId := NullOrgId
+	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceRepository400Response{}, nil
+	}
 
 	result, created, err := h.repositoryStore.CreateOrUpdateRepository(ctx, orgId, request.Body)
 	switch err {
