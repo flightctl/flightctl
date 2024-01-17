@@ -207,6 +207,9 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 // (PUT /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
+	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceEnrollmentRequest400Response{}, nil
+	}
 
 	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
