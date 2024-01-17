@@ -115,6 +115,9 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
 	orgId := NullOrgId
+	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceFleet400Response{}, nil
+	}
 
 	result, created, err := h.fleetStore.CreateOrUpdateFleet(ctx, orgId, request.Body)
 	switch err {
