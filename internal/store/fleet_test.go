@@ -181,7 +181,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": fmt.Sprintf("value")},
+						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
 				Status: &api.FleetStatus{
@@ -211,7 +211,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": fmt.Sprintf("value")},
+						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
 				Status: &api.FleetStatus{
@@ -241,7 +241,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": fmt.Sprintf("value")},
+						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
 				Status: &api.FleetStatus{
