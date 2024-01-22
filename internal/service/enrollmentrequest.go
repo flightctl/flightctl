@@ -38,34 +38,6 @@ func validateAndCompleteEnrollmentRequest(enrollmentRequest *api.EnrollmentReque
 	return nil
 }
 
-func autoApproveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest) error {
-	csrPEM := enrollmentRequest.Spec.Csr
-	csr, err := crypto.ParseCSR([]byte(csrPEM))
-	if err != nil {
-		return err
-	}
-	if err := csr.CheckSignature(); err != nil {
-		return err
-	}
-	certData, err := ca.IssueRequestedClientCertificate(csr, ClientCertExpiryDays)
-	if err != nil {
-		return err
-	}
-	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
-		Certificate: util.StrToPtr(string(certData)),
-		Conditions: &[]api.EnrollmentRequestCondition{
-			{
-				Type:               "Approved",
-				Status:             "True",
-				Reason:             util.StrToPtr("AutoApproved"),
-				Message:            util.StrToPtr("Approved by auto approver"),
-				LastTransitionTime: util.TimeStampStringPtr(),
-			},
-		},
-	}
-	return nil
-}
-
 func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
 	csrPEM := enrollmentRequest.Spec.Csr
 	csr, err := crypto.ParseCSR([]byte(csrPEM))
@@ -119,14 +91,6 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
-	/*
-		if err := autoApproveAndSignEnrollmentRequest(h.ca, request.Body); err != nil {
-			return nil, err
-		}
-		if err := createDeviceFromEnrollmentRequest(h.deviceStore, orgId, request.Body); err != nil {
-			return nil, err
-		}
-	*/
 
 	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(ctx, orgId, request.Body)
 	switch err {
