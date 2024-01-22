@@ -36,14 +36,9 @@ require (
 )
 
 require (
-	github.com/bitfield/gotestdox v0.2.2 // indirect
-	github.com/dnephin/pflag v1.0.7 // indirect
-	github.com/fatih/color v1.16.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/google/pprof v0.0.0-20230323073829-e72429f035bd // indirect
-	github.com/proullon/ramsql v0.1.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gotest.tools/gotestsum v1.11.0 // indirect
 )
 
 require (
