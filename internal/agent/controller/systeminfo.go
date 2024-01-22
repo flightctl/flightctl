@@ -70,7 +70,10 @@ func (c *SystemInfoController) SetStatus(r *api.Device) (bool, error) {
 		}
 
 		c.systemInfo.Measurements = map[string]string{}
-		c.tpmChannel.GetPCRValues(c.systemInfo.Measurements)
+		err = c.tpmChannel.GetPCRValues(c.systemInfo.Measurements)
+		if err != nil {
+			klog.Errorf("getting PCR values: %v", err)
+		}
 	}
 	r.Status.SystemInfo = c.systemInfo
 	return true, nil

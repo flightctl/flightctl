@@ -198,9 +198,13 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 		}
 	}
 
-	a.writeManagementBanner()
+	if err := a.writeManagementBanner(); err != nil {
+		return err
+	}
 
-	a.PostStatus(ctx)
+	if err := a.PostStatus(ctx); err != nil {
+		return err
+	}
 
 	fetchSpecTicker := jitterbug.New(a.fetchSpecInterval, &jitterbug.Norm{Stdev: a.fetchSpecJitter, Mean: 0})
 	defer fetchSpecTicker.Stop()
@@ -216,13 +220,15 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 			if err := a.FetchSpec(ctx); err != nil {
 				a.log.Errorf("%sfetching spec: %v", a.logPrefix, err)
 			}
-			a.Reconcile(ctx, ctrl.Request{})
+			_, err := a.Reconcile(ctx, ctrl.Request{})
+			a.log.Errorf("%sreconcile failed: %w", a.logPrefix, err)
 		case <-statusUpdateTicker.C:
 			a.log = log.WithReqID(reqid.NextRequestID(), a.log)
 			if _, err := a.SetStatus(&a.device); err != nil {
 				a.log.Errorf("%ssetting status: %v", a.logPrefix, err)
 			}
-			a.PostStatus(ctx)
+			err := a.PostStatus(ctx)
+			a.log.Errorf("%sposting status: %v", a.logPrefix, err)
 		}
 	}
 }
