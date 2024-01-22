@@ -37,7 +37,7 @@ tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
 
 lint: tools
-	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && $(GOBIN)/golangci-lint run ./...'
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && $(GOBIN)/golangci-lint run --out-format=github-actions --timeout 10m ./...'
 
 build: bin
 	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
@@ -86,7 +86,7 @@ run-unit-test:
 run-db-container:
 	podman rm -f flightctl-db || true
 	podman volume rm podman_flightctl-db || true
-	podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=size=200M,nodev,noexec podman_flightctl-db
+	podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec podman_flightctl-db
 	cd deploy/podman && podman-compose up -d flightctl-db
 	podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 	podman exec -it flightctl-db createdb admin || true
