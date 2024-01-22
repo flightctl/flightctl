@@ -123,7 +123,7 @@ func main() {
 		defer cancel()
 
 		srv.SetKeepAlivesEnabled(false)
-		srv.Shutdown(ctxTimeout)
+		_ = srv.Shutdown(ctxTimeout)
 	}()
 
 	repoTester := repotester.NewRepoTester(log, db, store)

@@ -45,7 +45,8 @@ func (c *ContainerController) SetStatus(r *api.Device) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
-	ctx, _ := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 
 	// Get the current user.
 	currentUser, err := user.Current()

@@ -95,5 +95,8 @@ func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository *mode
 	}
 	repository.Status = model.MakeJSONField(status)
 
-	r.repoStore.UpdateRepositoryStatusInternal(repository)
+	err = r.repoStore.UpdateRepositoryStatusInternal(repository)
+	if err != nil {
+		log.Errorf("Failed to update repository status for %s: %w", repository.Name, err)
+	}
 }

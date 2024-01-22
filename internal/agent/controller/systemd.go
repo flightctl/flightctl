@@ -51,7 +51,8 @@ func (c *SystemDController) SetStatus(r *api.Device) (bool, error) {
 		return false, err
 	}
 
-	ctx, _ := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	unitStatuses, err := conn.ListUnitsByPatternsContext(ctx, nil, *r.Spec.Systemd.MatchPatterns)
 	if err != nil {
 		return false, err

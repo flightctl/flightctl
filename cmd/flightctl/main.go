@@ -188,7 +188,10 @@ func NewCmdApply() *cobra.Command {
 	for _, ext := range fileExtensions {
 		annotations = append(annotations, strings.TrimLeft(ext, "."))
 	}
-	flags.SetAnnotation("filename", cobra.BashCompFilenameExt, annotations)
+	err := flags.SetAnnotation("filename", cobra.BashCompFilenameExt, annotations)
+	if err != nil {
+		log.Fatalf("setting filename flag annotation: %v", err)
+	}
 	flags.BoolVarP(&o.DryRun, "dry-run", "", o.DryRun, "only print the object that would be sent, without sending it")
 	flags.BoolVarP(&o.Recursive, "recursive", "R", o.Recursive, "process the directory used in -f, --filename recursively")
 

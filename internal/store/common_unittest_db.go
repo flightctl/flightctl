@@ -34,7 +34,8 @@ func PrepareDBForUnitTests(log *logrus.Logger) (*gorm.DB, *Store, *config.Config
 		log.Fatalf("running initial migration: %v", err)
 	}
 
-	store.InitialMigration()
+	err = store.InitialMigration()
+	Expect(err).ShouldNot(HaveOccurred())
 
 	return db, store, cfg, randomDBName
 }

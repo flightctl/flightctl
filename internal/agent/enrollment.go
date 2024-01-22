@@ -24,9 +24,11 @@ import (
 func (a *DeviceAgent) requestAndWaitForEnrollment(ctx context.Context) error {
 
 	if err := a.writeEnrollmentBanner(); err != nil {
-		return fmt.Errorf("requestAndWaitForEnrollment: %w", err)
+		return fmt.Errorf("requestAndWaitForEnrollment writeEnrollmentBanner: %w", err)
 	}
-	a.sendEnrollmentRequest(ctx)
+	if err := a.sendEnrollmentRequest(ctx); err != nil {
+		return fmt.Errorf("requestAndWaitForEnrollment sendEnrollmentRequest: %w", err)
+	}
 
 	klog.Infof("%swaiting for enrollment to be approved", a.logPrefix)
 	backoff := wait.Backoff{
