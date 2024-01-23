@@ -1546,6 +1546,14 @@ func (response ReplaceDeviceStatus200JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ReplaceDeviceStatus400Response struct {
+}
+
+func (response ReplaceDeviceStatus400Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
 type ReplaceDeviceStatus401Response struct {
 }
 
