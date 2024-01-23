@@ -125,6 +125,7 @@ type DeviceStatus struct {
 
 	// SystemdUnits Current state of systemd units on the device.
 	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
+	UpdatedAt    *string                    `json:"updatedAt,omitempty"`
 }
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
