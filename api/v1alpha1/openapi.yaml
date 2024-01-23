@@ -75,7 +75,7 @@ paths:
           content: {}
     delete:
       tags:
-        - device
+        - repository
       description: delete collection of Repositories
       operationId: deleteRepositories
       responses:
@@ -404,6 +404,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content: {}
         "401":
           description: Unauthorized
           content: {}
@@ -1152,6 +1155,8 @@ components:
     DeviceStatus:
       type: object
       properties:
+        updatedAt:
+          type: string
         conditions:
           type: array
           description: 'Current state of the device.'
@@ -1233,6 +1238,7 @@ components:
           type: string
           description: The active state of the systemd unit.
       description: The status of the systemd unit.
+
     EnrollmentRequestApproval:
       type: object
       properties:

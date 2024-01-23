@@ -168,7 +168,10 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.deviceStore.UpdateDeviceStatus(ctx, orgId, request.Body)
+	device := request.Body
+	device.Status.UpdatedAt = util.TimeStampStringPtr()
+
+	result, err := h.deviceStore.UpdateDeviceStatus(ctx, orgId, device)
 	switch err {
 	case nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
