@@ -1,6 +1,6 @@
 GOBASE=$(shell pwd)
 GOBIN=$(GOBASE)/bin
-GO_BUILD_FLAGS :=-tags 'containers_image_openpgp osusergo exclude_graphdriver_btrfs exclude_graphdriver_devicemapper'
+GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
 
 VERBOSE ?= false
@@ -30,7 +30,7 @@ help:
 	@echo "    deploy-db:   deploy only the database as a container in podman"
 	@echo "    clean:       clean up all containers and volumes"
 
-generate:
+generate: generate-mocks
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go generate ./...'
 
 tidy:
@@ -70,6 +70,10 @@ clean:
 	- podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
 	- rm -r bin
 	- rm -r rpmbuild
+
+generate-mocks:
+	find . -name 'mock_*.go' -type f -not -path './vendor/*' -delete
+	go generate -v $(shell go list ./...)
 
 _unit_test: $(REPORTS)
 	gotestsum $(GO_UNITTEST_FLAGS) $(TEST) $(GINKGO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
