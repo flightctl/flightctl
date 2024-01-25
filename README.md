@@ -23,6 +23,10 @@ To run unit tests, use `make unit-test`.  This requires installing gotestsum:
 
 `go install gotest.tools/gotestsum@latest`
 
+To generate API code and mocks, use `make generate`  This requires installing mockgen:
+
+`go install github.com/golang/mock/mockgen@v1.6.0`
+
 ## Running
 
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
