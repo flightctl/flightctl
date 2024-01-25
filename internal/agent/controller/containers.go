@@ -2,23 +2,32 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os/user"
 	"time"
 
-	"github.com/containers/podman/v4/pkg/bindings"
-	"github.com/containers/podman/v4/pkg/bindings/containers"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 )
 
 type ContainerController struct {
 	agent *agent.DeviceAgent
+	exec  executer.Executer
 }
 
 func NewContainerController() *ContainerController {
-	return &ContainerController{}
+	return &ContainerController{
+		exec: &executer.CommonExecuter{},
+	}
+}
+
+func NewContainerControllerWithExecuter(exec executer.Executer) *ContainerController {
+	return &ContainerController{
+		exec: exec,
+	}
 }
 
 func (c *ContainerController) SetDeviceAgent(a *agent.DeviceAgent) {
@@ -41,54 +50,48 @@ func (c *ContainerController) FinalizeUpdate(r *api.Device) (bool, error) {
 	return true, nil // this controller only updates status
 }
 
+type PodmanList []PodmanListEntry
+type PodmanListEntry struct {
+	Names []string `json:"Names"`
+	State string   `json:"State"`
+	Image string   `json:"Image"`
+	Id    string   `json:"Id"`
+}
+
+type Shell interface {
+	Command(cmd string) (output []byte, err error)
+}
+
 func (c *ContainerController) SetStatus(r *api.Device) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+
+	execCtx, cancel := context.WithTimeout(context.TODO(), 2*time.Minute)
 	defer cancel()
-
-	// Get the current user.
-	currentUser, err := user.Current()
-	if err != nil {
-		klog.Errorf("Cannot get current user: %v", err)
+	out, errOut, exitCode := c.exec.ExecuteWithContext(execCtx, "/usr/bin/podman", "ps", "-a", "--format", "json")
+	if exitCode != 0 {
+		msg := fmt.Sprintf("listing podman containers failed with code %d: %s\n", exitCode, errOut)
+		err := errors.Errorf(msg)
+		klog.Errorf(msg)
 		return false, err
 	}
 
-	// Set the socket path based on the user ID.
-	var socketPath string
-	if currentUser.Uid == "0" {
-		socketPath = "unix:///run/podman/podman.sock"
-	} else {
-		socketPath = fmt.Sprintf("unix:///run/user/%s/podman/podman.sock", currentUser.Uid)
-	}
-
-	conn, err := bindings.NewConnection(ctx, socketPath)
-	if err != nil {
-		klog.Warningf("Warning: connection cannot be created: %v", err)
+	var containers PodmanList
+	klog.Infof("OUT: %s", out)
+	if err := json.Unmarshal([]byte(out), &containers); err != nil {
+		klog.Errorf("error unmarshalling podman list output: %s\n", err)
 		return false, err
-	} else {
-		// Get a list of all containers
-		all := true
-		containerOptions := &containers.ListOptions{
-			All: &all,
-		}
-
-		containers, err := containers.List(conn, containerOptions)
-		if err != nil {
-			klog.Errorf("Error getting containers: %v", err)
-			return false, err
-		}
-
-		deviceContainerStatus := make([]api.ContainerStatus, len(containers))
-		for i, c := range containers {
-			deviceContainerStatus[i].Name = c.Names[0]
-			deviceContainerStatus[i].Status = c.State
-			deviceContainerStatus[i].Image = c.Image
-			deviceContainerStatus[i].Id = c.ID
-		}
-		r.Status.Containers = &deviceContainerStatus
-
-		return true, nil
 	}
+
+	deviceContainerStatus := make([]api.ContainerStatus, len(containers))
+	for i, c := range containers {
+		deviceContainerStatus[i].Name = c.Names[0]
+		deviceContainerStatus[i].Status = c.State
+		deviceContainerStatus[i].Image = c.Image
+		deviceContainerStatus[i].Id = c.Id
+	}
+	r.Status.Containers = &deviceContainerStatus
+
+	return true, nil
 }
