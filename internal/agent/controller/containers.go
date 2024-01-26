@@ -78,7 +78,6 @@ func (c *ContainerController) SetStatus(r *api.Device) (bool, error) {
 	}
 
 	var containers PodmanList
-	klog.Infof("OUT: %s", out)
 	if err := json.Unmarshal([]byte(out), &containers); err != nil {
 		klog.Errorf("error unmarshalling podman list output: %s\n", err)
 		return false, err
