@@ -2,19 +2,32 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
-	"github.com/coreos/go-systemd/v22/dbus"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/pkg/errors"
+	"k8s.io/klog/v2"
 )
 
 type SystemDController struct {
 	agent *agent.DeviceAgent
+	exec  executer.Executer
 }
 
 func NewSystemDController() *SystemDController {
-	return &SystemDController{}
+	return &SystemDController{
+		exec: &executer.CommonExecuter{},
+	}
+}
+
+func NewSystemDControllerWithExecuter(exec executer.Executer) *SystemDController {
+	return &SystemDController{
+		exec: exec,
+	}
 }
 
 func (c *SystemDController) SetDeviceAgent(a *agent.DeviceAgent) {
@@ -37,6 +50,15 @@ func (c *SystemDController) FinalizeUpdate(r *api.Device) (bool, error) {
 	return true, nil // this controller only updates status
 }
 
+type SystemDUnitList []SystemDUnitListEntry
+type SystemDUnitListEntry struct {
+	Unit        string `json:"unit"`
+	LoadState   string `json:"load"`
+	ActiveState string `json:"active"`
+	Sub         string `json:"sub"`
+	Description string `json:"description"`
+}
+
 func (c *SystemDController) SetStatus(r *api.Device) (bool, error) {
 	if r == nil {
 		return false, nil
@@ -46,24 +68,30 @@ func (c *SystemDController) SetStatus(r *api.Device) (bool, error) {
 		return false, nil
 	}
 
-	conn, err := dbus.NewSystemdConnectionContext(context.TODO())
-	if err != nil {
-		return false, err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	execCtx, cancel := context.WithTimeout(context.TODO(), 2*time.Minute)
 	defer cancel()
-	unitStatuses, err := conn.ListUnitsByPatternsContext(ctx, nil, *r.Spec.Systemd.MatchPatterns)
-	if err != nil {
+	args := append([]string{"list-units", "--all", "--output", "json"}, (*r.Spec.Systemd.MatchPatterns)...)
+	out, errOut, exitCode := c.exec.ExecuteWithContext(execCtx, "/usr/bin/systemctl", args...)
+	if exitCode != 0 {
+		msg := fmt.Sprintf("listing systemd units failed with code %d: %s\n", exitCode, errOut)
+		err := errors.Errorf(msg)
+		klog.Errorf(msg)
 		return false, err
 	}
 
-	apiSystemdUnits := make([]api.DeviceSystemdUnitStatus, len(unitStatuses))
-	for i, v := range unitStatuses {
-		apiSystemdUnits[i].Name = v.Name
-		apiSystemdUnits[i].ActiveState = v.ActiveState
-		apiSystemdUnits[i].LoadState = v.LoadState
+	var units SystemDUnitList
+	if err := json.Unmarshal([]byte(out), &units); err != nil {
+		klog.Errorf("error unmarshalling systemctl list-units output: %s\n", err)
+		return false, err
 	}
-	r.Status.SystemdUnits = &apiSystemdUnits
+
+	deviceSystemdUnitStatus := make([]api.DeviceSystemdUnitStatus, len(units))
+	for i, u := range units {
+		deviceSystemdUnitStatus[i].Name = u.Unit
+		deviceSystemdUnitStatus[i].LoadState = u.LoadState
+		deviceSystemdUnitStatus[i].ActiveState = u.ActiveState
+	}
+	r.Status.SystemdUnits = &deviceSystemdUnitStatus
+
 	return true, nil
 }
