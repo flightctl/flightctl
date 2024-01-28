@@ -8,6 +8,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -22,6 +23,7 @@ type FleetStoreInterface interface {
 	UpdateFleetStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 	DeleteFleets(ctx context.Context, orgId uuid.UUID) error
 	DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) error
+	ListAllFleetsInternal() ([]model.Fleet, error)
 }
 
 func FleetFromReader(r io.Reader) (*api.Fleet, error) {
