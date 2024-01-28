@@ -70,6 +70,7 @@ func (d *Device) ToApiResource() api.Device {
 			Name:              util.StrToPtr(d.Name),
 			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
 			Labels:            &metadataLabels,
+			Generation:        d.Generation,
 		},
 		Spec:   d.Spec.Data,
 		Status: &status,

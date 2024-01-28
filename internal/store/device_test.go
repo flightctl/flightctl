@@ -103,7 +103,6 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("Delete all devices in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			log.Infof("DELETING DEVICES WITH ORG ID %s", otherOrgId)
 			err := store.deviceStore.DeleteDevices(ctx, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -112,7 +111,6 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(numDevices))
 
-			log.Infof("DELETING DEVICES WITH ORG ID %s", orgId)
 			err = store.deviceStore.DeleteDevices(ctx, orgId)
 			Expect(err).ToNot(HaveOccurred())
 

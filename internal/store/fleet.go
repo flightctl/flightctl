@@ -92,6 +92,19 @@ func (s *FleetStore) ListFleets(ctx context.Context, orgId uuid.UUID, listParams
 	return &apiFleetList, result.Error
 }
 
+// A method to get all Fleets regardless of ownership. Used internally by the DeviceUpdater.
+// TODO: Add pagination, perhaps via gorm scopes.
+func (s *FleetStore) ListAllFleetsInternal() ([]model.Fleet, error) {
+	var fleets model.FleetList
+
+	result := s.db.Model(&fleets).Find(&fleets)
+	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return fleets, nil
+}
+
 func (s *FleetStore) DeleteFleets(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Fleet{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
@@ -134,11 +147,11 @@ func (s *FleetStore) CreateOrUpdateFleet(ctx context.Context, orgId uuid.UUID, r
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		existingRecord := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
 		result := tx.First(&existingRecord)
+		// NotFound is OK because in that case we will create the record, anything else is a real error
+		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return result.Error
+		}
 		if result.Error != nil {
-			if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-				return result.Error
-			}
-
 			created = true
 			if fleet.Spec.Data.Template.Metadata == nil {
 				fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}

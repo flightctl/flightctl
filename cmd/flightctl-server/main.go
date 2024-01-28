@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/configprovider/git"
 	"github.com/flightctl/flightctl/internal/crypto"
+	device_updater "github.com/flightctl/flightctl/internal/monitors/device-updater"
 	"github.com/flightctl/flightctl/internal/monitors/repotester"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/service"
@@ -131,6 +132,12 @@ func main() {
 		log.WithField("pkg", "repository-tester"), "Repository tester", time.Duration(2*float64(time.Minute)), repoTester.TestRepo)
 	repoTesterThread.Start()
 	defer repoTesterThread.Stop()
+
+	deviceUpdater := device_updater.NewDeviceUpdater(log, db, store)
+	deviceUpdaterThread := thread.New(
+		log.WithField("pkg", "device-updater"), "Device updater", time.Duration(2*float64(time.Minute)), deviceUpdater.UpdateDevices)
+	deviceUpdaterThread.Start()
+	defer deviceUpdaterThread.Stop()
 
 	log.Printf("Listening on %s...", srv.Addr)
 	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
