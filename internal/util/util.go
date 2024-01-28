@@ -59,6 +59,11 @@ func TimeStampStringPtr() *string {
 	return StrToPtr(time.Now().Format(time.RFC3339))
 }
 
+func ParseTimeStampIgnoreErrors(t string) time.Time {
+	parsed, _ := time.Parse(time.RFC3339, t)
+	return parsed
+}
+
 func SingleQuote(input []string) []string {
 	output := make([]string, len(input))
 	for i, val := range input {

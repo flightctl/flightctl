@@ -16,6 +16,12 @@ const (
 	Unknown ConditionStatus = "Unknown"
 )
 
+// Defines values for DeviceConditionType.
+const (
+	HeartbeatElapsedTimeError   DeviceConditionType = "HeartbeatElapsedTimeError"
+	HeartbeatElapsedTimeWarning DeviceConditionType = "HeartbeatElapsedTimeWarning"
+)
+
 // Defines values for RepositoryConditionType.
 const (
 	Accessible RepositoryConditionType = "Accessible"
@@ -72,6 +78,9 @@ type DeviceCondition struct {
 	// Type Type of device condition.
 	Type string `json:"type"`
 }
+
+// DeviceConditionType defines model for DeviceConditionType.
+type DeviceConditionType string
 
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
@@ -294,6 +303,13 @@ type FleetList struct {
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
+	DeviceConditions struct {
+		// HeartbeatElapsedTimeError How long since a device was last seen before issuing an error. Format like "30m", "2.3h", or "4h35m".
+		HeartbeatElapsedTimeError *string `json:"heartbeatElapsedTimeError,omitempty"`
+
+		// HeartbeatElapsedTimeWarning How long since a device was last seen before issuing a warning. Format like "30m", "2.3h", or "4h35m".
+		HeartbeatElapsedTimeWarning *string `json:"heartbeatElapsedTimeWarning,omitempty"`
+	} `json:"deviceConditions"`
 	Selector *LabelSelector `json:"selector,omitempty"`
 	Template struct {
 		// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.

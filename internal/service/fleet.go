@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
@@ -37,6 +38,19 @@ func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 // (POST /api/v1/fleets)
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
 	orgId := NullOrgId
+
+	if request.Body.Spec.DeviceConditions.HeartbeatElapsedTimeWarning != nil {
+		_, err := time.ParseDuration(*request.Body.Spec.DeviceConditions.HeartbeatElapsedTimeWarning)
+		if err != nil {
+			return server.CreateFleet400Response{}, nil
+		}
+	}
+	if request.Body.Spec.DeviceConditions.HeartbeatElapsedTimeError != nil {
+		_, err := time.ParseDuration(*request.Body.Spec.DeviceConditions.HeartbeatElapsedTimeError)
+		if err != nil {
+			return server.CreateFleet400Response{}, nil
+		}
+	}
 
 	result, err := h.fleetStore.CreateFleet(ctx, orgId, request.Body)
 	switch err {

@@ -2179,6 +2179,14 @@ func (response CreateFleet201JSONResponse) VisitCreateFleetResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type CreateFleet400Response struct {
+}
+
+func (response CreateFleet400Response) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
 type CreateFleet401Response struct {
 }
 
