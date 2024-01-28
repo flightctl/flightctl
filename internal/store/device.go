@@ -102,6 +102,27 @@ func (s *DeviceStore) ListDevices(ctx context.Context, orgId uuid.UUID, listPara
 	return &apiDevicelist, result.Error
 }
 
+// Get all Devices regardless of ownership. Used internally by the DeviceUpdater.
+// TODO: Add pagination, perhaps via gorm scopes.
+func (s *DeviceStore) ListAllDevicesInternal(labels map[string]string) ([]model.Device, error) {
+	var devices model.DeviceList
+
+	query := LabelSelectionQuery(s.db, labels).Order("name")
+	result := query.Model(&devices).Find(&devices)
+	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return devices, nil
+}
+
+// Update a Device regardless of ownership. Used internally by the DeviceUpdater.
+func (s *DeviceStore) UpdateDeviceInternal(device *model.Device) error {
+	var updatedDevice model.Device
+	where := model.Device{Resource: model.Resource{Name: device.Name, OrgID: device.OrgID}}
+	return s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice).Error
+}
+
 func (s *DeviceStore) DeleteDevices(ctx context.Context, orgId uuid.UUID) error {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	condition := model.Device{}
@@ -135,9 +156,8 @@ func (s *DeviceStore) CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID,
 	device.Status = nil
 
 	created := false
-	findDevice := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
-	}
+	findDevice := model.Device{Resource: model.Resource{Name: *resource.Metadata.Name}}
+	findDevice.OrgID = orgId
 	result := s.db.First(&findDevice)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
@@ -148,7 +168,8 @@ func (s *DeviceStore) CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID,
 	}
 
 	var updatedDevice model.Device
-	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
+	where := model.Device{Resource: model.Resource{Name: device.Name}}
+	where.OrgID = orgId
 	result = s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice)
 
 	updatedResource := updatedDevice.ToApiResource()

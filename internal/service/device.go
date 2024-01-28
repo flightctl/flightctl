@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -22,6 +23,8 @@ type DeviceStoreInterface interface {
 	UpdateDeviceStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	DeleteDevices(ctx context.Context, orgId uuid.UUID) error
 	DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) error
+	ListAllDevicesInternal(map[string]string) ([]model.Device, error)
+	UpdateDeviceInternal(device *model.Device) error
 }
 
 // (POST /api/v1/devices)
