@@ -4,11 +4,14 @@ import (
 	"context"
 	b64 "encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -38,6 +41,11 @@ func (s *FleetStore) CreateFleet(ctx context.Context, orgId uuid.UUID, resource 
 	}
 	fleet := model.NewFleetFromApiResource(resource)
 	fleet.OrgID = orgId
+	if fleet.Spec.Data.Template.Metadata == nil {
+		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
+	}
+	fleet.Generation = util.Int64ToPtr(1)
+	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
 	result := s.db.Create(fleet)
 	log.Printf("db.Create(%s): %d rows affected, error is %v", fleet, result.RowsAffected, result.Error)
 	return resource, result.Error
@@ -100,6 +108,7 @@ func (s *FleetStore) GetFleet(ctx context.Context, orgId uuid.UUID, name string)
 	if result.Error != nil {
 		return nil, result.Error
 	}
+
 	apiFleet := fleet.ToApiResource()
 	return &apiFleet, nil
 }
@@ -111,28 +120,77 @@ func (s *FleetStore) CreateOrUpdateFleet(ctx context.Context, orgId uuid.UUID, r
 	fleet := model.NewFleetFromApiResource(resource)
 	fleet.OrgID = orgId
 
+	// don't allow the user to set the generation
+	fleet.Generation = nil
+	if fleet.Spec != nil && fleet.Spec.Data.Template.Metadata != nil {
+		fleet.Spec.Data.Template.Metadata.Generation = nil
+	}
+
 	// don't overwrite status
 	fleet.Status = nil
 
 	created := false
-	findFleet := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
-	}
-	result := s.db.First(&findFleet)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		existingRecord := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
+		result := tx.First(&existingRecord)
+		if result.Error != nil {
+			if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				return result.Error
+			}
+
 			created = true
+			if fleet.Spec.Data.Template.Metadata == nil {
+				fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
+			}
+			fleet.Generation = util.Int64ToPtr(1)
+			fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
+			result = tx.Create(fleet)
+			if result.Error != nil {
+				return result.Error
+			}
 		} else {
-			return nil, false, result.Error
+			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, fleet.Spec.Data)
+			sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
+			where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
+
+			// Update the generation if the template was updated
+			if !sameSpec {
+				if existingRecord.Generation == nil {
+					fleet.Generation = util.Int64ToPtr(1)
+				} else {
+					fleet.Generation = util.Int64ToPtr(*existingRecord.Generation + 1)
+				}
+			} else {
+				fleet.Generation = existingRecord.Generation
+			}
+
+			if !sameTemplateSpec {
+				if fleet.Spec.Data.Template.Metadata == nil {
+					fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
+				}
+				if existingRecord.Spec.Data.Template.Metadata.Generation == nil {
+					fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
+				} else {
+					fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(*existingRecord.Spec.Data.Template.Metadata.Generation + 1)
+				}
+			} else {
+				fleet.Spec.Data.Template.Metadata.Generation = existingRecord.Spec.Data.Template.Metadata.Generation
+			}
+			result = tx.Model(where).Updates(&fleet)
+			if result.Error != nil {
+				return result.Error
+			}
 		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, false, err
 	}
 
-	var updatedFleet model.Fleet
-	where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
-	result = s.db.Where(where).Assign(fleet).FirstOrCreate(&updatedFleet)
-
-	updatedResource := updatedFleet.ToApiResource()
-	return &updatedResource, created, result.Error
+	updatedResource := fleet.ToApiResource()
+	return &updatedResource, created, nil
 }
 
 func (s *FleetStore) UpdateFleetStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {

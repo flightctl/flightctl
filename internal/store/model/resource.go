@@ -29,6 +29,8 @@ type Resource struct {
 	// that we can perform indexing and queries on them.
 	Labels pq.StringArray `gorm:"type:text[]"`
 
+	Generation *int64
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt gorm.DeletedAt `gorm:"index"`

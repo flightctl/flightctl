@@ -25,9 +25,9 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/thoas/go-funk v0.9.3
 	google.golang.org/grpc v1.58.3
-	gorm.io/driver/postgres v1.5.2
+	gorm.io/driver/postgres v1.5.4
 	gorm.io/driver/sqlite v1.5.3
-	gorm.io/gorm v1.25.4
+	gorm.io/gorm v1.25.6
 	k8s.io/apimachinery v0.29.0
 	k8s.io/client-go v0.29.0
 	k8s.io/klog/v2 v2.110.1
@@ -106,7 +106,7 @@ require (
 	github.com/invopop/yaml v0.2.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
-	github.com/jackc/pgx/v5 v5.3.1 // indirect
+	github.com/jackc/pgx/v5 v5.4.3 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
