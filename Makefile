@@ -21,17 +21,25 @@ all: build
 
 help:
 	@echo "Targets:"
-	@echo "    generate:    regenerate all generated files"
-	@echo "    tidy:        tidy go mod"
-	@echo "    lint:        run golangci-lint"
-	@echo "    build:       run all builds"
-	@echo "    unit-test:   run unit tests"
-	@echo "    deploy:      deploy flightctl-server and db as containers in podman"
-	@echo "    deploy-db:   deploy only the database as a container in podman"
-	@echo "    clean:       clean up all containers and volumes"
+	@echo "    generate:        regenerate all generated files"
+	@echo "    generate-api:    regenerate API generated files"
+	@echo "    generate-mocks:  regenerate mock generated files"
+	@echo "    tidy:            tidy go mod"
+	@echo "    lint:            run golangci-lint"
+	@echo "    build:           run all builds"
+	@echo "    unit-test:       run unit tests"
+	@echo "    deploy:          deploy flightctl-server and db as containers in podman"
+	@echo "    deploy-db:       deploy only the database as a container in podman"
+	@echo "    clean:           clean up all containers and volumes"
 
-generate: generate-mocks
+generate: generate-api generate-mocks
+
+generate-api:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go generate ./...'
+
+generate-mocks:
+	find . -name 'mock_*.go' -type f -not -path './vendor/*' -delete
+	go generate -v $(shell go list ./...)
 
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
@@ -70,10 +78,6 @@ clean:
 	- podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
 	- rm -r bin
 	- rm -r rpmbuild
-
-generate-mocks:
-	find . -name 'mock_*.go' -type f -not -path './vendor/*' -delete
-	go generate -v $(shell go list ./...)
 
 _unit_test: $(REPORTS)
 	gotestsum $(GO_UNITTEST_FLAGS) $(TEST) $(GINKGO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
