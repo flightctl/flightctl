@@ -355,6 +355,9 @@ type ObjectMeta struct {
 	CreationTimestamp *string `json:"creationTimestamp,omitempty"`
 	DeletionTimestamp *string `json:"deletionTimestamp,omitempty"`
 
+	// Generation A sequence number representing a specific generation of the desired state. Populated by the system. Read-only.
+	Generation *int64 `json:"generation,omitempty"`
+
 	// Labels Map of string keys and values that can be used to organize and categorize (scope and select) objects.
 	Labels *map[string]string `json:"labels,omitempty"`
 
