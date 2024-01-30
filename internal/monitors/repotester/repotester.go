@@ -70,24 +70,30 @@ func (r *RepoTester) TestRepo() {
 }
 
 func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository *model.Repository, err error) {
-	var condition api.RepositoryCondition
+	timestamp := util.TimeStampStringPtr()
+	var lastTransitionTime *string
+	previousStatus := api.Unknown
+	if repository.Status.Data.Conditions != nil && len(*repository.Status.Data.Conditions) > 0 {
+		previousStatus = (*repository.Status.Data.Conditions)[0].Status
+		lastTransitionTime = (*repository.Status.Data.Conditions)[0].LastTransitionTime
+	}
+	condition := api.RepositoryCondition{
+		Type:               api.Accessible,
+		LastHeartbeatTime:  timestamp,
+		LastTransitionTime: lastTransitionTime,
+	}
+
 	if err == nil {
-		condition = api.RepositoryCondition{
-			Type:               api.Accessible,
-			LastTransitionTime: util.TimeStampStringPtr(),
-			Status:             api.True,
-			Reason:             util.StrToPtr("Accessible"),
-			Message:            util.StrToPtr("Accessible"),
-		}
+		condition.Status = api.True
+		condition.Reason = util.StrToPtr("Accessible")
+		condition.Message = util.StrToPtr("Accessible")
 	} else {
-		condition = api.RepositoryCondition{
-			Type:               api.Accessible,
-			LastTransitionTime: util.TimeStampStringPtr(),
-			Status:             api.False,
-			Reason:             util.StrToPtr("Inaccessible"),
-			Message:            util.StrToPtr(err.Error()),
-		}
-		log.Debugf("repository %s inaccessible: %s", repository.Name, err)
+		condition.Status = api.False
+		condition.Reason = util.StrToPtr("Inaccessible")
+		condition.Message = util.StrToPtr(err.Error())
+	}
+	if previousStatus != condition.Status {
+		condition.LastTransitionTime = timestamp
 	}
 
 	status := api.RepositoryStatus{
