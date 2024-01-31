@@ -431,6 +431,73 @@ type RepositoryStatus struct {
 	Conditions *[]RepositoryCondition `json:"conditions,omitempty"`
 }
 
+// ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
+type ResourceSync struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta       `json:"metadata"`
+	Spec     ResourceSyncSpec `json:"spec"`
+
+	// Status ResourceSyncStatus represents information about the status of a resourcesync
+	Status *ResourceSyncStatus `json:"status,omitempty"`
+}
+
+// ResourceSyncCondition ResourceSyncCondition contains condition information for a resource sync.
+type ResourceSyncCondition struct {
+	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
+
+	// Message Human readable message indicating details about last transition.
+	Message *string `json:"message,omitempty"`
+
+	// Reason (brief) reason for the condition's last transition.
+	Reason *string         `json:"reason,omitempty"`
+	Status ConditionStatus `json:"status"`
+
+	// Type Type of resourcesync condition.
+	Type string `json:"type"`
+}
+
+// ResourceSyncList defines model for ResourceSyncList.
+type ResourceSyncList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of resourcesync.
+	Items []ResourceSync `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// ResourceSyncSpec defines model for ResourceSyncSpec.
+type ResourceSyncSpec struct {
+	// Path The path of a file or directory in the repository. If a directory,
+	// the directory should contain only resource definitions with no
+	// subdirectories. Each file should contain the definition of one or
+	// more resources.
+	Path *string `json:"path,omitempty"`
+
+	// Repository The name of the repository resource to use as the sync source
+	Repository *string `json:"repository,omitempty"`
+
+	// TargetRevision The desired revision in the repository
+	TargetRevision *string `json:"targetRevision,omitempty"`
+}
+
+// ResourceSyncStatus ResourceSyncStatus represents information about the status of a resourcesync
+type ResourceSyncStatus struct {
+	// Conditions Current state of a resourcesync.
+	Conditions *[]ResourceSyncCondition `json:"conditions,omitempty"`
+}
+
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {
 	// Message A human-readable description of the status of this operation.
@@ -500,6 +567,18 @@ type ListRepositoriesParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListResourceSyncParams defines parameters for ListResourceSync.
+type ListResourceSyncParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
@@ -535,6 +614,12 @@ type CreateRepositoryJSONRequestBody = Repository
 
 // ReplaceRepositoryJSONRequestBody defines body for ReplaceRepository for application/json ContentType.
 type ReplaceRepositoryJSONRequestBody = Repository
+
+// ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
+type ReplaceResourceSyncJSONRequestBody = ResourceSync
+
+// CreateResourceSyncJSONRequestBody defines body for CreateResourceSync for application/json ContentType.
+type CreateResourceSyncJSONRequestBody = ResourceSync
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {

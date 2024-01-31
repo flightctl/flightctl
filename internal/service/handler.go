@@ -56,6 +56,7 @@ type DataStoreInterface interface {
 	GetEnrollmentRequestStore() EnrollmentRequestStoreInterface
 	GetFleetStore() FleetStoreInterface
 	GetRepositoryStore() RepositoryStoreInterface
+	GetResourceSyncStore() ResourceSyncStoreInterface
 }
 
 type ServiceHandler struct {
@@ -63,6 +64,7 @@ type ServiceHandler struct {
 	enrollmentRequestStore EnrollmentRequestStoreInterface
 	fleetStore             FleetStoreInterface
 	repositoryStore        RepositoryStoreInterface
+	resourceSyncStore      ResourceSyncStoreInterface
 	ca                     *crypto.CA
 	log                    logrus.FieldLogger
 }
@@ -76,6 +78,7 @@ func NewServiceHandler(store DataStoreInterface, ca *crypto.CA, log logrus.Field
 		enrollmentRequestStore: store.GetEnrollmentRequestStore(),
 		fleetStore:             store.GetFleetStore(),
 		repositoryStore:        store.GetRepositoryStore(),
+		resourceSyncStore:      store.GetResourceSyncStore(),
 		ca:                     ca,
 		log:                    log,
 	}
