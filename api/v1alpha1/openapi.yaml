@@ -8,6 +8,177 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/resourcesyncs:
+    get:
+      tags:
+        - resourcesync
+      description: list resourcesync
+      operationId: listResourceSync
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSyncList'
+        "400":
+          description: Bad Request
+          content: {}
+        "401":
+          description: Unauthorized
+          content: {}
+    post:
+      tags:
+        - reasourcesync
+      description: create a resourcesync
+      operationId: createResourceSync
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceSync'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSync'
+        "400":
+          description: Bad Request
+          content: {}
+        "401":
+          description: Unauthorized
+          content: {}
+        "409":
+          description: StatusConflict
+          content: {}
+    delete:
+      tags:
+        - resourcesync
+      description: delete collection of ResourceSync
+      operationId: deleteResourceSyncs
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content: {}
+  /api/v1/resourcesync/{name}:
+    get:
+      tags:
+        - resourcesync
+      description: read the specified resourcesync
+      operationId: readResourceSync
+      parameters:
+        - name: name
+          in: path
+          description: name of the resourcesync
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSync'
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
+    put:
+      tags:
+        - resourcesync
+      description: replace the specified resourcesync
+      operationId: replaceResourceSync
+      parameters:
+        - name: name
+          in: path
+          description: name of the resourcesync
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceSync'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSync'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSync'
+        "400":
+          description: Bad Request
+          content: {}
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
+    delete:
+      tags:
+        - resourcesync
+      description: delete a resourcesync
+      operationId: deleteResourceSync
+      parameters:
+        - name: name
+          in: path
+          description: name of the resourcesync
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSync'
+        "401":
+          description: Unauthorized
+          content: {}
+        "404":
+          description: NotFound
+          content: {}
   /api/v1/repositories:
     get:
       tags:
@@ -1350,6 +1521,96 @@ components:
         approval:
           $ref: '#/components/schemas/EnrollmentRequestApproval'
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+
+    ResourceSync:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/ResourceSyncSpec'
+        status:
+          $ref: '#/components/schemas/ResourceSyncStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      description: ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
+    ResourceSyncSpec:
+      type: object
+      properties:
+        repository: 
+          type: string
+          description: |
+            The name of the repository resource to use as the sync source
+        targetRevision:
+          type: string
+          description: The desired revision in the repository
+        path:
+          type: string
+          description: |
+            The path of a file or directory in the repository. If a directory,
+            the directory should contain only resource definitions with no
+            subdirectories. Each file should contain the definition of one or
+            more resources.
+    ResourceSyncCondition:
+      required:
+        - status
+        - type
+      type: object
+      properties:
+        lastTransitionTime:
+          type: string
+        message:
+          type: string
+          description: Human readable message indicating details about last transition.
+        reason:
+          type: string
+          description: (brief) reason for the condition's last transition.
+        status:
+          $ref: '#/components/schemas/ConditionStatus'
+          description: Status of the condition, one of True, False, Unknown.
+        type:
+          type: string
+          description: Type of resourcesync condition.
+      description: ResourceSyncCondition contains condition information for a resource sync.
+    ResourceSyncStatus:
+      type: object
+      properties:
+        conditions:
+          type: array
+          description: 'Current state of a resourcesync.'
+          items:
+            $ref: '#/components/schemas/ResourceSyncCondition'
+      description: ResourceSyncStatus represents information about the status of a resourcesync
+    ResourceSyncList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of resourcesync.'
+          items:
+            $ref: '#/components/schemas/ResourceSync'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
     Fleet:
       type: object
       properties:

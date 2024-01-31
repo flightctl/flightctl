@@ -62,3 +62,6 @@ jobs:
 
       - name: Apply repository
         run: bin/flightctl apply -f examples/repository.yaml
+
+      - name: Apply resourcesync
+        run: bin/flightctl apply -f examples/resourcesync.yaml
