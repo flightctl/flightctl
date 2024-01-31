@@ -110,6 +110,24 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/repositories/{name})
 	ReplaceRepository(w http.ResponseWriter, r *http.Request, name string)
+
+	// (DELETE /api/v1/resourcesync/{name})
+	DeleteResourceSync(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/resourcesync/{name})
+	ReadResourceSync(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/resourcesync/{name})
+	ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string)
+
+	// (DELETE /api/v1/resourcesyncs)
+	DeleteResourceSyncs(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/resourcesyncs)
+	ListResourceSync(w http.ResponseWriter, r *http.Request, params ListResourceSyncParams)
+
+	// (POST /api/v1/resourcesyncs)
+	CreateResourceSync(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -268,6 +286,36 @@ func (_ Unimplemented) ReadRepository(w http.ResponseWriter, r *http.Request, na
 
 // (PUT /api/v1/repositories/{name})
 func (_ Unimplemented) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/resourcesync/{name})
+func (_ Unimplemented) DeleteResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/resourcesync/{name})
+func (_ Unimplemented) ReadResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/resourcesync/{name})
+func (_ Unimplemented) ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/resourcesyncs)
+func (_ Unimplemented) DeleteResourceSyncs(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/resourcesyncs)
+func (_ Unimplemented) ListResourceSync(w http.ResponseWriter, r *http.Request, params ListResourceSyncParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/resourcesyncs)
+func (_ Unimplemented) CreateResourceSync(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1078,6 +1126,158 @@ func (siw *ServerInterfaceWrapper) ReplaceRepository(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// DeleteResourceSync operation middleware
+func (siw *ServerInterfaceWrapper) DeleteResourceSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteResourceSync(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadResourceSync operation middleware
+func (siw *ServerInterfaceWrapper) ReadResourceSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadResourceSync(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceResourceSync operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceResourceSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceResourceSync(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteResourceSyncs operation middleware
+func (siw *ServerInterfaceWrapper) DeleteResourceSyncs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteResourceSyncs(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ListResourceSync operation middleware
+func (siw *ServerInterfaceWrapper) ListResourceSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListResourceSyncParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListResourceSync(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// CreateResourceSync operation middleware
+func (siw *ServerInterfaceWrapper) CreateResourceSync(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateResourceSync(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1283,6 +1483,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/repositories/{name}", wrapper.ReplaceRepository)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/resourcesync/{name}", wrapper.DeleteResourceSync)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/resourcesync/{name}", wrapper.ReadResourceSync)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/resourcesync/{name}", wrapper.ReplaceResourceSync)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/resourcesyncs", wrapper.DeleteResourceSyncs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/resourcesyncs", wrapper.ListResourceSync)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/resourcesyncs", wrapper.CreateResourceSync)
 	})
 
 	return r
@@ -2376,6 +2594,221 @@ func (response ReplaceRepository404Response) VisitReplaceRepositoryResponse(w ht
 	return nil
 }
 
+type DeleteResourceSyncRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DeleteResourceSyncResponseObject interface {
+	VisitDeleteResourceSyncResponse(w http.ResponseWriter) error
+}
+
+type DeleteResourceSync200JSONResponse ResourceSync
+
+func (response DeleteResourceSync200JSONResponse) VisitDeleteResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteResourceSync401Response struct {
+}
+
+func (response DeleteResourceSync401Response) VisitDeleteResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type DeleteResourceSync404Response struct {
+}
+
+func (response DeleteResourceSync404Response) VisitDeleteResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ReadResourceSyncRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadResourceSyncResponseObject interface {
+	VisitReadResourceSyncResponse(w http.ResponseWriter) error
+}
+
+type ReadResourceSync200JSONResponse ResourceSync
+
+func (response ReadResourceSync200JSONResponse) VisitReadResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadResourceSync401Response struct {
+}
+
+func (response ReadResourceSync401Response) VisitReadResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReadResourceSync404Response struct {
+}
+
+func (response ReadResourceSync404Response) VisitReadResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ReplaceResourceSyncRequestObject struct {
+	Name string `json:"name"`
+	Body *ReplaceResourceSyncJSONRequestBody
+}
+
+type ReplaceResourceSyncResponseObject interface {
+	VisitReplaceResourceSyncResponse(w http.ResponseWriter) error
+}
+
+type ReplaceResourceSync200JSONResponse ResourceSync
+
+func (response ReplaceResourceSync200JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceResourceSync201JSONResponse ResourceSync
+
+func (response ReplaceResourceSync201JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceResourceSync400Response struct {
+}
+
+func (response ReplaceResourceSync400Response) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type ReplaceResourceSync401Response struct {
+}
+
+func (response ReplaceResourceSync401Response) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReplaceResourceSync404Response struct {
+}
+
+func (response ReplaceResourceSync404Response) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type DeleteResourceSyncsRequestObject struct {
+}
+
+type DeleteResourceSyncsResponseObject interface {
+	VisitDeleteResourceSyncsResponse(w http.ResponseWriter) error
+}
+
+type DeleteResourceSyncs200JSONResponse Status
+
+func (response DeleteResourceSyncs200JSONResponse) VisitDeleteResourceSyncsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteResourceSyncs401Response struct {
+}
+
+func (response DeleteResourceSyncs401Response) VisitDeleteResourceSyncsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ListResourceSyncRequestObject struct {
+	Params ListResourceSyncParams
+}
+
+type ListResourceSyncResponseObject interface {
+	VisitListResourceSyncResponse(w http.ResponseWriter) error
+}
+
+type ListResourceSync200JSONResponse ResourceSyncList
+
+func (response ListResourceSync200JSONResponse) VisitListResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListResourceSync400Response struct {
+}
+
+func (response ListResourceSync400Response) VisitListResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type ListResourceSync401Response struct {
+}
+
+func (response ListResourceSync401Response) VisitListResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateResourceSyncRequestObject struct {
+	Body *CreateResourceSyncJSONRequestBody
+}
+
+type CreateResourceSyncResponseObject interface {
+	VisitCreateResourceSyncResponse(w http.ResponseWriter) error
+}
+
+type CreateResourceSync201JSONResponse ResourceSync
+
+func (response CreateResourceSync201JSONResponse) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateResourceSync400Response struct {
+}
+
+func (response CreateResourceSync400Response) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type CreateResourceSync401Response struct {
+}
+
+func (response CreateResourceSync401Response) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateResourceSync409Response struct {
+}
+
+func (response CreateResourceSync409Response) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -2471,6 +2904,24 @@ type StrictServerInterface interface {
 
 	// (PUT /api/v1/repositories/{name})
 	ReplaceRepository(ctx context.Context, request ReplaceRepositoryRequestObject) (ReplaceRepositoryResponseObject, error)
+
+	// (DELETE /api/v1/resourcesync/{name})
+	DeleteResourceSync(ctx context.Context, request DeleteResourceSyncRequestObject) (DeleteResourceSyncResponseObject, error)
+
+	// (GET /api/v1/resourcesync/{name})
+	ReadResourceSync(ctx context.Context, request ReadResourceSyncRequestObject) (ReadResourceSyncResponseObject, error)
+
+	// (PUT /api/v1/resourcesync/{name})
+	ReplaceResourceSync(ctx context.Context, request ReplaceResourceSyncRequestObject) (ReplaceResourceSyncResponseObject, error)
+
+	// (DELETE /api/v1/resourcesyncs)
+	DeleteResourceSyncs(ctx context.Context, request DeleteResourceSyncsRequestObject) (DeleteResourceSyncsResponseObject, error)
+
+	// (GET /api/v1/resourcesyncs)
+	ListResourceSync(ctx context.Context, request ListResourceSyncRequestObject) (ListResourceSyncResponseObject, error)
+
+	// (POST /api/v1/resourcesyncs)
+	CreateResourceSync(ctx context.Context, request CreateResourceSyncRequestObject) (CreateResourceSyncResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHttpHandlerFunc
@@ -3369,6 +3820,172 @@ func (sh *strictHandler) ReplaceRepository(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceRepositoryResponseObject); ok {
 		if err := validResponse.VisitReplaceRepositoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteResourceSync operation middleware
+func (sh *strictHandler) DeleteResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	var request DeleteResourceSyncRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteResourceSync(ctx, request.(DeleteResourceSyncRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteResourceSync")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteResourceSyncResponseObject); ok {
+		if err := validResponse.VisitDeleteResourceSyncResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadResourceSync operation middleware
+func (sh *strictHandler) ReadResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadResourceSyncRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadResourceSync(ctx, request.(ReadResourceSyncRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadResourceSync")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadResourceSyncResponseObject); ok {
+		if err := validResponse.VisitReadResourceSyncResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceResourceSync operation middleware
+func (sh *strictHandler) ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceResourceSyncRequestObject
+
+	request.Name = name
+
+	var body ReplaceResourceSyncJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceResourceSync(ctx, request.(ReplaceResourceSyncRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceResourceSync")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceResourceSyncResponseObject); ok {
+		if err := validResponse.VisitReplaceResourceSyncResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteResourceSyncs operation middleware
+func (sh *strictHandler) DeleteResourceSyncs(w http.ResponseWriter, r *http.Request) {
+	var request DeleteResourceSyncsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteResourceSyncs(ctx, request.(DeleteResourceSyncsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteResourceSyncs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteResourceSyncsResponseObject); ok {
+		if err := validResponse.VisitDeleteResourceSyncsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListResourceSync operation middleware
+func (sh *strictHandler) ListResourceSync(w http.ResponseWriter, r *http.Request, params ListResourceSyncParams) {
+	var request ListResourceSyncRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListResourceSync(ctx, request.(ListResourceSyncRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListResourceSync")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListResourceSyncResponseObject); ok {
+		if err := validResponse.VisitListResourceSyncResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateResourceSync operation middleware
+func (sh *strictHandler) CreateResourceSync(w http.ResponseWriter, r *http.Request) {
+	var request CreateResourceSyncRequestObject
+
+	var body CreateResourceSyncJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateResourceSync(ctx, request.(CreateResourceSyncRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateResourceSync")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateResourceSyncResponseObject); ok {
+		if err := validResponse.VisitCreateResourceSyncResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

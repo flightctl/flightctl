@@ -11,6 +11,7 @@ type Store struct {
 	enrollmentRequestStore *EnrollmentRequestStore
 	fleetStore             *FleetStore
 	repositoryStore        *RepositoryStore
+	resourceSyncStore      *ResourceSyncStore
 }
 
 func NewStore(db *gorm.DB, log logrus.FieldLogger) *Store {
@@ -19,6 +20,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) *Store {
 		enrollmentRequestStore: NewEnrollmentRequestStoreStore(db, log),
 		fleetStore:             NewFleetStore(db, log),
 		repositoryStore:        NewRepositoryStore(db, log),
+		resourceSyncStore:      NewResourceSyncStore(db, log),
 	}
 }
 
@@ -38,6 +40,10 @@ func (s *Store) GetFleetStore() service.FleetStoreInterface {
 	return s.fleetStore
 }
 
+func (s *Store) GetResourceSyncStore() service.ResourceSyncStoreInterface {
+	return s.resourceSyncStore
+}
+
 func (s *Store) InitialMigration() error {
 	if err := s.deviceStore.InitialMigration(); err != nil {
 		return err
@@ -49,6 +55,9 @@ func (s *Store) InitialMigration() error {
 		return err
 	}
 	if err := s.repositoryStore.InitialMigration(); err != nil {
+		return err
+	}
+	if err := s.resourceSyncStore.InitialMigration(); err != nil {
 		return err
 	}
 	return nil
