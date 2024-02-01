@@ -72,7 +72,8 @@ var _ = Describe("RepoTester", func() {
 			repoModel := model.NewRepositoryFromApiResource(repo)
 
 			// Nil -> OK
-			repotester.setAccessCondition(log, repoModel, nil)
+			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, nil)
+			Expect(err).ToNot(HaveOccurred())
 			repo, err = repotester.repoStore.GetRepository(ctx, orgId, "myrepo")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
@@ -85,9 +86,11 @@ var _ = Describe("RepoTester", func() {
 
 			// OK -> OK
 			oldTime := util.StrToPtr("some old time")
+			repoModel.Status = model.MakeJSONField(*repo.Status)
 			(*repoModel.Status.Data.Conditions)[0].LastHeartbeatTime = oldTime
 			(*repoModel.Status.Data.Conditions)[0].LastTransitionTime = oldTime
-			repotester.setAccessCondition(log, repoModel, nil)
+			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, nil)
+			Expect(err).ToNot(HaveOccurred())
 			repo, err = repotester.repoStore.GetRepository(ctx, orgId, "myrepo")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
@@ -101,9 +104,8 @@ var _ = Describe("RepoTester", func() {
 			Expect(*cond.LastTransitionTime).To(Equal(*oldTime))
 
 			// OK -> Not OK
-			(*repoModel.Status.Data.Conditions)[0].LastHeartbeatTime = oldTime
-			(*repoModel.Status.Data.Conditions)[0].LastTransitionTime = oldTime
-			repotester.setAccessCondition(log, repoModel, errors.New("something bad"))
+			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, errors.New("something bad"))
+			Expect(err).ToNot(HaveOccurred())
 			repo, err = repotester.repoStore.GetRepository(ctx, orgId, "myrepo")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())

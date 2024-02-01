@@ -22,8 +22,6 @@ all: build
 help:
 	@echo "Targets:"
 	@echo "    generate:        regenerate all generated files"
-	@echo "    generate-api:    regenerate API generated files"
-	@echo "    generate-mocks:  regenerate mock generated files"
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
 	@echo "    build:           run all builds"
@@ -32,12 +30,7 @@ help:
 	@echo "    deploy-db:       deploy only the database as a container in podman"
 	@echo "    clean:           clean up all containers and volumes"
 
-generate: generate-api generate-mocks
-
-generate-api:
-	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go generate ./...'
-
-generate-mocks:
+generate:
 	find . -name 'mock_*.go' -type f -not -path './vendor/*' -delete
 	go generate -v $(shell go list ./...)
 
@@ -45,7 +38,7 @@ tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
 
 lint: tools
-	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && $(GOBIN)/golangci-lint run --out-format=github-actions --timeout 10m ./...'
+	$(GOBIN)/golangci-lint run -v
 
 build: bin
 	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...

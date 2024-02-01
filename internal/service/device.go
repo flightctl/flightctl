@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/util"
-
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"

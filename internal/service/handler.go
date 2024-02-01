@@ -1,10 +1,9 @@
 package service
 
 import (
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
-
-	b64 "encoding/base64"
 
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
