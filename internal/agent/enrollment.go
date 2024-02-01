@@ -136,6 +136,7 @@ func (a *DeviceAgent) ensureEnrollmentClient() error {
 				TLSClientConfig: &tls.Config{
 					RootCAs:      a.caCertPool,
 					Certificates: []tls.Certificate{*a.enrollmentClientCert},
+					MinVersion:   tls.VersionTLS13,
 				},
 			},
 		}

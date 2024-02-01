@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -54,7 +55,7 @@ var (
 
 func setupMetricsEndpoint(metricsAddress string) {
 	http.Handle("/metrics", promhttp.Handler())
-	srv := &http.Server{Addr: metricsAddress}
+	srv := &http.Server{Addr: metricsAddress, ReadHeaderTimeout: time.Second}
 	go func() {
 		err := srv.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {

@@ -43,7 +43,7 @@ func (d *DeviceUpdater) UpdateDevices() {
 
 	fleets, err := d.fleetStore.ListAllFleetsInternal()
 	if err != nil {
-		log.Errorf("failed to list fleets: %w", err)
+		log.Errorf("failed to list fleets: %v", err)
 		return
 	}
 
@@ -55,30 +55,34 @@ func (d *DeviceUpdater) UpdateDevices() {
 
 		devices, err := d.devStore.ListAllDevicesInternal(fleet.Spec.Data.Selector.MatchLabels)
 		if err != nil {
-			log.Errorf("failed to list devices for fleet %s: %w", fleet.Name, err)
+			log.Errorf("failed to list devices for fleet %s: %v", fleet.Name, err)
 		}
 
 		for _, device := range devices {
-			d.updateDeviceSpecAccordingToFleetTemplate(log, &device, &fleet)
+			updated := d.updateDeviceSpecAccordingToFleetTemplate(log, &device, &fleet) //nolint:gosec
+
+			if updated {
+				err := d.devStore.UpdateDeviceInternal(&device) //nolint:gosec
+				if err != nil {
+					log.Errorf("failed to update target generation for device %s (fleet %s): %v", device.Name, fleet.Name, err)
+				}
+			}
 		}
 	}
 }
 
-func (d *DeviceUpdater) updateDeviceSpecAccordingToFleetTemplate(log logrus.FieldLogger, device *model.Device, fleet *model.Fleet) {
+func (d *DeviceUpdater) updateDeviceSpecAccordingToFleetTemplate(log logrus.FieldLogger, device *model.Device, fleet *model.Fleet) bool {
 	if fleet.Spec.Data.Template.Metadata == nil {
-		return
+		return false
 	}
 	targetGeneration := *fleet.Spec.Data.Template.Metadata.Generation
 	if device.Resource.Generation != nil && device.Resource.Generation == &targetGeneration {
 		// Nothing to do
-		return
+		return false
 	}
 
 	device.Generation = &targetGeneration
 	device.Spec = model.MakeJSONField(fleet.Spec.Data.Template.Spec)
 	log.Infof("Updating device %s to generation %d", device.Name, *device.Generation)
-	err := d.devStore.UpdateDeviceInternal(device)
-	if err != nil {
-		log.Errorf("failed to update target generation for device %s (fleet %s): %w", device.Name, fleet.Name, err)
-	}
+	return true
 }

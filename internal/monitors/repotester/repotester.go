@@ -15,6 +15,7 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -65,17 +66,20 @@ func (r *RepoTester) TestRepo() {
 			},
 		})
 
-		r.setAccessCondition(log, &repository, err)
+		err = r.setAccessCondition(log, repository.Name, repository.OrgID, repository.Status.Data, err)
+		if err != nil {
+			log.Errorf("Failed to update repository status for %s: %v", repository.Name, err)
+		}
 	}
 }
 
-func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository *model.Repository, err error) {
+func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, name string, orgId uuid.UUID, repoStatus api.RepositoryStatus, err error) error {
 	timestamp := util.TimeStampStringPtr()
 	var lastTransitionTime *string
 	previousStatus := api.Unknown
-	if repository.Status.Data.Conditions != nil && len(*repository.Status.Data.Conditions) > 0 {
-		previousStatus = (*repository.Status.Data.Conditions)[0].Status
-		lastTransitionTime = (*repository.Status.Data.Conditions)[0].LastTransitionTime
+	if repoStatus.Conditions != nil && len(*repoStatus.Conditions) > 0 {
+		previousStatus = (*repoStatus.Conditions)[0].Status
+		lastTransitionTime = (*repoStatus.Conditions)[0].LastTransitionTime
 	}
 	condition := api.RepositoryCondition{
 		Type:               api.Accessible,
@@ -96,13 +100,8 @@ func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository *mode
 		condition.LastTransitionTime = timestamp
 	}
 
-	status := api.RepositoryStatus{
-		Conditions: &[]api.RepositoryCondition{condition},
-	}
-	repository.Status = model.MakeJSONField(status)
-
-	err = r.repoStore.UpdateRepositoryStatusInternal(repository)
-	if err != nil {
-		log.Errorf("Failed to update repository status for %s: %w", repository.Name, err)
-	}
+	repo := model.Repository{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+		Status:   model.MakeJSONField(api.RepositoryStatus{Conditions: &[]api.RepositoryCondition{condition}})}
+	return r.repoStore.UpdateRepositoryStatusInternal(&repo)
 }

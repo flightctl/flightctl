@@ -51,14 +51,14 @@ func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryD
 	if err != nil {
 		return nil, err
 	}
-	if err := caConfig.WriteCertConfigFile(certFile, keyFile); err != nil {
+	if err = caConfig.WriteCertConfigFile(certFile, keyFile); err != nil {
 		return nil, err
 	}
 
 	var serialGenerator oscrypto.SerialGenerator
 	if len(serialFile) > 0 {
 		// create / overwrite the serial file with a zero padded hex value (ending in a newline to have a valid file)
-		if err := os.WriteFile(serialFile, []byte("00\n"), 0644); err != nil {
+		if err := os.WriteFile(serialFile, []byte("00\n"), 0600); err != nil {
 			return nil, err
 		}
 		serialGenerator, err = oscrypto.NewSerialFileGenerator(serialFile)
