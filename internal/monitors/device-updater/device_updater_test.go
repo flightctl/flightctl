@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"testing"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -71,6 +73,7 @@ var _ = Describe("DeviceUpdater", func() {
 		dbName        string
 		numDevices    int
 		deviceUpdater *DeviceUpdater
+		fleet         *api.Fleet
 	)
 
 	BeforeEach(func() {
@@ -83,6 +86,11 @@ var _ = Describe("DeviceUpdater", func() {
 		deviceStore = stores.GetDeviceStore()
 		fleetStore = stores.GetFleetStore()
 		deviceUpdater = NewDeviceUpdater(log, db, stores)
+
+		var err error
+		fleet = createFleet(ctx, fleetStore, orgId)
+		fleet, err = fleetStore.GetFleet(ctx, orgId, *fleet.Metadata.Name)
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
@@ -90,17 +98,14 @@ var _ = Describe("DeviceUpdater", func() {
 	})
 
 	Context("DeviceUpdater", func() {
-		It("Update devices good flow", func() {
-			fleet := createFleet(ctx, fleetStore, orgId)
-			fleet, err := fleetStore.GetFleet(ctx, orgId, *fleet.Metadata.Name)
-			Expect(err).ToNot(HaveOccurred())
+		It("Update device specs good flow", func() {
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 			createDevices(numDevices, ctx, deviceStore, orgId)
 
 			// First update
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
-			_, _, err = fleetStore.CreateOrUpdateFleet(ctx, orgId, fleet)
+			_, _, err := fleetStore.CreateOrUpdateFleet(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 			deviceUpdater.UpdateDevices()
 			for i := 1; i <= numDevices; i++ {
@@ -129,6 +134,60 @@ var _ = Describe("DeviceUpdater", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(3)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(3)))
+		})
+
+		It("Update device heartbeat conditions - no thresholds set", func() {
+			createDevices(1, ctx, deviceStore, orgId)
+			apiDev, err := deviceStore.GetDevice(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			apiDev.Status.UpdatedAt = util.StrToPtr(time.Now().Add(time.Hour * -10).Format(time.RFC3339))
+			device := model.NewDeviceFromApiResource(apiDev)
+			deviceUpdater.updateDeviceHeartbeatConditions(log, device, model.NewFleetFromApiResource(fleet))
+
+			Expect(device.Status.Data.Conditions).ToNot(BeNil())
+			Expect(len(*device.Status.Data.Conditions)).To(Equal(2))
+			Expect((*device.Status.Data.Conditions)[0].Status).To(Equal(api.False))
+			Expect(*(*device.Status.Data.Conditions)[0].Reason).To(Equal("No threshold set"))
+			Expect((*device.Status.Data.Conditions)[1].Status).To(Equal(api.False))
+			Expect(*(*device.Status.Data.Conditions)[1].Reason).To(Equal("No threshold set"))
+		})
+
+		It("Update device heartbeat conditions - thresholds set and OK", func() {
+			createDevices(1, ctx, deviceStore, orgId)
+			apiDev, err := deviceStore.GetDevice(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			apiDev.Status.UpdatedAt = util.StrToPtr(time.Now().Add(time.Hour * -10).Format(time.RFC3339))
+			device := model.NewDeviceFromApiResource(apiDev)
+			fleet.Spec.DeviceConditions.HeartbeatElapsedTimeWarning = util.StrToPtr("50h")
+			fleet.Spec.DeviceConditions.HeartbeatElapsedTimeError = util.StrToPtr("50h")
+			deviceUpdater.updateDeviceHeartbeatConditions(log, device, model.NewFleetFromApiResource(fleet))
+
+			Expect(device.Status.Data.Conditions).ToNot(BeNil())
+			Expect(len(*device.Status.Data.Conditions)).To(Equal(2))
+			Expect((*device.Status.Data.Conditions)[0].Status).To(Equal(api.False))
+			Expect(*(*device.Status.Data.Conditions)[0].Reason).To(Equal("Threshold not exceeded"))
+			Expect((*device.Status.Data.Conditions)[1].Status).To(Equal(api.False))
+			Expect(*(*device.Status.Data.Conditions)[1].Reason).To(Equal("Threshold not exceeded"))
+		})
+
+		It("Update device heartbeat conditions - thresholds set and not OK", func() {
+			createDevices(1, ctx, deviceStore, orgId)
+			apiDev, err := deviceStore.GetDevice(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			apiDev.Status.UpdatedAt = util.StrToPtr(time.Now().Add(time.Hour * -10).Format(time.RFC3339))
+			device := model.NewDeviceFromApiResource(apiDev)
+			fleet.Spec.DeviceConditions.HeartbeatElapsedTimeWarning = util.StrToPtr("1h")
+			fleet.Spec.DeviceConditions.HeartbeatElapsedTimeError = util.StrToPtr("1h")
+			deviceUpdater.updateDeviceHeartbeatConditions(log, device, model.NewFleetFromApiResource(fleet))
+
+			Expect(device.Status.Data.Conditions).ToNot(BeNil())
+			Expect(len(*device.Status.Data.Conditions)).To(Equal(2))
+			Expect((*device.Status.Data.Conditions)[0].Status).To(Equal(api.True))
+			Expect(*(*device.Status.Data.Conditions)[0].Reason).To(Equal("Threshold exceeded"))
+			Expect(*(*device.Status.Data.Conditions)[0].Message).To(Equal("Threshold exceeded by 9h0m0s"))
+			Expect((*device.Status.Data.Conditions)[1].Status).To(Equal(api.True))
+			Expect(*(*device.Status.Data.Conditions)[1].Reason).To(Equal("Threshold exceeded"))
+			Expect(*(*device.Status.Data.Conditions)[1].Message).To(Equal("Threshold exceeded by 9h0m0s"))
 		})
 	})
 })

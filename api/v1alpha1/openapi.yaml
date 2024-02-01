@@ -903,6 +903,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content: {}
         "401":
           description: Unauthorized
           content: {}
@@ -1210,6 +1213,11 @@ components:
           type: string
           description: Type of device condition.
       description: DeviceCondition contains condition information for a device.
+    DeviceConditionType:
+      type: string
+      enum:
+      - 'HeartbeatElapsedTimeWarning'
+      - 'HeartbeatElapsedTimeError'
     GitConfigProviderSpec:
       type: object
       properties:
@@ -1689,8 +1697,18 @@ components:
               $ref: '#/components/schemas/DeviceSpec'
           required:
             - spec
+        deviceConditions:
+          type: object
+          properties:
+            heartbeatElapsedTimeWarning:
+              type: string
+              description: How long since a device was last seen before issuing a warning. Format like "30m", "2.3h", or "4h35m".
+            heartbeatElapsedTimeError:
+              type: string
+              description: How long since a device was last seen before issuing an error. Format like "30m", "2.3h", or "4h35m".
       required:
         - template
+        - deviceConditions
       description: FleetSpec is a description of a fleet's target state.
     FleetStatus:
       type: object
