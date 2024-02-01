@@ -54,5 +54,6 @@ func TLSConfigForClient(caConfig, clientConfig *TLSCertificateConfig) (*tls.Conf
 	return &tls.Config{
 		RootCAs:      caPool,
 		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
 	}, nil
 }

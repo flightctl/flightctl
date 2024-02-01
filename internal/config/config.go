@@ -127,7 +127,7 @@ func Save(cfg *Config, cfgFile string) error {
 	if err != nil {
 		return fmt.Errorf("encoding config: %v", err)
 	}
-	if err := os.WriteFile(cfgFile, contents, 0644); err != nil {
+	if err := os.WriteFile(cfgFile, contents, 0600); err != nil {
 		return fmt.Errorf("writing config file: %v", err)
 	}
 	return nil

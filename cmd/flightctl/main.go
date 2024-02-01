@@ -22,7 +22,6 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/spf13/cobra"
 	"github.com/thoas/go-funk"
-
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 )
@@ -238,7 +237,7 @@ func getClient() (*client.ClientWithResponses, error) {
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
 }
 
-func RunGet(kind, name string, labelSelector, fleetName *string, output string, limit *int32, cont *string) error {
+func RunGet(kind, name string, labelSelector, fleetName *string, output string, limit *int32, cont *string) error { //nolint:gocyclo
 	c, err := getClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
@@ -524,7 +523,7 @@ func ignoreFile(path string, extensions []string) bool {
 
 type genericResource map[string]interface{}
 
-func applyFromReader(client *client.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
+func applyFromReader(client *client.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error { //nolint:gocyclo
 	decoder := yamlutil.NewYAMLOrJSONDecoder(r, 100)
 	resources := []genericResource{}
 

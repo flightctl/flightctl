@@ -221,7 +221,7 @@ func (a *DeviceAgent) Run(ctx context.Context) error {
 				a.log.Errorf("%sfetching spec: %v", a.logPrefix, err)
 			}
 			_, err := a.Reconcile(ctx, ctrl.Request{})
-			a.log.Errorf("%sreconcile failed: %w", a.logPrefix, err)
+			a.log.Errorf("%sreconcile failed: %v", a.logPrefix, err)
 		case <-statusUpdateTicker.C:
 			a.log = log.WithReqID(reqid.NextRequestID(), a.log)
 			if _, err := a.SetStatus(&a.device); err != nil {
@@ -375,6 +375,7 @@ func (a *DeviceAgent) ensureManagementClient() error {
 				TLSClientConfig: &tls.Config{
 					RootCAs:      a.caCertPool,
 					Certificates: []tls.Certificate{*a.managementClientCert},
+					MinVersion:   tls.VersionTLS13,
 				},
 			},
 		}

@@ -96,7 +96,7 @@ func main() {
 			defer wg.Done()
 
 			// stagger the start of each agent
-			time.Sleep(time.Duration(rand.Float64() * float64(*statusUpdateInterval)))
+			time.Sleep(time.Duration(rand.Float64() * float64(*statusUpdateInterval))) //nolint:gosec
 
 			activeAgents.Inc()
 			err := agents[i].Run(ctx)
