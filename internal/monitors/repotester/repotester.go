@@ -27,7 +27,7 @@ type API interface {
 type RepoTester struct {
 	log       logrus.FieldLogger
 	db        *gorm.DB
-	repoStore service.RepositoryStoreInterface
+	repoStore service.RepositoryStore
 }
 
 func NewRepoTester(log logrus.FieldLogger, db *gorm.DB, store *store.Store) *RepoTester {

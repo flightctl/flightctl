@@ -18,7 +18,7 @@ import (
 
 const ClientCertExpiryDays = 365
 
-type EnrollmentRequestStoreInterface interface {
+type EnrollmentRequestStore interface {
 	CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
 	ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
 	GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
@@ -67,7 +67,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.Enrol
 	return nil
 }
 
-func createDeviceFromEnrollmentRequest(ctx context.Context, deviceStore DeviceStoreInterface, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
+func createDeviceFromEnrollmentRequest(ctx context.Context, deviceStore DeviceStore, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
 	apiResource := &api.Device{
 		Metadata: api.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,

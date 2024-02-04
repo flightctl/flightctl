@@ -24,7 +24,7 @@ func TestStore(t *testing.T) {
 	RunSpecs(t, "RepoTester Suite")
 }
 
-func createRepository(ctx context.Context, repostore service.RepositoryStoreInterface, orgId uuid.UUID) error {
+func createRepository(ctx context.Context, repostore service.RepositoryStore, orgId uuid.UUID) error {
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
 			Name: util.StrToPtr("myrepo"),
