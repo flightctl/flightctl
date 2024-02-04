@@ -50,28 +50,28 @@ func ParseContinueString(contStr *string) (*Continue, error) {
 	return &cont, nil
 }
 
-type DataStoreInterface interface {
-	GetDeviceStore() DeviceStoreInterface
-	GetEnrollmentRequestStore() EnrollmentRequestStoreInterface
-	GetFleetStore() FleetStoreInterface
-	GetRepositoryStore() RepositoryStoreInterface
-	GetResourceSyncStore() ResourceSyncStoreInterface
+type DataStore interface {
+	GetDeviceStore() DeviceStore
+	GetEnrollmentRequestStore() EnrollmentRequestStore
+	GetFleetStore() FleetStore
+	GetRepositoryStore() RepositoryStore
+	GetResourceSyncStore() ResourceSyncStore
 }
 
 type ServiceHandler struct {
-	deviceStore            DeviceStoreInterface
-	enrollmentRequestStore EnrollmentRequestStoreInterface
-	fleetStore             FleetStoreInterface
-	repositoryStore        RepositoryStoreInterface
-	resourceSyncStore      ResourceSyncStoreInterface
+	deviceStore            DeviceStore
+	enrollmentRequestStore EnrollmentRequestStore
+	fleetStore             FleetStore
+	repositoryStore        RepositoryStore
+	resourceSyncStore      ResourceSyncStore
 	ca                     *crypto.CA
 	log                    logrus.FieldLogger
 }
 
-// Make sure we conform to StrictServerInterface
-var _ server.StrictServerInterface = (*ServiceHandler)(nil)
+// Make sure we conform to servers Service interface
+var _ server.Service = (*ServiceHandler)(nil)
 
-func NewServiceHandler(store DataStoreInterface, ca *crypto.CA, log logrus.FieldLogger) *ServiceHandler {
+func NewServiceHandler(store DataStore, ca *crypto.CA, log logrus.FieldLogger) *ServiceHandler {
 	return &ServiceHandler{
 		deviceStore:            store.GetDeviceStore(),
 		enrollmentRequestStore: store.GetEnrollmentRequestStore(),

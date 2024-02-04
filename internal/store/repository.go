@@ -20,8 +20,8 @@ type RepositoryStore struct {
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to RepositoryStoreInterface
-var _ service.RepositoryStoreInterface = (*RepositoryStore)(nil)
+// Make sure we conform to RepositoryStore interface
+var _ service.RepositoryStore = (*RepositoryStore)(nil)
 
 func NewRepositoryStore(db *gorm.DB, log logrus.FieldLogger) *RepositoryStore {
 	return &RepositoryStore{db: db, log: log}

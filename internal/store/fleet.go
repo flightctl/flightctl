@@ -23,8 +23,8 @@ type FleetStore struct {
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to FleetStoreInterface
-var _ service.FleetStoreInterface = (*FleetStore)(nil)
+// Make sure we conform to FleetStore interface
+var _ service.FleetStore = (*FleetStore)(nil)
 
 func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) *FleetStore {
 	return &FleetStore{db: db, log: log}

@@ -24,23 +24,23 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) *Store {
 	}
 }
 
-func (s *Store) GetRepositoryStore() service.RepositoryStoreInterface {
+func (s *Store) GetRepositoryStore() service.RepositoryStore {
 	return s.repositoryStore
 }
 
-func (s *Store) GetDeviceStore() service.DeviceStoreInterface {
+func (s *Store) GetDeviceStore() service.DeviceStore {
 	return s.deviceStore
 }
 
-func (s *Store) GetEnrollmentRequestStore() service.EnrollmentRequestStoreInterface {
+func (s *Store) GetEnrollmentRequestStore() service.EnrollmentRequestStore {
 	return s.enrollmentRequestStore
 }
 
-func (s *Store) GetFleetStore() service.FleetStoreInterface {
+func (s *Store) GetFleetStore() service.FleetStore {
 	return s.fleetStore
 }
 
-func (s *Store) GetResourceSyncStore() service.ResourceSyncStoreInterface {
+func (s *Store) GetResourceSyncStore() service.ResourceSyncStore {
 	return s.resourceSyncStore
 }
 

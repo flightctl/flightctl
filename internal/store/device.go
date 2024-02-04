@@ -20,8 +20,8 @@ type DeviceStore struct {
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to DeviceStoreInterface
-var _ service.DeviceStoreInterface = (*DeviceStore)(nil)
+// Make sure we conform to DeviceStore interface
+var _ service.DeviceStore = (*DeviceStore)(nil)
 
 func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) *DeviceStore {
 	return &DeviceStore{db: db, log: log}

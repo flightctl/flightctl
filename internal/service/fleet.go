@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-type FleetStoreInterface interface {
+type FleetStore interface {
 	CreateFleet(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 	ListFleets(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
 	GetFleet(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error)

@@ -20,8 +20,8 @@ type API interface {
 type DeviceUpdater struct {
 	log        logrus.FieldLogger
 	db         *gorm.DB
-	fleetStore service.FleetStoreInterface
-	devStore   service.DeviceStoreInterface
+	fleetStore service.FleetStore
+	devStore   service.DeviceStore
 }
 
 func NewDeviceUpdater(log logrus.FieldLogger, db *gorm.DB, store *store.Store) *DeviceUpdater {

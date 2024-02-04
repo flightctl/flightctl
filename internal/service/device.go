@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-type DeviceStoreInterface interface {
+type DeviceStore interface {
 	CreateDevice(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	ListDevices(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)

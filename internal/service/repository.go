@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-type RepositoryStoreInterface interface {
+type RepositoryStore interface {
 	CreateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, error)
 	ListRepositories(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
 	ListAllRepositoriesInternal() ([]model.Repository, error)
