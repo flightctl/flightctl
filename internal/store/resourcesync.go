@@ -20,8 +20,8 @@ type ResourceSyncStore struct {
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to ResourceSyncStoreInterface
-var _ service.ResourceSyncStoreInterface = (*ResourceSyncStore)(nil)
+// Make sure we conform to ResourceSyncStore interface
+var _ service.ResourceSyncStore = (*ResourceSyncStore)(nil)
 
 func NewResourceSyncStore(db *gorm.DB, log logrus.FieldLogger) *ResourceSyncStore {
 	return &ResourceSyncStore{db: db, log: log}

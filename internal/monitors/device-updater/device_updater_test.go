@@ -24,7 +24,7 @@ func TestController(t *testing.T) {
 	RunSpecs(t, "DeviceUpdater Suite")
 }
 
-func createDevices(numDevices int, ctx context.Context, deviceStore service.DeviceStoreInterface, orgId uuid.UUID) {
+func createDevices(numDevices int, ctx context.Context, deviceStore service.DeviceStore, orgId uuid.UUID) {
 	for i := 1; i <= numDevices; i++ {
 		resource := api.Device{
 			Metadata: api.ObjectMeta{
@@ -40,7 +40,7 @@ func createDevices(numDevices int, ctx context.Context, deviceStore service.Devi
 	}
 }
 
-func createFleet(ctx context.Context, fleetStore service.FleetStoreInterface, orgId uuid.UUID) *api.Fleet {
+func createFleet(ctx context.Context, fleetStore service.FleetStore, orgId uuid.UUID) *api.Fleet {
 	resource := api.Fleet{
 		Metadata: api.ObjectMeta{
 			Name: util.StrToPtr("myfleet"),
@@ -65,8 +65,8 @@ var _ = Describe("DeviceUpdater", func() {
 		ctx           context.Context
 		orgId         uuid.UUID
 		db            *gorm.DB
-		deviceStore   service.DeviceStoreInterface
-		fleetStore    service.FleetStoreInterface
+		deviceStore   service.DeviceStore
+		fleetStore    service.FleetStore
 		cfg           *config.Config
 		dbName        string
 		numDevices    int

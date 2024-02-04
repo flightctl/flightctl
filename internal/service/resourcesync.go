@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-type ResourceSyncStoreInterface interface {
+type ResourceSyncStore interface {
 	CreateResourceSync(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, error)
 	ListResourceSync(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	ListAllResourceSyncInternal() ([]model.ResourceSync, error)
