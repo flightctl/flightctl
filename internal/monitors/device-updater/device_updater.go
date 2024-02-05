@@ -41,7 +41,7 @@ func (d *DeviceUpdater) UpdateDevices() {
 
 	log.Info("Running DeviceUpdater")
 
-	fleets, err := d.fleetStore.ListAllFleetsInternal()
+	fleets, err := d.fleetStore.ListIgnoreOrg()
 	if err != nil {
 		log.Errorf("failed to list fleets: %v", err)
 		return
@@ -53,7 +53,7 @@ func (d *DeviceUpdater) UpdateDevices() {
 			continue
 		}
 
-		devices, err := d.devStore.ListAllDevicesInternal(fleet.Spec.Data.Selector.MatchLabels)
+		devices, err := d.devStore.ListIgnoreOrg(fleet.Spec.Data.Selector.MatchLabels)
 		if err != nil {
 			log.Errorf("failed to list devices for fleet %s: %v", fleet.Name, err)
 		}
@@ -62,7 +62,7 @@ func (d *DeviceUpdater) UpdateDevices() {
 			updated := d.updateDeviceSpecAccordingToFleetTemplate(log, &device, &fleet) //nolint:gosec
 
 			if updated {
-				err := d.devStore.UpdateDeviceInternal(&device) //nolint:gosec
+				err := d.devStore.UpdateIgnoreOrg(&device) //nolint:gosec
 				if err != nil {
 					log.Errorf("failed to update target generation for device %s (fleet %s): %v", device.Name, fleet.Name, err)
 				}

@@ -33,7 +33,7 @@ func createDevices(numDevices int, ctx context.Context, deviceStore service.Devi
 			},
 		}
 
-		_, err := deviceStore.CreateDevice(ctx, orgId, &resource)
+		_, err := deviceStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating device: %v", err)
 		}
@@ -52,7 +52,7 @@ func createFleet(ctx context.Context, fleetStore service.FleetStore, orgId uuid.
 		},
 	}
 
-	fleet, err := fleetStore.CreateFleet(ctx, orgId, &resource)
+	fleet, err := fleetStore.Create(ctx, orgId, &resource)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
@@ -92,7 +92,7 @@ var _ = Describe("DeviceUpdater", func() {
 	Context("DeviceUpdater", func() {
 		It("Update devices good flow", func() {
 			fleet := createFleet(ctx, fleetStore, orgId)
-			fleet, err := fleetStore.GetFleet(ctx, orgId, *fleet.Metadata.Name)
+			fleet, err := fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
@@ -100,32 +100,32 @@ var _ = Describe("DeviceUpdater", func() {
 
 			// First update
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
-			_, _, err = fleetStore.CreateOrUpdateFleet(ctx, orgId, fleet)
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 			deviceUpdater.UpdateDevices()
 			for i := 1; i <= numDevices; i++ {
-				dev, err := deviceStore.GetDevice(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
+				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*dev.Metadata.Generation).To(Equal(int64(2)))
 				Expect(dev.Spec.Os.Image).To(Equal("my first OS"))
 			}
-			fleet, err = fleetStore.GetFleet(ctx, orgId, *fleet.Metadata.Name)
+			fleet, err = fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(2)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(2)))
 
 			// Second update
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
-			_, _, err = fleetStore.CreateOrUpdateFleet(ctx, orgId, fleet)
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 			deviceUpdater.UpdateDevices()
 			for i := 1; i <= numDevices; i++ {
-				dev, err := deviceStore.GetDevice(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
+				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*dev.Metadata.Generation).To(Equal(int64(3)))
 				Expect(dev.Spec.Os.Image).To(Equal("my new OS"))
 			}
-			fleet, err = fleetStore.GetFleet(ctx, orgId, *fleet.Metadata.Name)
+			fleet, err = fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(3)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(3)))

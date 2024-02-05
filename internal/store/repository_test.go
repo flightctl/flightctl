@@ -30,7 +30,7 @@ func createRepositories(numRepositories int, ctx context.Context, store *Store, 
 			},
 		}
 
-		_, err := store.repositoryStore.CreateRepository(ctx, orgId, &resource)
+		_, err := store.repositoryStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating repository: %v", err)
 		}
@@ -65,57 +65,55 @@ var _ = Describe("RepositoryStore create", func() {
 
 	Context("Repository store", func() {
 		It("Get repository success", func() {
-			dev, err := store.repositoryStore.GetRepository(ctx, orgId, "myrepository-1")
+			dev, err := store.repositoryStore.Get(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*dev.Metadata.Name).To(Equal("myrepository-1"))
 		})
 
 		It("Get repository - not found error", func() {
-			_, err := store.repositoryStore.GetRepository(ctx, orgId, "nonexistent")
+			_, err := store.repositoryStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
 		It("Get repository - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
-			_, err := store.repositoryStore.GetRepository(ctx, badOrgId, "myrepository-1")
+			_, err := store.repositoryStore.Get(ctx, badOrgId, "myrepository-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
 		It("Delete repository success", func() {
-			err := store.repositoryStore.DeleteRepository(ctx, orgId, "myrepository-1")
+			err := store.repositoryStore.Delete(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete repository success when not found", func() {
-			err := store.repositoryStore.DeleteRepository(ctx, orgId, "nonexistent")
+			err := store.repositoryStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete all repositorys in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			log.Infof("DELETING DEVICES WITH ORG ID %s", otherOrgId)
-			err := store.repositoryStore.DeleteRepositories(ctx, otherOrgId)
+			err := store.repositoryStore.DeleteAll(ctx, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := service.ListParams{Limit: 1000}
-			repositorys, err := store.repositoryStore.ListRepositories(ctx, orgId, listParams)
+			repositorys, err := store.repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositorys.Items)).To(Equal(numRepositories))
 
-			log.Infof("DELETING DEVICES WITH ORG ID %s", orgId)
-			err = store.repositoryStore.DeleteRepositories(ctx, orgId)
+			err = store.repositoryStore.DeleteAll(ctx, orgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			repositorys, err = store.repositoryStore.ListRepositories(ctx, orgId, listParams)
+			repositorys, err = store.repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositorys.Items)).To(Equal(0))
 		})
 
 		It("List with paging", func() {
 			listParams := service.ListParams{Limit: 1000}
-			allRepositories, err := store.repositoryStore.ListRepositories(ctx, orgId, listParams)
+			allRepositories, err := store.repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allRepositories.Items)).To(Equal(numRepositories))
 			allDevNames := make([]string, len(allRepositories.Items))
@@ -125,7 +123,7 @@ var _ = Describe("RepositoryStore create", func() {
 
 			foundDevNames := make([]string, len(allRepositories.Items))
 			listParams.Limit = 1
-			repositorys, err := store.repositoryStore.ListRepositories(ctx, orgId, listParams)
+			repositorys, err := store.repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositorys.Items)).To(Equal(1))
 			Expect(*repositorys.Metadata.RemainingItemCount).To(Equal(int64(2)))
@@ -134,7 +132,7 @@ var _ = Describe("RepositoryStore create", func() {
 			cont, err := service.ParseContinueString(repositorys.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			repositorys, err = store.repositoryStore.ListRepositories(ctx, orgId, listParams)
+			repositorys, err = store.repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositorys.Items)).To(Equal(1))
 			Expect(*repositorys.Metadata.RemainingItemCount).To(Equal(int64(1)))
@@ -143,7 +141,7 @@ var _ = Describe("RepositoryStore create", func() {
 			cont, err = service.ParseContinueString(repositorys.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			repositorys, err = store.repositoryStore.ListRepositories(ctx, orgId, listParams)
+			repositorys, err = store.repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositorys.Items)).To(Equal(1))
 			Expect(repositorys.Metadata.RemainingItemCount).To(BeNil())
@@ -159,7 +157,7 @@ var _ = Describe("RepositoryStore create", func() {
 			listParams := service.ListParams{
 				Limit:  1000,
 				Labels: map[string]string{"key": "value-1"}}
-			repositorys, err := store.repositoryStore.ListRepositories(ctx, orgId, listParams)
+			repositorys, err := store.repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositorys.Items)).To(Equal(1))
 			Expect(*repositorys.Items[0].Metadata.Name).To(Equal("myrepository-1"))
@@ -184,7 +182,7 @@ var _ = Describe("RepositoryStore create", func() {
 					Conditions: &[]api.RepositoryCondition{condition},
 				},
 			}
-			dev, created, err := store.repositoryStore.CreateOrUpdateRepository(ctx, orgId, &repository)
+			dev, created, err := store.repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.RepositoryAPI))
@@ -212,7 +210,7 @@ var _ = Describe("RepositoryStore create", func() {
 					Conditions: &[]api.RepositoryCondition{condition},
 				},
 			}
-			dev, created, err := store.repositoryStore.CreateOrUpdateRepository(ctx, orgId, &repository)
+			dev, created, err := store.repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.RepositoryAPI))
