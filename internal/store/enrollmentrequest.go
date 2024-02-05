@@ -31,7 +31,7 @@ func (s *EnrollmentRequestStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.EnrollmentRequest{})
 }
 
-func (s *EnrollmentRequestStore) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
+func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
@@ -43,7 +43,7 @@ func (s *EnrollmentRequestStore) CreateEnrollmentRequest(ctx context.Context, or
 	return resource, result.Error
 }
 
-func (s *EnrollmentRequestStore) ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.EnrollmentRequestList, error) {
+func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.EnrollmentRequestList, error) {
 	var enrollmentRequests model.EnrollmentRequestList
 	var nextContinue *string
 	var numRemaining *int64
@@ -84,13 +84,13 @@ func (s *EnrollmentRequestStore) ListEnrollmentRequests(ctx context.Context, org
 	return &apiEnrollmentRequestList, result.Error
 }
 
-func (s *EnrollmentRequestStore) DeleteEnrollmentRequests(ctx context.Context, orgId uuid.UUID) error {
+func (s *EnrollmentRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.EnrollmentRequest{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
 
-func (s *EnrollmentRequestStore) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error) {
+func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	enrollmentRequest := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId, Name: name},
@@ -104,7 +104,7 @@ func (s *EnrollmentRequestStore) GetEnrollmentRequest(ctx context.Context, orgId
 	return &apiEnrollmentRequest, nil
 }
 
-func (s *EnrollmentRequestStore) CreateOrUpdateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error) {
+func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -135,7 +135,7 @@ func (s *EnrollmentRequestStore) CreateOrUpdateEnrollmentRequest(ctx context.Con
 	return &updatedResource, created, result.Error
 }
 
-func (s *EnrollmentRequestStore) UpdateEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
+func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -151,7 +151,7 @@ func (s *EnrollmentRequestStore) UpdateEnrollmentRequestStatus(ctx context.Conte
 	return resource, result.Error
 }
 
-func (s *EnrollmentRequestStore) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

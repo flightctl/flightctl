@@ -48,7 +48,7 @@ func (s *DeviceStore) InitialMigration() error {
 	return nil
 }
 
-func (s *DeviceStore) CreateDevice(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
+func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
@@ -61,7 +61,7 @@ func (s *DeviceStore) CreateDevice(ctx context.Context, orgId uuid.UUID, resourc
 	return resource, result.Error
 }
 
-func (s *DeviceStore) ListDevices(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.DeviceList, error) {
+func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.DeviceList, error) {
 	var devices model.DeviceList
 	var nextContinue *string
 	var numRemaining *int64
@@ -104,7 +104,7 @@ func (s *DeviceStore) ListDevices(ctx context.Context, orgId uuid.UUID, listPara
 
 // Get all Devices regardless of ownership. Used internally by the DeviceUpdater.
 // TODO: Add pagination, perhaps via gorm scopes.
-func (s *DeviceStore) ListAllDevicesInternal(labels map[string]string) ([]model.Device, error) {
+func (s *DeviceStore) ListIgnoreOrg(labels map[string]string) ([]model.Device, error) {
 	var devices model.DeviceList
 
 	query := LabelSelectionQuery(s.db, labels).Order("name")
@@ -117,13 +117,13 @@ func (s *DeviceStore) ListAllDevicesInternal(labels map[string]string) ([]model.
 }
 
 // Update a Device regardless of ownership. Used internally by the DeviceUpdater.
-func (s *DeviceStore) UpdateDeviceInternal(device *model.Device) error {
+func (s *DeviceStore) UpdateIgnoreOrg(device *model.Device) error {
 	var updatedDevice model.Device
 	where := model.Device{Resource: model.Resource{Name: device.Name, OrgID: device.OrgID}}
 	return s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice).Error
 }
 
-func (s *DeviceStore) DeleteDevices(ctx context.Context, orgId uuid.UUID) error {
+func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	condition := model.Device{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
@@ -131,7 +131,7 @@ func (s *DeviceStore) DeleteDevices(ctx context.Context, orgId uuid.UUID) error 
 	return result.Error
 }
 
-func (s *DeviceStore) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
@@ -145,7 +145,7 @@ func (s *DeviceStore) GetDevice(ctx context.Context, orgId uuid.UUID, name strin
 	return &apiDevice, nil
 }
 
-func (s *DeviceStore) CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, bool, error) {
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -176,7 +176,7 @@ func (s *DeviceStore) CreateOrUpdateDevice(ctx context.Context, orgId uuid.UUID,
 	return &updatedResource, created, result.Error
 }
 
-func (s *DeviceStore) UpdateDeviceStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -192,7 +192,7 @@ func (s *DeviceStore) UpdateDeviceStatus(ctx context.Context, orgId uuid.UUID, r
 	return resource, result.Error
 }
 
-func (s *DeviceStore) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

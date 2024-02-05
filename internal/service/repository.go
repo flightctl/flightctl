@@ -14,21 +14,21 @@ import (
 )
 
 type RepositoryStore interface {
-	CreateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, error)
-	ListRepositories(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
-	ListAllRepositoriesInternal() ([]model.Repository, error)
-	DeleteRepositories(ctx context.Context, orgId uuid.UUID) error
-	GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
-	CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error)
-	DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) error
-	UpdateRepositoryStatusInternal(repository *model.Repository) error
+	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
+	ListIgnoreOrg() ([]model.Repository, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	UpdateStatusIgnoreOrg(repository *model.Repository) error
 }
 
 // (POST /api/v1/repositories)
 func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.CreateRepositoryRequestObject) (server.CreateRepositoryResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.repositoryStore.CreateRepository(ctx, orgId, request.Body)
+	result, err := h.repositoryStore.Create(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateRepository201JSONResponse(*result), nil
@@ -67,7 +67,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		return server.ListRepositories400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
 	}
 
-	result, err := h.repositoryStore.ListRepositories(ctx, orgId, listParams)
+	result, err := h.repositoryStore.List(ctx, orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListRepositories200JSONResponse(*result), nil
@@ -80,7 +80,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.DeleteRepositoriesRequestObject) (server.DeleteRepositoriesResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.repositoryStore.DeleteRepositories(ctx, orgId)
+	err := h.repositoryStore.DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteRepositories200JSONResponse{}, nil
@@ -93,7 +93,7 @@ func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.
 func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.ReadRepositoryRequestObject) (server.ReadRepositoryResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.repositoryStore.GetRepository(ctx, orgId, request.Name)
+	result, err := h.repositoryStore.Get(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadRepository200JSONResponse(*result), nil
@@ -111,7 +111,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 		return server.ReplaceRepository400Response{}, nil
 	}
 
-	result, created, err := h.repositoryStore.CreateOrUpdateRepository(ctx, orgId, request.Body)
+	result, created, err := h.repositoryStore.CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -130,7 +130,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.DeleteRepositoryRequestObject) (server.DeleteRepositoryResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.repositoryStore.DeleteRepository(ctx, orgId, request.Name)
+	err := h.repositoryStore.Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteRepository200JSONResponse{}, nil

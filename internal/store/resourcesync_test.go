@@ -31,7 +31,7 @@ func createResourceSyncs(numResourceSyncs int, ctx context.Context, store *Store
 			},
 		}
 
-		_, err := store.resourceSyncStore.CreateResourceSync(ctx, orgId, &resource)
+		_, err := store.resourceSyncStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating resourcesync: %v", err)
 		}
@@ -66,55 +66,55 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 	Context("ResourceSync store", func() {
 		It("Get resourcesync success", func() {
-			dev, err := store.resourceSyncStore.GetResourceSync(ctx, orgId, "myresourcesync-1")
+			dev, err := store.resourceSyncStore.Get(ctx, orgId, "myresourcesync-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*dev.Metadata.Name).To(Equal("myresourcesync-1"))
 		})
 
 		It("Get resourcesync - not found error", func() {
-			_, err := store.resourceSyncStore.GetResourceSync(ctx, orgId, "nonexistent")
+			_, err := store.resourceSyncStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
 		It("Get repository - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
-			_, err := store.resourceSyncStore.GetResourceSync(ctx, badOrgId, "myresourcesync-1")
+			_, err := store.resourceSyncStore.Get(ctx, badOrgId, "myresourcesync-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
 		It("Delete repository success", func() {
-			err := store.resourceSyncStore.DeleteResourceSync(ctx, orgId, "myresourcesync-1")
+			err := store.resourceSyncStore.Delete(ctx, orgId, "myresourcesync-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete repository success when not found", func() {
-			err := store.resourceSyncStore.DeleteResourceSync(ctx, orgId, "nonexistent")
+			err := store.resourceSyncStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete all resourcesyncs in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			err := store.resourceSyncStore.DeleteResourceSyncs(ctx, otherOrgId)
+			err := store.resourceSyncStore.DeleteAll(ctx, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := service.ListParams{Limit: 1000}
-			resourcesyncs, err := store.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+			resourcesyncs, err := store.resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(numResourceSyncs))
 
-			err = store.resourceSyncStore.DeleteResourceSyncs(ctx, orgId)
+			err = store.resourceSyncStore.DeleteAll(ctx, orgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			resourcesyncs, err = store.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+			resourcesyncs, err = store.resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(0))
 		})
 
 		It("List with paging", func() {
 			listParams := service.ListParams{Limit: 1000}
-			allResourceSyncs, err := store.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+			allResourceSyncs, err := store.resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allResourceSyncs.Items)).To(Equal(numResourceSyncs))
 			allNames := make([]string, len(allResourceSyncs.Items))
@@ -124,7 +124,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 			foundNames := make([]string, len(allResourceSyncs.Items))
 			listParams.Limit = 1
-			resourcesyncs, err := store.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+			resourcesyncs, err := store.resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(*resourcesyncs.Metadata.RemainingItemCount).To(Equal(int64(2)))
@@ -133,7 +133,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			cont, err := service.ParseContinueString(resourcesyncs.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			resourcesyncs, err = store.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+			resourcesyncs, err = store.resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(*resourcesyncs.Metadata.RemainingItemCount).To(Equal(int64(1)))
@@ -142,7 +142,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			cont, err = service.ParseContinueString(resourcesyncs.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			resourcesyncs, err = store.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+			resourcesyncs, err = store.resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(resourcesyncs.Metadata.RemainingItemCount).To(BeNil())
@@ -158,7 +158,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			listParams := service.ListParams{
 				Limit:  1000,
 				Labels: map[string]string{"key": "value-1"}}
-			resourcesyncs, err := store.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+			resourcesyncs, err := store.resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(*resourcesyncs.Items[0].Metadata.Name).To(Equal("myresourcesync-1"))
@@ -184,7 +184,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Conditions: &[]api.ResourceSyncCondition{condition},
 				},
 			}
-			rs, created, err := store.resourceSyncStore.CreateOrUpdateResourceSync(ctx, orgId, &resourcesync)
+			rs, created, err := store.resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPI))
@@ -214,7 +214,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Conditions: &[]api.ResourceSyncCondition{condition},
 				},
 			}
-			rs, created, err := store.resourceSyncStore.CreateOrUpdateResourceSync(ctx, orgId, &resourcesync)
+			rs, created, err := store.resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPI))

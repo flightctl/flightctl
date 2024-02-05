@@ -34,7 +34,7 @@ func createRepository(ctx context.Context, repostore service.RepositoryStore, or
 		},
 	}
 
-	_, err := repostore.CreateRepository(ctx, orgId, &resource)
+	_, err := repostore.Create(ctx, orgId, &resource)
 	return err
 }
 
@@ -67,14 +67,14 @@ var _ = Describe("RepoTester", func() {
 			err := createRepository(ctx, repotester.repoStore, orgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			repo, err := repotester.repoStore.GetRepository(ctx, orgId, "myrepo")
+			repo, err := repotester.repoStore.Get(ctx, orgId, "myrepo")
 			Expect(err).ToNot(HaveOccurred())
 			repoModel := model.NewRepositoryFromApiResource(repo)
 
 			// Nil -> OK
 			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, nil)
 			Expect(err).ToNot(HaveOccurred())
-			repo, err = repotester.repoStore.GetRepository(ctx, orgId, "myrepo")
+			repo, err = repotester.repoStore.Get(ctx, orgId, "myrepo")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
@@ -91,7 +91,7 @@ var _ = Describe("RepoTester", func() {
 			(*repoModel.Status.Data.Conditions)[0].LastTransitionTime = oldTime
 			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, nil)
 			Expect(err).ToNot(HaveOccurred())
-			repo, err = repotester.repoStore.GetRepository(ctx, orgId, "myrepo")
+			repo, err = repotester.repoStore.Get(ctx, orgId, "myrepo")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
@@ -106,7 +106,7 @@ var _ = Describe("RepoTester", func() {
 			// OK -> Not OK
 			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, errors.New("something bad"))
 			Expect(err).ToNot(HaveOccurred())
-			repo, err = repotester.repoStore.GetRepository(ctx, orgId, "myrepo")
+			repo, err = repotester.repoStore.Get(ctx, orgId, "myrepo")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))

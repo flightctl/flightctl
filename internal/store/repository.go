@@ -31,7 +31,7 @@ func (s *RepositoryStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Repository{})
 }
 
-func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
+func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
@@ -45,7 +45,7 @@ func (s *RepositoryStore) CreateRepository(ctx context.Context, orgId uuid.UUID,
 	return &apiRepository, result.Error
 }
 
-func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.RepositoryList, error) {
+func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.RepositoryList, error) {
 	var repositories model.RepositoryList
 	var nextContinue *string
 	var numRemaining *int64
@@ -88,7 +88,7 @@ func (s *RepositoryStore) ListRepositories(ctx context.Context, orgId uuid.UUID,
 
 // A method to get all Repositories with secrets, regardless of ownership. Used internally by the RepoTester.
 // TODO: Add pagination, perhaps via gorm scopes.
-func (s *RepositoryStore) ListAllRepositoriesInternal() ([]model.Repository, error) {
+func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 	var repositories model.RepositoryList
 
 	result := s.db.Model(&repositories).Find(&repositories)
@@ -99,13 +99,13 @@ func (s *RepositoryStore) ListAllRepositoriesInternal() ([]model.Repository, err
 	return repositories, nil
 }
 
-func (s *RepositoryStore) DeleteRepositories(ctx context.Context, orgId uuid.UUID) error {
+func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Repository{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
 
-func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
+func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
@@ -119,7 +119,7 @@ func (s *RepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, na
 	return &apiRepository, nil
 }
 
-func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, bool, error) {
+func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -150,7 +150,7 @@ func (s *RepositoryStore) CreateOrUpdateRepository(ctx context.Context, orgId uu
 	return &updatedResource, created, result.Error
 }
 
-func (s *RepositoryStore) UpdateRepositoryStatusInternal(resource *model.Repository) error {
+func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) error {
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name},
 	}
@@ -160,7 +160,7 @@ func (s *RepositoryStore) UpdateRepositoryStatusInternal(resource *model.Reposit
 	return result.Error
 }
 
-func (s *RepositoryStore) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

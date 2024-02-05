@@ -14,21 +14,21 @@ import (
 )
 
 type ResourceSyncStore interface {
-	CreateResourceSync(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, error)
-	ListResourceSync(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
-	ListAllResourceSyncInternal() ([]model.ResourceSync, error)
-	DeleteResourceSyncs(ctx context.Context, orgId uuid.UUID) error
-	GetResourceSync(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
-	CreateOrUpdateResourceSync(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, bool, error)
-	DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) error
-	UpdateResourceSyncStatusInternal(resourceSync *model.ResourceSync) error
+	Create(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
+	ListIgnoreOrg() ([]model.ResourceSync, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	UpdateStatusIgnoreOrg(resourceSync *model.ResourceSync) error
 }
 
 // (POST /api/v1/resourcesyncs)
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.CreateResourceSyncRequestObject) (server.CreateResourceSyncResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.resourceSyncStore.CreateResourceSync(ctx, orgId, request.Body)
+	result, err := h.resourceSyncStore.Create(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateResourceSync201JSONResponse(*result), nil
@@ -67,7 +67,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		return server.ListResourceSync400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
 	}
 
-	result, err := h.resourceSyncStore.ListResourceSync(ctx, orgId, listParams)
+	result, err := h.resourceSyncStore.List(ctx, orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListResourceSync200JSONResponse(*result), nil
@@ -80,7 +80,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server.DeleteResourceSyncsRequestObject) (server.DeleteResourceSyncsResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.resourceSyncStore.DeleteResourceSyncs(ctx, orgId)
+	err := h.resourceSyncStore.DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteResourceSyncs200JSONResponse{}, nil
@@ -93,7 +93,7 @@ func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server
 func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.ReadResourceSyncRequestObject) (server.ReadResourceSyncResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.resourceSyncStore.GetResourceSync(ctx, orgId, request.Name)
+	result, err := h.resourceSyncStore.Get(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadResourceSync200JSONResponse(*result), nil
@@ -111,7 +111,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 		return server.ReplaceResourceSync400Response{}, nil
 	}
 
-	result, created, err := h.resourceSyncStore.CreateOrUpdateResourceSync(ctx, orgId, request.Body)
+	result, created, err := h.resourceSyncStore.CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -130,7 +130,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.DeleteResourceSyncRequestObject) (server.DeleteResourceSyncResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.resourceSyncStore.DeleteResourceSync(ctx, orgId, request.Name)
+	err := h.resourceSyncStore.Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteResourceSync200JSONResponse{}, nil
