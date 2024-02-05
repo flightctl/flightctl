@@ -66,6 +66,9 @@ func (r *RepoTester) TestRepo() {
 			},
 		})
 
+		if repository.Status == nil {
+			repository.Status = model.MakeJSONField(api.RepositoryStatus{})
+		}
 		err = r.setAccessCondition(log, repository.Name, repository.OrgID, repository.Status.Data, err)
 		if err != nil {
 			log.Errorf("Failed to update repository status for %s: %v", repository.Name, err)
