@@ -237,7 +237,7 @@ func getClient() (*client.ClientWithResponses, error) {
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
 }
 
-func RunGet(kind, name string, labelSelector, fleetName *string, output string, limit *int32, cont *string) error { //nolint:gocyclo
+func RunGet(kind, name string, labelSelector, fleetName *string, output string, limit *int32, cont *string) error {
 	c, err := getClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
@@ -250,10 +250,11 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading device/%s: %v", name, err)
 			}
-			err = printSingleResourceResponse(response, fmt.Sprintf("device/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("device/%s", name))
 			if err != nil {
-				return err
+				return fmt.Errorf("serializing response for device/%s: %v", name, err)
 			}
+			fmt.Printf("%s\n", string(out))
 		} else {
 			params := api.ListDevicesParams{
 				FleetName:     fleetName,
@@ -261,30 +262,11 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 				Limit:         limit,
 				Continue:      cont,
 			}
-
 			response, err := c.ListDevicesWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing devices: %v", err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("listing devices: %s", response.HTTPResponse.Status)
-			}
-
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling device list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-				fmt.Fprintln(w, "NAME")
-				for _, d := range response.JSON200.Items {
-					fmt.Fprintln(w, *d.Metadata.Name)
-				}
-				w.Flush()
-			}
+			return printListResourceResponse(response, err, "devices", output)
 		}
 	case "enrollmentrequest":
 		if len(name) > 0 {
@@ -292,46 +274,22 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading enrollmentrequest/%s: %v", name, err)
 			}
-			err = printSingleResourceResponse(response, fmt.Sprintf("enrollmentrequest/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("enrollmentrequest/%s", name))
 			if err != nil {
-				return err
+				return fmt.Errorf("serializing response for enrollmentrequest/%s: %v", name, err)
 			}
+			fmt.Printf("%s\n", string(out))
 		} else {
 			params := api.ListEnrollmentRequestsParams{
 				LabelSelector: labelSelector,
 				Limit:         limit,
 				Continue:      cont,
 			}
-
 			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
 			if err != nil {
 				return fmt.Errorf("listing enrollmentrequests: %v", err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("listing enrollmentrequests: %s", response.HTTPResponse.Status)
-			}
-
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling enrollmentrequest list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-				fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
-				for _, e := range response.JSON200.Items {
-					approved := ""
-					region := ""
-					if e.Status.Approval != nil {
-						approved = fmt.Sprintf("%t", e.Status.Approval.Approved)
-						region = *e.Status.Approval.Region
-					}
-					fmt.Fprintf(w, "%s\t%s\t%s\n", *e.Metadata.Name, approved, region)
-				}
-				w.Flush()
-			}
+			return printListResourceResponse(response, err, "enrollmentrequests", output)
 		}
 	case "fleet":
 		if len(name) > 0 {
@@ -339,10 +297,11 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading fleet/%s: %v", name, err)
 			}
-			err = printSingleResourceResponse(response, fmt.Sprintf("fleet/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("fleet/%s", name))
 			if err != nil {
-				return err
+				return fmt.Errorf("serializing response for fleet/%s: %v", name, err)
 			}
+			fmt.Printf("%s\n", string(out))
 		} else {
 			params := api.ListFleetsParams{
 				LabelSelector: labelSelector,
@@ -354,25 +313,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("listing fleets: %v", err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("listing fleets: %s", response.HTTPResponse.Status)
-			}
-
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling fleet list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-				fmt.Fprintln(w, "NAME")
-				for _, f := range response.JSON200.Items {
-					fmt.Fprintln(w, *f.Metadata.Name)
-				}
-				w.Flush()
-			}
+			return printListResourceResponse(response, err, "fleets", output)
 		}
 	case "repository":
 		if len(name) > 0 {
@@ -380,10 +321,11 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading repository/%s: %v", name, err)
 			}
-			err = printSingleResourceResponse(response, fmt.Sprintf("repository/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("repository/%s", name))
 			if err != nil {
-				return err
+				return fmt.Errorf("serializing response for repository/%s: %v", name, err)
 			}
+			fmt.Printf("%s\n", string(out))
 		} else {
 			params := api.ListRepositoriesParams{
 				LabelSelector: labelSelector,
@@ -395,38 +337,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("listing repositories: %v", err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("listing repositories: %s", response.HTTPResponse.Status)
-			}
-
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling repository list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-				fmt.Fprintln(w, "NAME\tACCESSIBLE\tREASON\tMESSAGE")
-
-				for _, f := range response.JSON200.Items {
-					accessible := "-"
-					reason := ""
-					message := ""
-					if f.Status != nil && f.Status.Conditions != nil && len(*f.Status.Conditions) > 0 {
-						accessible = string((*f.Status.Conditions)[0].Status)
-						if (*f.Status.Conditions)[0].Reason != nil {
-							reason = *(*f.Status.Conditions)[0].Reason
-						}
-						if (*f.Status.Conditions)[0].Message != nil {
-							message = *(*f.Status.Conditions)[0].Message
-						}
-					}
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", *f.Metadata.Name, accessible, reason, message)
-				}
-				w.Flush()
-			}
+			return printListResourceResponse(response, err, "repositories", output)
 		}
 	case "resourcesync":
 		if len(name) > 0 {
@@ -434,10 +345,11 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading resourcesync/%s: %v", name, err)
 			}
-			err = printSingleResourceResponse(response, fmt.Sprintf("resourcesync/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("resourcesync/%s", name))
 			if err != nil {
-				return err
+				return fmt.Errorf("serializing response for resourcesync/%s: %v", name, err)
 			}
+			fmt.Printf("%s\n", string(out))
 		} else {
 			params := api.ListResourceSyncParams{
 				LabelSelector: labelSelector,
@@ -449,49 +361,117 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("listing resourcesyncs: %v", err)
 			}
-			if response.HTTPResponse.StatusCode != http.StatusOK {
-				return fmt.Errorf("listing resourcesyncs: %s", response.HTTPResponse.Status)
-			}
-
-			if output == yamlFormat {
-				marshalled, err := yaml.Marshal(response.JSON200)
-				if err != nil {
-					return fmt.Errorf("marshalling resourcesync list: %v", err)
-				}
-				fmt.Println(string(marshalled))
-			} else {
-				// Tabular
-				w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-				fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH")
-
-				for _, f := range response.JSON200.Items {
-					reponame := *f.Spec.Repository
-					path := *f.Spec.Path
-					fmt.Fprintf(w, "%s\t%s\t%s\n", *f.Metadata.Name, reponame, path)
-				}
-				w.Flush()
-			}
+			return printListResourceResponse(response, err, "resourcesyncs", output)
 		}
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-
 	return nil
 }
 
-func printSingleResourceResponse(response interface{}, name string) error {
+func serializeResponse(response interface{}, err error, name string) ([]byte, error) {
 	v := reflect.ValueOf(response).Elem()
 	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf("reading %s: %d", name, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
+		return nil, fmt.Errorf("reading %s: %d", name, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
 	}
 
-	marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
+	return yaml.Marshal(v.FieldByName("JSON200").Interface())
+}
+
+func printListResourceResponse(response interface{}, err error, resourceType string, output string) error {
 	if err != nil {
-		return fmt.Errorf("marshalling resource: %v", err)
+		return fmt.Errorf("listing %s: %v", resourceType, err)
+	}
+	v := reflect.ValueOf(response).Elem()
+	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
+		return fmt.Errorf("listing %s: %d", resourceType, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
 	}
 
-	fmt.Printf("%s\n", string(marshalled))
+	if output == yamlFormat {
+		marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
+		if err != nil {
+			return fmt.Errorf("marshalling resource: %v", err)
+		}
+
+		fmt.Printf("%s\n", string(marshalled))
+		return nil
+	}
+
+	// Tabular
+	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
+	switch resourceType {
+	case "devices":
+		printDevicesTable(w, response.(*client.ListDevicesResponse))
+	case "enrollmentrequests":
+		printEnrollmentRequestsTable(w, response.(*client.ListEnrollmentRequestsResponse))
+	case "fleets":
+		printFleetsTable(w, response.(*client.ListFleetsResponse))
+	case "repositories":
+		printRepositoriesTable(w, response.(*client.ListRepositoriesResponse))
+	case "resourcesyncs":
+		printResourceSyncsTable(w, response.(*client.ListResourceSyncResponse))
+	default:
+		return fmt.Errorf("unknown resource type %s", resourceType)
+	}
+	w.Flush()
 	return nil
+}
+
+func printDevicesTable(w *tabwriter.Writer, response *client.ListDevicesResponse) {
+	fmt.Fprintln(w, "NAME")
+	for _, d := range response.JSON200.Items {
+		fmt.Fprintln(w, *d.Metadata.Name)
+	}
+}
+
+func printEnrollmentRequestsTable(w *tabwriter.Writer, response *client.ListEnrollmentRequestsResponse) {
+	fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
+	for _, e := range response.JSON200.Items {
+		approved := ""
+		region := ""
+		if e.Status.Approval != nil {
+			approved = fmt.Sprintf("%t", e.Status.Approval.Approved)
+			region = *e.Status.Approval.Region
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", *e.Metadata.Name, approved, region)
+	}
+}
+
+func printFleetsTable(w *tabwriter.Writer, response *client.ListFleetsResponse) {
+	fmt.Fprintln(w, "NAME")
+	for _, f := range response.JSON200.Items {
+		fmt.Fprintln(w, *f.Metadata.Name)
+	}
+}
+
+func printRepositoriesTable(w *tabwriter.Writer, response *client.ListRepositoriesResponse) {
+	fmt.Fprintln(w, "NAME\tACCESSIBLE\tREASON\tMESSAGE")
+
+	for _, f := range response.JSON200.Items {
+		accessible := "-"
+		reason := ""
+		message := ""
+		if f.Status != nil && f.Status.Conditions != nil && len(*f.Status.Conditions) > 0 {
+			accessible = string((*f.Status.Conditions)[0].Status)
+			if (*f.Status.Conditions)[0].Reason != nil {
+				reason = *(*f.Status.Conditions)[0].Reason
+			}
+			if (*f.Status.Conditions)[0].Message != nil {
+				message = *(*f.Status.Conditions)[0].Message
+			}
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", *f.Metadata.Name, accessible, reason, message)
+	}
+}
+
+func printResourceSyncsTable(w *tabwriter.Writer, response *client.ListResourceSyncResponse) {
+	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH")
+
+	for _, f := range response.JSON200.Items {
+		reponame := *f.Spec.Repository
+		path := *f.Spec.Path
+		fmt.Fprintf(w, "%s\t%s\t%s\n", *f.Metadata.Name, reponame, path)
+	}
 }
 
 func expandIfFilePattern(pattern string) ([]string, error) {
@@ -523,7 +503,7 @@ func ignoreFile(path string, extensions []string) bool {
 
 type genericResource map[string]interface{}
 
-func applyFromReader(client *client.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error { //nolint:gocyclo
+func applyFromReader(client *client.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
 	decoder := yamlutil.NewYAMLOrJSONDecoder(r, 100)
 	resources := []genericResource{}
 
@@ -547,123 +527,65 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 			errs = append(errs, fmt.Errorf("%s: skipping resource of unspecified kind: %v", filename, resource))
 			continue
 		}
+		metadata, ok := resource["metadata"].(map[string]interface{})
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s: skipping resource of unspecified metadata: %v", filename, resource))
+			continue
+		}
+		resourceName, ok := metadata["name"].(string)
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s: skipping resource of unspecified resource name: %v", filename, resource))
+			continue
+		}
+
+		if dryRun {
+			fmt.Printf("%s: applying device/%s (dry run only)\n", filename, resourceName)
+			continue
+		}
+		fmt.Printf("%s: applying device/%s: ", filename, resourceName)
 		buf, err := json.Marshal(resource)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %v", filename, kind, err))
-			continue
 		}
 
 		switch kind {
 		case "Device":
-			var device api.Device
-			err := yaml.Unmarshal(buf, &device)
+			response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Device resource: %v", filename, err))
+				errs = append(errs, err)
 				continue
 			}
-			if device.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Device resource: missing field .metadata.name: %v", filename, err))
-				continue
-			}
-			if dryRun {
-				fmt.Printf("%s: applying device/%s (dry run only)\n", filename, *device.Metadata.Name)
-			} else {
-				fmt.Printf("%s: applying device/%s: ", filename, *device.Metadata.Name)
-				response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), *device.Metadata.Name, "application/json", bytes.NewReader(buf))
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				fmt.Printf("%s\n", response.HTTPResponse.Status)
-			}
+			fmt.Printf("%s\n", response.HTTPResponse.Status)
+
 		case "EnrollmentRequest":
-			var enrollmentRequest api.EnrollmentRequest
-			err := yaml.Unmarshal(buf, &enrollmentRequest)
+			response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: %v", filename, err))
+				errs = append(errs, err)
 				continue
 			}
-			if enrollmentRequest.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding EnrollmentRequest resource: missing field .metadata.name: %v", filename, err))
-				continue
-			}
-			if dryRun {
-				fmt.Printf("%s: applying enrollmentrequest/%s (dry run only)\n", filename, *enrollmentRequest.Metadata.Name)
-			} else {
-				fmt.Printf("%s: applying enrollmentrequest/%s: ", filename, *enrollmentRequest.Metadata.Name)
-				response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), *enrollmentRequest.Metadata.Name, "application/json", bytes.NewReader(buf))
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				fmt.Printf("%s\n", response.HTTPResponse.Status)
-			}
+			fmt.Printf("%s\n", response.HTTPResponse.Status)
+
 		case "Fleet":
-			var fleet api.Fleet
-			err := yaml.Unmarshal(buf, &fleet)
+			response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: %v", filename, err))
+				errs = append(errs, err)
 				continue
 			}
-			if fleet.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Fleet resource: missing field .metadata.name: %v", filename, err))
-				continue
-			}
-			if dryRun {
-				fmt.Printf("%s: applying fleet/%s (dry run only)\n", filename, *fleet.Metadata.Name)
-			} else {
-				fmt.Printf("%s: applying fleet/%s: ", filename, *fleet.Metadata.Name)
-				response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), *fleet.Metadata.Name, "application/json", bytes.NewReader(buf))
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				fmt.Printf("%s\n", response.HTTPResponse.Status)
-			}
+			fmt.Printf("%s\n", response.HTTPResponse.Status)
 		case "Repository":
-			var repository api.Repository
-			err := yaml.Unmarshal(buf, &repository)
+			response, err := client.ReplaceRepositoryWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Repository resource: %v", filename, err))
+				errs = append(errs, err)
 				continue
 			}
-			if repository.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding Repository resource: missing field .metadata.name: %v", filename, err))
-				continue
-			}
-			if dryRun {
-				fmt.Printf("%s: applying repository/%s (dry run only)\n", filename, *repository.Metadata.Name)
-			} else {
-				fmt.Printf("%s: applying repository/%s: ", filename, *repository.Metadata.Name)
-				response, err := client.ReplaceRepositoryWithBodyWithResponse(context.Background(), *repository.Metadata.Name, "application/json", bytes.NewReader(buf))
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				fmt.Printf("%s\n", response.HTTPResponse.Status)
-			}
+			fmt.Printf("%s\n", response.HTTPResponse.Status)
 		case "ResourceSync":
-			var resourcesync api.ResourceSync
-			err := yaml.Unmarshal(buf, &resourcesync)
+			response, err := client.ReplaceResourceSyncWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: decoding ResourceSync resource: %v", filename, err))
+				errs = append(errs, err)
 				continue
 			}
-			if resourcesync.Metadata.Name == nil {
-				errs = append(errs, fmt.Errorf("%s: decoding ResourceSync resource: missing field .metadata.name: %v", filename, err))
-				continue
-			}
-			if dryRun {
-				fmt.Printf("%s: applying resourcesync/%s (dry run only)\n", filename, *resourcesync.Metadata.Name)
-			} else {
-				fmt.Printf("%s: applying resourcesync/%s: ", filename, *resourcesync.Metadata.Name)
-				response, err := client.ReplaceResourceSyncWithBodyWithResponse(context.Background(), *resourcesync.Metadata.Name, "application/json", bytes.NewReader(buf))
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				fmt.Printf("%s\n", response.HTTPResponse.Status)
-			}
+			fmt.Printf("%s\n", response.HTTPResponse.Status)
 		default:
 			errs = append(errs, fmt.Errorf("%s: skipping resource of unkown kind %q: %v", filename, kind, resource))
 		}
