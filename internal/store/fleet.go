@@ -34,7 +34,7 @@ func (s *FleetStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Fleet{})
 }
 
-func (s *FleetStore) CreateFleet(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
@@ -51,7 +51,7 @@ func (s *FleetStore) CreateFleet(ctx context.Context, orgId uuid.UUID, resource 
 	return resource, result.Error
 }
 
-func (s *FleetStore) ListFleets(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.FleetList, error) {
+func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.FleetList, error) {
 	var fleets model.FleetList
 	var nextContinue *string
 	var numRemaining *int64
@@ -94,7 +94,7 @@ func (s *FleetStore) ListFleets(ctx context.Context, orgId uuid.UUID, listParams
 
 // A method to get all Fleets regardless of ownership. Used internally by the DeviceUpdater.
 // TODO: Add pagination, perhaps via gorm scopes.
-func (s *FleetStore) ListAllFleetsInternal() ([]model.Fleet, error) {
+func (s *FleetStore) ListIgnoreOrg() ([]model.Fleet, error) {
 	var fleets model.FleetList
 
 	result := s.db.Model(&fleets).Find(&fleets)
@@ -105,13 +105,13 @@ func (s *FleetStore) ListAllFleetsInternal() ([]model.Fleet, error) {
 	return fleets, nil
 }
 
-func (s *FleetStore) DeleteFleets(ctx context.Context, orgId uuid.UUID) error {
+func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Fleet{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
 
-func (s *FleetStore) GetFleet(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
+func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
@@ -126,7 +126,7 @@ func (s *FleetStore) GetFleet(ctx context.Context, orgId uuid.UUID, name string)
 	return &apiFleet, nil
 }
 
-func (s *FleetStore) CreateOrUpdateFleet(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -206,7 +206,7 @@ func (s *FleetStore) CreateOrUpdateFleet(ctx context.Context, orgId uuid.UUID, r
 	return &updatedResource, created, nil
 }
 
-func (s *FleetStore) UpdateFleetStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -222,7 +222,7 @@ func (s *FleetStore) UpdateFleetStatus(ctx context.Context, orgId uuid.UUID, res
 	return resource, result.Error
 }
 
-func (s *FleetStore) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

@@ -46,7 +46,7 @@ func (r *RepoTester) TestRepo() {
 
 	log.Info("Running RepoTester")
 
-	repositories, err := r.repoStore.ListAllRepositoriesInternal()
+	repositories, err := r.repoStore.ListIgnoreOrg()
 	if err != nil {
 		log.Errorf("error fetching repositories: %s", err)
 		return
@@ -103,5 +103,5 @@ func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, name string, org
 	repo := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 		Status:   model.MakeJSONField(api.RepositoryStatus{Conditions: &[]api.RepositoryCondition{condition}})}
-	return r.repoStore.UpdateRepositoryStatusInternal(&repo)
+	return r.repoStore.UpdateStatusIgnoreOrg(&repo)
 }

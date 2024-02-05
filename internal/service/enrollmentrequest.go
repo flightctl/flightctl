@@ -19,13 +19,13 @@ import (
 const ClientCertExpiryDays = 365
 
 type EnrollmentRequestStore interface {
-	CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
-	ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
-	GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
-	CreateOrUpdateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error)
-	UpdateEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
-	DeleteEnrollmentRequests(ctx context.Context, orgId uuid.UUID) error
-	DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) error
+	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
 }
 
 func validateAndCompleteEnrollmentRequest(enrollmentRequest *api.EnrollmentRequest) error {
@@ -80,7 +80,7 @@ func createDeviceFromEnrollmentRequest(ctx context.Context, deviceStore DeviceSt
 		}
 		(*apiResource.Metadata.Labels)["region"] = *enrollmentRequest.Status.Approval.Region
 	}
-	_, err := deviceStore.CreateDevice(ctx, orgId, apiResource)
+	_, err := deviceStore.Create(ctx, orgId, apiResource)
 	return err
 }
 
@@ -92,7 +92,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 		return nil, err
 	}
 
-	result, err := h.enrollmentRequestStore.CreateEnrollmentRequest(ctx, orgId, request.Body)
+	result, err := h.enrollmentRequestStore.Create(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
@@ -131,7 +131,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		return server.ListEnrollmentRequests400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
 	}
 
-	result, err := h.enrollmentRequestStore.ListEnrollmentRequests(ctx, orgId, listParams)
+	result, err := h.enrollmentRequestStore.List(ctx, orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListEnrollmentRequests200JSONResponse(*result), nil
@@ -144,7 +144,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.enrollmentRequestStore.DeleteEnrollmentRequests(ctx, orgId)
+	err := h.enrollmentRequestStore.DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteEnrollmentRequests200JSONResponse{}, nil
@@ -157,7 +157,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request s
 func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.enrollmentRequestStore.GetEnrollmentRequest(ctx, orgId, request.Name)
+	result, err := h.enrollmentRequestStore.Get(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadEnrollmentRequest200JSONResponse(*result), nil
@@ -179,7 +179,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 		return nil, err
 	}
 
-	result, created, err := h.enrollmentRequestStore.CreateOrUpdateEnrollmentRequest(ctx, orgId, request.Body)
+	result, created, err := h.enrollmentRequestStore.CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -198,7 +198,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
 	orgId := NullOrgId
 
-	err := h.enrollmentRequestStore.DeleteEnrollmentRequest(ctx, orgId, request.Name)
+	err := h.enrollmentRequestStore.Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
@@ -213,7 +213,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
 	orgId := NullOrgId
 
-	result, err := h.enrollmentRequestStore.GetEnrollmentRequest(ctx, orgId, request.Name)
+	result, err := h.enrollmentRequestStore.Get(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
@@ -230,7 +230,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 
 	log := log.WithReqIDFromCtx(ctx, h.log)
 
-	enrollmentReq, err := h.enrollmentRequestStore.GetEnrollmentRequest(ctx, orgId, request.Name)
+	enrollmentReq, err := h.enrollmentRequestStore.Get(ctx, orgId, request.Name)
 	switch err {
 	default:
 		return nil, err
@@ -270,7 +270,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 		}
 	}
 
-	_, err = h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(ctx, orgId, enrollmentReq)
+	_, err = h.enrollmentRequestStore.UpdateStatus(ctx, orgId, enrollmentReq)
 	switch err {
 	case nil:
 		return server.CreateEnrollmentRequestApproval200JSONResponse{}, nil
@@ -289,7 +289,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 		return nil, err
 	}
 
-	result, err := h.enrollmentRequestStore.UpdateEnrollmentRequestStatus(ctx, orgId, request.Body)
+	result, err := h.enrollmentRequestStore.UpdateStatus(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil

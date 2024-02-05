@@ -31,7 +31,7 @@ func (s *ResourceSyncStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.ResourceSync{})
 }
 
-func (s *ResourceSyncStore) CreateResourceSync(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
+func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
@@ -45,7 +45,7 @@ func (s *ResourceSyncStore) CreateResourceSync(ctx context.Context, orgId uuid.U
 	return &apiResourceSync, result.Error
 }
 
-func (s *ResourceSyncStore) ListResourceSync(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.ResourceSyncList, error) {
+func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.ResourceSyncList, error) {
 	var resourceSyncs model.ResourceSyncList
 	var nextContinue *string
 	var numRemaining *int64
@@ -86,13 +86,13 @@ func (s *ResourceSyncStore) ListResourceSync(ctx context.Context, orgId uuid.UUI
 	return &apiResourceSyncList, result.Error
 }
 
-func (s *ResourceSyncStore) DeleteResourceSyncs(ctx context.Context, orgId uuid.UUID) error {
+func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.ResourceSync{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 	return result.Error
 }
 
-func (s *ResourceSyncStore) GetResourceSync(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
+func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	repository := model.ResourceSync{
 		Resource: model.Resource{OrgID: orgId, Name: name},
@@ -106,7 +106,7 @@ func (s *ResourceSyncStore) GetResourceSync(ctx context.Context, orgId uuid.UUID
 	return &apiResourceSync, nil
 }
 
-func (s *ResourceSyncStore) CreateOrUpdateResourceSync(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, error) {
+func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -137,7 +137,7 @@ func (s *ResourceSyncStore) CreateOrUpdateResourceSync(ctx context.Context, orgI
 	return &updatedResource, created, result.Error
 }
 
-func (s *ResourceSyncStore) UpdateResourceSyncStatusInternal(resource *model.ResourceSync) error {
+func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) error {
 	repository := model.ResourceSync{
 		Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name},
 	}
@@ -147,7 +147,7 @@ func (s *ResourceSyncStore) UpdateResourceSyncStatusInternal(resource *model.Res
 	return result.Error
 }
 
-func (s *ResourceSyncStore) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.ResourceSync{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
@@ -157,7 +157,7 @@ func (s *ResourceSyncStore) DeleteResourceSync(ctx context.Context, orgId uuid.U
 
 // A method to get all ResourceSyncs with secrets, regardless of ownership. Used internally by the the ResourceSync monitor.
 // TODO: Add pagination, perhaps via gorm scopes.
-func (s *ResourceSyncStore) ListAllResourceSyncInternal() ([]model.ResourceSync, error) {
+func (s *ResourceSyncStore) ListIgnoreOrg() ([]model.ResourceSync, error) {
 	var resourcesyncs model.ResourceSyncList
 	result := s.db.Model(&resourcesyncs).Find(&resourcesyncs)
 	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)

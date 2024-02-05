@@ -38,7 +38,7 @@ func createDevices(numDevices int, ctx context.Context, store *Store, orgId uuid
 			},
 		}
 
-		_, err := store.deviceStore.CreateDevice(ctx, orgId, &resource)
+		_, err := store.deviceStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating device: %v", err)
 		}
@@ -73,55 +73,55 @@ var _ = Describe("DeviceStore create", func() {
 
 	Context("Device store", func() {
 		It("Get device success", func() {
-			dev, err := store.deviceStore.GetDevice(ctx, orgId, "mydevice-1")
+			dev, err := store.deviceStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*dev.Metadata.Name).To(Equal("mydevice-1"))
 		})
 
 		It("Get device - not found error", func() {
-			_, err := store.deviceStore.GetDevice(ctx, orgId, "nonexistent")
+			_, err := store.deviceStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
 		It("Get device - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
-			_, err := store.deviceStore.GetDevice(ctx, badOrgId, "mydevice-1")
+			_, err := store.deviceStore.Get(ctx, badOrgId, "mydevice-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
 		It("Delete device success", func() {
-			err := store.deviceStore.DeleteDevice(ctx, orgId, "mydevice-1")
+			err := store.deviceStore.Delete(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete device success when not found", func() {
-			err := store.deviceStore.DeleteDevice(ctx, orgId, "nonexistent")
+			err := store.deviceStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete all devices in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			err := store.deviceStore.DeleteDevices(ctx, otherOrgId)
+			err := store.deviceStore.DeleteAll(ctx, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := service.ListParams{Limit: 1000}
-			devices, err := store.deviceStore.ListDevices(ctx, orgId, listParams)
+			devices, err := store.deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(numDevices))
 
-			err = store.deviceStore.DeleteDevices(ctx, orgId)
+			err = store.deviceStore.DeleteAll(ctx, orgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			devices, err = store.deviceStore.ListDevices(ctx, orgId, listParams)
+			devices, err = store.deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(0))
 		})
 
 		It("List with paging", func() {
 			listParams := service.ListParams{Limit: 1000}
-			allDevices, err := store.deviceStore.ListDevices(ctx, orgId, listParams)
+			allDevices, err := store.deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allDevices.Items)).To(Equal(numDevices))
 			allDevNames := make([]string, len(allDevices.Items))
@@ -131,7 +131,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			foundDevNames := make([]string, len(allDevices.Items))
 			listParams.Limit = 1
-			devices, err := store.deviceStore.ListDevices(ctx, orgId, listParams)
+			devices, err := store.deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 			Expect(*devices.Metadata.RemainingItemCount).To(Equal(int64(2)))
@@ -140,7 +140,7 @@ var _ = Describe("DeviceStore create", func() {
 			cont, err := service.ParseContinueString(devices.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			devices, err = store.deviceStore.ListDevices(ctx, orgId, listParams)
+			devices, err = store.deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 			Expect(*devices.Metadata.RemainingItemCount).To(Equal(int64(1)))
@@ -149,7 +149,7 @@ var _ = Describe("DeviceStore create", func() {
 			cont, err = service.ParseContinueString(devices.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			devices, err = store.deviceStore.ListDevices(ctx, orgId, listParams)
+			devices, err = store.deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 			Expect(devices.Metadata.RemainingItemCount).To(BeNil())
@@ -165,7 +165,7 @@ var _ = Describe("DeviceStore create", func() {
 			listParams := service.ListParams{
 				Limit:  1000,
 				Labels: map[string]string{"key": "value-1"}}
-			devices, err := store.deviceStore.ListDevices(ctx, orgId, listParams)
+			devices, err := store.deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 			Expect(*devices.Items[0].Metadata.Name).To(Equal("mydevice-1"))
@@ -193,7 +193,7 @@ var _ = Describe("DeviceStore create", func() {
 					Conditions: &[]api.DeviceCondition{condition},
 				},
 			}
-			dev, created, err := store.deviceStore.CreateOrUpdateDevice(ctx, orgId, &device)
+			dev, created, err := store.deviceStore.CreateOrUpdate(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
@@ -224,7 +224,7 @@ var _ = Describe("DeviceStore create", func() {
 					Conditions: &[]api.DeviceCondition{condition},
 				},
 			}
-			dev, created, err := store.deviceStore.CreateOrUpdateDevice(ctx, orgId, &device)
+			dev, created, err := store.deviceStore.CreateOrUpdate(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
@@ -255,9 +255,9 @@ var _ = Describe("DeviceStore create", func() {
 					Conditions: &[]api.DeviceCondition{condition},
 				},
 			}
-			_, err := store.deviceStore.UpdateDeviceStatus(ctx, orgId, &device)
+			_, err := store.deviceStore.UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
-			dev, err := store.deviceStore.GetDevice(ctx, orgId, "mydevice-1")
+			dev, err := store.deviceStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
