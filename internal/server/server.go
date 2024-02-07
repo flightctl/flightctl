@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/configprovider/git"
 	device_updater "github.com/flightctl/flightctl/internal/monitors/device-updater"
 	"github.com/flightctl/flightctl/internal/monitors/repotester"
+	"github.com/flightctl/flightctl/internal/monitors/resourcesync"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/thread"
@@ -105,15 +106,21 @@ func (s *Server) Run() error {
 
 	repoTester := repotester.NewRepoTester(s.log, s.db, s.store)
 	repoTesterThread := thread.New(
-		s.log.WithField("pkg", "repository-tester"), "Repository tester", time.Duration(2*float64(time.Minute)), repoTester.TestRepo)
+		s.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepo)
 	repoTesterThread.Start()
 	defer repoTesterThread.Stop()
 
 	deviceUpdater := device_updater.NewDeviceUpdater(s.log, s.db, s.store)
 	deviceUpdaterThread := thread.New(
-		s.log.WithField("pkg", "device-updater"), "Device updater", time.Duration(2*float64(time.Minute)), deviceUpdater.UpdateDevices)
+		s.log.WithField("pkg", "device-updater"), "Device updater", threadIntervalMinute(2), deviceUpdater.UpdateDevices)
 	deviceUpdaterThread.Start()
 	defer deviceUpdaterThread.Stop()
+
+	resourceSync := resourcesync.NewResourceSync(s.log, s.db, s.store)
+	resourceSyncThread := thread.New(
+		s.log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalMinute(2), resourceSync.Poll)
+	resourceSyncThread.Start()
+	defer resourceSyncThread.Stop()
 
 	s.log.Printf("Listening on %s...", srv.Addr)
 	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
@@ -121,4 +128,8 @@ func (s *Server) Run() error {
 	}
 
 	return nil
+}
+
+func threadIntervalMinute(min float64) time.Duration {
+	return time.Duration(min * float64(time.Minute))
 }

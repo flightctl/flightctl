@@ -22,7 +22,9 @@ type Fleet interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, bool, error)
+	CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, fleets ...*api.Fleet) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
+	UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, fleets ...*api.Fleet) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
 	ListIgnoreOrg() ([]model.Fleet, error)
@@ -138,10 +140,17 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*ap
 }
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
+	return s.createOrUpdateTx(s.db, ctx, orgId, resource)
+}
+
+func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
 	fleet := model.NewFleetFromApiResource(resource)
+	if fleet.Name == "" {
+		return nil, false, fmt.Errorf("resource has no name")
+	}
 	fleet.OrgID = orgId
 
 	// don't allow the user to set the generation
@@ -155,9 +164,9 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 
 	created := false
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := tx.Transaction(func(innerTx *gorm.DB) error {
 		existingRecord := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
-		result := tx.First(&existingRecord)
+		result := innerTx.First(&existingRecord)
 		// NotFound is OK because in that case we will create the record, anything else is a real error
 		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return result.Error
@@ -169,7 +178,7 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 			}
 			fleet.Generation = util.Int64ToPtr(1)
 			fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
-			result = tx.Create(fleet)
+			result = innerTx.Create(fleet)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -201,7 +210,7 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 			} else {
 				fleet.Spec.Data.Template.Metadata.Generation = existingRecord.Spec.Data.Template.Metadata.Generation
 			}
-			result = tx.Model(where).Updates(&fleet)
+			result = innerTx.Model(where).Updates(&fleet)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -217,7 +226,37 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 	return &updatedResource, created, nil
 }
 
+func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		for _, resource := range resources {
+			_, _, err := s.createOrUpdateTx(tx, ctx, orgId, resource)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+	return s.updateStatusTx(s.db, ctx, orgId, resource)
+}
+
+func (s *FleetStore) UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		for _, resource := range resources {
+			_, err := s.updateStatusTx(tx, ctx, orgId, resource)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+func (s *FleetStore) updateStatusTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
