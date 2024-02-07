@@ -1584,6 +1584,14 @@ components:
     ResourceSyncStatus:
       type: object
       properties:
+        lastSyncedCommitHash:
+          type: string
+          description: |
+            The last commit hash that was synced
+        lastSyncedPath:
+          type: string
+          description: |
+            The last repository path that was synced
         conditions:
           type: array
           description: 'Current state of a resourcesync.'
