@@ -259,6 +259,97 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*updatedFleet.Spec.Template.Metadata.Generation).To(Equal(int64(2)))
 		})
 
+		It("CreateOrUpdateMultiple", func() {
+			condition := api.FleetCondition{
+				Type:               "type",
+				LastTransitionTime: util.TimeStampStringPtr(),
+				Status:             api.False,
+				Reason:             util.StrToPtr("reason"),
+				Message:            util.StrToPtr("message"),
+			}
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("newresourcename"),
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{
+						MatchLabels: map[string]string{"key": "value"},
+					},
+				},
+				Status: &api.FleetStatus{
+					Conditions: &[]api.FleetCondition{condition},
+				},
+			}
+			fleet2 := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("newresourcename_2"),
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{
+						MatchLabels: map[string]string{"key": "value"},
+					},
+				},
+				Status: &api.FleetStatus{
+					Conditions: &[]api.FleetCondition{condition},
+				},
+			}
+			err := store.Fleet().CreateOrUpdateMultiple(ctx, orgId, &fleet, &fleet2)
+			Expect(err).ToNot(HaveOccurred())
+
+			createdFleet, err := store.Fleet().Get(ctx, orgId, "newresourcename")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPI))
+			Expect(createdFleet.Kind).To(Equal(model.FleetKind))
+			Expect(createdFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
+			Expect(createdFleet.Status.Conditions).To(BeNil())
+			Expect(*createdFleet.Metadata.Generation).To(Equal(int64(1)))
+			Expect(*createdFleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
+
+			createdFleet2, err := store.Fleet().Get(ctx, orgId, "newresourcename_2")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(createdFleet2.ApiVersion).To(Equal(model.FleetAPI))
+			Expect(createdFleet2.Kind).To(Equal(model.FleetKind))
+			Expect(createdFleet2.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
+			Expect(createdFleet2.Status.Conditions).To(BeNil())
+			Expect(*createdFleet2.Metadata.Generation).To(Equal(int64(1)))
+			Expect(*createdFleet2.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
+		})
+		It("CreateOrUpdateMultiple with error", func() {
+			condition := api.FleetCondition{
+				Type:               "type",
+				LastTransitionTime: util.TimeStampStringPtr(),
+				Status:             api.False,
+				Reason:             util.StrToPtr("reason"),
+				Message:            util.StrToPtr("message"),
+			}
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("newresourcename"),
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{
+						MatchLabels: map[string]string{"key": "value"},
+					},
+				},
+				Status: &api.FleetStatus{
+					Conditions: &[]api.FleetCondition{condition},
+				},
+			}
+			fleet2 := api.Fleet{
+				Metadata: api.ObjectMeta{},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{
+						MatchLabels: map[string]string{"key": "value"},
+					},
+				},
+				Status: &api.FleetStatus{
+					Conditions: &[]api.FleetCondition{condition},
+				},
+			}
+			err := store.Fleet().CreateOrUpdateMultiple(ctx, orgId, &fleet, &fleet2)
+			Expect(err).To(HaveOccurred())
+		})
+
 		It("UpdateStatus", func() {
 			condition := api.FleetCondition{
 				Type:               "type",

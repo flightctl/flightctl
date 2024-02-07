@@ -1,7 +1,7 @@
 apiVersion: v1alpha1
 kind: ResourceSync
 metadata:
-  name: defaultRepo
+  name: defaultSync
 spec:
-  repository: https://github.com/flightctl/flightctl.git
-  path: /examples/resourcesync.yaml
+  repository: defaultRepo
+  path: /examples/fleet.yaml

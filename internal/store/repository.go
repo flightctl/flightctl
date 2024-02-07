@@ -20,6 +20,7 @@ type Repository interface {
 	ListIgnoreOrg() ([]model.Repository, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
+	GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
 	UpdateStatusIgnoreOrg(repository *model.Repository) error
@@ -117,6 +118,15 @@ func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error 
 }
 
 func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
+	repository, err := s.GetInternal(ctx, orgId, name)
+	if err != nil {
+		return nil, err
+	}
+	apiRepository := repository.ToApiResource()
+	return &apiRepository, nil
+}
+
+func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
@@ -126,8 +136,7 @@ func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	apiRepository := repository.ToApiResource()
-	return &apiRepository, nil
+	return &repository, nil
 }
 
 func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, bool, error) {

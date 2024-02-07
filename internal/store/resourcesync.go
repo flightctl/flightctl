@@ -105,15 +105,15 @@ func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID) erro
 
 func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
-	repository := model.ResourceSync{
+	resourcesync := model.ResourceSync{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&repository)
-	log.Debugf("db.Find(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
+	result := s.db.First(&resourcesync)
+	log.Debugf("db.Find(%s): %d rows affected, error is %v", resourcesync, result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	apiResourceSync := repository.ToApiResource()
+	apiResourceSync := resourcesync.ToApiResource()
 	return &apiResourceSync, nil
 }
 
@@ -121,11 +121,11 @@ func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
-	repository := model.NewResourceSyncFromApiResource(resource)
-	repository.OrgID = orgId
+	resourcesync := model.NewResourceSyncFromApiResource(resource)
+	resourcesync.OrgID = orgId
 
 	// don't overwrite status
-	repository.Status = nil
+	resourcesync.Status = nil
 
 	created := false
 	findResourceSync := model.ResourceSync{
@@ -141,18 +141,18 @@ func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 	}
 
 	var updatedResourceSync model.ResourceSync
-	where := model.ResourceSync{Resource: model.Resource{OrgID: repository.OrgID, Name: repository.Name}}
-	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedResourceSync)
+	where := model.ResourceSync{Resource: model.Resource{OrgID: resourcesync.OrgID, Name: resourcesync.Name}}
+	result = s.db.Where(where).Assign(resourcesync).FirstOrCreate(&updatedResourceSync)
 
 	updatedResource := updatedResourceSync.ToApiResource()
 	return &updatedResource, created, result.Error
 }
 
 func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) error {
-	repository := model.ResourceSync{
+	resourcesync := model.ResourceSync{
 		Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name},
 	}
-	result := s.db.Model(&repository).Updates(map[string]interface{}{
+	result := s.db.Model(&resourcesync).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
 	return result.Error
@@ -166,7 +166,7 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	return result.Error
 }
 
-// A method to get all ResourceSyncs with secrets, regardless of ownership. Used internally by the the ResourceSync monitor.
+// A method to get all ResourceSyncs , regardless of ownership. Used internally by the the ResourceSync monitor.
 // TODO: Add pagination, perhaps via gorm scopes.
 func (s *ResourceSyncStore) ListIgnoreOrg() ([]model.ResourceSync, error) {
 	var resourcesyncs model.ResourceSyncList
