@@ -58,12 +58,15 @@ func (r *RepoTester) TestRepo() {
 			Fetch: []config.RefSpec{"HEAD"},
 		})
 
-		_, err = remote.List(&git.ListOptions{
-			Auth: &http.BasicAuth{
+		listOps := &git.ListOptions{}
+		if repository.Spec.Data.Username != nil && repository.Spec.Data.Password != nil {
+			listOps.Auth = &http.BasicAuth{
 				Username: *repository.Spec.Data.Username,
 				Password: *repository.Spec.Data.Password,
-			},
-		})
+			}
+		}
+
+		_, err = remote.List(listOps)
 
 		if repository.Status == nil {
 			repository.Status = model.MakeJSONField(api.RepositoryStatus{})
