@@ -56,13 +56,12 @@ deploy: build flightctl-server-container
 bin:
 	mkdir -p bin
 
-rpm: build
-	mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-	mkdir -p bin/flightctl-agent-0.0.1
-	cp bin/flightctl-agent bin/flightctl-agent-0.0.1
-	cp packaging/systemd/flightctl-agent.service bin/flightctl-agent-0.0.1
-	tar cvf rpmbuild/SOURCES/flightctl-agent-0.0.1.tar -C bin/ flightctl-agent-0.0.1
-	rpmbuild --define "_topdir $(GOBASE)/rpmbuild" -ba $(GOBASE)/packaging/rpm/flightctl-agent.spec
+rpm:
+	rm $(shell uname -m)/flightctl-*.rpm || true
+	rm bin/rpm/* || true
+	mkdir -p bin/rpm
+	packit build locally
+	mv $(shell uname -m)/flightctl-*.rpm bin/rpm
 
 clean:
 	- podman-compose -f deploy/podman/compose.yaml down
