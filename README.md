@@ -84,7 +84,7 @@ Let's take a look at the provided Containerfile located in packaging/Containerfi
 ```
 FROM quay.io/centos-bootc/fedora-bootc:eln
 
-COPY rpmbuild/RPMS/x86_64/flightctl-agent-0.0.1-1.el9.x86_64.rpm /tmp/
+COPY bin/rpm/flightctl-agent-*.rpm /tmp/
 
 COPY packaging/flightctl-custom-assets/flightctl_rsa.pub /usr/etc-system/root.keys
 RUN touch /etc/ssh/sshd_config.d/30-auth-system.conf; \
@@ -97,7 +97,7 @@ ADD packaging/flightctl-custom-assets/config.yaml /etc/flightctl/
 ADD packaging/flightctl-custom-assets/ca.crt /etc/flightctl
 ADD packaging/flightctl-custom-assets/client-enrollment.* /etc/flightctl/
 
-RUN rpm-ostree install -y /tmp/flightctl-agent-0.0.1-1.el9.x86_64.rpm
+RUN rpm-ostree install -y /tmp/flightctl-*.rpm
 RUN ln -s /usr/lib/systemd/system/podman.socket /usr/lib/systemd/system/multi-user.target.wants/
 RUN ln -s /usr/lib/systemd/system/flightctl-agent.service /usr/lib/systemd/system/multi-user.target.wants/
 RUN ostree container commit 
@@ -106,7 +106,7 @@ RUN ostree container commit
 
 In order to make this work for your own service, first you need to have deployed the service (by following the section above where the podman-compose manifests is applied).
 
-Install the rpm build tools with `sudo dnf install -y rpmdevtool` and execute `make rpm` to build the agent RPM package. It will be picked up and injected into the image.
+Install the rpm build tools with `sudo dnf install -y rpmdevtool packit` and execute `make rpm` to build the agent RPM package. It will be picked up and injected into the image.
 Now, add the following assets to the directory `packaging/flightctl-custom-assets/`:
 
 - The public SSH key you want to inject as `packaging/flightctl-custom-assets/flightctl_rsa.pub`

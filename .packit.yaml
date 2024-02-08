@@ -1,0 +1,52 @@
+packages:
+  flightctl-agent:
+    specfile_path: packaging/rpm/flightctl-agent.spec
+
+    # add or remove files that should be synced
+    files_to_sync:
+        - packaging/rpm/flightctl-agent.spec
+        - .packit.yaml
+
+    upstream_package_name: flightctl-agent
+    downstream_package_name: flightctl-agent
+
+jobs:
+  - job: copr_build
+    trigger: pull_request
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-eln-aarch64
+      - centos-stream-9-x86_64
+
+  - job: copr_build
+    trigger: commit
+    owner: "@redhat-et"
+    project: flightctl-dev
+    preserve_project: True
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-39-aarch64
+      - fedora-39-x86_64
+      - fedora-eln-aarch64
+      - fedora-eln-x86_64
+      - centos-stream-9-x86_64
+      - centos-stream-9-aarch64
+      - rhel-9-aarch64
+      - rhel-9-x86_64
+
+
+  - job: copr_build
+    trigger: release
+    owner: "@redhat-et"
+    project: flightctl
+    preserve_project: True
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-39-aarch64
+      - fedora-39-x86_64
+      - fedora-eln-aarch64
+      - fedora-eln-x86_64
+      - centos-stream-9-x86_64
+      - centos-stream-9-aarch64
+      - rhel-9-aarch64
+      - rhel-9-x86_64
