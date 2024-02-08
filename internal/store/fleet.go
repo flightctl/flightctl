@@ -106,9 +106,21 @@ func (s *FleetStore) ListIgnoreOrg() ([]model.Fleet, error) {
 }
 
 func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
-	condition := model.Fleet{}
-	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	return result.Error
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		condition := model.Fleet{}
+		result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		// Unset owner for all devices in org, now that all fleets have been deleted
+		devCondition := model.Device{
+			Resource: model.Resource{OrgID: orgId},
+		}
+		result = tx.Model(devCondition).Select("owner").Updates(map[string]interface{}{"owner": nil})
+		return result.Error
+	})
+	return err
 }
 
 func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
@@ -223,9 +235,22 @@ func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource
 }
 
 func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	condition := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: name},
-	}
-	result := s.db.Unscoped().Delete(&condition)
-	return result.Error
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		fleetCondition := model.Fleet{
+			Resource: model.Resource{OrgID: orgId, Name: name},
+		}
+		result := tx.Unscoped().Delete(&fleetCondition)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		// Unset owner for all devices that this fleet owned
+		devCondition := model.Device{
+			Resource: model.Resource{OrgID: orgId, Owner: &name},
+		}
+		result = tx.Model(devCondition).Select("owner").Updates(map[string]interface{}{"owner": nil})
+		return result.Error
+	})
+
+	return err
 }

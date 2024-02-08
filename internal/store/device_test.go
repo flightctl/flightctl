@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -22,27 +20,6 @@ import (
 func TestStore(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Store Suite")
-}
-
-func createDevices(numDevices int, ctx context.Context, store *Store, orgId uuid.UUID) {
-	for i := 1; i <= numDevices; i++ {
-		resource := api.Device{
-			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("mydevice-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
-			},
-			Spec: api.DeviceSpec{
-				Os: &api.DeviceOSSpec{
-					Image: "myimage",
-				},
-			},
-		}
-
-		_, err := store.deviceStore.Create(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("creating device: %v", err)
-		}
-	}
 }
 
 var _ = Describe("DeviceStore create", func() {
@@ -64,7 +41,7 @@ var _ = Describe("DeviceStore create", func() {
 		numDevices = 3
 		db, store, cfg, dbName = PrepareDBForUnitTests(log)
 
-		createDevices(3, ctx, store, orgId)
+		CreateTestDevices(3, ctx, store.deviceStore, orgId, false)
 	})
 
 	AfterEach(func() {

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"log"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -17,27 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
-
-func createFleets(numFleets int, ctx context.Context, store *Store, orgId uuid.UUID) {
-	for i := 1; i <= numFleets; i++ {
-		resource := api.Fleet{
-			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("myfleet-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
-			},
-			Spec: api.FleetSpec{
-				Selector: &api.LabelSelector{
-					MatchLabels: map[string]string{"key": fmt.Sprintf("value-%d", i)},
-				},
-			},
-		}
-
-		_, err := store.fleetStore.Create(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("creating fleet: %v", err)
-		}
-	}
-}
 
 var _ = Describe("FleetStore create", func() {
 	var (
@@ -58,7 +36,7 @@ var _ = Describe("FleetStore create", func() {
 		numFleets = 3
 		db, store, cfg, dbName = PrepareDBForUnitTests(log)
 
-		createFleets(3, ctx, store, orgId)
+		CreateTestFleets(3, ctx, store.fleetStore, orgId, "myfleet", false)
 	})
 
 	AfterEach(func() {
@@ -88,8 +66,21 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("Delete fleet success", func() {
-			err := store.fleetStore.Delete(ctx, orgId, "myfleet-1")
+			CreateTestDevices(3, ctx, store.deviceStore, orgId, true)
+			devList, err := store.deviceStore.List(ctx, orgId, service.ListParams{Limit: 10})
 			Expect(err).ToNot(HaveOccurred())
+			for i, dev := range devList.Items {
+				dev.Metadata.Owner = util.StrToPtr("myfleet-1")
+				_, _, err = store.deviceStore.CreateOrUpdate(ctx, orgId, &devList.Items[i])
+				Expect(err).ToNot(HaveOccurred())
+			}
+			err = store.fleetStore.Delete(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			devList, err = store.deviceStore.List(ctx, orgId, service.ListParams{Limit: 10})
+			Expect(err).ToNot(HaveOccurred())
+			for _, dev := range devList.Items {
+				Expect(dev.Metadata.Owner).To(BeNil())
+			}
 		})
 
 		It("Delete fleet success when not found", func() {
@@ -98,8 +89,17 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("Delete all fleets in org", func() {
+			CreateTestDevices(3, ctx, store.deviceStore, orgId, false)
+			devList, err := store.deviceStore.List(ctx, orgId, service.ListParams{Limit: 10})
+			Expect(err).ToNot(HaveOccurred())
+			for i, dev := range devList.Items {
+				dev.Metadata.Owner = util.StrToPtr(fmt.Sprintf("myfleet-%d", i))
+				_, _, err = store.deviceStore.CreateOrUpdate(ctx, orgId, &devList.Items[i])
+				Expect(err).ToNot(HaveOccurred())
+			}
+
 			otherOrgId, _ := uuid.NewUUID()
-			err := store.fleetStore.DeleteAll(ctx, otherOrgId)
+			err = store.fleetStore.DeleteAll(ctx, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := service.ListParams{Limit: 1000}
@@ -113,6 +113,12 @@ var _ = Describe("FleetStore create", func() {
 			fleets, err = store.fleetStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(0))
+
+			devList, err = store.deviceStore.List(ctx, orgId, service.ListParams{Limit: 10})
+			Expect(err).ToNot(HaveOccurred())
+			for _, dev := range devList.Items {
+				Expect(dev.Metadata.Owner).To(BeNil())
+			}
 		})
 
 		It("List with paging", func() {
