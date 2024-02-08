@@ -51,7 +51,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	var numRemaining *int64
 
 	log := log.WithReqIDFromCtx(ctx, s.log)
-	query := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams.Labels)
+	query := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&resourceSyncs)
@@ -72,7 +72,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams.Labels)
+			countQuery := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal

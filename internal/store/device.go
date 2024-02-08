@@ -67,7 +67,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams serv
 	var numRemaining *int64
 	log := log.WithReqIDFromCtx(ctx, s.log)
 
-	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams.Labels)
+	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&devices)
@@ -88,7 +88,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams serv
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams.Labels)
+			countQuery := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams)
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -100,27 +100,6 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams serv
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
 	return &apiDevicelist, result.Error
-}
-
-// Get all Devices regardless of ownership. Used internally by the DeviceUpdater.
-// TODO: Add pagination, perhaps via gorm scopes.
-func (s *DeviceStore) ListIgnoreOrg(labels map[string]string) ([]model.Device, error) {
-	var devices model.DeviceList
-
-	query := LabelSelectionQuery(s.db, labels).Order("name")
-	result := query.Model(&devices).Find(&devices)
-	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	return devices, nil
-}
-
-// Update a Device regardless of ownership. Used internally by the DeviceUpdater.
-func (s *DeviceStore) UpdateIgnoreOrg(device *model.Device) error {
-	var updatedDevice model.Device
-	where := model.Device{Resource: model.Resource{Name: device.Name, OrgID: device.OrgID}}
-	return s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice).Error
 }
 
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {

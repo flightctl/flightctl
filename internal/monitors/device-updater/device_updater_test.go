@@ -29,7 +29,7 @@ func createDevices(numDevices int, ctx context.Context, deviceStore service.Devi
 		resource := api.Device{
 			Metadata: api.ObjectMeta{
 				Name:   util.StrToPtr(fmt.Sprintf("mydevice-%d", i)),
-				Labels: &map[string]string{"key": "value"},
+				Labels: &map[string]string{"key": "value", "otherkey": "othervalue"},
 			},
 		}
 
@@ -40,10 +40,10 @@ func createDevices(numDevices int, ctx context.Context, deviceStore service.Devi
 	}
 }
 
-func createFleet(ctx context.Context, fleetStore service.FleetStore, orgId uuid.UUID) *api.Fleet {
+func createFleet(ctx context.Context, fleetStore service.FleetStore, orgId uuid.UUID, name string) *api.Fleet {
 	resource := api.Fleet{
 		Metadata: api.ObjectMeta{
-			Name: util.StrToPtr("myfleet"),
+			Name: &name,
 		},
 		Spec: api.FleetSpec{
 			Selector: &api.LabelSelector{
@@ -91,7 +91,7 @@ var _ = Describe("DeviceUpdater", func() {
 
 	Context("DeviceUpdater", func() {
 		It("Update devices good flow", func() {
-			fleet := createFleet(ctx, fleetStore, orgId)
+			fleet := createFleet(ctx, fleetStore, orgId, "myfleet")
 			fleet, err := fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
@@ -106,6 +106,7 @@ var _ = Describe("DeviceUpdater", func() {
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
+				Expect(*dev.Metadata.Owner).To(Equal("fleet/myfleet"))
 				Expect(*dev.Metadata.Generation).To(Equal(int64(2)))
 				Expect(dev.Spec.Os.Image).To(Equal("my first OS"))
 			}
@@ -122,6 +123,7 @@ var _ = Describe("DeviceUpdater", func() {
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
+				Expect(*dev.Metadata.Owner).To(Equal("fleet/myfleet"))
 				Expect(*dev.Metadata.Generation).To(Equal(int64(3)))
 				Expect(dev.Spec.Os.Image).To(Equal("my new OS"))
 			}
@@ -129,6 +131,62 @@ var _ = Describe("DeviceUpdater", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(3)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(3)))
+		})
+
+		It("Update fleet owner good flow", func() {
+			createDevices(numDevices, ctx, deviceStore, orgId)
+			deviceUpdater.UpdateDevices()
+
+			// No fleet, so nothing should have happened
+			for i := 1; i <= numDevices; i++ {
+				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dev.Metadata.Owner).To(BeNil())
+			}
+
+			// Create a fleet, the devices should be owned by the fleet
+			fleet := createFleet(ctx, fleetStore, orgId, "myfleet")
+			fleet, err := fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			deviceUpdater.UpdateDevices()
+			for i := 1; i <= numDevices; i++ {
+				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(*dev.Metadata.Owner).To(Equal("fleet/myfleet"))
+			}
+
+			// Change the fleet selector, the devices should be ownerless
+			fleet.Spec.Selector.MatchLabels = map[string]string{"something": "else"}
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
+			Expect(err).ToNot(HaveOccurred())
+			deviceUpdater.UpdateDevices()
+			for i := 1; i <= numDevices; i++ {
+				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(*dev.Metadata.Owner).To(Equal(""))
+			}
+
+			// Create a new fleet, the devices should be owned by it
+			otherFleet := createFleet(ctx, fleetStore, orgId, "myotherfleet")
+			otherFleet, err = fleetStore.Get(ctx, orgId, *otherFleet.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			deviceUpdater.UpdateDevices()
+			for i := 1; i <= numDevices; i++ {
+				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(*dev.Metadata.Owner).To(Equal("fleet/myotherfleet"))
+			}
+
+			// Update the selector for the first fleet so that we have a conflict
+			fleet.Spec.Selector.MatchLabels = map[string]string{"key": "value"}
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
+			Expect(err).ToNot(HaveOccurred())
+			deviceUpdater.UpdateDevices()
+			for i := 1; i <= numDevices; i++ {
+				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(*dev.Metadata.Owner).To(Equal("fleet/myotherfleet"))
+			}
 		})
 	})
 })

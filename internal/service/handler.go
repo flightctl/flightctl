@@ -18,9 +18,11 @@ var (
 )
 
 type ListParams struct {
-	Labels   map[string]string
-	Limit    int
-	Continue *Continue
+	Labels       map[string]string
+	InvertLabels *bool
+	Owner        *string
+	Limit        int
+	Continue     *Continue
 }
 
 type Continue struct {

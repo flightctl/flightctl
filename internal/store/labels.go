@@ -11,7 +11,7 @@ import (
 // LabelSelectionQuery applies a label-based selection query to the given GORM DB query.
 // It takes a map of labels and a GORM DB query as input.
 // The function returns the modified DB query.
-func LabelSelectionQuery(query *gorm.DB, labels map[string]string) *gorm.DB {
+func LabelSelectionQuery(query *gorm.DB, labels map[string]string, inverse bool) *gorm.DB {
 
 	if len(labels) == 0 {
 		return query
@@ -31,5 +31,8 @@ func LabelSelectionQuery(query *gorm.DB, labels map[string]string) *gorm.DB {
 
 	queryString := fmt.Sprintf("labels @> ARRAY[%s]", strings.Join(arrayPlaceholders, ","))
 
+	if inverse {
+		return query.Not(queryString, arrayValues...)
+	}
 	return query.Where(queryString, arrayValues...)
 }

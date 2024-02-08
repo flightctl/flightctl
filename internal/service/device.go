@@ -6,7 +6,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/server"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
@@ -22,8 +21,6 @@ type DeviceStore interface {
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
-	ListIgnoreOrg(map[string]string) ([]model.Device, error)
-	UpdateIgnoreOrg(device *model.Device) error
 }
 
 // (POST /api/v1/devices)

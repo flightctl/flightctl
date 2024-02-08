@@ -22,7 +22,7 @@ type Resource struct {
 	// DisplayName string
 
 	// The "kind/name" of the resource owner of this resource.
-	// Owner string
+	Owner *string
 
 	// User-defined labels, used to select resources in queries.
 	// Labels are inserted in the device column as a string array, in a way

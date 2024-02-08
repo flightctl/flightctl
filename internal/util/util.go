@@ -55,6 +55,10 @@ func Int64ToPtr(i int64) *int64 {
 	return &i
 }
 
+func BoolToPtr(b bool) *bool {
+	return &b
+}
+
 func TimeStampStringPtr() *string {
 	return StrToPtr(time.Now().Format(time.RFC3339))
 }
@@ -109,6 +113,36 @@ func LabelArrayToMap(labels []string) map[string]string {
 		output[key] = val
 	}
 	return output
+}
+
+func SetResourceOwner(kind string, name string) *string {
+	owner := fmt.Sprintf("%s/%s", strings.ToLower(kind), name)
+	return &owner
+}
+
+func GetResourceOwner(owner *string) (string, string, error) {
+	if owner == nil {
+		return "", "", fmt.Errorf("owner string is nil")
+	}
+	parts := strings.Split(*owner, "/")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invlid owner string: %s", *owner)
+	}
+
+	return parts[0], parts[1], nil
+}
+
+func LabelsMatchLabelSelector(labels map[string]string, labelSelector map[string]string) bool {
+	for labelKey, labelVal := range labels {
+		selectorVal, ok := labelSelector[labelKey]
+		if !ok {
+			return false
+		}
+		if labelVal != selectorVal {
+			return false
+		}
+	}
+	return true
 }
 
 type Duration time.Duration
