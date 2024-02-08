@@ -1,4 +1,4 @@
-name: "Smoke tests"
+name: "Unit tests"
 on:
   workflow_dispatch:
   push:
@@ -10,8 +10,8 @@ permissions:
   contents: read
   pull-requests: read
 jobs:
-  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
-  podman-smoke-test:
+
+  unit-tests:
     runs-on: "ubuntu-latest"
     steps:
       - name: Checkout
@@ -19,7 +19,6 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
 
-      # The `run` key tells the job to execute a command on the runner. In this example, `npm ci` is used to install the npm software packages for the project.
       - name: Install dependencies
         run: |
           sudo apt-get update -y # fix broken repo cache
@@ -27,9 +26,7 @@ jobs:
           go install gotest.tools/gotestsum@latest
           go get -u github.com/proglottis/gpgme
 
-      - name: Install podman-compose
-        run: pip3 install podman-compose
-
+      # used to deploy the database container during unit testing
       - name: Install podman 4
         run: |
           sudo mkdir -p /etc/apt/keyrings
@@ -43,20 +40,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get -qq -y install podman
 
-      - name: Deploy
-        run: make build deploy
+      - name: Install podman-compose
+        run: pip3 install podman-compose
 
-      - name: Apply device
-        run: bin/flightctl apply -f examples/device.yaml
-
-      - name: Apply fleet
-        run: bin/flightctl apply -f examples/fleet.yaml
-
-      - name: Apply enrollmentrequest
-        run: bin/flightctl apply -f examples/enrollmentrequest.yaml
-
-      - name: Apply repository
-        run: bin/flightctl apply -f examples/repository.yaml
-
-      - name: Apply resourcesync
-        run: bin/flightctl apply -f examples/resourcesync.yaml
+      - name: Running Unit tests
+        run: make unit-test
