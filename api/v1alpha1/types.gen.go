@@ -363,6 +363,9 @@ type ObjectMeta struct {
 
 	// Name name of the object
 	Name *string `json:"name,omitempty"`
+
+	// Owner A resource that owns this resource, in "kind/name" format.
+	Owner *string `json:"owner,omitempty"`
 }
 
 // Repository Repository represents a git repository

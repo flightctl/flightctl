@@ -43,8 +43,10 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 
 	return &Device{
 		Resource: Resource{
-			Name:   *resource.Metadata.Name,
-			Labels: util.LabelMapToArray(resource.Metadata.Labels),
+			Name:       *resource.Metadata.Name,
+			Labels:     util.LabelMapToArray(resource.Metadata.Labels),
+			Generation: resource.Metadata.Generation,
+			Owner:      resource.Metadata.Owner,
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
@@ -71,6 +73,7 @@ func (d *Device) ToApiResource() api.Device {
 			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
 			Labels:            &metadataLabels,
 			Generation:        d.Generation,
+			Owner:             d.Owner,
 		},
 		Spec:   d.Spec.Data,
 		Status: &status,
