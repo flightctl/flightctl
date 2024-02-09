@@ -4,31 +4,18 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-openapi/swag"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-type RepositoryStore interface {
-	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
-	ListIgnoreOrg() ([]model.Repository, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
-	UpdateStatusIgnoreOrg(repository *model.Repository) error
-}
-
 // (POST /api/v1/repositories)
 func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.CreateRepositoryRequestObject) (server.CreateRepositoryResponseObject, error) {
-	orgId := NullOrgId
+	orgId := store.NullOrgId
 
-	result, err := h.repositoryStore.Create(ctx, orgId, request.Body)
+	result, err := h.store.Repository().Create(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateRepository201JSONResponse(*result), nil
@@ -39,7 +26,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 
 // (GET /api/v1/repositories)
 func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.ListRepositoriesRequestObject) (server.ListRepositoriesResponseObject, error) {
-	orgId := NullOrgId
+	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -50,24 +37,24 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		return nil, err
 	}
 
-	cont, err := ParseContinueString(request.Params.Continue)
+	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListRepositories400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
 	}
 
-	listParams := ListParams{
+	listParams := store.ListParams{
 		Labels:   labelMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
 	}
 	if listParams.Limit == 0 {
-		listParams.Limit = MaxRecordsPerListRequest
+		listParams.Limit = store.MaxRecordsPerListRequest
 	}
-	if listParams.Limit > MaxRecordsPerListRequest {
-		return server.ListRepositories400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
+	if listParams.Limit > store.MaxRecordsPerListRequest {
+		return server.ListRepositories400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
 	}
 
-	result, err := h.repositoryStore.List(ctx, orgId, listParams)
+	result, err := h.store.Repository().List(ctx, orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListRepositories200JSONResponse(*result), nil
@@ -78,9 +65,9 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 
 // (DELETE /api/v1/repositories)
 func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.DeleteRepositoriesRequestObject) (server.DeleteRepositoriesResponseObject, error) {
-	orgId := NullOrgId
+	orgId := store.NullOrgId
 
-	err := h.repositoryStore.DeleteAll(ctx, orgId)
+	err := h.store.Repository().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteRepositories200JSONResponse{}, nil
@@ -91,9 +78,9 @@ func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.
 
 // (GET /api/v1/repositories/{name})
 func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.ReadRepositoryRequestObject) (server.ReadRepositoryResponseObject, error) {
-	orgId := NullOrgId
+	orgId := store.NullOrgId
 
-	result, err := h.repositoryStore.Get(ctx, orgId, request.Name)
+	result, err := h.store.Repository().Get(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadRepository200JSONResponse(*result), nil
@@ -106,12 +93,12 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 
 // (PUT /api/v1/repositories/{name})
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.ReplaceRepositoryRequestObject) (server.ReplaceRepositoryResponseObject, error) {
-	orgId := NullOrgId
+	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceRepository400Response{}, nil
 	}
 
-	result, created, err := h.repositoryStore.CreateOrUpdate(ctx, orgId, request.Body)
+	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -128,9 +115,9 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 
 // (DELETE /api/v1/repositories/{name})
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.DeleteRepositoryRequestObject) (server.DeleteRepositoryResponseObject, error) {
-	orgId := NullOrgId
+	orgId := store.NullOrgId
 
-	err := h.repositoryStore.Delete(ctx, orgId, request.Name)
+	err := h.store.Repository().Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteRepository200JSONResponse{}, nil

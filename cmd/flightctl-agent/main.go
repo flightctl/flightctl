@@ -11,7 +11,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/agent/controller"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -20,7 +19,7 @@ func main() {
 	log := log.InitLogs()
 	dataDir := flag.String("data-dir", "/etc/flightctl", "device agent data directory")
 
-	agentConfig, _ := config.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
+	agentConfig, _ := agent.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
 
 	serverUrl := flag.String("server", agentConfig.Agent.Server, "device server URL")
 	enrollmentUiUrl := flag.String("enrollment-ui", agentConfig.Agent.EnrollmentUi, "enrollment UI URL base")

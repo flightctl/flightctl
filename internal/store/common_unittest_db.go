@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func PrepareDBForUnitTests(log *logrus.Logger) (*gorm.DB, *Store, *config.Config, string) {
+func PrepareDBForUnitTests(log *logrus.Logger) (*gorm.DB, Store, *config.Config, string) {
 	cfg := config.NewDefault()
 	cfg.Database.Name = ""
 	dbTemp, err := InitDB(cfg)

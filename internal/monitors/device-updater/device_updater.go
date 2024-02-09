@@ -3,7 +3,6 @@ package device_updater
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -20,16 +19,16 @@ type API interface {
 type DeviceUpdater struct {
 	log        logrus.FieldLogger
 	db         *gorm.DB
-	fleetStore service.FleetStore
-	devStore   service.DeviceStore
+	fleetStore store.Fleet
+	devStore   store.Device
 }
 
-func NewDeviceUpdater(log logrus.FieldLogger, db *gorm.DB, store *store.Store) *DeviceUpdater {
+func NewDeviceUpdater(log logrus.FieldLogger, db *gorm.DB, store store.Store) *DeviceUpdater {
 	return &DeviceUpdater{
 		log:        log,
 		db:         db,
-		fleetStore: store.GetFleetStore(),
-		devStore:   store.GetDeviceStore(),
+		fleetStore: store.Fleet(),
+		devStore:   store.Device(),
 	}
 }
 
