@@ -33,10 +33,10 @@ const (
 )
 
 type Server struct {
-	log   logrus.FieldLogger
-	cfg   *config.Config
-	store store.Store
-	db    *gorm.DB
+	log       logrus.FieldLogger
+	cfg       *config.Config
+	store     store.Store
+	db        *gorm.DB
 	tlsConfig *tls.Config
 }
 
@@ -49,9 +49,9 @@ func New(
 	tlsConfig *tls.Config,
 ) *Server {
 	return &Server{
-		log:   log,
-		cfg:   cfg,
-		store: store,
+		log:       log,
+		cfg:       cfg,
+		store:     store,
 		tlsConfig: tlsConfig,
 	}
 }

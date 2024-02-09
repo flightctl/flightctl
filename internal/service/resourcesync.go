@@ -13,7 +13,7 @@ import (
 
 // (POST /api/v1/resourcesyncs)
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.CreateResourceSyncRequestObject) (server.CreateResourceSyncResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.ResourceSync().Create(ctx, orgId, request.Body)
 	switch err {
@@ -26,7 +26,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 
 // (GET /api/v1/resourcesyncs)
 func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.ListResourceSyncRequestObject) (server.ListResourceSyncResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -65,7 +65,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 
 // (DELETE /api/v1/resourcesyncs)
 func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server.DeleteResourceSyncsRequestObject) (server.DeleteResourceSyncsResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.ResourceSync().DeleteAll(ctx, orgId)
 	switch err {
@@ -78,7 +78,7 @@ func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server
 
 // (GET /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.ReadResourceSyncRequestObject) (server.ReadResourceSyncResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
 	switch err {
@@ -93,7 +93,7 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 
 // (PUT /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server.ReplaceResourceSyncRequestObject) (server.ReplaceResourceSyncResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceResourceSync400Response{}, nil
 	}
@@ -115,7 +115,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 
 // (DELETE /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.DeleteResourceSyncRequestObject) (server.DeleteResourceSyncResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.ResourceSync().Delete(ctx, orgId, request.Name)
 	switch err {

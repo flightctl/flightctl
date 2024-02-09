@@ -13,7 +13,7 @@ import (
 
 // (POST /api/v1/repositories)
 func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.CreateRepositoryRequestObject) (server.CreateRepositoryResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Repository().Create(ctx, orgId, request.Body)
 	switch err {
@@ -26,7 +26,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 
 // (GET /api/v1/repositories)
 func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.ListRepositoriesRequestObject) (server.ListRepositoriesResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -65,7 +65,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 
 // (DELETE /api/v1/repositories)
 func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.DeleteRepositoriesRequestObject) (server.DeleteRepositoriesResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.Repository().DeleteAll(ctx, orgId)
 	switch err {
@@ -78,7 +78,7 @@ func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.
 
 // (GET /api/v1/repositories/{name})
 func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.ReadRepositoryRequestObject) (server.ReadRepositoryResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Repository().Get(ctx, orgId, request.Name)
 	switch err {
@@ -93,7 +93,7 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 
 // (PUT /api/v1/repositories/{name})
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.ReplaceRepositoryRequestObject) (server.ReplaceRepositoryResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceRepository400Response{}, nil
 	}
@@ -115,7 +115,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 
 // (DELETE /api/v1/repositories/{name})
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.DeleteRepositoryRequestObject) (server.DeleteRepositoryResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.Repository().Delete(ctx, orgId, request.Name)
 	switch err {

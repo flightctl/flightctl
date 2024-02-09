@@ -24,7 +24,7 @@ func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 
 // (POST /api/v1/fleets)
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().Create(ctx, orgId, request.Body)
 	switch err {
@@ -37,7 +37,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 
 // (GET /api/v1/fleets)
 func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -76,7 +76,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 
 // (DELETE /api/v1/fleets)
 func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.Fleet().DeleteAll(ctx, orgId)
 	switch err {
@@ -89,7 +89,7 @@ func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.Delete
 
 // (GET /api/v1/fleets/{name})
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
 	switch err {
@@ -104,7 +104,7 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceFleet400Response{}, nil
 	}
@@ -126,7 +126,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 
 // (DELETE /api/v1/fleets/{name})
 func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.Fleet().Delete(ctx, orgId, request.Name)
 	switch err {
@@ -141,7 +141,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 
 // (GET /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
 	switch err {
@@ -156,7 +156,7 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 
 // (PUT /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, request.Body)
 	switch err {

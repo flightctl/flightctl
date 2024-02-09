@@ -8,14 +8,13 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
-	"github.com/flightctl/flightctl/internal/store"
-
 )
 
 const ClientCertExpiryDays = 365
@@ -78,7 +77,7 @@ func createDeviceFromEnrollmentRequest(ctx context.Context, deviceStore store.De
 
 // (POST /api/v1/enrollmentrequests)
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
@@ -95,7 +94,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 
 // (GET /api/v1/enrollmentrequests)
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -134,7 +133,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 // (DELETE /api/v1/enrollmentrequests)
 func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
 	switch err {
@@ -147,7 +146,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request s
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	switch err {
@@ -162,7 +161,7 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 
 // (PUT /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceEnrollmentRequest400Response{}, nil
 	}
@@ -188,7 +187,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
 	switch err {
@@ -203,7 +202,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 
 // (GET /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	switch err {
@@ -218,7 +217,7 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 
 // (POST /api/v1/enrollmentrequests/{name}/approval)
 func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, request server.CreateEnrollmentRequestApprovalRequestObject) (server.CreateEnrollmentRequestApprovalResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	log := log.WithReqIDFromCtx(ctx, h.log)
 
@@ -275,7 +274,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 
 // (PUT /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err

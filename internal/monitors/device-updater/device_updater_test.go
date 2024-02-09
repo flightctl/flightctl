@@ -64,7 +64,7 @@ var _ = Describe("DeviceUpdater", func() {
 		ctx           context.Context
 		orgId         uuid.UUID
 		db            *gorm.DB
-		deviceStore   store.Device 
+		deviceStore   store.Device
 		fleetStore    store.Fleet
 		cfg           *config.Config
 		dbName        string

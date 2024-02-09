@@ -14,7 +14,7 @@ import (
 
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Create(ctx, orgId, request.Body)
 	switch err {
@@ -27,7 +27,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 
 // (GET /api/v1/devices)
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -74,7 +74,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 // (DELETE /api/v1/devices)
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.Device().DeleteAll(ctx, orgId)
 	switch err {
@@ -87,7 +87,7 @@ func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.Delet
 
 // (GET /api/v1/devices/{name})
 func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDeviceRequestObject) (server.ReadDeviceResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
 	switch err {
@@ -102,7 +102,7 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceDevice400Response{}, nil
 	}
@@ -124,7 +124,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 
 // (DELETE /api/v1/devices/{name})
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	err := h.store.Device().Delete(ctx, orgId, request.Name)
 	switch err {
@@ -139,7 +139,7 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 
 // (GET /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.ReadDeviceStatusRequestObject) (server.ReadDeviceStatusResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
 	switch err {
@@ -154,7 +154,7 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 
 // (PUT /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	orgId :=store.NullOrgId
+	orgId := store.NullOrgId
 
 	device := request.Body
 	device.Status.UpdatedAt = util.TimeStampStringPtr()

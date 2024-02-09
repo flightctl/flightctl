@@ -15,8 +15,8 @@ const (
 )
 
 type Config struct {
-	Database *dbConfig    `json:"database,omitempty"`
-	Service  *svcConfig   `json:"service,omitempty"`
+	Database *dbConfig  `json:"database,omitempty"`
+	Service  *svcConfig `json:"service,omitempty"`
 }
 
 type dbConfig struct {

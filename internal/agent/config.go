@@ -11,7 +11,7 @@ import (
 )
 
 type Config struct {
-	Agent    *agentConfig `json:"agent,omitempty"`
+	Agent *agentConfig `json:"agent,omitempty"`
 }
 
 type agentConfig struct {
@@ -92,4 +92,3 @@ func (cfg *Config) String() string {
 	}
 	return string(contents)
 }
-
