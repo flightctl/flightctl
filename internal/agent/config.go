@@ -1,4 +1,4 @@
-package config
+package agent
 
 import (
 	"encoding/json"
@@ -7,69 +7,34 @@ import (
 	"path/filepath"
 
 	"github.com/flightctl/flightctl/internal/util"
-	"sigs.k8s.io/yaml"
-)
-
-const (
-	appName = "flightctl"
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Database *dbConfig    `json:"database,omitempty"`
-	Service  *svcConfig   `json:"service,omitempty"`
+	Agent    *agentConfig `json:"agent,omitempty"`
 }
 
-type dbConfig struct {
-	Type     string `json:"type,omitempty"`
-	Hostname string `json:"hostname,omitempty"`
-	Port     uint   `json:"port,omitempty"`
-	Name     string `json:"name,omitempty"`
-	User     string `json:"user,omitempty"`
-	Password string `json:"password,omitempty"`
-}
-
-type svcConfig struct {
-	Address     string   `json:"address,omitempty"`
-	CertStore   string   `json:"cert,omitempty"`
-	BaseUrl     string   `json:"baseUrl,omitempty"`
-	CaCertFile  string   `json:"caCertFile,omitempty"`
-	CaKeyFile   string   `json:"caKeyFile,omitempty"`
-	SrvCertFile string   `json:"srvCertFile,omitempty"`
-	SrvKeyFile  string   `json:"srvKeyFile,omitempty"`
-	AltNames    []string `json:"altNames,omitempty"`
-}
-
-func ConfigDir() string {
-	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName)
-}
-
-func ConfigFile() string {
-	return filepath.Join(ConfigDir(), "config.yaml")
-}
-
-func CertificateDir() string {
-	return filepath.Join(ConfigDir(), "certs")
+type agentConfig struct {
+	Server               string        `json:"server,omitempty"`
+	EnrollmentUi         string        `json:"enrollmentUi,omitempty"`
+	TpmPath              string        `json:"tpmPath,omitempty"`
+	FetchSpecInterval    util.Duration `json:"fetchSpecInterval,omitempty"`
+	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
 }
 
 func NewDefault() *Config {
-	c := &Config{
-		Database: &dbConfig{
-			Type:     "pgsql",
-			Hostname: "localhost",
-			Port:     5432,
-			Name:     "flightctl",
-			User:     "admin",
-			Password: "adminpass",
-		},
-		Service: &svcConfig{
-			Address:   ":3333",
-			CertStore: CertificateDir(),
-			BaseUrl:   "http://localhost:3333/api",
+	return &Config{
+		&agentConfig{
+			Server:               "https://localhost:3333",
+			EnrollmentUi:         "",
+			TpmPath:              "",
+			FetchSpecInterval:    util.Duration(DefaultFetchSpecInterval),
+			StatusUpdateInterval: util.Duration(DefaultStatusUpdateInterval),
 		},
 	}
-	return c
 }
 
+// TODO: dedupe with internal/config/config.go
 func NewFromFile(cfgFile string) (*Config, error) {
 	cfg, err := Load(cfgFile)
 	if err != nil {
@@ -127,3 +92,4 @@ func (cfg *Config) String() string {
 	}
 	return string(contents)
 }
+
