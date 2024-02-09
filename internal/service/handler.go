@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/server"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
