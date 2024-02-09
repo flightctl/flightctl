@@ -8,23 +8,11 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-openapi/swag"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
 )
-
-type FleetStore interface {
-	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
-	ListIgnoreOrg() ([]model.Fleet, error)
-}
 
 func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 	var fleet api.Fleet
@@ -36,9 +24,9 @@ func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 
 // (POST /api/v1/fleets)
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 
-	result, err := h.fleetStore.Create(ctx, orgId, request.Body)
+	result, err := h.store.Fleet().Create(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.CreateFleet201JSONResponse(*result), nil
@@ -49,7 +37,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 
 // (GET /api/v1/fleets)
 func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -60,24 +48,24 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return nil, err
 	}
 
-	cont, err := ParseContinueString(request.Params.Continue)
+	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListFleets400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
 	}
 
-	listParams := ListParams{
+	listParams := store.ListParams{
 		Labels:   labelMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
 	}
 	if listParams.Limit == 0 {
-		listParams.Limit = MaxRecordsPerListRequest
+		listParams.Limit = store.MaxRecordsPerListRequest
 	}
-	if listParams.Limit > MaxRecordsPerListRequest {
-		return server.ListFleets400Response{}, fmt.Errorf("limit cannot exceed %d", MaxRecordsPerListRequest)
+	if listParams.Limit > store.MaxRecordsPerListRequest {
+		return server.ListFleets400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
 	}
 
-	result, err := h.fleetStore.List(ctx, orgId, listParams)
+	result, err := h.store.Fleet().List(ctx, orgId, listParams)
 	switch err {
 	case nil:
 		return server.ListFleets200JSONResponse(*result), nil
@@ -88,9 +76,9 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 
 // (DELETE /api/v1/fleets)
 func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 
-	err := h.fleetStore.DeleteAll(ctx, orgId)
+	err := h.store.Fleet().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteFleets200JSONResponse{}, nil
@@ -101,9 +89,9 @@ func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.Delete
 
 // (GET /api/v1/fleets/{name})
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 
-	result, err := h.fleetStore.Get(ctx, orgId, request.Name)
+	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadFleet200JSONResponse(*result), nil
@@ -116,12 +104,12 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceFleet400Response{}, nil
 	}
 
-	result, created, err := h.fleetStore.CreateOrUpdate(ctx, orgId, request.Body)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		if created {
@@ -138,9 +126,9 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 
 // (DELETE /api/v1/fleets/{name})
 func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 
-	err := h.fleetStore.Delete(ctx, orgId, request.Name)
+	err := h.store.Fleet().Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil
@@ -153,9 +141,9 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 
 // (GET /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 
-	result, err := h.fleetStore.Get(ctx, orgId, request.Name)
+	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.ReadFleetStatus200JSONResponse(*result), nil
@@ -168,9 +156,9 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 
 // (PUT /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
-	orgId := NullOrgId
+	orgId :=store.NullOrgId
 
-	result, err := h.fleetStore.UpdateStatus(ctx, orgId, request.Body)
+	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, request.Body)
 	switch err {
 	case nil:
 		return server.ReplaceFleetStatus200JSONResponse(*result), nil

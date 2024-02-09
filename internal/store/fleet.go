@@ -9,7 +9,6 @@ import (
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -18,15 +17,27 @@ import (
 	"gorm.io/gorm"
 )
 
+type Fleet interface {
+	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, bool, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	ListIgnoreOrg() ([]model.Fleet, error)
+	InitialMigration() error
+}
+
 type FleetStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to FleetStore interface
-var _ service.FleetStore = (*FleetStore)(nil)
+// Make sure we conform to Fleet interface
+var _ Fleet = (*FleetStore)(nil)
 
-func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) *FleetStore {
+func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
 	return &FleetStore{db: db, log: log}
 }
 
@@ -51,7 +62,7 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	return resource, result.Error
 }
 
-func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.FleetList, error) {
+func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error) {
 	var fleets model.FleetList
 	var nextContinue *string
 	var numRemaining *int64
@@ -65,9 +76,9 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams servi
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(fleets) > listParams.Limit {
-		nextContinueStruct := service.Continue{
+		nextContinueStruct := Continue{
 			Name:    fleets[len(fleets)-1].Name,
-			Version: service.CurrentContinueVersion,
+			Version: CurrentContinueVersion,
 		}
 		fleets = fleets[:len(fleets)-1]
 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -15,15 +14,28 @@ import (
 	"gorm.io/gorm"
 )
 
+type Device interface {
+	Create(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, bool, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	ListIgnoreOrg(map[string]string) ([]model.Device, error)
+	UpdateIgnoreOrg(device *model.Device) error
+	InitialMigration() error
+}
+
 type DeviceStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to DeviceStore interface
-var _ service.DeviceStore = (*DeviceStore)(nil)
+// Make sure we conform to Device interface
+var _ Device = (*DeviceStore)(nil)
 
-func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) *DeviceStore {
+func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
 	return &DeviceStore{db: db, log: log}
 }
 
@@ -61,7 +73,7 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api
 	return resource, result.Error
 }
 
-func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.DeviceList, error) {
+func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
 	var devices model.DeviceList
 	var nextContinue *string
 	var numRemaining *int64
@@ -75,9 +87,9 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams serv
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(devices) > listParams.Limit {
-		nextContinueStruct := service.Continue{
+		nextContinueStruct := Continue{
 			Name:    devices[len(devices)-1].Name,
-			Version: service.CurrentContinueVersion,
+			Version: CurrentContinueVersion,
 		}
 		devices = devices[:len(devices)-1]
 

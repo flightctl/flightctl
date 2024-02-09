@@ -3,7 +3,6 @@ package store
 import (
 	"log"
 
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -14,7 +13,7 @@ func BuildBaseListQuery(db *gorm.DB, orgId uuid.UUID, labels map[string]string) 
 	return query
 }
 
-func AddPaginationToQuery(query *gorm.DB, limit int, cont *service.Continue) *gorm.DB {
+func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
 	query = query.Limit(limit)
 	if cont != nil {
 		query = query.Where("name >= ?", cont.Name)

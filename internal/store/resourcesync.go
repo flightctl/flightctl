@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -15,15 +14,27 @@ import (
 	"gorm.io/gorm"
 )
 
+type ResourceSync interface {
+	Create(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
+	ListIgnoreOrg() ([]model.ResourceSync, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	UpdateStatusIgnoreOrg(resourceSync *model.ResourceSync) error
+	InitialMigration() error
+}
+
 type ResourceSyncStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
 }
 
 // Make sure we conform to ResourceSyncStore interface
-var _ service.ResourceSyncStore = (*ResourceSyncStore)(nil)
+var _ ResourceSync = (*ResourceSyncStore)(nil)
 
-func NewResourceSyncStore(db *gorm.DB, log logrus.FieldLogger) *ResourceSyncStore {
+func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 	return &ResourceSyncStore{db: db, log: log}
 }
 
@@ -45,7 +56,7 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 	return &apiResourceSync, result.Error
 }
 
-func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.ResourceSyncList, error) {
+func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error) {
 	var resourceSyncs model.ResourceSyncList
 	var nextContinue *string
 	var numRemaining *int64
@@ -59,9 +70,9 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(resourceSyncs) > listParams.Limit {
-		nextContinueStruct := service.Continue{
+		nextContinueStruct := Continue{
 			Name:    resourceSyncs[len(resourceSyncs)-1].Name,
-			Version: service.CurrentContinueVersion,
+			Version: CurrentContinueVersion,
 		}
 		resourceSyncs = resourceSyncs[:len(resourceSyncs)-1]
 

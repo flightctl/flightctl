@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -15,15 +14,26 @@ import (
 	"gorm.io/gorm"
 )
 
+type EnrollmentRequest interface {
+	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	InitialMigration() error
+}
+
 type EnrollmentRequestStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
 }
 
 // Make sure we conform to EnrollmentRequestStore interface
-var _ service.EnrollmentRequestStore = (*EnrollmentRequestStore)(nil)
+var _ EnrollmentRequest = (*EnrollmentRequestStore)(nil)
 
-func NewEnrollmentRequestStoreStore(db *gorm.DB, log logrus.FieldLogger) *EnrollmentRequestStore {
+func NewEnrollmentRequest(db *gorm.DB, log logrus.FieldLogger) EnrollmentRequest {
 	return &EnrollmentRequestStore{db: db, log: log}
 }
 
@@ -43,7 +53,7 @@ func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, re
 	return resource, result.Error
 }
 
-func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.EnrollmentRequestList, error) {
+func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error) {
 	var enrollmentRequests model.EnrollmentRequestList
 	var nextContinue *string
 	var numRemaining *int64
@@ -57,9 +67,9 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(enrollmentRequests) > listParams.Limit {
-		nextContinueStruct := service.Continue{
+		nextContinueStruct := Continue{
 			Name:    enrollmentRequests[len(enrollmentRequests)-1].Name,
-			Version: service.CurrentContinueVersion,
+			Version: CurrentContinueVersion,
 		}
 		enrollmentRequests = enrollmentRequests[:len(enrollmentRequests)-1]
 
