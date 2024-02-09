@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
