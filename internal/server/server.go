@@ -52,6 +52,7 @@ func New(
 		log:       log,
 		cfg:       cfg,
 		store:     store,
+		db:        db,
 		tlsConfig: tlsConfig,
 	}
 }
