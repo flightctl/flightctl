@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -24,7 +23,7 @@ func TestStore(t *testing.T) {
 	RunSpecs(t, "RepoTester Suite")
 }
 
-func createRepository(ctx context.Context, repostore service.RepositoryStore, orgId uuid.UUID) error {
+func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID) error {
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
 			Name: util.StrToPtr("myrepo"),
@@ -53,7 +52,7 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		var stores *store.Store
+		var stores store.Store
 		db, stores, cfg, dbName = store.PrepareDBForUnitTests(log)
 		repotester = NewRepoTester(log, db, stores)
 	})

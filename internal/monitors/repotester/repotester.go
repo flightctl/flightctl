@@ -4,7 +4,6 @@ import (
 	"context"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -27,14 +26,14 @@ type API interface {
 type RepoTester struct {
 	log       logrus.FieldLogger
 	db        *gorm.DB
-	repoStore service.RepositoryStore
+	repoStore store.Repository
 }
 
-func NewRepoTester(log logrus.FieldLogger, db *gorm.DB, store *store.Store) *RepoTester {
+func NewRepoTester(log logrus.FieldLogger, db *gorm.DB, store store.Store) *RepoTester {
 	return &RepoTester{
 		log:       log,
 		db:        db,
-		repoStore: store.GetRepositoryStore(),
+		repoStore: store.Repository(),
 	}
 }
 
