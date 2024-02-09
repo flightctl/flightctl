@@ -35,7 +35,7 @@ const (
 type Server struct {
 	log       logrus.FieldLogger
 	cfg       *config.Config
-	store     *store.Store
+	store     store.Store
 	db        *gorm.DB
 	tlsConfig *tls.Config
 }
@@ -44,7 +44,7 @@ type Server struct {
 func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
-	store *store.Store,
+	store store.Store,
 	db *gorm.DB,
 	tlsConfig *tls.Config,
 ) *Server {

@@ -8,7 +8,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -24,7 +23,7 @@ func TestController(t *testing.T) {
 	RunSpecs(t, "DeviceUpdater Suite")
 }
 
-func createDevices(numDevices int, ctx context.Context, deviceStore service.DeviceStore, orgId uuid.UUID) {
+func createDevices(numDevices int, ctx context.Context, deviceStore store.Device, orgId uuid.UUID) {
 	for i := 1; i <= numDevices; i++ {
 		resource := api.Device{
 			Metadata: api.ObjectMeta{
@@ -40,7 +39,7 @@ func createDevices(numDevices int, ctx context.Context, deviceStore service.Devi
 	}
 }
 
-func createFleet(ctx context.Context, fleetStore service.FleetStore, orgId uuid.UUID) *api.Fleet {
+func createFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID) *api.Fleet {
 	resource := api.Fleet{
 		Metadata: api.ObjectMeta{
 			Name: util.StrToPtr("myfleet"),
@@ -65,8 +64,8 @@ var _ = Describe("DeviceUpdater", func() {
 		ctx           context.Context
 		orgId         uuid.UUID
 		db            *gorm.DB
-		deviceStore   service.DeviceStore
-		fleetStore    service.FleetStore
+		deviceStore   store.Device
+		fleetStore    store.Fleet
 		cfg           *config.Config
 		dbName        string
 		numDevices    int
@@ -78,10 +77,10 @@ var _ = Describe("DeviceUpdater", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		var stores *store.Store
+		var stores store.Store
 		db, stores, cfg, dbName = store.PrepareDBForUnitTests(log)
-		deviceStore = stores.GetDeviceStore()
-		fleetStore = stores.GetFleetStore()
+		deviceStore = stores.Device()
+		fleetStore = stores.Fleet()
 		deviceUpdater = NewDeviceUpdater(log, db, stores)
 	})
 

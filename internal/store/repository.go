@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -15,15 +14,27 @@ import (
 	"gorm.io/gorm"
 )
 
+type Repository interface {
+	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
+	ListIgnoreOrg() ([]model.Repository, error)
+	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	UpdateStatusIgnoreOrg(repository *model.Repository) error
+	InitialMigration() error
+}
+
 type RepositoryStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to RepositoryStore interface
-var _ service.RepositoryStore = (*RepositoryStore)(nil)
+// Make sure we conform to Repository interface
+var _ Repository = (*RepositoryStore)(nil)
 
-func NewRepositoryStore(db *gorm.DB, log logrus.FieldLogger) *RepositoryStore {
+func NewRepository(db *gorm.DB, log logrus.FieldLogger) Repository {
 	return &RepositoryStore{db: db, log: log}
 }
 
@@ -45,7 +56,7 @@ func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource 
 	return &apiRepository, result.Error
 }
 
-func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams service.ListParams) (*api.RepositoryList, error) {
+func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
 	var repositories model.RepositoryList
 	var nextContinue *string
 	var numRemaining *int64
@@ -59,9 +70,9 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(repositories) > listParams.Limit {
-		nextContinueStruct := service.Continue{
+		nextContinueStruct := Continue{
 			Name:    repositories[len(repositories)-1].Name,
-			Version: service.CurrentContinueVersion,
+			Version: CurrentContinueVersion,
 		}
 		repositories = repositories[:len(repositories)-1]
 
