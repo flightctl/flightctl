@@ -31,7 +31,7 @@ type RepositoryStore struct {
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to RepositoryStore interface
+// Make sure we conform to Repository interface
 var _ Repository = (*RepositoryStore)(nil)
 
 func NewRepository(db *gorm.DB, log logrus.FieldLogger) Repository {

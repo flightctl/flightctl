@@ -30,7 +30,7 @@ type EnrollmentRequestStore struct {
 	log logrus.FieldLogger
 }
 
-// Make sure we conform to EnrollmentRequestStore interface
+// Make sure we conform to EnrollmentRequest interface
 var _ EnrollmentRequest = (*EnrollmentRequestStore)(nil)
 
 func NewEnrollmentRequest(db *gorm.DB, log logrus.FieldLogger) EnrollmentRequest {
