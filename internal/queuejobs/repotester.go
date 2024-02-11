@@ -1,4 +1,4 @@
-package repotester
+package queuejobs
 
 import (
 	"context"
@@ -15,40 +15,37 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/google/uuid"
+	"github.com/riverqueue/river"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
-type API interface {
-	Test()
-}
-
-type RepoTester struct {
+type RepoTesterWorker struct {
+	river.WorkerDefaults[store.TestRepoArgs]
 	log       logrus.FieldLogger
 	db        *gorm.DB
 	repoStore store.Repository
 }
 
-func NewRepoTester(log logrus.FieldLogger, db *gorm.DB, store store.Store) *RepoTester {
-	return &RepoTester{
+func NewRepoTester(log logrus.FieldLogger, db *gorm.DB, store store.Store) *RepoTesterWorker {
+	return &RepoTesterWorker{
 		log:       log,
 		db:        db,
 		repoStore: store.Repository(),
 	}
 }
 
-func (r *RepoTester) TestRepo() {
+func (r *RepoTesterWorker) Work(origCtx context.Context, job *river.Job[store.TestRepoArgs]) error {
 	reqid.OverridePrefix("repotester")
 	requestID := reqid.NextRequestID()
-	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
+	ctx := context.WithValue(origCtx, middleware.RequestIDKey, requestID)
 	log := log.WithReqIDFromCtx(ctx, r.log)
-
 	log.Info("Running RepoTester")
 
 	repositories, err := r.repoStore.ListIgnoreOrg()
 	if err != nil {
 		log.Errorf("error fetching repositories: %s", err)
-		return
+		return err
 	}
 
 	for _, repository := range repositories {
@@ -73,9 +70,11 @@ func (r *RepoTester) TestRepo() {
 			log.Errorf("Failed to update repository status for %s: %v", repository.Name, err)
 		}
 	}
+
+	return nil
 }
 
-func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, name string, orgId uuid.UUID, repoStatus api.RepositoryStatus, err error) error {
+func (r *RepoTesterWorker) setAccessCondition(log logrus.FieldLogger, name string, orgId uuid.UUID, repoStatus api.RepositoryStatus, err error) error {
 	timestamp := util.TimeStampStringPtr()
 	var lastTransitionTime *string
 	previousStatus := api.Unknown
