@@ -41,10 +41,9 @@ type genericResourceMap map[string]interface{}
 var fileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{model.FleetKind}
 
-func NewResourceSync(log logrus.FieldLogger, db *gorm.DB, store store.Store) *ResourceSync {
+func NewResourceSync(log logrus.FieldLogger, store store.Store) *ResourceSync {
 	return &ResourceSync{
 		log:   log,
-		db:    db,
 		store: store,
 	}
 }

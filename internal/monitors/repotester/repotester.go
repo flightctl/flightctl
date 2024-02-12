@@ -16,7 +16,6 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 type API interface {
@@ -25,14 +24,12 @@ type API interface {
 
 type RepoTester struct {
 	log       logrus.FieldLogger
-	db        *gorm.DB
 	repoStore store.Repository
 }
 
-func NewRepoTester(log logrus.FieldLogger, db *gorm.DB, store store.Store) *RepoTester {
+func NewRepoTester(log logrus.FieldLogger, store store.Store) *RepoTester {
 	return &RepoTester{
 		log:       log,
-		db:        db,
 		repoStore: store.Repository(),
 	}
 }

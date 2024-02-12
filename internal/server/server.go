@@ -48,7 +48,6 @@ func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
 	store store.Store,
-	db *gorm.DB,
 	tlsConfig *tls.Config,
 	ca *crypto.CA,
 ) *Server {
@@ -56,7 +55,6 @@ func New(
 		log:       log,
 		cfg:       cfg,
 		store:     store,
-		db:        db,
 		tlsConfig: tlsConfig,
 		ca:        ca,
 	}
@@ -108,19 +106,19 @@ func (s *Server) Run() error {
 		_ = srv.Shutdown(ctxTimeout)
 	}()
 
-	repoTester := repotester.NewRepoTester(s.log, s.db, s.store)
+	repoTester := repotester.NewRepoTester(s.log, s.store)
 	repoTesterThread := thread.New(
 		s.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepo)
 	repoTesterThread.Start()
 	defer repoTesterThread.Stop()
 
-	deviceUpdater := device_updater.NewDeviceUpdater(s.log, s.db, s.store)
+	deviceUpdater := device_updater.NewDeviceUpdater(s.log, s.store)
 	deviceUpdaterThread := thread.New(
 		s.log.WithField("pkg", "device-updater"), "Device updater", threadIntervalMinute(2), deviceUpdater.UpdateDevices)
 	deviceUpdaterThread.Start()
 	defer deviceUpdaterThread.Stop()
 
-	resourceSync := resourcesync.NewResourceSync(s.log, s.db, s.store)
+	resourceSync := resourcesync.NewResourceSync(s.log, s.store)
 	resourceSyncThread := thread.New(
 		s.log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalMinute(2), resourceSync.Poll)
 	resourceSyncThread.Start()

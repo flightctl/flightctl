@@ -15,7 +15,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 func TestController(t *testing.T) {
@@ -63,9 +62,9 @@ var _ = Describe("DeviceUpdater", func() {
 		log           *logrus.Logger
 		ctx           context.Context
 		orgId         uuid.UUID
-		db            *gorm.DB
 		deviceStore   store.Device
 		fleetStore    store.Fleet
+		stores        store.Store
 		cfg           *config.Config
 		dbName        string
 		numDevices    int
@@ -77,15 +76,14 @@ var _ = Describe("DeviceUpdater", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		var stores store.Store
-		db, stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
 		deviceStore = stores.Device()
 		fleetStore = stores.Fleet()
-		deviceUpdater = NewDeviceUpdater(log, db, stores)
+		deviceUpdater = NewDeviceUpdater(log, stores)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, db, dbName)
+		store.DeleteTestDB(cfg, stores, dbName)
 	})
 
 	Context("DeviceUpdater", func() {

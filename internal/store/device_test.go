@@ -49,7 +49,6 @@ var _ = Describe("DeviceStore create", func() {
 		log        *logrus.Logger
 		ctx        context.Context
 		orgId      uuid.UUID
-		db         *gorm.DB
 		store      Store
 		cfg        *config.Config
 		dbName     string
@@ -61,13 +60,13 @@ var _ = Describe("DeviceStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		db, store, cfg, dbName = PrepareDBForUnitTests(log)
+		store, cfg, dbName = PrepareDBForUnitTests(log)
 
 		createDevices(3, ctx, store, orgId)
 	})
 
 	AfterEach(func() {
-		DeleteTestDB(cfg, db, dbName)
+		DeleteTestDB(cfg, store, dbName)
 	})
 
 	Context("Device store", func() {
