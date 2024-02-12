@@ -20,6 +20,8 @@ require (
 	github.com/onsi/gomega v1.27.10
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
 	github.com/prometheus/client_golang v1.17.0
+	github.com/riverqueue/river v0.0.19
+	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.0.19
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.8.0
 	github.com/thoas/go-funk v0.9.3
@@ -38,7 +40,11 @@ require (
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/go-test/deep v1.1.0 // indirect
 	github.com/google/pprof v0.0.0-20230323073829-e72429f035bd // indirect
+	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/oklog/ulid/v2 v2.1.0 // indirect
+	github.com/riverqueue/river/riverdriver v0.0.19 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
@@ -104,7 +110,7 @@ require (
 	github.com/invopop/yaml v0.2.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
-	github.com/jackc/pgx/v5 v5.4.3 // indirect
+	github.com/jackc/pgx/v5 v5.5.3
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
@@ -179,7 +185,7 @@ require (
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.29.0 // indirect
 	k8s.io/apiextensions-apiserver v0.28.2 // indirect
 	k8s.io/apiserver v0.28.2 // indirect

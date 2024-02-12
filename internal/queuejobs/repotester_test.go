@@ -1,4 +1,4 @@
-package repotester
+package queuejobs
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 
 func TestStore(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "RepoTester Suite")
+	RunSpecs(t, "QueueJobs Suite")
 }
 
 func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID) error {
@@ -45,7 +45,7 @@ var _ = Describe("RepoTester", func() {
 		db         *gorm.DB
 		cfg        *config.Config
 		dbName     string
-		repotester *RepoTester
+		repotester *RepoTesterWorker
 	)
 
 	BeforeEach(func() {

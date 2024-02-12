@@ -13,6 +13,9 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -27,11 +30,14 @@ type Fleet interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
 	ListIgnoreOrg() ([]model.Fleet, error)
 	InitialMigration() error
+	SetRiverClient(dbPool *pgxpool.Pool, riverClient *river.Client[pgx.Tx])
 }
 
 type FleetStore struct {
-	db  *gorm.DB
-	log logrus.FieldLogger
+	db          *gorm.DB
+	log         logrus.FieldLogger
+	dbPool      *pgxpool.Pool
+	riverClient *river.Client[pgx.Tx]
 }
 
 // Make sure we conform to Fleet interface
@@ -43,6 +49,11 @@ func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
 
 func (s *FleetStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Fleet{})
+}
+
+func (s *FleetStore) SetRiverClient(dbPool *pgxpool.Pool, riverClient *river.Client[pgx.Tx]) {
+	s.dbPool = dbPool
+	s.riverClient = riverClient
 }
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
@@ -154,6 +165,7 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 	fleet.Status = nil
 
 	created := false
+	templateUpdated := false
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		existingRecord := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
@@ -169,6 +181,7 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 			}
 			fleet.Generation = util.Int64ToPtr(1)
 			fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
+			templateUpdated = true
 			result = tx.Create(fleet)
 			if result.Error != nil {
 				return result.Error
@@ -190,6 +203,7 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 			}
 
 			if !sameTemplateSpec {
+				templateUpdated = true
 				if fleet.Spec.Data.Template.Metadata == nil {
 					fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 				}
@@ -211,6 +225,14 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 
 	if err != nil {
 		return nil, false, err
+	}
+
+	// Consider moving this into the transaction (requires pgx instead of gorm)
+	if templateUpdated {
+		_, err = s.riverClient.Insert(ctx, FleetTemplateUpdateArgs{OrgID: orgId.String(), Name: fleet.Name}, nil)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 
 	updatedResource := fleet.ToApiResource()

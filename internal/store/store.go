@@ -6,6 +6,9 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -23,6 +26,7 @@ type Store interface {
 	Repository() Repository
 	ResourceSync() ResourceSync
 	InitialMigration() error
+	SetRiverClient(dbPool *pgxpool.Pool, riverClient *river.Client[pgx.Tx])
 }
 
 type DataStore struct {
@@ -41,6 +45,10 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		repository:        NewRepository(db, log),
 		resourceSync:      NewResourceSync(db, log),
 	}
+}
+
+func (s *DataStore) SetRiverClient(dbPool *pgxpool.Pool, riverClient *river.Client[pgx.Tx]) {
+	s.fleet.SetRiverClient(dbPool, riverClient)
 }
 
 func (s *DataStore) Repository() Repository {

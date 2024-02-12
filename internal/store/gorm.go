@@ -1,9 +1,12 @@
 package store
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -53,4 +56,26 @@ func InitDB(cfg *config.Config) (*gorm.DB, error) {
 	}
 
 	return newDB, nil
+}
+
+func InitPgxPool(log logrus.FieldLogger, ctx context.Context, cfg *config.Config) *pgxpool.Pool {
+	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
+		cfg.Database.Hostname,
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Port,
+	)
+	if cfg.Database.Name != "" {
+		dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
+	}
+
+	dbConn, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		log.Fatalf("failed parsing database config %s: %v", dsn, err)
+	}
+	dbPool, err := pgxpool.NewWithConfig(ctx, dbConn)
+	if err != nil {
+		log.Fatalf("failed creating DB pool: %v", err)
+	}
+	return dbPool
 }

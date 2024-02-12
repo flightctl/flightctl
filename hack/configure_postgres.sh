@@ -13,3 +13,5 @@ if [ -x "$(command -v pg_isready)" ]; then
 else
     until psql -h ${PG_HOST} -U ${PG_USER} -d ${PG_DATABASE} -c "select 1" > /dev/null 2>&1; do sleep 1; done
 fi
+
+river migrate-up --database-url postgres://${PG_USER}:${PGPASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}

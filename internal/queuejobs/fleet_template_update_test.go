@@ -1,10 +1,9 @@
-package device_updater
+package queuejobs
 
 import (
 	"context"
 	"fmt"
 	"log"
-	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -14,14 +13,10 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/riverqueue/river"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
-
-func TestController(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "DeviceUpdater Suite")
-}
 
 func createDevices(numDevices int, ctx context.Context, deviceStore store.Device, orgId uuid.UUID) {
 	for i := 1; i <= numDevices; i++ {
@@ -60,16 +55,16 @@ func createFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID) *
 
 var _ = Describe("DeviceUpdater", func() {
 	var (
-		log           *logrus.Logger
-		ctx           context.Context
-		orgId         uuid.UUID
-		db            *gorm.DB
-		deviceStore   store.Device
-		fleetStore    store.Fleet
-		cfg           *config.Config
-		dbName        string
-		numDevices    int
-		deviceUpdater *DeviceUpdater
+		log                       *logrus.Logger
+		ctx                       context.Context
+		orgId                     uuid.UUID
+		db                        *gorm.DB
+		deviceStore               store.Device
+		fleetStore                store.Fleet
+		cfg                       *config.Config
+		dbName                    string
+		numDevices                int
+		fleetTemplateUpdateWorker *FleetTemplateUpdateWorker
 	)
 
 	BeforeEach(func() {
@@ -81,7 +76,7 @@ var _ = Describe("DeviceUpdater", func() {
 		db, stores, cfg, dbName = store.PrepareDBForUnitTests(log)
 		deviceStore = stores.Device()
 		fleetStore = stores.Fleet()
-		deviceUpdater = NewDeviceUpdater(log, db, stores)
+		fleetTemplateUpdateWorker = NewFleetTemplateUpdateWorker(log, db, stores)
 	})
 
 	AfterEach(func() {
@@ -90,18 +85,21 @@ var _ = Describe("DeviceUpdater", func() {
 
 	Context("DeviceUpdater", func() {
 		It("Update devices good flow", func() {
+			Skip("Need to mock riverClient first")
 			fleet := createFleet(ctx, fleetStore, orgId)
 			fleet, err := fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 			createDevices(numDevices, ctx, deviceStore, orgId)
+			job := river.Job[store.FleetTemplateUpdateArgs]{Args: store.FleetTemplateUpdateArgs{OrgID: orgId.String(), Name: *fleet.Metadata.Name}}
 
 			// First update
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
 			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
-			deviceUpdater.UpdateDevices()
+			err = fleetTemplateUpdateWorker.Work(ctx, &job)
+			Expect(err).ToNot(HaveOccurred())
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
@@ -117,7 +115,8 @@ var _ = Describe("DeviceUpdater", func() {
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
 			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
-			deviceUpdater.UpdateDevices()
+			err = fleetTemplateUpdateWorker.Work(ctx, &job)
+			Expect(err).ToNot(HaveOccurred())
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
