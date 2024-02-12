@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/configprovider/git"
+	"github.com/flightctl/flightctl/internal/crypto"
 	device_updater "github.com/flightctl/flightctl/internal/monitors/device-updater"
 	"github.com/flightctl/flightctl/internal/monitors/repotester"
 	"github.com/flightctl/flightctl/internal/monitors/resourcesync"
@@ -39,6 +40,7 @@ type Server struct {
 	store     store.Store
 	db        *gorm.DB
 	tlsConfig *tls.Config
+	ca        *crypto.CA
 }
 
 // New returns a new instance of a flightctl server.
@@ -48,6 +50,7 @@ func New(
 	store store.Store,
 	db *gorm.DB,
 	tlsConfig *tls.Config,
+	ca *crypto.CA,
 ) *Server {
 	return &Server{
 		log:       log,
@@ -55,6 +58,7 @@ func New(
 		store:     store,
 		db:        db,
 		tlsConfig: tlsConfig,
+		ca:        ca,
 	}
 }
 
@@ -81,7 +85,7 @@ func (s *Server) Run() error {
 		oapimiddleware.OapiRequestValidator(swagger),
 	)
 
-	h := service.NewServiceHandler(s.store, nil, s.log)
+	h := service.NewServiceHandler(s.store, s.ca, s.log)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
 	srv := &http.Server{

@@ -21,7 +21,6 @@ const (
 
 func main() {
 	log := log.InitLogs()
-
 	log.Println("Starting device management service")
 	defer log.Println("Device management service stopped")
 
@@ -29,31 +28,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("reading configuration: %v", err)
 	}
-	// TODO move into config
+	log.Printf("Using config: %s", cfg)
+
+	ca, _, err := crypto.EnsureCA(certFile(signerCertName), keyFile(signerCertName), "", signerCertName, caCertValidityDays)
+	if err != nil {
+		log.Fatalf("ensuring CA cert: %v", err)
+	}
+
 	// default certificate hostnames to localhost if nothing else is configured
 	if len(cfg.Service.AltNames) == 0 {
 		cfg.Service.AltNames = []string{"localhost"}
 	}
 
-	log.Printf("Using config: %s", cfg)
-
-	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg)
-	if err != nil {
-		log.Fatalf("initializing data store: %v", err)
-	}
-	defer store.CloseDB(db)
-
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	if err := store.InitialMigration(); err != nil {
-		log.Fatalf("running initial migration: %v", err)
-	}
-
-	// ensure the CA and server certificates are created and valid
-	ca, _, err := crypto.EnsureCA(certFile(signerCertName), keyFile(signerCertName), "", signerCertName, caCertValidityDays)
-	if err != nil {
-		log.Fatalf("ensuring CA cert: %v", err)
-	}
 	serverCerts, _, err := ca.EnsureServerCertificate(certFile(serverCertName), keyFile(serverCertName), cfg.Service.AltNames, serverCertValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring server cert: %v", err)
@@ -63,12 +49,23 @@ func main() {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}
 
+	log.Println("Initializing data store")
+	db, err := store.InitDB(cfg)
+	if err != nil {
+		log.Fatalf("initializing data store: %v", err)
+	}
+
+	store := store.NewStore(db, log.WithField("pkg", "store"))
+	if err := store.InitialMigration(); err != nil {
+		log.Fatalf("running initial migration: %v", err)
+	}
+
 	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	server := server.New(log, cfg, store, db, tlsConfig)
+	server := server.New(log, cfg, store, db, tlsConfig, ca)
 	if err := server.Run(); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
