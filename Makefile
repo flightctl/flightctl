@@ -57,6 +57,7 @@ bin:
 	mkdir -p bin
 
 rpm:
+	which packit || (echo "Installing packit" && sudo dnf install -y packit)
 	rm $(shell uname -m)/flightctl-*.rpm || true
 	rm bin/rpm/* || true
 	mkdir -p bin/rpm
@@ -70,6 +71,7 @@ clean:
 	- podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
 	- rm -r bin
 	- rm -r rpmbuild
+	- rm -r $(shell uname -m)
 
 _unit_test: $(REPORTS)
 	gotestsum $(GO_UNITTEST_FLAGS) $(TEST) $(GINKGO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
