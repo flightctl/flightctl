@@ -47,6 +47,10 @@ func ConfigFile() string {
 	return filepath.Join(ConfigDir(), "config.yaml")
 }
 
+func ClientConfigFile() string {
+	return filepath.Join(ConfigDir(), "client.yaml")
+}
+
 func CertificateDir() string {
 	return filepath.Join(ConfigDir(), "certs")
 }
@@ -64,7 +68,7 @@ func NewDefault() *Config {
 		Service: &svcConfig{
 			Address:   ":3333",
 			CertStore: CertificateDir(),
-			BaseUrl:   "http://localhost:3333/api",
+			BaseUrl:   "https://localhost:3333/api",
 		},
 	}
 	return c

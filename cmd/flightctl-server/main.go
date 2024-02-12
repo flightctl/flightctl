@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
@@ -44,9 +45,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("ensuring server cert: %v", err)
 	}
-	_, _, err = ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), clientBootstrapCertName, clientBootStrapValidityDays)
+	clientCert, _, err := ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), clientBootstrapCertName, clientBootStrapValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
+	}
+
+	// also write out a client config file
+	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, clientCert)
+	if err != nil {
+		log.Fatalf("writing client config: %v", err)
 	}
 
 	log.Println("Initializing data store")
