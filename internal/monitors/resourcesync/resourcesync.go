@@ -22,7 +22,6 @@ import (
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
 
@@ -32,7 +31,6 @@ type API interface {
 
 type ResourceSync struct {
 	log   logrus.FieldLogger
-	db    *gorm.DB
 	store store.Store
 }
 

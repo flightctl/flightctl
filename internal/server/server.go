@@ -26,7 +26,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 const (
@@ -38,7 +37,6 @@ type Server struct {
 	log       logrus.FieldLogger
 	cfg       *config.Config
 	store     store.Store
-	db        *gorm.DB
 	tlsConfig *tls.Config
 	ca        *crypto.CA
 }
