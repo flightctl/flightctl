@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -30,7 +31,7 @@ func NewCmdApprove() *cobra.Command {
 }
 
 func RunApprove(enrollmentRequestName string) error {
-	c, err := getClient()
+	c, err := client.NewFromConfigFile(clientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
 	}
