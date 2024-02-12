@@ -17,12 +17,12 @@ import (
 	"text/tabwriter"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/crypto"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/thoas/go-funk"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/yaml"
 )
 
@@ -31,7 +31,8 @@ const (
 )
 
 var (
-	resourceKinds = map[string]string{
+	clientConfigFile string
+	resourceKinds    = map[string]string{
 		"device":            "",
 		"enrollmentrequest": "",
 		"fleet":             "",
@@ -39,11 +40,14 @@ var (
 		"resourcesync":      "",
 	}
 	resourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
-	serverUrl         = "https://localhost:3333"
 	fileExtensions    = []string{".json", ".yaml", ".yml"}
 	inputExtensions   = append(fileExtensions, "stdin")
 	legalOutputTypes  = []string{yamlFormat}
 )
+
+func init() {
+	clientConfigFile = filepath.Join(homedir.HomeDir(), ".flightctl", "client.yaml")
+}
 
 func main() {
 	command := NewFlightctlCommand()
@@ -215,30 +219,8 @@ func NewCmdDelete() *cobra.Command {
 	return cmd
 }
 
-func getClient() (*client.ClientWithResponses, error) {
-	certDir := config.CertificateDir()
-	caCert, err := crypto.GetTLSCertificateConfig(filepath.Join(certDir, "ca.crt"), filepath.Join(certDir, "ca.key"))
-	if err != nil {
-		log.Fatalf("reading CA cert and key: %v", err)
-	}
-	clientCert, err := crypto.GetTLSCertificateConfig(filepath.Join(certDir, "client-enrollment.crt"), filepath.Join(certDir, "client-enrollment.key"))
-	if err != nil {
-		log.Fatalf("reading client cert and key: %v", err)
-	}
-	tlsConfig, err := crypto.TLSConfigForClient(caCert, clientCert)
-	if err != nil {
-		log.Fatalf("creating TLS config: %v", err)
-	}
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
-}
-
 func RunGet(kind, name string, labelSelector, fleetName *string, output string, limit *int32, cont *string) error {
-	c, err := getClient()
+	c, err := client.NewFromConfigFile(clientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
 	}
@@ -401,15 +383,15 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 	switch resourceType {
 	case "devices":
-		printDevicesTable(w, response.(*client.ListDevicesResponse))
+		printDevicesTable(w, response.(*apiclient.ListDevicesResponse))
 	case "enrollmentrequests":
-		printEnrollmentRequestsTable(w, response.(*client.ListEnrollmentRequestsResponse))
+		printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse))
 	case "fleets":
-		printFleetsTable(w, response.(*client.ListFleetsResponse))
+		printFleetsTable(w, response.(*apiclient.ListFleetsResponse))
 	case "repositories":
-		printRepositoriesTable(w, response.(*client.ListRepositoriesResponse))
+		printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse))
 	case "resourcesyncs":
-		printResourceSyncsTable(w, response.(*client.ListResourceSyncResponse))
+		printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse))
 	default:
 		return fmt.Errorf("unknown resource type %s", resourceType)
 	}
@@ -417,14 +399,14 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 	return nil
 }
 
-func printDevicesTable(w *tabwriter.Writer, response *client.ListDevicesResponse) {
+func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesResponse) {
 	fmt.Fprintln(w, "NAME")
 	for _, d := range response.JSON200.Items {
 		fmt.Fprintln(w, *d.Metadata.Name)
 	}
 }
 
-func printEnrollmentRequestsTable(w *tabwriter.Writer, response *client.ListEnrollmentRequestsResponse) {
+func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListEnrollmentRequestsResponse) {
 	fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
 	for _, e := range response.JSON200.Items {
 		approved := ""
@@ -437,14 +419,14 @@ func printEnrollmentRequestsTable(w *tabwriter.Writer, response *client.ListEnro
 	}
 }
 
-func printFleetsTable(w *tabwriter.Writer, response *client.ListFleetsResponse) {
+func printFleetsTable(w *tabwriter.Writer, response *apiclient.ListFleetsResponse) {
 	fmt.Fprintln(w, "NAME")
 	for _, f := range response.JSON200.Items {
 		fmt.Fprintln(w, *f.Metadata.Name)
 	}
 }
 
-func printRepositoriesTable(w *tabwriter.Writer, response *client.ListRepositoriesResponse) {
+func printRepositoriesTable(w *tabwriter.Writer, response *apiclient.ListRepositoriesResponse) {
 	fmt.Fprintln(w, "NAME\tACCESSIBLE\tREASON\tMESSAGE")
 
 	for _, f := range response.JSON200.Items {
@@ -464,7 +446,7 @@ func printRepositoriesTable(w *tabwriter.Writer, response *client.ListRepositori
 	}
 }
 
-func printResourceSyncsTable(w *tabwriter.Writer, response *client.ListResourceSyncResponse) {
+func printResourceSyncsTable(w *tabwriter.Writer, response *apiclient.ListResourceSyncResponse) {
 	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH")
 
 	for _, f := range response.JSON200.Items {
@@ -503,7 +485,7 @@ func ignoreFile(path string, extensions []string) bool {
 
 type genericResource map[string]interface{}
 
-func applyFromReader(client *client.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
+func applyFromReader(client *apiclient.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
 	decoder := yamlutil.NewYAMLOrJSONDecoder(r, 100)
 	resources := []genericResource{}
 
@@ -594,7 +576,7 @@ func applyFromReader(client *client.ClientWithResponses, filename string, r io.R
 }
 
 func RunApply(filenames []string, recursive bool, dryRun bool) error {
-	client, err := getClient()
+	c, err := client.NewFromConfigFile(clientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
 	}
@@ -603,7 +585,7 @@ func RunApply(filenames []string, recursive bool, dryRun bool) error {
 	for _, filename := range filenames {
 		switch {
 		case filename == "-":
-			errs = append(errs, applyFromReader(client, "<stdin>", os.Stdin, dryRun)...)
+			errs = append(errs, applyFromReader(c, "<stdin>", os.Stdin, dryRun)...)
 		default:
 			expandedFilenames, err := expandIfFilePattern(filename)
 			if err != nil {
@@ -641,7 +623,7 @@ func RunApply(filenames []string, recursive bool, dryRun bool) error {
 						return nil
 					}
 					defer r.Close()
-					errs = append(errs, applyFromReader(client, path, r, dryRun)...)
+					errs = append(errs, applyFromReader(c, path, r, dryRun)...)
 					return nil
 				})
 				if err != nil {
@@ -654,7 +636,7 @@ func RunApply(filenames []string, recursive bool, dryRun bool) error {
 }
 
 func RunDelete(kind, name string) error {
-	c, err := getClient()
+	c, err := client.NewFromConfigFile(clientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
 	}
