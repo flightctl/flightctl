@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,11 +32,11 @@ const (
 )
 
 type Server struct {
-	log       logrus.FieldLogger
-	cfg       *config.Config
-	store     store.Store
-	tlsConfig *tls.Config
-	ca        *crypto.CA
+	log    logrus.FieldLogger
+	cfg    *config.Config
+	store  store.Store
+	ca     *crypto.CA
+	lister net.Listener
 }
 
 // New returns a new instance of a flightctl server.
@@ -43,15 +44,15 @@ func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
 	store store.Store,
-	tlsConfig *tls.Config,
 	ca *crypto.CA,
+	listener net.Listener,
 ) *Server {
 	return &Server{
-		log:       log,
-		cfg:       cfg,
-		store:     store,
-		tlsConfig: tlsConfig,
-		ca:        ca,
+		log:    log,
+		cfg:    cfg,
+		store:  store,
+		ca:     ca,
+		lister: listener,
 	}
 }
 
@@ -88,7 +89,6 @@ func (s *Server) Run() error {
 	srv := &http.Server{
 		Addr:         s.cfg.Service.Address,
 		Handler:      router,
-		TLSConfig:    s.tlsConfig,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -106,10 +106,23 @@ func (s *Server) Run() error {
 		taskManager.Stop()
 	}()
 
-	s.log.Printf("Listening on %s...", srv.Addr)
-	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+	s.log.Printf("Listening on %s...", s.lister.Addr().String())
+	if err := srv.Serve(s.lister); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
 	return nil
+}
+
+// NewTLSLister returns a new TLS listener. If the address is empty, it will
+// listen on localhost's next available port.
+func NewTLSLister(address string, tlsConfig *tls.Config) (net.Listener, error) {
+	if address == "" {
+		address = "localhost:0"
+	}
+	ln, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, err
+	}
+	return tls.NewListener(ln, tlsConfig), nil
 }
