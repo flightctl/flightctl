@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 type API interface {
@@ -18,15 +17,13 @@ type API interface {
 
 type DeviceUpdater struct {
 	log        logrus.FieldLogger
-	db         *gorm.DB
 	fleetStore store.Fleet
 	devStore   store.Device
 }
 
-func NewDeviceUpdater(log logrus.FieldLogger, db *gorm.DB, store store.Store) *DeviceUpdater {
+func NewDeviceUpdater(log logrus.FieldLogger, store store.Store) *DeviceUpdater {
 	return &DeviceUpdater{
 		log:        log,
-		db:         db,
 		fleetStore: store.Fleet(),
 		devStore:   store.Device(),
 	}

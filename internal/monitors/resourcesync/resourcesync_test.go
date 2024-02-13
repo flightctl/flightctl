@@ -17,7 +17,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 func TestStore(t *testing.T) {
@@ -37,8 +36,8 @@ var _ = Describe("ResourceSync", Ordered, func() {
 		log          *logrus.Logger
 		ctx          context.Context
 		orgId        uuid.UUID
-		db           *gorm.DB
 		cfg          *config.Config
+		stores       store.Store
 		dbName       string
 		resourceSync *ResourceSync
 		//hash         string
@@ -77,13 +76,12 @@ var _ = Describe("ResourceSync", Ordered, func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		var stores store.Store
-		db, stores, cfg, dbName = store.PrepareDBForUnitTests(log)
-		resourceSync = NewResourceSync(log, db, stores)
+		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		resourceSync = NewResourceSync(log, stores)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, db, dbName)
+		store.DeleteTestDB(cfg, stores, dbName)
 	})
 
 	Context("ResourceSync tests", func() {

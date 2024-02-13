@@ -41,7 +41,6 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		log                   *logrus.Logger
 		ctx                   context.Context
 		orgId                 uuid.UUID
-		db                    *gorm.DB
 		store                 Store
 		cfg                   *config.Config
 		dbName                string
@@ -53,13 +52,13 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numEnrollmentRequests = 3
-		db, store, cfg, dbName = PrepareDBForUnitTests(log)
+		store, cfg, dbName = PrepareDBForUnitTests(log)
 
 		createEnrollmentRequests(3, ctx, store, orgId)
 	})
 
 	AfterEach(func() {
-		DeleteTestDB(cfg, db, dbName)
+		DeleteTestDB(cfg, store, dbName)
 	})
 
 	Context("EnrollmentRequest store", func() {

@@ -23,6 +23,7 @@ type Store interface {
 	Repository() Repository
 	ResourceSync() ResourceSync
 	InitialMigration() error
+	Close() error
 }
 
 type DataStore struct {
@@ -31,6 +32,8 @@ type DataStore struct {
 	fleet             Fleet
 	repository        Repository
 	resourceSync      ResourceSync
+
+	db *gorm.DB
 }
 
 func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
@@ -40,6 +43,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		fleet:             NewFleet(db, log),
 		repository:        NewRepository(db, log),
 		resourceSync:      NewResourceSync(db, log),
+		db:                db,
 	}
 }
 
@@ -80,6 +84,14 @@ func (s *DataStore) InitialMigration() error {
 		return err
 	}
 	return nil
+}
+
+func (s *DataStore) Close() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }
 
 type ListParams struct {

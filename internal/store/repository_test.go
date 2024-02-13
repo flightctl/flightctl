@@ -41,7 +41,6 @@ var _ = Describe("RepositoryStore create", func() {
 		log             *logrus.Logger
 		ctx             context.Context
 		orgId           uuid.UUID
-		db              *gorm.DB
 		store           Store
 		cfg             *config.Config
 		dbName          string
@@ -53,13 +52,13 @@ var _ = Describe("RepositoryStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
-		db, store, cfg, dbName = PrepareDBForUnitTests(log)
+		store, cfg, dbName = PrepareDBForUnitTests(log)
 
 		createRepositories(3, ctx, store, orgId)
 	})
 
 	AfterEach(func() {
-		DeleteTestDB(cfg, db, dbName)
+		DeleteTestDB(cfg, store, dbName)
 	})
 
 	Context("Repository store", func() {

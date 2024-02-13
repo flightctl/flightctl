@@ -22,7 +22,6 @@ import (
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
 
@@ -32,7 +31,6 @@ type API interface {
 
 type ResourceSync struct {
 	log   logrus.FieldLogger
-	db    *gorm.DB
 	store store.Store
 }
 
@@ -41,10 +39,9 @@ type genericResourceMap map[string]interface{}
 var fileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{model.FleetKind}
 
-func NewResourceSync(log logrus.FieldLogger, db *gorm.DB, store store.Store) *ResourceSync {
+func NewResourceSync(log logrus.FieldLogger, store store.Store) *ResourceSync {
 	return &ResourceSync{
 		log:   log,
-		db:    db,
 		store: store,
 	}
 }

@@ -56,6 +56,8 @@ func main() {
 	}
 
 	store := store.NewStore(db, log.WithField("pkg", "store"))
+	defer store.Close()
+
 	if err := store.InitialMigration(); err != nil {
 		log.Fatalf("running initial migration: %v", err)
 	}
@@ -65,7 +67,7 @@ func main() {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	server := server.New(log, cfg, store, db, tlsConfig, ca)
+	server := server.New(log, cfg, store, tlsConfig, ca)
 	if err := server.Run(); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
