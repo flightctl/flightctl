@@ -1,0 +1,13 @@
+Source: flightctl
+Section: admin
+Priority: optional
+Maintainer: Miguel Angel Ajo <majopela@redhat.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.0
+Homepage: https://github.com/flightctl/
+Rules-Requires-Root: no
+
+Package: flightctl-agent
+Architecture: amd64 arm64 riscv64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: FlightCTL management agent and cmdline client

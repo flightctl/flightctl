@@ -29,6 +29,7 @@ help:
 	@echo "    deploy:          deploy flightctl-server and db as containers in podman"
 	@echo "    deploy-db:       deploy only the database as a container in podman"
 	@echo "    clean:           clean up all containers and volumes"
+	@echo "    rpm/deb:         generate rpm or debian packages"
 
 generate:
 	find . -name 'mock_*.go' -type f -not -path './vendor/*' -delete
@@ -64,14 +65,42 @@ rpm:
 	packit build locally
 	mv $(shell uname -m)/flightctl-*.rpm bin/rpm
 
+
+# cross-building for deb pkg
+bin/amd64:
+	GOARCH=amd64 go build -buildvcs=false $(GO_BUILD_FLAGS) -o $@/flightctl ./cmd/flightctl/...
+	GOARCH=amd64 go build -buildvcs=false $(GO_BUILD_FLAGS) -o $@/flightctl-agent ./cmd/flightctl-agent/...
+
+bin/arm64:
+	GOARCH=arm64 go build -buildvcs=false $(GO_BUILD_FLAGS) -o $@/flightctl ./cmd/flightctl/...
+	GOARCH=arm64 go build -buildvcs=false $(GO_BUILD_FLAGS) -o $@/flightctl-agent ./cmd/flightctl-agent/...
+
+bin/riscv64:
+	GOARCH=riscv64 go build -buildvcs=false $(GO_BUILD_FLAGS) -o $@/flightctl ./cmd/flightctl/...
+	GOARCH=riscv64 go build -buildvcs=false $(GO_BUILD_FLAGS) -o $@/flightctl-agent ./cmd/flightctl-agent/...
+
+
+
+# made as phony targets to make sure they are always rebuilt
+.PHONY: bin/arm64 bin/amd64 bin/riscv64
+
+deb-sources: bin/arm64 bin/amd64 bin/riscv64
+	ln -f -s packaging/debian debian
+	debuild -us -uc -S
+
+deb: bin/arm64 bin/amd64 bin/riscv64
+	ln -f -s packaging/debian debian
+	debuild -us -uc -b
+
 clean:
 	- podman-compose -f deploy/podman/compose.yaml down
 	- podman-compose -f deploy/podman/observability.yaml down
 	- rm -r ~/.flightctl
 	- podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
-	- rm -r bin
-	- rm -r rpmbuild
-	- rm -r $(shell uname -m)
+	- rm -f -r bin
+	- rm -f -r $(shell uname -m)
+	- rm -f -r obj-*-linux-gnu
+	- rm -f -r debian
 
 _unit_test: $(REPORTS)
 	gotestsum $(GO_UNITTEST_FLAGS) $(TEST) $(GINKGO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
