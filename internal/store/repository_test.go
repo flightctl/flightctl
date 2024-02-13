@@ -52,7 +52,7 @@ var _ = Describe("RepositoryStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
-		store, cfg, dbName, _ = PrepareDBForUnitTests(log)
+		store, cfg, dbName = PrepareDBForUnitTests(log)
 
 		createRepositories(3, ctx, store, orgId)
 	})

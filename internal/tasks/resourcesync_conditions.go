@@ -1,4 +1,4 @@
-package resourcesync
+package tasks
 
 import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -17,7 +17,7 @@ func addRepoNotFoundCondition(resSync *model.ResourceSync, err error) {
 }
 
 func addRepoAccessCondition(resSync *model.ResourceSync, err error) {
-	addCondition(resSync, accessibleConditionType, "accessible", "faild to clone repository", err)
+	addCondition(resSync, accessibleConditionType, "accessible", "failed to clone repository", err)
 }
 
 func addPathAccessCondition(resSync *model.ResourceSync, err error) {

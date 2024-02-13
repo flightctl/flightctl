@@ -51,7 +51,7 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
 		repotester = NewRepoTester(log, stores)
 	})
 

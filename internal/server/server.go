@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
@@ -61,6 +62,10 @@ func (s *Server) Run() error {
 	s.log.Println("Initializing config providers")
 	_ = git.NewGitConfigProvider(cache, cacheExpirationTime, cacheExpirationTime)
 
+	s.log.Println("Initializing async jobs")
+	taskManager := tasks.Init(s.log, s.store)
+	taskManager.Start()
+
 	s.log.Println("Initializing API server")
 	swagger, err := api.GetSwagger()
 	if err != nil {
@@ -77,7 +82,7 @@ func (s *Server) Run() error {
 		oapimiddleware.OapiRequestValidator(swagger),
 	)
 
-	h := service.NewServiceHandler(s.store, s.ca, s.log)
+	h := service.NewServiceHandler(s.store, taskManager, s.ca, s.log)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
 	srv := &http.Server{
@@ -98,6 +103,7 @@ func (s *Server) Run() error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+		taskManager.Stop()
 	}()
 
 	s.log.Printf("Listening on %s...", srv.Addr)
