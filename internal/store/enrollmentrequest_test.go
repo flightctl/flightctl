@@ -52,7 +52,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numEnrollmentRequests = 3
-		store, cfg, dbName = PrepareDBForUnitTests(log)
+		store, cfg, dbName, _ = PrepareDBForUnitTests(log)
 
 		createEnrollmentRequests(3, ctx, store, orgId)
 	})

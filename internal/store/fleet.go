@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -32,15 +33,16 @@ type Fleet interface {
 }
 
 type FleetStore struct {
-	db  *gorm.DB
-	log logrus.FieldLogger
+	db           *gorm.DB
+	log          logrus.FieldLogger
+	taskChannels tasks.TaskChannels
 }
 
 // Make sure we conform to Fleet interface
 var _ Fleet = (*FleetStore)(nil)
 
-func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
-	return &FleetStore{db: db, log: log}
+func NewFleet(db *gorm.DB, taskChannels tasks.TaskChannels, log logrus.FieldLogger) Fleet {
+	return &FleetStore{db: db, taskChannels: taskChannels, log: log}
 }
 
 func (s *FleetStore) InitialMigration() error {
@@ -59,6 +61,7 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	}
 	fleet.Generation = util.Int64ToPtr(1)
 	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
+	s.taskChannels.SubmitTask(tasks.FleetTemplateRollout, tasks.ResourceReference{OrgID: orgId, Kind: model.FleetKind, Name: fleet.Name})
 	result := s.db.Create(fleet)
 	log.Printf("db.Create(%s): %d rows affected, error is %v", fleet, result.RowsAffected, result.Error)
 	return resource, result.Error
@@ -140,16 +143,20 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*ap
 }
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
-	return s.createOrUpdateTx(s.db, ctx, orgId, resource)
+	fleet, created, templateUpdated, err := s.createOrUpdateTx(s.db, ctx, orgId, resource)
+	if err == nil && templateUpdated {
+		s.taskChannels.SubmitTask(tasks.FleetTemplateRollout, tasks.ResourceReference{OrgID: orgId, Kind: model.FleetKind, Name: *fleet.Metadata.Name})
+	}
+	return fleet, created, err
 }
 
-func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, error) {
+func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, bool, error) {
 	if resource == nil {
-		return nil, false, fmt.Errorf("resource is nil")
+		return nil, false, false, fmt.Errorf("resource is nil")
 	}
 	fleet := model.NewFleetFromApiResource(resource)
 	if fleet.Name == "" {
-		return nil, false, fmt.Errorf("resource has no name")
+		return nil, false, false, fmt.Errorf("resource has no name")
 	}
 	fleet.OrgID = orgId
 
@@ -163,8 +170,10 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 	fleet.Status = nil
 
 	created := false
+	templateUpdated := false
 
-	err := tx.Transaction(func(innerTx *gorm.DB) error {
+	err := tx.Transaction(func(innerTx *gorm.DB) (err error) {
+
 		existingRecord := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
 		result := innerTx.First(&existingRecord)
 		// NotFound is OK because in that case we will create the record, anything else is a real error
@@ -178,6 +187,7 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 			}
 			fleet.Generation = util.Int64ToPtr(1)
 			fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
+			templateUpdated = true
 			result = innerTx.Create(fleet)
 			if result.Error != nil {
 				return result.Error
@@ -199,6 +209,7 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 			}
 
 			if !sameTemplateSpec {
+				templateUpdated = true
 				if fleet.Spec.Data.Template.Metadata == nil {
 					fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 				}
@@ -219,23 +230,33 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 	})
 
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 
 	updatedResource := fleet.ToApiResource()
-	return &updatedResource, created, nil
+	return &updatedResource, created, templateUpdated, nil
 }
 
 func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
+	var updatedFleets []tasks.ResourceReference
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, resource := range resources {
-			_, _, err := s.createOrUpdateTx(tx, ctx, orgId, resource)
+			_, _, templateUpdated, err := s.createOrUpdateTx(tx, ctx, orgId, resource)
+			if err == nil && templateUpdated {
+				updatedFleets = append(updatedFleets, tasks.ResourceReference{OrgID: orgId, Kind: model.FleetKind, Name: *resource.Metadata.Name})
+			}
 			if err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+
+	if err == nil {
+		for _, resource := range updatedFleets {
+			s.taskChannels.SubmitTask(tasks.FleetTemplateRollout, resource)
+		}
+	}
 	return err
 }
 
