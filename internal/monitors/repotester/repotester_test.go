@@ -15,7 +15,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 func TestStore(t *testing.T) {
@@ -42,7 +41,7 @@ var _ = Describe("RepoTester", func() {
 		log        *logrus.Logger
 		ctx        context.Context
 		orgId      uuid.UUID
-		db         *gorm.DB
+		stores     store.Store
 		cfg        *config.Config
 		dbName     string
 		repotester *RepoTester
@@ -52,13 +51,12 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		var stores store.Store
-		db, stores, cfg, dbName = store.PrepareDBForUnitTests(log)
-		repotester = NewRepoTester(log, db, stores)
+		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		repotester = NewRepoTester(log, stores)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, db, dbName)
+		store.DeleteTestDB(cfg, stores, dbName)
 	})
 
 	Context("RepoTester", func() {
