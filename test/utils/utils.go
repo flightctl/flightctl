@@ -8,15 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
-
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
 )
 
 const (
