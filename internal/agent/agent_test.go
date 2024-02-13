@@ -5,9 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/util/wait"
-
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/controller"
 	"github.com/flightctl/flightctl/internal/config"
@@ -15,6 +12,8 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutils "github.com/flightctl/flightctl/test/utils"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestDeviceAgent(t *testing.T) {
