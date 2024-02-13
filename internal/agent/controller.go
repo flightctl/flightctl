@@ -5,8 +5,6 @@ import (
 )
 
 type DeviceAgentController interface {
-	SetDeviceAgent(a *DeviceAgent)
-
 	NeedsUpdate(r *api.Device) bool
 	StageUpdate(r *api.Device) (bool, error)
 	ApplyUpdate(r *api.Device) (bool, error)
@@ -16,7 +14,6 @@ type DeviceAgentController interface {
 }
 
 func (a *DeviceAgent) AddController(c DeviceAgentController) *DeviceAgent {
-	c.SetDeviceAgent(a)
 	a.controllers = append(a.controllers, c)
 	return a
 }
