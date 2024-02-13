@@ -8,7 +8,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -18,7 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func createFleets(numFleets int, ctx context.Context, store Store, orgId uuid.UUID, taskChannels tasks.TaskChannels) {
+func createFleets(numFleets int, ctx context.Context, store Store, orgId uuid.UUID) {
 	for i := 1; i <= numFleets; i++ {
 		resource := api.Fleet{
 			Metadata: api.ObjectMeta{
@@ -31,32 +30,29 @@ func createFleets(numFleets int, ctx context.Context, store Store, orgId uuid.UU
 				},
 			},
 		}
+		updated := false
+		callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
+			updated = templateUpdated
+		})
 
-		_, err := store.Fleet().Create(ctx, orgId, &resource)
+		_, err := store.Fleet().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			log.Fatalf("creating fleet: %v", err)
 		}
 
-		validateFleetRefOnChannel(taskChannels, orgId, *resource.Metadata.Name)
+		Expect(updated).To(BeTrue())
 	}
-}
-
-func validateFleetRefOnChannel(taskChannels tasks.TaskChannels, orgId uuid.UUID, name string) {
-	fleetRef := taskChannels.GetTask(tasks.FleetTemplateRollout)
-	Expect(fleetRef.OrgID).To(Equal(orgId))
-	Expect(fleetRef.Name).To(Equal(name))
 }
 
 var _ = Describe("FleetStore create", func() {
 	var (
-		log          *logrus.Logger
-		ctx          context.Context
-		orgId        uuid.UUID
-		store        Store
-		cfg          *config.Config
-		dbName       string
-		numFleets    int
-		taskChannels tasks.TaskChannels
+		log       *logrus.Logger
+		ctx       context.Context
+		orgId     uuid.UUID
+		store     Store
+		cfg       *config.Config
+		dbName    string
+		numFleets int
 	)
 
 	BeforeEach(func() {
@@ -64,13 +60,12 @@ var _ = Describe("FleetStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numFleets = 3
-		store, cfg, dbName, taskChannels = PrepareDBForUnitTests(log)
+		store, cfg, dbName = PrepareDBForUnitTests(log)
 
-		createFleets(3, ctx, store, orgId, taskChannels)
+		createFleets(3, ctx, store, orgId)
 	})
 
 	AfterEach(func() {
-		Expect(taskChannels.AllEmpty()).To(BeTrue())
 		DeleteTestDB(cfg, store, dbName)
 	})
 
@@ -197,10 +192,14 @@ var _ = Describe("FleetStore create", func() {
 					Conditions: &[]api.FleetCondition{condition},
 				},
 			}
-			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, &fleet)
+			updated := false
+			callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
+				updated = templateUpdated
+			})
+			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, callback)
+			Expect(updated).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			validateFleetRefOnChannel(taskChannels, orgId, *fleet.Metadata.Name)
 
 			createdFleet, err := store.Fleet().Get(ctx, orgId, "newresourcename")
 			Expect(err).ToNot(HaveOccurred())
@@ -228,9 +227,14 @@ var _ = Describe("FleetStore create", func() {
 			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
 			fleet.Status = &api.FleetStatus{Conditions: &[]api.FleetCondition{condition}}
 
-			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, fleet)
+			updated := false
+			callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
+				updated = templateUpdated
+			})
+			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
+			Expect(updated).To(Equal(false))
 
 			updatedFleet, err := store.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -256,10 +260,14 @@ var _ = Describe("FleetStore create", func() {
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
 			fleet.Status = &api.FleetStatus{Conditions: &[]api.FleetCondition{condition}}
 
-			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, fleet)
+			updated := false
+			callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
+				updated = templateUpdated
+			})
+			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, fleet, callback)
+			Expect(updated).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			validateFleetRefOnChannel(taskChannels, orgId, *fleet.Metadata.Name)
 
 			updatedFleet, err := store.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -305,10 +313,15 @@ var _ = Describe("FleetStore create", func() {
 					Conditions: &[]api.FleetCondition{condition},
 				},
 			}
-			err := store.Fleet().CreateOrUpdateMultiple(ctx, orgId, &fleet, &fleet2)
+			updated := 0
+			callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
+				if templateUpdated {
+					updated = updated + 1
+				}
+			})
+			err := store.Fleet().CreateOrUpdateMultiple(ctx, orgId, callback, &fleet, &fleet2)
+			Expect(updated).To(Equal(2))
 			Expect(err).ToNot(HaveOccurred())
-			validateFleetRefOnChannel(taskChannels, orgId, *fleet.Metadata.Name)
-			validateFleetRefOnChannel(taskChannels, orgId, *fleet2.Metadata.Name)
 
 			createdFleet, err := store.Fleet().Get(ctx, orgId, "newresourcename")
 			Expect(err).ToNot(HaveOccurred())
@@ -360,7 +373,14 @@ var _ = Describe("FleetStore create", func() {
 					Conditions: &[]api.FleetCondition{condition},
 				},
 			}
-			err := store.Fleet().CreateOrUpdateMultiple(ctx, orgId, &fleet, &fleet2)
+			updated := 0
+			callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
+				if templateUpdated {
+					updated = updated + 1
+				}
+			})
+			err := store.Fleet().CreateOrUpdateMultiple(ctx, orgId, callback, &fleet, &fleet2)
+			Expect(updated).To(Equal(0))
 			Expect(err).To(HaveOccurred())
 		})
 

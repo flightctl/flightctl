@@ -1,10 +1,9 @@
-package resourcesync
+package tasks
 
 import (
 	"context"
 	"fmt"
 	"io"
-	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -18,11 +17,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
-
-func TestStore(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "ResourceSync Suite")
-}
 
 var repo model.Repository = model.Repository{
 	Spec: &model.JSONField[api.RepositorySpec]{
@@ -41,7 +35,8 @@ var _ = Describe("ResourceSync", Ordered, func() {
 		dbName       string
 		resourceSync *ResourceSync
 		//hash         string
-		memfs billy.Filesystem
+		memfs       billy.Filesystem
+		taskManager TaskManager
 	)
 
 	BeforeAll(func() {
@@ -76,8 +71,9 @@ var _ = Describe("ResourceSync", Ordered, func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
-		resourceSync = NewResourceSync(log, stores)
+		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		taskManager = Init(log, stores)
+		resourceSync = NewResourceSync(taskManager)
 	})
 
 	AfterEach(func() {
