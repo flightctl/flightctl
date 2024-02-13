@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -36,7 +37,7 @@ type Server struct {
 	cfg    *config.Config
 	store  store.Store
 	ca     *crypto.CA
-	lister net.Listener
+	listener net.Listener
 }
 
 // New returns a new instance of a flightctl server.
@@ -52,7 +53,7 @@ func New(
 		cfg:    cfg,
 		store:  store,
 		ca:     ca,
-		lister: listener,
+		listener: listener,
 	}
 }
 
@@ -106,8 +107,8 @@ func (s *Server) Run() error {
 		taskManager.Stop()
 	}()
 
-	s.log.Printf("Listening on %s...", s.lister.Addr().String())
-	if err := srv.Serve(s.lister); err != nil && err != http.ErrServerClosed {
+	s.log.Printf("Listening on %s...", s.listener.Addr().String())
+	if err := srv.Serve(s.listener); err != nil && !errors.Is(err, net.ErrClosed) {
 		return err
 	}
 
