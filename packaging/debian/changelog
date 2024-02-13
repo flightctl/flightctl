@@ -1,0 +1,5 @@
+flightctl (0.0.1) jammy; urgency=medium
+
+  * Initial ppa/deb packaging.
+
+ -- Miguel Angel Ajo <majopela@redhat.com>  Tue, 13 Feb 2024 21:49:18 +0000
