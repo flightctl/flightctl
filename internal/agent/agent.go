@@ -104,6 +104,8 @@ type DeviceAgent struct {
 
 	rpcMetricsCallbackFunc func(operation string, duractionSeconds float64, err error)
 
+	issueDir string
+
 	log logrus.FieldLogger
 }
 
@@ -163,6 +165,12 @@ func (a *DeviceAgent) SetStatusUpdateInterval(interval time.Duration, jitter tim
 
 func (a *DeviceAgent) SetRpcMetricsCallbackFunction(callback func(operation string, duractionSeconds float64, err error)) *DeviceAgent {
 	a.rpcMetricsCallbackFunc = callback
+	return a
+}
+
+// SetIssueDir defines the directory where the agent will write the issue file. Useful for testing.
+func (a *DeviceAgent) SetIssueDir(path string) *DeviceAgent {
+	a.issueDir = path
 	return a
 }
 
