@@ -1,4 +1,4 @@
-package resourcesync
+package tasks
 
 import (
 	"context"
@@ -25,13 +25,10 @@ import (
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
 
-type API interface {
-	Test()
-}
-
 type ResourceSync struct {
-	log   logrus.FieldLogger
-	store store.Store
+	log         logrus.FieldLogger
+	store       store.Store
+	taskManager TaskManager
 }
 
 type genericResourceMap map[string]interface{}
@@ -39,10 +36,11 @@ type genericResourceMap map[string]interface{}
 var fileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{model.FleetKind}
 
-func NewResourceSync(log logrus.FieldLogger, store store.Store) *ResourceSync {
+func NewResourceSync(taskManager TaskManager) *ResourceSync {
 	return &ResourceSync{
-		log:   log,
-		store: store,
+		log:         taskManager.log,
+		store:       taskManager.store,
+		taskManager: taskManager,
 	}
 }
 
@@ -84,7 +82,7 @@ func (r *ResourceSync) Poll() {
 		}
 
 		r.log.Infof("resourcesync/%s: applying #%d fleets ", rs.Name, len(fleets))
-		err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, fleets...)
+		err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, r.taskManager.FleetTemplateRolloutCallback, fleets...)
 		addSyncedCondition(rs, err)
 		if err != nil {
 			log.Errorf("resourcesync/%s: Failed to apply resource. error: %s", rs.Name, err.Error())

@@ -1,20 +1,13 @@
 package main
 
 import (
-	"context"
 	"path/filepath"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
-	fleet_rollout "github.com/flightctl/flightctl/internal/tasks/fleet-rollout"
-	"github.com/flightctl/flightctl/internal/tasks/repotester"
-	"github.com/flightctl/flightctl/internal/tasks/resourcesync"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/thread"
 )
 
 const (
@@ -62,31 +55,12 @@ func main() {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	taskChannels := tasks.MakeTaskChannels()
-	store := store.NewStore(db, taskChannels, log.WithField("pkg", "store"))
+	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
 	if err := store.InitialMigration(); err != nil {
 		log.Fatalf("running initial migration: %v", err)
 	}
-
-	log.Println("Initializing async jobs")
-	repoTester := repotester.NewRepoTester(log, store)
-	repoTesterThread := thread.New(
-		log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepo)
-	repoTesterThread.Start()
-	defer repoTesterThread.Stop()
-
-	ctx := context.Background()
-	ctxWithCancel, cancelTasks := context.WithCancel(ctx)
-	go fleet_rollout.FleetRollouts(ctxWithCancel, log, store, taskChannels)
-	defer cancelTasks()
-
-	resourceSync := resourcesync.NewResourceSync(log, store)
-	resourceSyncThread := thread.New(
-		log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalMinute(2), resourceSync.Poll)
-	resourceSyncThread.Start()
-	defer resourceSyncThread.Stop()
 
 	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
@@ -105,8 +79,4 @@ func certFile(name string) string {
 
 func keyFile(name string) string {
 	return filepath.Join(config.CertificateDir(), name+".key")
-}
-
-func threadIntervalMinute(min float64) time.Duration {
-	return time.Duration(min * float64(time.Minute))
 }

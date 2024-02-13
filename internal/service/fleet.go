@@ -26,7 +26,7 @@ func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().Create(ctx, orgId, request.Body)
+	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.taskManager.FleetTemplateRolloutCallback)
 	switch err {
 	case nil:
 		return server.CreateFleet201JSONResponse(*result), nil
@@ -109,7 +109,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400Response{}, nil
 	}
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetTemplateRolloutCallback)
 	switch err {
 	case nil:
 		if created {

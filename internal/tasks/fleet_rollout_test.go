@@ -1,4 +1,4 @@
-package fleet_rollout
+package tasks
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -20,7 +19,7 @@ import (
 
 func TestController(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "DeviceUpdater Suite")
+	RunSpecs(t, "Tasks Suite")
 }
 
 func createDevices(numDevices int, ctx context.Context, deviceStore store.Device, orgId uuid.UUID) {
@@ -39,7 +38,7 @@ func createDevices(numDevices int, ctx context.Context, deviceStore store.Device
 	}
 }
 
-func createFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID) *api.Fleet {
+func createFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID, callback store.FleetStoreCallback) *api.Fleet {
 	resource := api.Fleet{
 		Metadata: api.ObjectMeta{
 			Name: util.StrToPtr("myfleet"),
@@ -51,7 +50,7 @@ func createFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID) *
 		},
 	}
 
-	fleet, err := fleetStore.Create(ctx, orgId, &resource)
+	fleet, err := fleetStore.Create(ctx, orgId, &resource, callback)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
@@ -69,6 +68,7 @@ var _ = Describe("DeviceUpdater", func() {
 		cfg         *config.Config
 		dbName      string
 		numDevices  int
+		callback    store.FleetStoreCallback
 	)
 
 	BeforeEach(func() {
@@ -76,9 +76,10 @@ var _ = Describe("DeviceUpdater", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
 		deviceStore = stores.Device()
 		fleetStore = stores.Fleet()
+		callback = store.FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {})
 	})
 
 	AfterEach(func() {
@@ -88,18 +89,19 @@ var _ = Describe("DeviceUpdater", func() {
 	Context("DeviceUpdater", func() {
 		It("Update devices good flow", func() {
 			createDevices(numDevices, ctx, deviceStore, orgId)
-			fleet := createFleet(ctx, fleetStore, orgId)
+			fleet := createFleet(ctx, fleetStore, orgId, callback)
 			fleet, err := fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
-			fleetRef := tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name}
+			fleetRef := ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name}
 
 			// First update
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
-			rolloutFleet(log, fleetStore, deviceStore, fleetRef)
+			err = rolloutFleet(log, fleetStore, deviceStore, fleetRef)
+			Expect(err).ToNot(HaveOccurred())
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
@@ -113,9 +115,10 @@ var _ = Describe("DeviceUpdater", func() {
 
 			// Second update
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
-			rolloutFleet(log, fleetStore, deviceStore, fleetRef)
+			err = rolloutFleet(log, fleetStore, deviceStore, fleetRef)
+			Expect(err).ToNot(HaveOccurred())
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
