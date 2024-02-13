@@ -1,4 +1,4 @@
-package device_updater
+package fleet_rollout
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -59,16 +60,15 @@ func createFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID) *
 
 var _ = Describe("DeviceUpdater", func() {
 	var (
-		log           *logrus.Logger
-		ctx           context.Context
-		orgId         uuid.UUID
-		deviceStore   store.Device
-		fleetStore    store.Fleet
-		stores        store.Store
-		cfg           *config.Config
-		dbName        string
-		numDevices    int
-		deviceUpdater *DeviceUpdater
+		log         *logrus.Logger
+		ctx         context.Context
+		orgId       uuid.UUID
+		deviceStore store.Device
+		fleetStore  store.Fleet
+		stores      store.Store
+		cfg         *config.Config
+		dbName      string
+		numDevices  int
 	)
 
 	BeforeEach(func() {
@@ -76,10 +76,9 @@ var _ = Describe("DeviceUpdater", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		deviceStore = stores.Device()
 		fleetStore = stores.Fleet()
-		deviceUpdater = NewDeviceUpdater(log, stores)
 	})
 
 	AfterEach(func() {
@@ -88,18 +87,19 @@ var _ = Describe("DeviceUpdater", func() {
 
 	Context("DeviceUpdater", func() {
 		It("Update devices good flow", func() {
+			createDevices(numDevices, ctx, deviceStore, orgId)
 			fleet := createFleet(ctx, fleetStore, orgId)
 			fleet, err := fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
-			createDevices(numDevices, ctx, deviceStore, orgId)
+			fleetRef := tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name}
 
 			// First update
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
 			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
-			deviceUpdater.UpdateDevices()
+			rolloutFleet(log, fleetStore, deviceStore, fleetRef)
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
@@ -115,7 +115,7 @@ var _ = Describe("DeviceUpdater", func() {
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
 			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
-			deviceUpdater.UpdateDevices()
+			rolloutFleet(log, fleetStore, deviceStore, fleetRef)
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())

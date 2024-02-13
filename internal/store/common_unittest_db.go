@@ -5,13 +5,14 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
-func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
+func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, tasks.TaskChannels) {
 	cfg := config.NewDefault()
 	cfg.Database.Name = ""
 	dbTemp, err := InitDB(cfg)
@@ -29,7 +30,8 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	store := NewStore(db, log.WithField("pkg", "store"))
+	channels := tasks.MakeTaskChannels()
+	store := NewStore(db, channels, log.WithField("pkg", "store"))
 	if err := store.InitialMigration(); err != nil {
 		log.Fatalf("running initial migration: %v", err)
 	}
@@ -37,7 +39,7 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
 	err = store.InitialMigration()
 	Expect(err).ShouldNot(HaveOccurred())
 
-	return store, cfg, randomDBName
+	return store, cfg, randomDBName, channels
 }
 
 func DeleteTestDB(cfg *config.Config, store Store, dbName string) {

@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -17,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func createFleets(numFleets int, ctx context.Context, store Store, orgId uuid.UUID) {
+func createFleets(numFleets int, ctx context.Context, store Store, orgId uuid.UUID, taskChannels tasks.TaskChannels) {
 	for i := 1; i <= numFleets; i++ {
 		resource := api.Fleet{
 			Metadata: api.ObjectMeta{
@@ -35,18 +36,27 @@ func createFleets(numFleets int, ctx context.Context, store Store, orgId uuid.UU
 		if err != nil {
 			log.Fatalf("creating fleet: %v", err)
 		}
+
+		validateFleetRefOnChannel(taskChannels, orgId, *resource.Metadata.Name)
 	}
+}
+
+func validateFleetRefOnChannel(taskChannels tasks.TaskChannels, orgId uuid.UUID, name string) {
+	fleetRef := taskChannels.GetTask(tasks.FleetTemplateRollout)
+	Expect(fleetRef.OrgID).To(Equal(orgId))
+	Expect(fleetRef.Name).To(Equal(name))
 }
 
 var _ = Describe("FleetStore create", func() {
 	var (
-		log       *logrus.Logger
-		ctx       context.Context
-		orgId     uuid.UUID
-		store     Store
-		cfg       *config.Config
-		dbName    string
-		numFleets int
+		log          *logrus.Logger
+		ctx          context.Context
+		orgId        uuid.UUID
+		store        Store
+		cfg          *config.Config
+		dbName       string
+		numFleets    int
+		taskChannels tasks.TaskChannels
 	)
 
 	BeforeEach(func() {
@@ -54,12 +64,13 @@ var _ = Describe("FleetStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numFleets = 3
-		store, cfg, dbName = PrepareDBForUnitTests(log)
+		store, cfg, dbName, taskChannels = PrepareDBForUnitTests(log)
 
-		createFleets(3, ctx, store, orgId)
+		createFleets(3, ctx, store, orgId, taskChannels)
 	})
 
 	AfterEach(func() {
+		Expect(taskChannels.AllEmpty()).To(BeTrue())
 		DeleteTestDB(cfg, store, dbName)
 	})
 
@@ -189,6 +200,7 @@ var _ = Describe("FleetStore create", func() {
 			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
+			validateFleetRefOnChannel(taskChannels, orgId, *fleet.Metadata.Name)
 
 			createdFleet, err := store.Fleet().Get(ctx, orgId, "newresourcename")
 			Expect(err).ToNot(HaveOccurred())
@@ -247,6 +259,7 @@ var _ = Describe("FleetStore create", func() {
 			_, created, err := store.Fleet().CreateOrUpdate(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
+			validateFleetRefOnChannel(taskChannels, orgId, *fleet.Metadata.Name)
 
 			updatedFleet, err := store.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -294,6 +307,8 @@ var _ = Describe("FleetStore create", func() {
 			}
 			err := store.Fleet().CreateOrUpdateMultiple(ctx, orgId, &fleet, &fleet2)
 			Expect(err).ToNot(HaveOccurred())
+			validateFleetRefOnChannel(taskChannels, orgId, *fleet.Metadata.Name)
+			validateFleetRefOnChannel(taskChannels, orgId, *fleet2.Metadata.Name)
 
 			createdFleet, err := store.Fleet().Get(ctx, orgId, "newresourcename")
 			Expect(err).ToNot(HaveOccurred())

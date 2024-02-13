@@ -60,7 +60,7 @@ var _ = Describe("DeviceStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		store, cfg, dbName = PrepareDBForUnitTests(log)
+		store, cfg, dbName, _ = PrepareDBForUnitTests(log)
 
 		createDevices(3, ctx, store, orgId)
 	})
