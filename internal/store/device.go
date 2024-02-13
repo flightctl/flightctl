@@ -22,8 +22,7 @@ type Device interface {
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
-	ListIgnoreOrg(map[string]string) ([]model.Device, error)
-	UpdateIgnoreOrg(device *model.Device) error
+	UpdateDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec api.DeviceSpec) error
 	InitialMigration() error
 }
 
@@ -114,27 +113,6 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	return &apiDevicelist, result.Error
 }
 
-// Get all Devices regardless of ownership. Used internally by the DeviceUpdater.
-// TODO: Add pagination, perhaps via gorm scopes.
-func (s *DeviceStore) ListIgnoreOrg(labels map[string]string) ([]model.Device, error) {
-	var devices model.DeviceList
-
-	query := LabelSelectionQuery(s.db, labels).Order("name")
-	result := query.Model(&devices).Find(&devices)
-	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	return devices, nil
-}
-
-// Update a Device regardless of ownership. Used internally by the DeviceUpdater.
-func (s *DeviceStore) UpdateIgnoreOrg(device *model.Device) error {
-	var updatedDevice model.Device
-	where := model.Device{Resource: model.Resource{Name: device.Name, OrgID: device.OrgID}}
-	return s.db.Where(where).Assign(device).FirstOrCreate(&updatedDevice).Error
-}
-
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	condition := model.Device{}
@@ -210,4 +188,12 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string) 
 	}
 	result := s.db.Unscoped().Delete(&condition)
 	return result.Error
+}
+
+func (s *DeviceStore) UpdateDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec api.DeviceSpec) error {
+	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	return s.db.Model(device).Updates(map[string]interface{}{
+		"generation": generation,
+		"spec":       model.MakeJSONField(spec),
+	}).Error
 }

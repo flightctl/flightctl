@@ -17,12 +17,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/configprovider/git"
 	"github.com/flightctl/flightctl/internal/crypto"
-	device_updater "github.com/flightctl/flightctl/internal/monitors/device-updater"
-	"github.com/flightctl/flightctl/internal/monitors/repotester"
-	"github.com/flightctl/flightctl/internal/monitors/resourcesync"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/pkg/thread"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
@@ -104,32 +100,10 @@ func (s *Server) Run() error {
 		_ = srv.Shutdown(ctxTimeout)
 	}()
 
-	repoTester := repotester.NewRepoTester(s.log, s.store)
-	repoTesterThread := thread.New(
-		s.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepo)
-	repoTesterThread.Start()
-	defer repoTesterThread.Stop()
-
-	deviceUpdater := device_updater.NewDeviceUpdater(s.log, s.store)
-	deviceUpdaterThread := thread.New(
-		s.log.WithField("pkg", "device-updater"), "Device updater", threadIntervalMinute(2), deviceUpdater.UpdateDevices)
-	deviceUpdaterThread.Start()
-	defer deviceUpdaterThread.Stop()
-
-	resourceSync := resourcesync.NewResourceSync(s.log, s.store)
-	resourceSyncThread := thread.New(
-		s.log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalMinute(2), resourceSync.Poll)
-	resourceSyncThread.Start()
-	defer resourceSyncThread.Stop()
-
 	s.log.Printf("Listening on %s...", srv.Addr)
 	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
 	return nil
-}
-
-func threadIntervalMinute(min float64) time.Duration {
-	return time.Duration(min * float64(time.Minute))
 }

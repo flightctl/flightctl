@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -33,17 +34,19 @@ type DataStore struct {
 	repository        Repository
 	resourceSync      ResourceSync
 
-	db *gorm.DB
+	taskChannels tasks.TaskChannels
+	db           *gorm.DB
 }
 
-func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
+func NewStore(db *gorm.DB, taskChannels tasks.TaskChannels, log logrus.FieldLogger) Store {
 	return &DataStore{
 		device:            NewDevice(db, log),
 		enrollmentRequest: NewEnrollmentRequest(db, log),
-		fleet:             NewFleet(db, log),
+		fleet:             NewFleet(db, taskChannels, log),
 		repository:        NewRepository(db, log),
 		resourceSync:      NewResourceSync(db, log),
 		db:                db,
+		taskChannels:      taskChannels,
 	}
 }
 
@@ -87,6 +90,7 @@ func (s *DataStore) InitialMigration() error {
 }
 
 func (s *DataStore) Close() error {
+	s.taskChannels.Close()
 	sqlDB, err := s.db.DB()
 	if err != nil {
 		return err

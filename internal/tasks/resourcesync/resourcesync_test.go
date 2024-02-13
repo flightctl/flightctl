@@ -76,7 +76,7 @@ var _ = Describe("ResourceSync", Ordered, func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		resourceSync = NewResourceSync(log, stores)
 	})
 
