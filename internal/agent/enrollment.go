@@ -84,7 +84,7 @@ func (a *DeviceAgent) writeQRBanner(message, url string) error {
 	fmt.Fprintf(buffer, message, url)
 
 	// duplicate file to /etc/issue.d/flightctl-banner.issue
-	if err := os.WriteFile("/etc/issue.d/flightctl-banner.issue", buffer.Bytes(), os.FileMode(0666)); err != nil {
+	if err := os.WriteFile(fmt.Sprintf("%s/flightctl-banner.issue", a.issueDir), buffer.Bytes(), os.FileMode(0666)); err != nil {
 		return fmt.Errorf("writeQRBanner: %w", err)
 	}
 
