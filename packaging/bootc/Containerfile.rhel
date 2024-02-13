@@ -1,0 +1,22 @@
+FROM registry-proxy.engineering.redhat.com/rh-osbs/rhel9-rhel_bootc:rhel-9.4
+ADD etc etc
+RUN rm -rf /opt && \
+    mkdir -p /opt/cni
+RUN dnf install -y microshift
+RUN ln -s microshift.service /usr/lib/systemd/system/default.target.wants
+RUN dnf install -y flightctl-agent
+RUN ln -s /usr/lib/systemd/system/podman.socket /usr/lib/systemd/system/multi-user.target.wants/
+RUN ln -s /usr/lib/systemd/system/flightctl-agent.service /usr/lib/systemd/system/multi-user.target.wants/
+
+## Uncomment to add your own ssh key
+# COPY replace_rsa.pub /usr/etc-system/root.keys
+# RUN touch /etc/ssh/sshd_config.d/30-auth-system.conf; \
+#     mkdir -p /usr/etc-system/; \
+#     echo 'AuthorizedKeysFile /usr/etc-system/%u.keys' >> /etc/ssh/sshd_config.d/30-auth-system.conf; \
+#     chmod 0600 /usr/etc-system/root.keys
+# VOLUME /var/roothome
+
+## Add your flightctl configuration and certificates
+ADD config.yaml /etc/flightctl/
+ADD ca.crt /etc/flightctl
+ADD client-enrollment.* /etc/flightctl/

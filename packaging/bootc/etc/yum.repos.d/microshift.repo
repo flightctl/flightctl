@@ -1,0 +1,11 @@
+[rhocp]
+baseurl=https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel9/$basearch/rhocp/4.14/os/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+
+[fast-datapath]
+baseurl=https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel9/$basearch/fast-datapath/os/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
