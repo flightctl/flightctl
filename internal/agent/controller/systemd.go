@@ -7,15 +7,13 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 )
 
 type SystemDController struct {
-	agent *agent.DeviceAgent
-	exec  executer.Executer
+	exec executer.Executer
 }
 
 func NewSystemDController() *SystemDController {
@@ -28,10 +26,6 @@ func NewSystemDControllerWithExecuter(exec executer.Executer) *SystemDController
 	return &SystemDController{
 		exec: exec,
 	}
-}
-
-func (c *SystemDController) SetDeviceAgent(a *agent.DeviceAgent) {
-	c.agent = a
 }
 
 func (c *SystemDController) NeedsUpdate(r *api.Device) bool {

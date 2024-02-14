@@ -7,15 +7,13 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 )
 
 type ContainerController struct {
-	agent *agent.DeviceAgent
-	exec  executer.Executer
+	exec executer.Executer
 }
 
 func NewContainerController() *ContainerController {
@@ -28,10 +26,6 @@ func NewContainerControllerWithExecuter(exec executer.Executer) *ContainerContro
 	return &ContainerController{
 		exec: exec,
 	}
-}
-
-func (c *ContainerController) SetDeviceAgent(a *agent.DeviceAgent) {
-	c.agent = a
 }
 
 func (c *ContainerController) NeedsUpdate(r *api.Device) bool {
