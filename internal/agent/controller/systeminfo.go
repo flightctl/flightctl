@@ -4,7 +4,6 @@ import (
 	"runtime"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/google/cadvisor/fs"
 	"github.com/google/cadvisor/machine"
@@ -13,7 +12,6 @@ import (
 )
 
 type SystemInfoController struct {
-	agent      *agent.DeviceAgent
 	tpmChannel *tpm.TPM
 
 	systemInfo *api.DeviceSystemInfo
@@ -21,10 +19,6 @@ type SystemInfoController struct {
 
 func NewSystemInfoController(tpmChannel *tpm.TPM) *SystemInfoController {
 	return &SystemInfoController{tpmChannel: tpmChannel}
-}
-
-func (c *SystemInfoController) SetDeviceAgent(a *agent.DeviceAgent) {
-	c.agent = a
 }
 
 func (c *SystemInfoController) NeedsUpdate(r *api.Device) bool {
