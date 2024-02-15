@@ -56,7 +56,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.Enrol
 	return nil
 }
 
-func createDeviceFromEnrollmentRequest(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
+func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
 	apiResource := &api.Device{
 		Metadata: api.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
@@ -69,7 +69,7 @@ func createDeviceFromEnrollmentRequest(ctx context.Context, deviceStore store.De
 		}
 		(*apiResource.Metadata.Labels)["region"] = *enrollmentRequest.Status.Approval.Region
 	}
-	_, err := deviceStore.Create(ctx, orgId, apiResource)
+	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.taskManager.DeviceUpdatedCallback)
 	return err
 }
 
@@ -251,7 +251,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 			}, nil
 		}
 
-		if err := createDeviceFromEnrollmentRequest(ctx, h.store.Device(), orgId, enrollmentReq); err != nil {
+		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
 			log.Errorf("Error creating device from enrollment request: %s", err)
 			return server.CreateEnrollmentRequestApproval422JSONResponse{
 				Error: "Error creating device from enrollment request: " + err.Error(),

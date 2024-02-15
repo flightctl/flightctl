@@ -1,16 +1,18 @@
-package tasks
+package tasks_test
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -22,49 +24,14 @@ func TestController(t *testing.T) {
 	RunSpecs(t, "Tasks Suite")
 }
 
-func createDevices(numDevices int, ctx context.Context, deviceStore store.Device, orgId uuid.UUID) {
-	for i := 1; i <= numDevices; i++ {
-		resource := api.Device{
-			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("mydevice-%d", i)),
-				Labels: &map[string]string{"key": "value"},
-			},
-		}
-
-		_, err := deviceStore.Create(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("creating device: %v", err)
-		}
-	}
-}
-
-func createFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID, callback store.FleetStoreCallback) *api.Fleet {
-	resource := api.Fleet{
-		Metadata: api.ObjectMeta{
-			Name: util.StrToPtr("myfleet"),
-		},
-		Spec: api.FleetSpec{
-			Selector: &api.LabelSelector{
-				MatchLabels: map[string]string{"key": "value"},
-			},
-		},
-	}
-
-	fleet, err := fleetStore.Create(ctx, orgId, &resource, callback)
-	if err != nil {
-		log.Fatalf("creating fleet: %v", err)
-	}
-	return fleet
-}
-
-var _ = Describe("DeviceUpdater", func() {
+var _ = Describe("FleetRollout", func() {
 	var (
 		log         *logrus.Logger
 		ctx         context.Context
 		orgId       uuid.UUID
 		deviceStore store.Device
 		fleetStore  store.Fleet
-		stores      store.Store
+		storeInst   store.Store
 		cfg         *config.Config
 		dbName      string
 		numDevices  int
@@ -76,31 +43,33 @@ var _ = Describe("DeviceUpdater", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
-		deviceStore = stores.Device()
-		fleetStore = stores.Fleet()
-		callback = store.FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {})
+		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		deviceStore = storeInst.Device()
+		fleetStore = storeInst.Fleet()
+		callback = func(before *model.Fleet, after *model.Fleet) {}
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, stores, dbName)
+		store.DeleteTestDB(cfg, storeInst, dbName)
 	})
 
-	Context("DeviceUpdater", func() {
-		It("Update devices good flow", func() {
-			createDevices(numDevices, ctx, deviceStore, orgId)
-			fleet := createFleet(ctx, fleetStore, orgId, callback)
-			fleet, err := fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
+	Context("FleetRollout", func() {
+		It("Fleet rollout good flow", func() {
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet-1", nil, nil)
+			testutil.CreateTestDevices(numDevices, ctx, deviceStore, orgId, util.StrToPtr("Fleet/myfleet-1"), true)
+			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
-			fleetRef := ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name}
 
 			// First update
+			logic := tasks.NewFleetRolloutsLogic(log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+			logic.SetItemsPerPage(2)
+
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
 			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
-			err = rolloutFleet(log, fleetStore, deviceStore, fleetRef)
+			err = logic.RolloutFleet(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
@@ -117,7 +86,7 @@ var _ = Describe("DeviceUpdater", func() {
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
 			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
-			err = rolloutFleet(log, fleetStore, deviceStore, fleetRef)
+			err = logic.RolloutFleet(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
@@ -129,6 +98,28 @@ var _ = Describe("DeviceUpdater", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(3)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(3)))
+		})
+
+		It("Device rollout good flow", func() {
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet-1", nil, nil)
+			testutil.CreateTestDevices(1, ctx, deviceStore, orgId, util.StrToPtr("Fleet/myfleet-1"), true)
+			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
+			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
+
+			logic := tasks.NewFleetRolloutsLogic(log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic.SetItemsPerPage(2)
+
+			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
+			Expect(err).ToNot(HaveOccurred())
+			err = logic.RolloutDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*dev.Metadata.Generation).To(Equal(int64(2)))
+			Expect(dev.Spec.Os.Image).To(Equal("my first OS"))
 		})
 	})
 })

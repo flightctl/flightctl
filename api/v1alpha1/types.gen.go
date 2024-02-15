@@ -19,6 +19,7 @@ const (
 // Defines values for ConditionType.
 const (
 	EnrollmentRequestApproved  ConditionType = "Approved"
+	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
 	RepositoryAccessible       ConditionType = "Accessible"
 	ResourceSyncAccessible     ConditionType = "Accessible"
 	ResourceSyncResourceParsed ConditionType = "ResourceParsed"
@@ -274,6 +275,7 @@ type FleetList struct {
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
+	// Selector A map of key,value pairs that are ANDed. An empty label selector matches everything. A null label selector matches nothing.
 	Selector *LabelSelector `json:"selector,omitempty"`
 	Template struct {
 		// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
@@ -316,7 +318,7 @@ type KubernetesSecretProviderSpec struct {
 	} `json:"secretRef"`
 }
 
-// LabelSelector defines model for LabelSelector.
+// LabelSelector A map of key,value pairs that are ANDed. An empty label selector matches everything. A null label selector matches nothing.
 type LabelSelector struct {
 	MatchLabels map[string]string `json:"matchLabels"`
 }

@@ -19,6 +19,9 @@ func BuildBaseListQuery(db *gorm.DB, orgId uuid.UUID, listParams ListParams) *go
 }
 
 func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
+	if limit == 0 {
+		return query
+	}
 	query = query.Limit(limit)
 	if cont != nil {
 		query = query.Where("name >= ?", cont.Name)
