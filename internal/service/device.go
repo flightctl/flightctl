@@ -16,7 +16,7 @@ import (
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Device().Create(ctx, orgId, request.Body)
+	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
@@ -76,7 +76,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Device().DeleteAll(ctx, orgId)
+	err := h.store.Device().DeleteAll(ctx, orgId, h.taskManager.AllDevicesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevices200JSONResponse{}, nil
@@ -107,7 +107,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice400Response{}, nil
 	}
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body)
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -126,7 +126,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Device().Delete(ctx, orgId, request.Name)
+	err := h.store.Device().Delete(ctx, orgId, request.Name, h.taskManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil

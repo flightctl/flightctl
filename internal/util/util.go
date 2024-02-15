@@ -26,7 +26,7 @@ func MustString(fn StringerWithError) string {
 	return s
 }
 
-func Default(s string, defaultS string) string {
+func DefaultString(s string, defaultS string) string {
 	if s == "" {
 		return defaultS
 	}
@@ -54,6 +54,10 @@ func StrToPtr(s string) *string {
 
 func Int64ToPtr(i int64) *int64 {
 	return &i
+}
+
+func BoolToPtr(b bool) *bool {
+	return &b
 }
 
 func TimeStampStringPtr() *string {
@@ -155,7 +159,7 @@ func GetResourceOwner(owner *string) (string, string, error) {
 	}
 	parts := strings.Split(*owner, "/")
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invlid owner string: %s", *owner)
+		return "", "", fmt.Errorf("invalid owner string: %s", *owner)
 	}
 
 	return parts[0], parts[1], nil
@@ -169,4 +173,17 @@ func CreateRandomJitterDuration(max int64, duration time.Duration) time.Duration
 	n := rand.Int63n(max)
 	jitteredDuration := duration * time.Duration(n)
 	return jitteredDuration
+}
+
+func LabelsMatchLabelSelector(labels map[string]string, labelSelector map[string]string) bool {
+	for selectorKey, selectorVal := range labelSelector {
+		labelVal, ok := labels[selectorKey]
+		if !ok {
+			return false
+		}
+		if labelVal != selectorVal {
+			return false
+		}
+	}
+	return true
 }

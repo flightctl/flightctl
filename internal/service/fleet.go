@@ -29,7 +29,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 		return server.CreateFleet400Response{}, fmt.Errorf("fleet name not specified")
 	}
 
-	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.taskManager.FleetTemplateRolloutCallback)
+	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateFleet201JSONResponse(*result), nil
@@ -81,7 +81,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Fleet().DeleteAll(ctx, orgId)
+	err := h.store.Fleet().DeleteAll(ctx, orgId, h.taskManager.AllFleetsDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteFleets200JSONResponse{}, nil
@@ -118,7 +118,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 	// Since this is an api call, we remove the Owner from the fleet - to avoid user override
 	request.Body.Metadata.Owner = nil
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetTemplateRolloutCallback)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -150,7 +150,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 		return server.DeleteFleet409Response{}, nil
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, request.Name)
+	err = h.store.Fleet().Delete(ctx, orgId, h.taskManager.FleetUpdatedCallback, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil

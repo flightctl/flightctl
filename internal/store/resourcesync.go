@@ -65,12 +65,14 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	var numRemaining *int64
 
 	query := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
-	// Request 1 more than the user asked for to see if we need to return "continue"
-	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+	if listParams.Limit > 0 {
+		// Request 1 more than the user asked for to see if we need to return "continue"
+		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+	}
 	result := query.Find(&resourceSyncs)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
-	if len(resourceSyncs) > listParams.Limit {
+	if listParams.Limit > 0 && len(resourceSyncs) > listParams.Limit {
 		nextContinueStruct := Continue{
 			Name:    resourceSyncs[len(resourceSyncs)-1].Name,
 			Version: CurrentContinueVersion,

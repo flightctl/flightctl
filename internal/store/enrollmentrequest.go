@@ -56,12 +56,14 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 	var numRemaining *int64
 
 	query := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams)
-	// Request 1 more than the user asked for to see if we need to return "continue"
-	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+	if listParams.Limit > 0 {
+		// Request 1 more than the user asked for to see if we need to return "continue"
+		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+	}
 	result := query.Find(&enrollmentRequests)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
-	if len(enrollmentRequests) > listParams.Limit {
+	if listParams.Limit > 0 && len(enrollmentRequests) > listParams.Limit {
 		nextContinueStruct := Continue{
 			Name:    enrollmentRequests[len(enrollmentRequests)-1].Name,
 			Version: CurrentContinueVersion,

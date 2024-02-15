@@ -12,6 +12,8 @@ var (
 	DeviceAPI      = "v1alpha1"
 	DeviceKind     = "Device"
 	DeviceListKind = "DeviceList"
+
+	DeviceAnnotationMultipleOwners = "MultipleOwners"
 )
 
 type Device struct {
