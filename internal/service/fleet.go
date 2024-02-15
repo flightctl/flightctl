@@ -25,6 +25,9 @@ func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 // (POST /api/v1/fleets)
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
 	orgId := store.NullOrgId
+	if request.Body.Metadata.Name == nil {
+		return server.CreateFleet400Response{}, fmt.Errorf("fleet name not specified")
+	}
 
 	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.taskManager.FleetTemplateRolloutCallback)
 	switch err {
@@ -105,8 +108,11 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceFleet400Response{}, nil
+	if request.Body.Metadata.Name == nil {
+		return server.ReplaceFleet400Response{}, fmt.Errorf("fleet name not specified in metadata")
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceFleet400Response{}, fmt.Errorf("fleet name specified in metadata does not match name in path")
 	}
 
 	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetTemplateRolloutCallback)
