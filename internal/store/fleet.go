@@ -24,11 +24,12 @@ type Fleet interface {
 	CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, fleets ...*api.Fleet) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 	UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, fleets ...*api.Fleet) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
-	Delete(ctx context.Context, orgId uuid.UUID, names ...string) error
+	DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error
+	Delete(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, names ...string) error
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
 	ListIgnoreOrg() ([]model.Fleet, error)
+	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	InitialMigration() error
 }
 
@@ -37,7 +38,8 @@ type FleetStore struct {
 	log logrus.FieldLogger
 }
 
-type FleetStoreCallback func(orgId uuid.UUID, name *string, templateUpdated bool)
+type FleetStoreCallback func(before *model.Fleet, after *model.Fleet)
+type FleetStoreAllDeletedCallback func(orgId uuid.UUID)
 
 // Make sure we conform to Fleet interface
 var _ Fleet = (*FleetStore)(nil)
@@ -61,8 +63,8 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	}
 	fleet.Generation = util.Int64ToPtr(1)
 	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
-	callback(orgId, &fleet.Name, true)
 	result := s.db.Create(fleet)
+	callback(nil, fleet)
 	return resource, result.Error
 }
 
@@ -72,12 +74,14 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	var numRemaining *int64
 
 	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams)
-	// Request 1 more than the user asked for to see if we need to return "continue"
-	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+	if listParams.Limit > 0 {
+		// Request 1 more than the user asked for to see if we need to return "continue"
+		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+	}
 	result := query.Find(&fleets)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
-	if len(fleets) > listParams.Limit {
+	if listParams.Limit > 0 && len(fleets) > listParams.Limit {
 		nextContinueStruct := Continue{
 			Name:    fleets[len(fleets)-1].Name,
 			Version: CurrentContinueVersion,
@@ -117,9 +121,12 @@ func (s *FleetStore) ListIgnoreOrg() ([]model.Fleet, error) {
 	return fleets, nil
 }
 
-func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
+func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error {
 	condition := model.Fleet{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+	if result.Error == nil {
+		callback(orgId)
+	}
 	return result.Error
 }
 
@@ -137,51 +144,51 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*ap
 }
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error) {
-	fleet, created, templateUpdated, err := s.createOrUpdateTx(s.db, ctx, orgId, resource)
+	oldFleet, newFleet, err := s.createOrUpdateTx(s.db, ctx, orgId, resource)
 	if err == nil {
-		callback(orgId, resource.Metadata.Name, templateUpdated)
+		callback(oldFleet, newFleet)
 	}
-	return fleet, created, err
+	updatedFleet := newFleet.ToApiResource()
+
+	return &updatedFleet, oldFleet == nil, err
 }
 
-func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, bool, bool, error) {
+func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*model.Fleet, *model.Fleet, error) {
 	if resource == nil {
-		return nil, false, false, fmt.Errorf("resource is nil")
+		return nil, nil, fmt.Errorf("resource is nil")
 	}
 	fleet := model.NewFleetFromApiResource(resource)
 	if fleet.Name == "" {
-		return nil, false, false, fmt.Errorf("resource has no name")
+		return nil, nil, fmt.Errorf("resource has no name")
 	}
 	fleet.OrgID = orgId
 
-	// don't allow the user to set the generation
+	// don't overwrite status, generation, or owner
+	fleet.Status = nil
 	fleet.Generation = nil
 	if fleet.Spec != nil && fleet.Spec.Data.Template.Metadata != nil {
 		fleet.Spec.Data.Template.Metadata.Generation = nil
 	}
+	fleet.Owner = nil
 
-	// don't overwrite status
-	fleet.Status = nil
-
-	created := false
-	templateUpdated := false
+	var existingRecord *model.Fleet
 
 	err := tx.Transaction(func(innerTx *gorm.DB) (err error) {
 
-		existingRecord := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
+		existingRecord = &model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
 		result := innerTx.First(&existingRecord)
 		// NotFound is OK because in that case we will create the record, anything else is a real error
 		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return result.Error
 		}
 		if result.Error != nil {
-			created = true
+			existingRecord = nil
 			if fleet.Spec.Data.Template.Metadata == nil {
 				fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 			}
 			fleet.Generation = util.Int64ToPtr(1)
 			fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
-			templateUpdated = true
+
 			result = innerTx.Create(fleet)
 			if result.Error != nil {
 				return result.Error
@@ -209,7 +216,6 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 			}
 
 			if !sameTemplateSpec {
-				templateUpdated = true
 				if fleet.Spec.Data.Template.Metadata == nil {
 					fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 				}
@@ -231,20 +237,26 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 	})
 
 	if err != nil {
-		return nil, false, false, err
+		return nil, nil, err
 	}
 
-	updatedResource := fleet.ToApiResource()
-	return &updatedResource, created, templateUpdated, nil
+	if existingRecord != nil {
+		existingRecord.Owner = nil // Match the incoming fleet
+	}
+	return existingRecord, fleet, nil
 }
 
 func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, resources ...*api.Fleet) error {
-	var updatedFleets []string
+	type update struct {
+		oldFleet *model.Fleet
+		newFleet *model.Fleet
+	}
+	var updates []update
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, resource := range resources {
-			_, _, templateUpdated, err := s.createOrUpdateTx(tx, ctx, orgId, resource)
-			if err == nil && templateUpdated {
-				updatedFleets = append(updatedFleets, *resource.Metadata.Name)
+			oldFleet, newFleet, err := s.createOrUpdateTx(tx, ctx, orgId, resource)
+			if err == nil {
+				updates = append(updates, update{oldFleet: oldFleet, newFleet: newFleet})
 			}
 			if err != nil {
 				return err
@@ -254,8 +266,8 @@ func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID
 	})
 
 	if err == nil {
-		for i := range updatedFleets {
-			callback(orgId, &updatedFleets[i], true)
+		for i := range updates {
+			callback(updates[i].oldFleet, updates[i].newFleet)
 		}
 	}
 	return err
@@ -318,16 +330,32 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 	return result.Error
 }
 
-func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, names ...string) error {
+func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, names ...string) error {
+	deleted := []model.Fleet{}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, name := range names {
+			existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+			result := tx.First(&existingRecord)
+			if result.Error != nil {
+				if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+					continue
+				}
+				return result.Error
+			}
 			err := s.deleteTx(tx, ctx, orgId, name)
 			if err != nil {
 				return err
 			}
+			deleted = append(deleted, existingRecord)
 		}
 		return nil
 	})
+
+	if err == nil {
+		for i := range deleted {
+			callback(&deleted[i], nil)
+		}
+	}
 	return err
 }
 
@@ -337,4 +365,35 @@ func (s *FleetStore) deleteTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID,
 	}
 	result := s.db.Unscoped().Delete(&condition)
 	return result.Error
+}
+
+func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := innerTx.First(&existingRecord)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if existingRecord.Status == nil {
+			existingRecord.Status = model.MakeJSONField(api.FleetStatus{})
+		}
+		if existingRecord.Status.Data.Conditions == nil {
+			existingRecord.Status.Data.Conditions = &[]api.Condition{}
+		}
+		changed := false
+		for _, condition := range conditions {
+			changed = api.SetStatusCondition(existingRecord.Status.Data.Conditions, condition)
+		}
+		if !changed {
+			return nil
+		}
+
+		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
+			"status": existingRecord.Status,
+		})
+		return result.Error
+	})
+
+	return err
 }
