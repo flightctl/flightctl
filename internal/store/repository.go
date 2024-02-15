@@ -63,7 +63,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	var numRemaining *int64
 
 	log := log.WithReqIDFromCtx(ctx, s.log)
-	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams.Labels)
+	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&repositories)
@@ -84,7 +84,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams.Labels)
+			countQuery := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
