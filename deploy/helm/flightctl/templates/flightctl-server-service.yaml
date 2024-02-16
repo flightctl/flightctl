@@ -1,3 +1,4 @@
+{{ if .Values.flightctl.server.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -6,10 +7,16 @@ metadata:
   name: flightctl-server
   namespace: {{ .Values.flightctl.server.namespace }}
 spec:
+  {{ if .Values.flightctl.db.nodePort }}
+  type: NodePort
+  {{ end }}
   ports:
-    - name: "3333"
+    - name: "flightctl-api"
       port: 3333
       targetPort: 3333
+      {{ if .Values.flightctl.server.nodePort }}
+      nodePort: {{ .Values.flightctl.server.nodePort }}
+      {{ end }}
   selector:
     flightctl.service: flightctl-server
-
+{{ end }}

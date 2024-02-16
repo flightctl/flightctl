@@ -3,6 +3,4 @@ kind: Repository
 metadata:
   name: defaultRepo
 spec:
-  repo: https://github.com/flightctl/flightctl.git
-  username: myuser
-  password: mypassword
+  repo: https://github.com/flightctl/flightctl-demos.git

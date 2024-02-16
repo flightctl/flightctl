@@ -51,18 +51,6 @@ services:
       - flightctl-network
     restart: unless-stopped
 
-  flightctl-server:
-    container_name: flightctl-server
-    image: localhost/flightctl-server:latest
-    ports:
-      - "3333:3333"
-    restart: unless-stopped
-    volumes:
-      - flightctl-server-certs:/root/.flightctl/certs/
-      - ./config.yaml:/root/.flightctl/config.yaml
-    networks:
-      - flightctl-network
-
   flightctl-auth:
     container_name: flightctl-auth
     image: quay.io/keycloak/keycloak
@@ -90,7 +78,6 @@ services:
 
 volumes:
   flightctl-db:
-  flightctl-server-certs:
   flightctl-auth-db:
   flightctl-auth:
   config:

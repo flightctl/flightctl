@@ -27,9 +27,11 @@ help:
 	@echo "    lint:            run golangci-lint"
 	@echo "    build:           run all builds"
 	@echo "    unit-test:       run unit tests"
-	@echo "    deploy:          deploy flightctl-server and db as containers in podman"
-	@echo "    deploy-db:       deploy only the database as a container in podman"
+	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
+	@echo "    deploy-db:       deploy only the database as a pod in kind"
 	@echo "    clean:           clean up all containers and volumes"
+	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
+	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 
 generate:
@@ -47,13 +49,6 @@ build: bin
 
 flightctl-server-container:
 	podman build -f Containerfile -t flightctl-server:latest
-
-deploy-db:
-	cd deploy/podman && podman-compose up -d flightctl-db
-
-deploy: build flightctl-server-container
-	cd deploy/podman && podman-compose up -d
-	podman cp flightctl-server:/root/.flightctl "${HOME}"
 
 bin:
 	mkdir -p bin
@@ -94,10 +89,9 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	debuild -us -uc -b
 
 clean:
+	- kind delete cluster
 	- podman-compose -f deploy/podman/compose.yaml down
-	- podman-compose -f deploy/podman/observability.yaml down
 	- rm -r ~/.flightctl
-	- podman volume ls | grep local | awk '{print $$2}' | xargs podman volume rm
 	- rm -f -r bin
 	- rm -f -r $(shell uname -m)
 	- rm -f -r obj-*-linux-gnu
@@ -115,26 +109,16 @@ _post_unit_test: $(REPORTS)
 run-unit-test:
 	SKIP_UT_DB=1 $(MAKE) _unit_test TIMEOUT=30m TEST="$(or $(TEST),$(shell go list ./...))"
 
-run-db-container:
-	podman rm -f flightctl-db || true
-	podman volume rm podman_flightctl-db || true
-	podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec podman_flightctl-db
-	cd deploy/podman && podman-compose up -d flightctl-db
-	hack/wait_for_postgres.sh
-	podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
-	podman exec -it flightctl-db createdb admin || true
-
-kill-db-container:
-	podman rm -f flightctl-db || true
-	podman volume rm podman_flightctl-db || true
-
-unit-test: run-db-container run-unit-test kill-db-container
+unit-test: deploy-db run-unit-test kill-db
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)
 
-.PHONY: tools deploy deploy-db flightctl-server-container
+.PHONY: tools flightctl-server-container
 tools: $(GOBIN)/golangci-lint
 
 $(GOBIN)/golangci-lint:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.54.0
+
+# include the deployment targets
+include deploy/deploy.mk

@@ -1,3 +1,4 @@
+{{ if .Values.flightctl.server.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,7 +29,7 @@ spec:
             - containerPort: 3333
               protocol: TCP
           volumeMounts:
-            - mountPath: /root/.flightctl/certs
+            - mountPath: /root/.flightctl/
               name: flightctl-server-certs
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-server-config
@@ -43,3 +44,4 @@ spec:
         - name: flightctl-server-config
           configMap:
             name: flightctl-server-config
+{{ end }}
