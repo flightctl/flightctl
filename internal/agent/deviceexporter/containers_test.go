@@ -1,9 +1,10 @@
-package controller
+package deviceexporter
 
 import (
+	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
@@ -115,41 +116,40 @@ const podmanListResult = `
 ]
 `
 
-var _ = Describe("containers controller", func() {
+var _ = Describe("containers exporter", func() {
 	var (
-		controller *ContainerController
-		device     *api.Device
-		ctrl       *gomock.Controller
-		execMock   *executer.MockExecuter
+		exporter *ContainerExporter
+		ctrl     *gomock.Controller
+		execMock *executer.MockExecuter
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		execMock = executer.NewMockExecuter(ctrl)
-		controller = NewContainerControllerWithExecuter(execMock)
-		device = &api.Device{
-			Status: &api.DeviceStatus{},
-		}
+		exporter = newContainerExporter(execMock)
 	})
 
 	Context("containers controller", func() {
 		It("list podman containers", func() {
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json").Return(podmanListResult, "", 0)
-			_, err := controller.SetStatus(device)
+			status, err := exporter.GetStatus(context.TODO())
 			if err != nil {
 				Expect(err).ToNot(HaveOccurred())
 			}
 
-			Expect(*device.Status.Containers).ToNot(BeNil())
-			Expect(len(*device.Status.Containers)).To(Equal(2))
-			Expect((*device.Status.Containers)[0].Id).To(Equal("id1"))
-			Expect((*device.Status.Containers)[0].Image).To(Equal("quay.io/image1:latest"))
-			Expect((*device.Status.Containers)[0].Name).To(Equal("myfirstname"))
-			Expect((*device.Status.Containers)[0].Status).To(Equal("running"))
-			Expect((*device.Status.Containers)[1].Id).To(Equal("id2"))
-			Expect((*device.Status.Containers)[1].Image).To(Equal("quay.io/image2:latest"))
-			Expect((*device.Status.Containers)[1].Name).To(Equal("agreatname"))
-			Expect((*device.Status.Containers)[1].Status).To(Equal("paused"))
+			containerStatus, ok := status.([]v1alpha1.ContainerStatus)
+			Expect(ok).To(BeTrue())
+
+			Expect(containerStatus).ToNot(BeNil())
+			Expect(len(containerStatus)).To(Equal(2))
+			Expect((containerStatus)[0].Id).To(Equal("id1"))
+			Expect((containerStatus)[0].Image).To(Equal("quay.io/image1:latest"))
+			Expect((containerStatus)[0].Name).To(Equal("myfirstname"))
+			Expect((containerStatus)[0].Status).To(Equal("running"))
+			Expect((containerStatus)[1].Id).To(Equal("id2"))
+			Expect((containerStatus)[1].Image).To(Equal("quay.io/image2:latest"))
+			Expect((containerStatus)[1].Name).To(Equal("agreatname"))
+			Expect((containerStatus)[1].Status).To(Equal("paused"))
 		})
 	})
 })

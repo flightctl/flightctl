@@ -5,32 +5,42 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
 	"gopkg.in/yaml.v2"
 )
 
-type Config struct {
-	Agent *agentConfig `json:"agent,omitempty"`
-}
+const (
+	// DefaultFetchSpecInterval is the default interval between two reads of the remote device spec
+	DefaultFetchSpecInterval = time.Second * 60
 
-type agentConfig struct {
-	Server               string        `json:"server,omitempty"`
-	EnrollmentUi         string        `json:"enrollmentUi,omitempty"`
-	TpmPath              string        `json:"tpmPath,omitempty"`
+	// DefaultStatusUpdateInterval is the default interval between two status updates
+	DefaultStatusUpdateInterval = time.Second * 60
+)
+
+type Config struct {
+	// ManagementEndpoint is the URL of the device management server
+	ManagementEndpoint   string        `json:"managementEndpoint,omitempty"`
+	// EnrollmentEndpoint is the URL of the device enrollment server
+	EnrollmentEndpoint   string        `json:"enrollmentEndpoint,omitempty"`
+	// CertDir is the directory where the device's certificates are stored
+	CertDir              string        `json:"certDir,omitempty"`
+	// TPMPath is the path to the TPM device
+	TPMPath              string        `json:"tpmPath,omitempty"`
+	// FetchSpecInterval is the interval between two reads of the remote device spec
 	FetchSpecInterval    util.Duration `json:"fetchSpecInterval,omitempty"`
+	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
+	// LogPrefix is the log prefix used for testing
+	LogPrefix   	  	string        `json:"logPrefix,omitempty"`
 }
 
 func NewDefault() *Config {
 	return &Config{
-		&agentConfig{
-			Server:               "https://localhost:3333",
-			EnrollmentUi:         "",
-			TpmPath:              "",
-			FetchSpecInterval:    util.Duration(DefaultFetchSpecInterval),
-			StatusUpdateInterval: util.Duration(DefaultStatusUpdateInterval),
-		},
+		ManagementEndpoint:   "https://localhost:3333",
+		StatusUpdateInterval: util.Duration(DefaultStatusUpdateInterval),
+		FetchSpecInterval:    util.Duration(DefaultFetchSpecInterval),
 	}
 }
 

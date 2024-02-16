@@ -6,9 +6,10 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/controller"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/tpm"
+
+	// "github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutils "github.com/flightctl/flightctl/test/utils"
@@ -61,16 +62,13 @@ func TestDeviceAgent(t *testing.T) {
 			statusUpdateInterval := 1 * time.Second
 
 			agentInstance := NewDeviceAgent("https://"+cfg.Service.Address, "https://"+cfg.Service.Address, cfg.Service.Address, testDirPath, log).
-				AddController(controller.NewSystemInfoController(tpmChannel)).
-				AddController(controller.NewContainerController()).
-				AddController(controller.NewSystemDController()).
 				SetFetchSpecInterval(fetchSpecInterval, 0).
 				SetStatusUpdateInterval(statusUpdateInterval, 0).
 				SetIssueDir(testDirPath)
 
 			// start agent
 			go func() {
-				err = agentInstance.Run(ctx)
+				err := agentInstance.Run(ctx)
 				require.NoError(err)
 			}()
 
@@ -91,6 +89,7 @@ func TestDeviceAgent(t *testing.T) {
 				deviceName = *listResp.JSON200.Items[0].Metadata.Name
 				return true, nil
 			})
+			require.NoError(err)
 
 			// approve the enrollment request
 			approval := api.EnrollmentRequestApproval{

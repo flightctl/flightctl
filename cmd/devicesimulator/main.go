@@ -14,15 +14,14 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
-	"github.com/flightctl/flightctl/internal/agent/controller"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
 func main() {
 	log := log.InitLogs()
-	serverUrl := flag.String("server", "https://localhost:3333", "device server URL")
+	managementEndpoint := flag.String("management-endpoint", "https://localhost:3333", "device server URL")
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
@@ -42,23 +41,8 @@ func main() {
 	log.Infoln("setting up metrics endpoint")
 	setupMetricsEndpoint(*metricsAddr)
 
-	log.Infoln("setting up TPM")
-	var err error
-	var tpmChannel *tpm.TPM
-	if len(*tpmPath) > 0 {
-		tpmChannel, err = tpm.OpenTPM(*tpmPath)
-		if err != nil {
-			log.Errorf("opening TPM channel: %v", err)
-		}
-	} else {
-		tpmChannel, err = tpm.OpenTPMSimulator()
-		if err != nil {
-			log.Errorf("opening TPM simulator channel: %v", err)
-		}
-	}
-
 	log.Infoln("creating agents")
-	agents := make([]*agent.DeviceAgent, *numDevices)
+	agents := make([]*agent.Agent, *numDevices)
 	for i := 0; i < *numDevices; i++ {
 		agentName := fmt.Sprintf("device-%04d", i)
 		agentDir := filepath.Join(*certDir, agentName)
@@ -68,14 +52,17 @@ func main() {
 			}
 		}
 		enrollmentUiUrl := ""
-		agents[i] = agent.NewDeviceAgent(*serverUrl, *serverUrl, enrollmentUiUrl, agentDir, log).
-			SetDisplayName(agentName).
-			AddController(controller.NewSystemInfoController(tpmChannel)).
-			AddController(controller.NewContainerController()).
-			AddController(controller.NewSystemDController()).
-			SetFetchSpecInterval(*fetchSpecInterval, 0).
-			SetStatusUpdateInterval(*statusUpdateInterval, 0).
-			SetRpcMetricsCallbackFunction(rpcMetricsCallback)
+
+		cfg := agent.Config{
+			ManagementEndpoint: *managementEndpoint,
+			EnrollmentEndpoint: enrollmentUiUrl,
+			CertDir:            agentDir,
+			TPMPath:            *tpmPath,
+			FetchSpecInterval:  util.Duration(*fetchSpecInterval),
+			StatusUpdateInterval: util.Duration(*statusUpdateInterval),
+		}
+
+		agents[i] = agent.New(&cfg)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -101,7 +88,7 @@ func main() {
 			activeAgents.Inc()
 			err := agents[i].Run(ctx)
 			if err != nil {
-				log.Errorf("%s: %v", agents[i].GetName(), err)
+				log.Errorf("%s: %v", agents[i].GetLogPrefix(), err)
 			}
 			activeAgents.Dec()
 		}(i)

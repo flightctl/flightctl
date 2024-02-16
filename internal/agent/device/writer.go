@@ -1,0 +1,183 @@
+package device
+
+import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strconv"
+
+	"github.com/google/renameio"
+	"github.com/vincent-petithory/dataurl"
+	"k8s.io/klog/v2"
+
+	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+)
+
+const (
+	// defaultDirectoryPermissions houses the default mode to use when no directory permissions are provided
+	defaultDirectoryPermissions os.FileMode = 0o755
+	// defaultFilePermissions houses the default mode to use when no file permissions are provided
+	defaultFilePermissions os.FileMode = 0o644
+)
+
+type Writer struct {
+	// rootDir is the root directory for the device writer useful for testing
+	rootDir string
+}
+
+func NewWriter() *Writer {
+	return &Writer{}
+}
+
+func (w *Writer) SetRootdir(path string) {
+	w.rootDir = path
+}
+
+func (w *Writer) UpdateFiles(config ign3types.Config) error {
+	return nil
+}
+
+func (w *Writer) WriteIgnitionToDevice(files ...ign3types.File) error {
+	for _, file := range files {
+		decodedContents, err := DecodeIgnitionFileContents(file.Contents.Source, file.Contents.Compression)
+		if err != nil {
+			return fmt.Errorf("could not decode file %q: %w", file.Path, err)
+		}
+		mode := defaultFilePermissions
+		if file.Mode != nil {
+			mode = os.FileMode(*file.Mode)
+		}
+		// set chown if file information is provided
+		uid, gid, err := getFileOwnership(file)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve file ownership for file %q: %w", file.Path, err)
+		}
+
+		// TODO: implement createOrigFile
+		// if err := createOrigFile(file.Path, file.Path); err != nil {
+		// 	return err
+		// }
+		if err := writeFileAtomically(file.Path, decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	return os.WriteFile(w.rootDir, []byte{}, 0)
+}
+
+// writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
+// directly since we need to 1) Chown 2) go through a buffer since files provided can be big
+func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, uid, gid int) error {
+	dir := filepath.Dir(fpath)
+	if err := os.MkdirAll(dir, dirMode); err != nil {
+		return fmt.Errorf("failed to create directory %q: %w", dir, err)
+	}
+	t, err := renameio.TempFile(dir, fpath)
+	if err != nil {
+		return err
+	}
+	defer t.Cleanup()
+	// Set permissions before writing data, in case the data is sensitive.
+	if err := t.Chmod(fileMode); err != nil {
+		return err
+	}
+	w := bufio.NewWriter(t)
+	if _, err := w.Write(b); err != nil {
+		return err
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if uid != -1 && gid != -1 {
+		if err := t.Chown(uid, gid); err != nil {
+			return err
+		}
+	}
+	return t.CloseAtomicallyReplace()
+}
+
+// This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
+func getFileOwnership(file ign3types.File) (int, int, error) {
+	uid, gid := 0, 0 // default to root
+	var err error    // create default error var
+	if file.User.ID != nil {
+		uid = *file.User.ID
+	} else if file.User.Name != nil && *file.User.Name != "" {
+		uid, err = lookupUID(*file.User.Name)
+		if err != nil {
+			return uid, gid, err
+		}
+	}
+
+	if file.Group.ID != nil {
+		gid = *file.Group.ID
+	} else if file.Group.Name != nil && *file.Group.Name != "" {
+		gid, err = lookupGID(*file.Group.Name)
+		if err != nil {
+			return uid, gid, err
+		}
+	}
+	return uid, gid, nil
+}
+
+func lookupUID(username string) (int, error) {
+	osUser, err := user.Lookup(username)
+	if err != nil {
+		return 0, fmt.Errorf("failed to retrieve UserID for username: %s", username)
+	}
+	klog.V(2).Infof("Retrieved UserId: %s for username: %s", osUser.Uid, username)
+	uid, _ := strconv.Atoi(osUser.Uid)
+	return uid, nil
+}
+
+func lookupGID(group string) (int, error) {
+	osGroup, err := user.LookupGroup(group)
+	if err != nil {
+		return 0, fmt.Errorf("failed to retrieve GroupID for group: %v", group)
+	}
+	klog.V(2).Infof("Retrieved GroupID: %s for group: %s", osGroup.Gid, group)
+	gid, _ := strconv.Atoi(osGroup.Gid)
+	return gid, nil
+}
+
+func DecodeIgnitionFileContents(source, compression *string) ([]byte, error) {
+	var contentsBytes []byte
+
+	// To allow writing of "empty" files we'll allow source to be nil
+	if source != nil {
+		source, err := dataurl.DecodeString(*source)
+		if err != nil {
+			return []byte{}, fmt.Errorf("could not decode file content string: %w", err)
+		}
+		if compression != nil {
+			switch *compression {
+			case "":
+				contentsBytes = source.Data
+			case "gzip":
+				reader, err := gzip.NewReader(bytes.NewReader(source.Data))
+				if err != nil {
+					return []byte{}, fmt.Errorf("could not create gzip reader: %w", err)
+				}
+				defer reader.Close()
+				contentsBytes, err = io.ReadAll(reader)
+				if err != nil {
+					return []byte{}, fmt.Errorf("failed decompressing: %w", err)
+				}
+			default:
+				return []byte{}, fmt.Errorf("unsupported compression type %q", *compression)
+			}
+		} else {
+			contentsBytes = source.Data
+		}
+	}
+	return contentsBytes, nil
+}
