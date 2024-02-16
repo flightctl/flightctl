@@ -1,3 +1,0 @@
-[install]
-root-fs-type = "xfs"
-kargs = "audit=0"
