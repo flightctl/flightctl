@@ -1,0 +1,12 @@
+flightctl:
+  db:
+    nodePort: 5432 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+    imagePullPolicy: IfNotPresent
+  server:
+    image: localhost/flightctl-server:latest
+    imagePullPolicy: IfNotPresent
+    hostName: localhost
+    nodePort: 3333 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+
+storageClassName: standard
+storageClassNameRWM: standard
