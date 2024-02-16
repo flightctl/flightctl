@@ -32,6 +32,7 @@ spec:
             - name: POSTGRESQL_USER
               value: {{ .Values.flightctl.db.user }}
           image: {{ .Values.flightctl.db.image }}
+          imagePullPolicy: {{ .Values.flightctl.db.imagePullPolicy }}
           name: flightctl-db
           ports:
             - containerPort: 5432

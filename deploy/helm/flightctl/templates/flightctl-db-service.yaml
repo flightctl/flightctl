@@ -6,9 +6,15 @@ metadata:
   name: flightctl-db
   namespace: {{ .Values.flightctl.db.namespace }}
 spec:
+  {{ if .Values.flightctl.db.nodePort }}
+  type: NodePort
+  {{ end }}
   ports:
     - name: "5432"
       port: 5432
       targetPort: 5432
+      {{ if .Values.flightctl.db.nodePort }}
+      nodePort: {{ .Values.flightctl.db.nodePort }}
+      {{ end }}
   selector:
     flightctl.service: flightctl-db

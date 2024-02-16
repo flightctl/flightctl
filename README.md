@@ -36,20 +36,13 @@ export PGSQL_IMAGE=registry.redhat.io/rhel8/postgresql-12
 podman login registry.redhat.io
 ```
 
-
-Start the Flight Control database:
-
+The service can be deployed locally in kind with the following command:
 ```
-podman-compose -f deploy/podman/compose.yaml up
+make deploy
 ```
 
-Start the Flight Control API server:
-
-```
-bin/flightctl-server
-```
-
-Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`.
+Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
+and the client configuration in `$HOME/.flightctl/config.yaml`.
 
 Use the `flightctl` CLI to apply, get, or delete resources:
 
@@ -62,6 +55,21 @@ Use the `devicesimulator` to simulate load from devices:
 
 ```
 bin/devicesimulator --count=100
+```
+
+## Running the server locally
+For development purposes it can be useful to run the database in a container in kind, and
+the server locally. To do this, first start the database:
+
+```
+make deploy-db
+```
+
+Then start the server:
+
+```
+rm $HOME/.flightctl/client.yaml
+bin/flightctl-server
 ```
 
 ## Metrics
