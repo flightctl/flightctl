@@ -163,8 +163,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 		})
 
 		It("CreateOrUpdateResourceSync create mode", func() {
-			condition := api.ResourceSyncCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -179,7 +179,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Path:       util.StrToPtr("my/path"),
 				},
 				Status: &api.ResourceSyncStatus{
-					Conditions: &[]api.ResourceSyncCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			rs, created, err := store.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
@@ -193,8 +193,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 		})
 
 		It("CreateOrUpdateResourceSync update mode", func() {
-			condition := api.ResourceSyncCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -209,7 +209,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Path:       util.StrToPtr("my/other/path"),
 				},
 				Status: &api.ResourceSyncStatus{
-					Conditions: &[]api.ResourceSyncCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			rs, created, err := store.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)

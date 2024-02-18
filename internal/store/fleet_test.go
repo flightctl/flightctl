@@ -172,8 +172,8 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdate create mode", func() {
-			condition := api.FleetCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -189,7 +189,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 				Status: &api.FleetStatus{
-					Conditions: &[]api.FleetCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			updated := false
@@ -212,8 +212,8 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdate update mode same template", func() {
-			condition := api.FleetCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -225,7 +225,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
-			fleet.Status = &api.FleetStatus{Conditions: &[]api.FleetCondition{condition}}
+			fleet.Status = &api.FleetStatus{Conditions: &[]api.Condition{condition}}
 
 			updated := false
 			callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
@@ -247,8 +247,8 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdate update mode updated spec", func() {
-			condition := api.FleetCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -258,7 +258,7 @@ var _ = Describe("FleetStore create", func() {
 			fleet, err := store.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
-			fleet.Status = &api.FleetStatus{Conditions: &[]api.FleetCondition{condition}}
+			fleet.Status = &api.FleetStatus{Conditions: &[]api.Condition{condition}}
 
 			updated := false
 			callback := FleetStoreCallback(func(orgId uuid.UUID, name *string, templateUpdated bool) {
@@ -280,8 +280,8 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdateMultiple", func() {
-			condition := api.FleetCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -297,7 +297,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 				Status: &api.FleetStatus{
-					Conditions: &[]api.FleetCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			fleet2 := api.Fleet{
@@ -310,7 +310,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 				Status: &api.FleetStatus{
-					Conditions: &[]api.FleetCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			updated := 0
@@ -342,8 +342,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*createdFleet2.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 		})
 		It("CreateOrUpdateMultiple with error", func() {
-			condition := api.FleetCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -359,7 +359,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 				Status: &api.FleetStatus{
-					Conditions: &[]api.FleetCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			fleet2 := api.Fleet{
@@ -370,7 +370,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 				Status: &api.FleetStatus{
-					Conditions: &[]api.FleetCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			updated := 0
@@ -385,8 +385,8 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("UpdateStatus", func() {
-			condition := api.FleetCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -396,7 +396,7 @@ var _ = Describe("FleetStore create", func() {
 			fleet, err := store.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
-			fleet.Status = &api.FleetStatus{Conditions: &[]api.FleetCondition{condition}}
+			fleet.Status = &api.FleetStatus{Conditions: &[]api.Condition{condition}}
 
 			_, err = store.Fleet().UpdateStatus(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
@@ -406,7 +406,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
-			Expect((*updatedFleet.Status.Conditions)[0].Type).To(Equal("type"))
+			Expect((*updatedFleet.Status.Conditions)[0].Type).To(Equal(api.Accessible))
 		})
 	})
 })

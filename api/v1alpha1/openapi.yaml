@@ -1108,29 +1108,6 @@ components:
           type: string
           description: 'The password for auth with HTTP transport'
           format: password
-    RepositoryCondition:
-      required:
-        - status
-        - type
-      type: object
-      properties:
-        lastHeartbeatTime:
-          type: string
-        lastTransitionTime:
-          type: string
-        message:
-          type: string
-          description: Human readable message indicating details about last transition.
-        reason:
-          type: string
-          description: (brief) reason for the condition's last transition.
-        status:
-          $ref: '#/components/schemas/ConditionStatus'
-          description: Status of the condition, one of True, False, Unknown.
-        type:
-          $ref: '#/components/schemas/RepositoryConditionType'
-          description: Type of repository condition.
-      description: RepositoryCondition contains condition information for a repository.
     RepositoryStatus:
       type: object
       properties:
@@ -1138,12 +1115,8 @@ components:
           type: array
           description: 'Current state of the repository.'
           items:
-            $ref: '#/components/schemas/RepositoryCondition'
+            $ref: '#/components/schemas/Condition'
       description: RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
-    RepositoryConditionType:
-      type: string
-      enum:
-      - 'Accessible'
     RepositoryList:
       type: object
       properties:
@@ -1187,29 +1160,6 @@ components:
         - metadata
         - spec
       description: Device represents a physical device.
-    DeviceCondition:
-      required:
-        - status
-        - type
-      type: object
-      properties:
-        lastHeartbeatTime:
-          type: string
-        lastTransitionTime:
-          type: string
-        message:
-          type: string
-          description: Human readable message indicating details about last transition.
-        reason:
-          type: string
-          description: (brief) reason for the condition's last transition.
-        status:
-          $ref: '#/components/schemas/ConditionStatus'
-          description: Status of the condition, one of True, False, Unknown.
-        type:
-          type: string
-          description: Type of device condition.
-      description: DeviceCondition contains condition information for a device.
     GitConfigProviderSpec:
       type: object
       properties:
@@ -1332,7 +1282,7 @@ components:
           type: array
           description: 'Current state of the device.'
           items:
-            $ref: '#/components/schemas/DeviceCondition'
+            $ref: '#/components/schemas/Condition'
         systemInfo:
           $ref: '#/components/schemas/DeviceSystemInfo'
         containers:
@@ -1453,27 +1403,6 @@ components:
         - metadata
         - spec
       description: EnrollmentRequest represents a request for approval to enroll a device.
-    EnrollmentRequestCondition:
-      required:
-        - status
-        - type
-      type: object
-      properties:
-        lastTransitionTime:
-          type: string
-        message:
-          type: string
-          description: Human readable message indicating details about last transition.
-        reason:
-          type: string
-          description: (brief) reason for the condition's last transition.
-        status:
-          $ref: '#/components/schemas/ConditionStatus'
-          description: Status of the condition, one of True, False, Unknown.
-        type:
-          type: string
-          description: Type of fleet condition.
-      description: EnrollmentRequestCondition contains condition information for a EnrollmentRequest.
     EnrollmentRequestList:
       type: object
       properties:
@@ -1517,7 +1446,7 @@ components:
           type: array
           description: 'Current state of the EnrollmentRequest.'
           items:
-            $ref: '#/components/schemas/EnrollmentRequestCondition'
+            $ref: '#/components/schemas/Condition'
         approval:
           $ref: '#/components/schemas/EnrollmentRequestApproval'
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -1560,27 +1489,6 @@ components:
             the directory should contain only resource definitions with no
             subdirectories. Each file should contain the definition of one or
             more resources.
-    ResourceSyncCondition:
-      required:
-        - status
-        - type
-      type: object
-      properties:
-        lastTransitionTime:
-          type: string
-        message:
-          type: string
-          description: Human readable message indicating details about last transition.
-        reason:
-          type: string
-          description: (brief) reason for the condition's last transition.
-        status:
-          $ref: '#/components/schemas/ConditionStatus'
-          description: Status of the condition, one of True, False, Unknown.
-        type:
-          type: string
-          description: Type of resourcesync condition.
-      description: ResourceSyncCondition contains condition information for a resource sync.
     ResourceSyncStatus:
       type: object
       properties:
@@ -1596,7 +1504,7 @@ components:
           type: array
           description: 'Current state of a resourcesync.'
           items:
-            $ref: '#/components/schemas/ResourceSyncCondition'
+            $ref: '#/components/schemas/Condition'
       description: ResourceSyncStatus represents information about the status of a resourcesync
     ResourceSyncList:
       type: object
@@ -1640,27 +1548,6 @@ components:
         - metadata
         - spec
       description: Fleet represents a set of devices.
-    FleetCondition:
-      required:
-        - status
-        - type
-      type: object
-      properties:
-        lastTransitionTime:
-          type: string
-        message:
-          type: string
-          description: Human readable message indicating details about last transition.
-        reason:
-          type: string
-          description: (brief) reason for the condition's last transition.
-        status:
-          $ref: '#/components/schemas/ConditionStatus'
-          description: Status of the condition, one of True, False, Unknown.
-        type:
-          type: string
-          description: Type of fleet condition.
-      description: DeviceCondition contains condition information for a device.
     FleetList:
       type: object
       properties:
@@ -1707,7 +1594,7 @@ components:
           type: array
           description: 'Current state of the fleet.'
           items:
-            $ref: '#/components/schemas/FleetCondition'
+            $ref: '#/components/schemas/Condition'
       description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
     ListMeta:
       type: object
@@ -1774,6 +1661,40 @@ components:
           description: 'Error message.'
       required:
         - error
+    Condition:
+      required:
+        - status
+        - type
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ConditionType'
+          description: Type of condition in CamelCase
+        status:
+          $ref: '#/components/schemas/ConditionStatus'
+          description: Status of the condition, one of True, False, Unknown.
+        observedGeneration:
+          type: integer
+          format: int64
+          description: The .metadata.generation that the condition was set based upon.
+        lastHeartbeatTime:
+          type: string
+        lastTransitionTime:
+          type: string
+          description: The last time the condition transitioned from one status to another.
+        message:
+          type: string
+          description: Human readable message indicating details about last transition.
+        reason:
+          type: string
+          description: (brief) reason for the condition's last transition.
+      description: Condition contains details for one aspect of the current state of this API Resource.
+    ConditionType:
+      type: string
+      enum:
+      - 'Accessible'     # Repository, RepoSync
+      - 'ResourceParsed' # RepoSync
+      - 'Synced'         # RepoSync
     ConditionStatus:
       type: string
       enum:
