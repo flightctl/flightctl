@@ -171,8 +171,8 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("CreateOrUpdateDevice create mode", func() {
 			imageUrl := "imageurl"
-			condition := api.DeviceCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -188,7 +188,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					Conditions: &[]api.DeviceCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			dev, created, err := store.Device().CreateOrUpdate(ctx, orgId, &device)
@@ -202,8 +202,8 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("CreateOrUpdateDevice update mode", func() {
 			imageUrl := "imageurl"
-			condition := api.DeviceCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -219,7 +219,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					Conditions: &[]api.DeviceCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			dev, created, err := store.Device().CreateOrUpdate(ctx, orgId, &device)
@@ -233,8 +233,8 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("UpdateDeviceStatus", func() {
 			imageUrl := "imageurl"
-			condition := api.DeviceCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -250,7 +250,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					Conditions: &[]api.DeviceCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			_, err := store.Device().UpdateStatus(ctx, orgId, &device)
@@ -261,7 +261,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).ToNot(Equal(imageUrl))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect((*dev.Status.Conditions)[0].Type).To(Equal("type"))
+			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.Accessible))
 		})
 	})
 })

@@ -83,7 +83,7 @@ func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, name string, org
 		previousStatus = (*repoStatus.Conditions)[0].Status
 		lastTransitionTime = (*repoStatus.Conditions)[0].LastTransitionTime
 	}
-	condition := api.RepositoryCondition{
+	condition := api.Condition{
 		Type:               api.Accessible,
 		LastHeartbeatTime:  timestamp,
 		LastTransitionTime: lastTransitionTime,
@@ -104,6 +104,6 @@ func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, name string, org
 
 	repo := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
-		Status:   model.MakeJSONField(api.RepositoryStatus{Conditions: &[]api.RepositoryCondition{condition}})}
+		Status:   model.MakeJSONField(api.RepositoryStatus{Conditions: &[]api.Condition{condition}})}
 	return r.repoStore.UpdateStatusIgnoreOrg(&repo)
 }

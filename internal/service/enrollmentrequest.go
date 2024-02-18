@@ -23,7 +23,7 @@ func validateAndCompleteEnrollmentRequest(enrollmentRequest *api.EnrollmentReque
 	if enrollmentRequest.Status == nil {
 		enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 			Certificate: nil,
-			Conditions:  &[]api.EnrollmentRequestCondition{},
+			Conditions:  &[]api.Condition{},
 		}
 	}
 	return nil
@@ -44,7 +44,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.Enrol
 	}
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 		Certificate: util.StrToPtr(string(certData)),
-		Conditions: &[]api.EnrollmentRequestCondition{
+		Conditions: &[]api.Condition{
 			{
 				Type:               "Approved",
 				Status:             "True",
