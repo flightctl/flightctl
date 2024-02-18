@@ -189,45 +189,5 @@ var _ = Describe("ResourceSync", Ordered, func() {
 				Expect(isValidFile(fmt.Sprintf("file.%s", ext))).To(BeTrue())
 			}
 		})
-		It("Set conditions", func() {
-			rs := model.ResourceSync{
-				Spec: &model.JSONField[api.ResourceSyncSpec]{
-					Data: api.ResourceSyncSpec{
-						Repository: util.StrToPtr("demoRepo"),
-						Path:       util.StrToPtr("/examples"),
-					},
-				},
-			}
-
-			addRepoNotFoundCondition(&rs, nil)
-			Expect(len(*rs.Status.Data.Conditions)).To(Equal(1))
-
-			conditions, condition := extractPrevConditionByType(&rs, accessibleConditionType)
-			Expect(len(conditions)).To(Equal(0))
-			Expect(condition).ToNot(BeNil())
-
-			// Override access cond
-			addRepoNotFoundCondition(&rs, fmt.Errorf("Error"))
-			Expect(len(*rs.Status.Data.Conditions)).To(Equal(1))
-			Expect(len(conditions)).To(Equal(0))
-			Expect(condition).ToNot(BeNil())
-
-			addRepoAccessCondition(&rs, nil)
-			Expect(len(conditions)).To(Equal(0))
-			Expect(condition).ToNot(BeNil())
-			Expect(len(*rs.Status.Data.Conditions)).To(Equal(1))
-
-			addPathAccessCondition(&rs, nil)
-			Expect(len(conditions)).To(Equal(0))
-			Expect(condition).ToNot(BeNil())
-			Expect(len(*rs.Status.Data.Conditions)).To(Equal(1))
-
-			// Add other conditions
-			addResourceParseCondition(&rs, nil)
-			Expect(len(*rs.Status.Data.Conditions)).To(Equal(2))
-			addSyncedCondition(&rs, nil)
-			Expect(len(*rs.Status.Data.Conditions)).To(Equal(3))
-
-		})
 	})
 })

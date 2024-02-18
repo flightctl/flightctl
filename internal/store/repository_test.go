@@ -162,8 +162,8 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("CreateOrUpdateRepository create mode", func() {
-			condition := api.RepositoryCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -177,7 +177,7 @@ var _ = Describe("RepositoryStore create", func() {
 					Repo: util.StrToPtr("myrepo"),
 				},
 				Status: &api.RepositoryStatus{
-					Conditions: &[]api.RepositoryCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			dev, created, err := store.Repository().CreateOrUpdate(ctx, orgId, &repository)
@@ -190,8 +190,8 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("CreateOrUpdateRepository update mode", func() {
-			condition := api.RepositoryCondition{
-				Type:               "type",
+			condition := api.Condition{
+				Type:               api.Accessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
 				Status:             api.False,
 				Reason:             util.StrToPtr("reason"),
@@ -205,7 +205,7 @@ var _ = Describe("RepositoryStore create", func() {
 					Repo: util.StrToPtr("myotherrepo"),
 				},
 				Status: &api.RepositoryStatus{
-					Conditions: &[]api.RepositoryCondition{condition},
+					Conditions: &[]api.Condition{condition},
 				},
 			}
 			dev, created, err := store.Repository().CreateOrUpdate(ctx, orgId, &repository)

@@ -16,13 +16,37 @@ const (
 	Unknown ConditionStatus = "Unknown"
 )
 
-// Defines values for RepositoryConditionType.
+// Defines values for ConditionType.
 const (
-	Accessible RepositoryConditionType = "Accessible"
+	Accessible     ConditionType = "Accessible"
+	ResourceParsed ConditionType = "ResourceParsed"
+	Synced         ConditionType = "Synced"
 )
+
+// Condition Condition contains details for one aspect of the current state of this API Resource.
+type Condition struct {
+	LastHeartbeatTime *string `json:"lastHeartbeatTime,omitempty"`
+
+	// LastTransitionTime The last time the condition transitioned from one status to another.
+	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
+
+	// Message Human readable message indicating details about last transition.
+	Message *string `json:"message,omitempty"`
+
+	// ObservedGeneration The .metadata.generation that the condition was set based upon.
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+
+	// Reason (brief) reason for the condition's last transition.
+	Reason *string         `json:"reason,omitempty"`
+	Status ConditionStatus `json:"status"`
+	Type   ConditionType   `json:"type"`
+}
 
 // ConditionStatus defines model for ConditionStatus.
 type ConditionStatus string
+
+// ConditionType defines model for ConditionType.
+type ConditionType string
 
 // ContainerStatus defines model for ContainerStatus.
 type ContainerStatus struct {
@@ -55,22 +79,6 @@ type Device struct {
 
 	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
 	Status *DeviceStatus `json:"status,omitempty"`
-}
-
-// DeviceCondition DeviceCondition contains condition information for a device.
-type DeviceCondition struct {
-	LastHeartbeatTime  *string `json:"lastHeartbeatTime,omitempty"`
-	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
-
-	// Message Human readable message indicating details about last transition.
-	Message *string `json:"message,omitempty"`
-
-	// Reason (brief) reason for the condition's last transition.
-	Reason *string         `json:"reason,omitempty"`
-	Status ConditionStatus `json:"status"`
-
-	// Type Type of device condition.
-	Type string `json:"type"`
 }
 
 // DeviceList DeviceList is a list of Devices.
@@ -115,7 +123,7 @@ type DeviceSpec_Config_Item struct {
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
 type DeviceStatus struct {
 	// Conditions Current state of the device.
-	Conditions *[]DeviceCondition `json:"conditions,omitempty"`
+	Conditions *[]Condition `json:"conditions,omitempty"`
 
 	// Containers Statuses of containers in the device.
 	Containers *[]ContainerStatus `json:"containers,omitempty"`
@@ -194,21 +202,6 @@ type EnrollmentRequestApproval struct {
 	Region *string `json:"region,omitempty"`
 }
 
-// EnrollmentRequestCondition EnrollmentRequestCondition contains condition information for a EnrollmentRequest.
-type EnrollmentRequestCondition struct {
-	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
-
-	// Message Human readable message indicating details about last transition.
-	Message *string `json:"message,omitempty"`
-
-	// Reason (brief) reason for the condition's last transition.
-	Reason *string         `json:"reason,omitempty"`
-	Status ConditionStatus `json:"status"`
-
-	// Type Type of fleet condition.
-	Type string `json:"type"`
-}
-
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
 type EnrollmentRequestList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -241,7 +234,7 @@ type EnrollmentRequestStatus struct {
 	Certificate *string `json:"certificate,omitempty"`
 
 	// Conditions Current state of the EnrollmentRequest.
-	Conditions *[]EnrollmentRequestCondition `json:"conditions,omitempty"`
+	Conditions *[]Condition `json:"conditions,omitempty"`
 }
 
 // Fleet Fleet represents a set of devices.
@@ -260,21 +253,6 @@ type Fleet struct {
 
 	// Status FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
 	Status *FleetStatus `json:"status,omitempty"`
-}
-
-// FleetCondition DeviceCondition contains condition information for a device.
-type FleetCondition struct {
-	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
-
-	// Message Human readable message indicating details about last transition.
-	Message *string `json:"message,omitempty"`
-
-	// Reason (brief) reason for the condition's last transition.
-	Reason *string         `json:"reason,omitempty"`
-	Status ConditionStatus `json:"status"`
-
-	// Type Type of fleet condition.
-	Type string `json:"type"`
 }
 
 // FleetList FleetList is a list of Fleets.
@@ -307,7 +285,7 @@ type FleetSpec struct {
 // FleetStatus FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
-	Conditions *[]FleetCondition `json:"conditions,omitempty"`
+	Conditions *[]Condition `json:"conditions,omitempty"`
 }
 
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
@@ -384,23 +362,6 @@ type Repository struct {
 	Status *RepositoryStatus `json:"status,omitempty"`
 }
 
-// RepositoryCondition RepositoryCondition contains condition information for a repository.
-type RepositoryCondition struct {
-	LastHeartbeatTime  *string `json:"lastHeartbeatTime,omitempty"`
-	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
-
-	// Message Human readable message indicating details about last transition.
-	Message *string `json:"message,omitempty"`
-
-	// Reason (brief) reason for the condition's last transition.
-	Reason *string                 `json:"reason,omitempty"`
-	Status ConditionStatus         `json:"status"`
-	Type   RepositoryConditionType `json:"type"`
-}
-
-// RepositoryConditionType defines model for RepositoryConditionType.
-type RepositoryConditionType string
-
 // RepositoryList RepositoryList is a list of Repositories.
 type RepositoryList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -431,7 +392,7 @@ type RepositorySpec struct {
 // RepositoryStatus RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
 type RepositoryStatus struct {
 	// Conditions Current state of the repository.
-	Conditions *[]RepositoryCondition `json:"conditions,omitempty"`
+	Conditions *[]Condition `json:"conditions,omitempty"`
 }
 
 // ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
@@ -448,21 +409,6 @@ type ResourceSync struct {
 
 	// Status ResourceSyncStatus represents information about the status of a resourcesync
 	Status *ResourceSyncStatus `json:"status,omitempty"`
-}
-
-// ResourceSyncCondition ResourceSyncCondition contains condition information for a resource sync.
-type ResourceSyncCondition struct {
-	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
-
-	// Message Human readable message indicating details about last transition.
-	Message *string `json:"message,omitempty"`
-
-	// Reason (brief) reason for the condition's last transition.
-	Reason *string         `json:"reason,omitempty"`
-	Status ConditionStatus `json:"status"`
-
-	// Type Type of resourcesync condition.
-	Type string `json:"type"`
 }
 
 // ResourceSyncList defines model for ResourceSyncList.
@@ -498,7 +444,7 @@ type ResourceSyncSpec struct {
 // ResourceSyncStatus ResourceSyncStatus represents information about the status of a resourcesync
 type ResourceSyncStatus struct {
 	// Conditions Current state of a resourcesync.
-	Conditions *[]ResourceSyncCondition `json:"conditions,omitempty"`
+	Conditions *[]Condition `json:"conditions,omitempty"`
 
 	// LastSyncedCommitHash The last commit hash that was synced
 	LastSyncedCommitHash *string `json:"lastSyncedCommitHash,omitempty"`
