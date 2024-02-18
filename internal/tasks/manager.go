@@ -55,7 +55,7 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 func (t TaskManager) Start() {
 	repoTester := repotester.NewRepoTester(t.log, t.store)
 	repoTesterThread := thread.New(
-		t.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepo)
+		t.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepositories)
 	repoTesterThread.Start()
 
 	go FleetRollouts(t)

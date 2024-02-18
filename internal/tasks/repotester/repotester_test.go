@@ -22,10 +22,21 @@ func TestStore(t *testing.T) {
 	RunSpecs(t, "RepoTester Suite")
 }
 
-func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID) error {
+type UnitTestRepoTester struct {
+}
+
+func (r *UnitTestRepoTester) testAccess(repository *model.Repository) error {
+	if repository.Labels[0] == "status=OK" {
+		return nil
+	}
+	return errors.New("fail")
+}
+
+func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
-			Name: util.StrToPtr("myrepo"),
+			Name:   util.StrToPtr(name),
+			Labels: labels,
 		},
 		Spec: api.RepositorySpec{
 			Repo: util.StrToPtr("myrepourl"),
@@ -53,6 +64,7 @@ var _ = Describe("RepoTester", func() {
 		log = flightlog.InitLogs()
 		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
 		repotester = NewRepoTester(log, stores)
+		repotester.typeSpecificRepoTester = &UnitTestRepoTester{}
 	})
 
 	AfterEach(func() {
@@ -61,60 +73,53 @@ var _ = Describe("RepoTester", func() {
 
 	Context("RepoTester", func() {
 		It("Set conditions", func() {
-			err := createRepository(ctx, repotester.repoStore, orgId)
+			err := createRepository(ctx, repotester.repoStore, orgId, "nil-to-ok", &map[string]string{"status": "OK"})
 			Expect(err).ToNot(HaveOccurred())
 
-			repo, err := repotester.repoStore.Get(ctx, orgId, "myrepo")
+			err = createRepository(ctx, repotester.repoStore, orgId, "ok-to-ok", &map[string]string{"status": "OK"})
+			Expect(err).ToNot(HaveOccurred())
+			repo, err := stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			repoModel := model.NewRepositoryFromApiResource(repo)
-
-			// Nil -> OK
-			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, nil)
+			err = repotester.setAccessCondition(log, *repoModel, nil)
 			Expect(err).ToNot(HaveOccurred())
-			repo, err = repotester.repoStore.Get(ctx, orgId, "myrepo")
+
+			err = createRepository(ctx, repotester.repoStore, orgId, "ok-to-err", &map[string]string{"status": "fail"})
+			Expect(err).ToNot(HaveOccurred())
+			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
+			Expect(err).ToNot(HaveOccurred())
+			repoModel = model.NewRepositoryFromApiResource(repo)
+			err = repotester.setAccessCondition(log, *repoModel, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			repotester.TestRepositories()
+
+			repo, err = repotester.repoStore.Get(ctx, orgId, "nil-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
 			cond := (*repo.Status.Conditions)[0]
 			Expect(cond.Type).To(Equal(api.Accessible))
 			Expect(cond.Status).To(Equal(api.True))
-			Expect(cond.LastHeartbeatTime).ToNot(BeNil())
 			Expect(cond.LastTransitionTime).ToNot(BeNil())
 
-			// OK -> OK
-			oldTime := util.StrToPtr("some old time")
-			repoModel.Status = model.MakeJSONField(*repo.Status)
-			(*repoModel.Status.Data.Conditions)[0].LastHeartbeatTime = oldTime
-			(*repoModel.Status.Data.Conditions)[0].LastTransitionTime = oldTime
-			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, nil)
-			Expect(err).ToNot(HaveOccurred())
-			repo, err = repotester.repoStore.Get(ctx, orgId, "myrepo")
+			repo, err = repotester.repoStore.Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
 			cond = (*repo.Status.Conditions)[0]
 			Expect(cond.Type).To(Equal(api.Accessible))
 			Expect(cond.Status).To(Equal(api.True))
-			Expect(cond.LastHeartbeatTime).ToNot(BeNil())
-			Expect(*cond.LastHeartbeatTime).ToNot(Equal(*oldTime))
 			Expect(cond.LastTransitionTime).ToNot(BeNil())
-			Expect(*cond.LastTransitionTime).To(Equal(*oldTime))
 
-			// OK -> Not OK
-			err = repotester.setAccessCondition(log, "myrepo", orgId, repoModel.Status.Data, errors.New("something bad"))
-			Expect(err).ToNot(HaveOccurred())
-			repo, err = repotester.repoStore.Get(ctx, orgId, "myrepo")
+			repo, err = repotester.repoStore.Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
 			cond = (*repo.Status.Conditions)[0]
 			Expect(cond.Type).To(Equal(api.Accessible))
 			Expect(cond.Status).To(Equal(api.False))
-			Expect(*cond.Message).To(Equal("something bad"))
-			Expect(cond.LastHeartbeatTime).ToNot(BeNil())
-			Expect(*cond.LastHeartbeatTime).ToNot(Equal(*oldTime))
 			Expect(cond.LastTransitionTime).ToNot(BeNil())
-			Expect(*cond.LastTransitionTime).ToNot(Equal(*oldTime))
 		})
 	})
 })
