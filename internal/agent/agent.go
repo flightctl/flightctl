@@ -11,7 +11,8 @@ import (
 	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/configcontroller"
 	"github.com/flightctl/flightctl/internal/agent/device"
-	"github.com/flightctl/flightctl/internal/agent/deviceexporter"
+	"github.com/flightctl/flightctl/internal/agent/export"
+	"github.com/flightctl/flightctl/internal/agent/export/devicestatus"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -90,6 +91,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	defer tpmChannel.Close()
 
+	// create serial writer
 	deviceWriter := device.NewWriter()
 	device := &v1alpha1.Device{
 		ApiVersion: "v1alpha1",
@@ -100,7 +102,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		},
 	}
 
-	exportManager := deviceexporter.NewManager(tpmChannel, &executer.CommonExecuter{})
+	deviceStatuseManager := devicestatus.NewManager(tpmChannel, &executer.CommonExecuter{})
+	deviceStatusExporter := export.NewDeviceStatus(
+		deviceStatuseManager,
+	)
+
 	configcontroller := configcontroller.New(
 		device,
 		client.NewEnrollment(enrollmentHTTPClient),
@@ -110,7 +116,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		managementCertFilePath,
 		managementKeyFilePath,
 		deviceWriter,
-		exportManager,
+		deviceStatusExporter,
 		csr,
 		a.config.LogPrefix,
 	)
@@ -118,7 +124,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// TODO: add device update loop
 
 	go configcontroller.Run(ctx, 1)
-	go exportManager.Run(ctx)
+	go deviceStatuseManager.Run(ctx)
 
 	<-ctx.Done()
 	return nil

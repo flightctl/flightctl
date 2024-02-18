@@ -118,15 +118,15 @@ const podmanListResult = `
 
 var _ = Describe("containers exporter", func() {
 	var (
-		container *Container
-		ctrl     *gomock.Controller
-		execMock *executer.MockExecuter
-    deviceStatus v1alpha1.DeviceStatus
+		container    *Container
+		ctrl         *gomock.Controller
+		execMock     *executer.MockExecuter
+		deviceStatus v1alpha1.DeviceStatus
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
-    deviceStatus = v1alpha1.DeviceStatus{}
+		deviceStatus = v1alpha1.DeviceStatus{}
 		execMock = executer.NewMockExecuter(ctrl)
 		container = newContainer(execMock)
 	})

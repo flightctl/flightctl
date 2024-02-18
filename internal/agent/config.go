@@ -21,19 +21,19 @@ const (
 
 type Config struct {
 	// ManagementEndpoint is the URL of the device management server
-	ManagementEndpoint   string        `json:"managementEndpoint,omitempty"`
+	ManagementEndpoint string `json:"managementEndpoint,omitempty"`
 	// EnrollmentEndpoint is the URL of the device enrollment server
-	EnrollmentEndpoint   string        `json:"enrollmentEndpoint,omitempty"`
+	EnrollmentEndpoint string `json:"enrollmentEndpoint,omitempty"`
 	// CertDir is the directory where the device's certificates are stored
-	CertDir              string        `json:"certDir,omitempty"`
+	CertDir string `json:"certDir,omitempty"`
 	// TPMPath is the path to the TPM device
-	TPMPath              string        `json:"tpmPath,omitempty"`
+	TPMPath string `json:"tpmPath,omitempty"`
 	// FetchSpecInterval is the interval between two reads of the remote device spec
-	FetchSpecInterval    util.Duration `json:"fetchSpecInterval,omitempty"`
+	FetchSpecInterval util.Duration `json:"fetchSpecInterval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
 	// LogPrefix is the log prefix used for testing
-	LogPrefix   	  	string        `json:"logPrefix,omitempty"`
+	LogPrefix string `json:"logPrefix,omitempty"`
 }
 
 func NewDefault() *Config {

@@ -11,18 +11,10 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
-	"github.com/flightctl/flightctl/internal/agent/deviceexporter"
+	"github.com/flightctl/flightctl/internal/agent/export"
 )
 
 const (
-	// name of the CA bundle file
-	caBundleFile = "ca.crt"
-	// name of the agent's key file
-	agentKeyFile = "agent.key"
-	// name of the enrollment certificate file
-	enrollmentCertFile = "client-enrollment.crt"
-	// name of the enrollment key file
-	enrollmentKeyFile = "client-enrollment.key"
 	// name of the client certificate file
 	clientCertFile = "client.crt"
 )
@@ -31,8 +23,7 @@ type ConfigController struct {
 	caFilePath   string
 	device       *v1alpha1.Device
 	deviceWriter *device.Writer
-	// The device exporter manager manages the device status exporters
-	deviceManager *deviceexporter.Manager
+	deviceStatus export.DeviceStatus
 
 	enrollmentClient        *client.Enrollment
 	enrollmentVerifyBackoff wait.Backoff
@@ -60,7 +51,7 @@ func New(
 	managementCertFilePath string,
 	managementKeyFilePath string,
 	deviceWriter *device.Writer,
-	deviceManager *deviceexporter.Manager,
+	deviceStatus export.DeviceStatus,
 	enrollmentCSR []byte,
 	logPrefix string,
 ) *ConfigController {
@@ -78,7 +69,7 @@ func New(
 		enrollmentEndpoint:      enrollmentEndpoint,
 		device:                  device,
 		deviceWriter:            deviceWriter,
-		deviceManager:           deviceManager,
+		deviceStatus:            deviceStatus,
 		caFilePath:              caFilePath,
 		managementEndpoint:      managementEndpoint,
 		managementCertFilePath:  managementCertFilePath,
@@ -117,7 +108,7 @@ func (c *ConfigController) Run(ctx context.Context, workers int) {
 }
 
 func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) error {
-	deviceStatus := c.deviceManager.GetStatus()
+	deviceStatus := c.deviceStatus.Get()
 
 	// ensure the device is enrolled
 	if err := c.ensureDeviceEnrollment(ctx, device); err != nil {
@@ -125,7 +116,7 @@ func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) er
 		return err
 	}
 
-	// post enrollment we can update status
+	// post enrollment update status
 	condition := v1alpha1.DeviceCondition{
 		Type:   "Enrolled",
 		Status: v1alpha1.True,
@@ -139,7 +130,7 @@ func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) er
 
 	// ensure the device is configured
 	if err := c.ensureConfig(ctx, device); err != nil {
-
+		// TODO
 	}
 
 	return nil

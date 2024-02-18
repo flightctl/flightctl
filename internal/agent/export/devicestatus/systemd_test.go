@@ -31,9 +31,9 @@ const systemdUnitListResult = `
 
 var _ = Describe("containers controller", func() {
 	var (
-		systemD *SystemD
-		ctrl     *gomock.Controller
-		execMock *executer.MockExecuter
+		systemD      *SystemD
+		ctrl         *gomock.Controller
+		execMock     *executer.MockExecuter
 		deviceStatus v1alpha1.DeviceStatus
 	)
 

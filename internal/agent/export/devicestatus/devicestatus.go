@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
-
 )
 
 var _ Getter = (*Manager)(nil)
@@ -33,7 +32,7 @@ type Manager struct {
 	exporters    []Exporter
 	pollInterval time.Duration
 	logPrefix    string
-	cancelFn context.CancelFunc
+	cancelFn     context.CancelFunc
 
 	mu           sync.Mutex
 	deviceStatus v1alpha1.DeviceStatus

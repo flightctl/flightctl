@@ -54,11 +54,11 @@ func main() {
 		enrollmentUiUrl := ""
 
 		cfg := agent.Config{
-			ManagementEndpoint: *managementEndpoint,
-			EnrollmentEndpoint: enrollmentUiUrl,
-			CertDir:            agentDir,
-			TPMPath:            *tpmPath,
-			FetchSpecInterval:  util.Duration(*fetchSpecInterval),
+			ManagementEndpoint:   *managementEndpoint,
+			EnrollmentEndpoint:   enrollmentUiUrl,
+			CertDir:              agentDir,
+			TPMPath:              *tpmPath,
+			FetchSpecInterval:    util.Duration(*fetchSpecInterval),
 			StatusUpdateInterval: util.Duration(*statusUpdateInterval),
 		}
 

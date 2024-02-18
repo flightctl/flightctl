@@ -19,7 +19,7 @@ type DeviceStatusExporter struct {
 func NewDeviceStatus(
 	status devicestatus.Getter,
 ) DeviceStatus {
-	return &DeviceStatusExporter {
+	return &DeviceStatusExporter{
 		status: status,
 	}
 }
