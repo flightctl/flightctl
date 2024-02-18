@@ -1,4 +1,4 @@
-package deviceexporter
+package devicestatus
 
 import (
 	"context"
@@ -15,12 +15,14 @@ const (
 	podmanCommandTimeout = 2 * time.Minute
 )
 
-type ContainerExporter struct {
+var _ Exporter = (*Container)(nil)
+
+type Container struct {
 	exec executer.Executer
 }
 
-func newContainerExporter(exec executer.Executer) *ContainerExporter {
-	return &ContainerExporter{
+func newContainer(exec executer.Executer) *Container {
+	return &Container{
 		exec: exec,
 	}
 }
@@ -37,18 +39,18 @@ type Shell interface {
 	Command(cmd string) (output []byte, err error)
 }
 
-func (c *ContainerExporter) GetStatus(ctx context.Context) (interface{}, error) {
+func (c *Container) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
 	execCtx, cancel := context.WithTimeout(ctx, podmanCommandTimeout)
 	defer cancel()
 	args := []string{"ps", "-a", "--format", "json"}
 	out, errOut, exitCode := c.exec.ExecuteWithContext(execCtx, podmanCommand, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("failed listing podman containers with code %d: %s", exitCode, errOut)
+		return fmt.Errorf("failed listing podman containers with code %d: %s", exitCode, errOut)
 	}
 
 	var containers PodmanList
 	if err := json.Unmarshal([]byte(out), &containers); err != nil {
-		return nil, fmt.Errorf("failed unmarshalling podman list output: %w", err)
+		return fmt.Errorf("failed unmarshalling podman list output: %w", err)
 	}
 
 	deviceContainerStatus := make([]v1alpha1.ContainerStatus, len(containers))
@@ -58,6 +60,7 @@ func (c *ContainerExporter) GetStatus(ctx context.Context) (interface{}, error) 
 		deviceContainerStatus[i].Image = c.Image
 		deviceContainerStatus[i].Id = c.Id
 	}
+	status.Containers = &deviceContainerStatus
 
-	return deviceContainerStatus, nil
+	return nil
 }

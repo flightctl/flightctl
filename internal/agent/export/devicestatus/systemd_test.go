@@ -1,4 +1,4 @@
-package deviceexporter
+package devicestatus
 
 import (
 	"context"
@@ -31,37 +31,34 @@ const systemdUnitListResult = `
 
 var _ = Describe("containers controller", func() {
 	var (
-		exporter *SystemDExporter
+		systemD *SystemD
 		ctrl     *gomock.Controller
 		execMock *executer.MockExecuter
+		deviceStatus v1alpha1.DeviceStatus
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
+		deviceStatus = v1alpha1.DeviceStatus{}
 		execMock = executer.NewMockExecuter(ctrl)
-		exporter = newSystemDExporter(execMock)
-		exporter.matchPatterns = []string{"crio.service", "microshift.service"}
+		systemD = newSystemD(execMock)
+		systemD.matchPatterns = []string{"crio.service", "microshift.service"}
 	})
 
 	Context("systemd controller", func() {
 		It("list systemd units", func() {
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), systemdCommand, "list-units", "--all", "--output", "json", "crio.service", "microshift.service").Return(systemdUnitListResult, "", 0)
-			status, err := exporter.GetStatus(context.TODO())
-			if err != nil {
-				Expect(err).ToNot(HaveOccurred())
-			}
+			err := systemD.Export(context.TODO(), &deviceStatus)
+			Expect(err).ToNot(HaveOccurred())
 
-			systemdUnits, ok := status.([]v1alpha1.DeviceSystemdUnitStatus)
-			Expect(ok).To(BeTrue())
-
-			Expect(systemdUnits).ToNot(BeNil())
-			Expect(len(systemdUnits)).To(Equal(2))
-			Expect((systemdUnits)[0].Name).To(Equal("crio.service"))
-			Expect((systemdUnits)[0].LoadState).To(Equal("loaded"))
-			Expect((systemdUnits)[0].ActiveState).To(Equal("active"))
-			Expect((systemdUnits)[1].Name).To(Equal("microshift.service"))
-			Expect((systemdUnits)[1].LoadState).To(Equal("loaded"))
-			Expect((systemdUnits)[1].ActiveState).To(Equal("active"))
+			Expect(*deviceStatus.SystemdUnits).ToNot(BeNil())
+			Expect(len(*deviceStatus.SystemdUnits)).To(Equal(2))
+			Expect((*deviceStatus.SystemdUnits)[0].Name).To(Equal("crio.service"))
+			Expect((*deviceStatus.SystemdUnits)[0].LoadState).To(Equal("loaded"))
+			Expect((*deviceStatus.SystemdUnits)[0].ActiveState).To(Equal("active"))
+			Expect((*deviceStatus.SystemdUnits)[1].Name).To(Equal("microshift.service"))
+			Expect((*deviceStatus.SystemdUnits)[1].LoadState).To(Equal("loaded"))
+			Expect((*deviceStatus.SystemdUnits)[1].ActiveState).To(Equal("active"))
 		})
 	})
 })

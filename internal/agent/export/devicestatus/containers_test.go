@@ -1,4 +1,4 @@
-package deviceexporter
+package devicestatus
 
 import (
 	"context"
@@ -118,38 +118,35 @@ const podmanListResult = `
 
 var _ = Describe("containers exporter", func() {
 	var (
-		exporter *ContainerExporter
+		container *Container
 		ctrl     *gomock.Controller
 		execMock *executer.MockExecuter
+    deviceStatus v1alpha1.DeviceStatus
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
+    deviceStatus = v1alpha1.DeviceStatus{}
 		execMock = executer.NewMockExecuter(ctrl)
-		exporter = newContainerExporter(execMock)
+		container = newContainer(execMock)
 	})
 
 	Context("containers controller", func() {
 		It("list podman containers", func() {
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json").Return(podmanListResult, "", 0)
-			status, err := exporter.GetStatus(context.TODO())
-			if err != nil {
-				Expect(err).ToNot(HaveOccurred())
-			}
+			err := container.Export(context.TODO(), &deviceStatus)
+			Expect(err).ToNot(HaveOccurred())
 
-			containerStatus, ok := status.([]v1alpha1.ContainerStatus)
-			Expect(ok).To(BeTrue())
-
-			Expect(containerStatus).ToNot(BeNil())
-			Expect(len(containerStatus)).To(Equal(2))
-			Expect((containerStatus)[0].Id).To(Equal("id1"))
-			Expect((containerStatus)[0].Image).To(Equal("quay.io/image1:latest"))
-			Expect((containerStatus)[0].Name).To(Equal("myfirstname"))
-			Expect((containerStatus)[0].Status).To(Equal("running"))
-			Expect((containerStatus)[1].Id).To(Equal("id2"))
-			Expect((containerStatus)[1].Image).To(Equal("quay.io/image2:latest"))
-			Expect((containerStatus)[1].Name).To(Equal("agreatname"))
-			Expect((containerStatus)[1].Status).To(Equal("paused"))
+			Expect(*deviceStatus.Containers).ToNot(BeNil())
+			Expect(len(*deviceStatus.Containers)).To(Equal(2))
+			Expect((*deviceStatus.Containers)[0].Id).To(Equal("id1"))
+			Expect((*deviceStatus.Containers)[0].Image).To(Equal("quay.io/image1:latest"))
+			Expect((*deviceStatus.Containers)[0].Name).To(Equal("myfirstname"))
+			Expect((*deviceStatus.Containers)[0].Status).To(Equal("running"))
+			Expect((*deviceStatus.Containers)[1].Id).To(Equal("id2"))
+			Expect((*deviceStatus.Containers)[1].Image).To(Equal("quay.io/image2:latest"))
+			Expect((*deviceStatus.Containers)[1].Name).To(Equal("agreatname"))
+			Expect((*deviceStatus.Containers)[1].Status).To(Equal("paused"))
 		})
 	})
 })
