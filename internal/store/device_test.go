@@ -171,10 +171,11 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("CreateOrUpdateDevice create mode", func() {
 			imageUrl := "imageurl"
+			// Random Condition to make sure Conditions don't get stored
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -202,10 +203,11 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("CreateOrUpdateDevice update mode", func() {
 			imageUrl := "imageurl"
+			// Random Condition to make sure Conditions don't get stored
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -233,10 +235,11 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("UpdateDeviceStatus", func() {
 			imageUrl := "imageurl"
+			// Random Condition to make sure Conditions do get stored
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -261,7 +264,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).ToNot(Equal(imageUrl))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.Accessible))
+			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 	})
 })

@@ -163,9 +163,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository create mode", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.RepositoryAccessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -191,9 +191,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository update mode", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.RepositoryAccessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}

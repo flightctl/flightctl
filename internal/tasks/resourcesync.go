@@ -271,7 +271,7 @@ func shouldRunSync(hash string, rs model.ResourceSync) bool {
 		return true
 	}
 
-	if api.IsStatusConditionFalse(*rs.Status.Data.Conditions, api.Synced) {
+	if api.IsStatusConditionFalse(*rs.Status.Data.Conditions, api.ResourceSyncSynced) {
 		return true
 	}
 	var lastSyncedPath = rs.Status.Data.LastSyncedPath
@@ -311,25 +311,25 @@ func ensureConditionsNotNil(resSync *model.ResourceSync) {
 
 func addRepoNotFoundCondition(resSync *model.ResourceSync, err error) {
 	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.Accessible, "accessible", "repository resource not found", err)
+	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncAccessible, "accessible", "repository resource not found", err)
 }
 
 func addRepoAccessCondition(resSync *model.ResourceSync, err error) {
 	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.Accessible, "accessible", "failed to clone repository", err)
+	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncAccessible, "accessible", "failed to clone repository", err)
 }
 
 func addPathAccessCondition(resSync *model.ResourceSync, err error) {
 	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.Accessible, "accessible", "path not found in repository", err)
+	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncAccessible, "accessible", "path not found in repository", err)
 }
 
 func addResourceParsedCondition(resSync *model.ResourceSync, err error) {
 	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceParsed, "Success", "Fail", err)
+	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncResourceParsed, "Success", "Fail", err)
 }
 
 func addSyncedCondition(resSync *model.ResourceSync, err error) {
 	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.Synced, "Success", "Fail", err)
+	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncSynced, "Success", "Fail", err)
 }

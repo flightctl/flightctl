@@ -165,9 +165,9 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 		It("CreateOrUpdateEnrollmentRequest create mode", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -193,9 +193,9 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 		It("CreateOrUpdateEnrollmentRequest update mode", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -221,9 +221,9 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 		It("UpdateEnrollmentRequestStatus", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -246,7 +246,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.Kind).To(Equal(model.EnrollmentRequestKind))
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.Accessible))
+			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 	})
 })
