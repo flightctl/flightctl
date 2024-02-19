@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/tpm"
 
 	// "github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
@@ -33,20 +32,20 @@ func TestDeviceAgent(t *testing.T) {
 			defer cancel()
 
 			testDirPath := t.TempDir()
-			cfg := *config.NewDefault()
-			log := log.InitLogs()
+			serverCfg := *config.NewDefault()
+			serverLog := log.InitLogs()
 
 			// create store
-			store, dbName := testutils.NewTestStore(t, cfg, log)
-			cfg.Database.Name = dbName
+			store, dbName := testutils.NewTestStore(t, serverCfg, serverLog)
+			serverCfg.Database.Name = dbName
 
 			// create certs
-			cfg.Service.CertStore = testDirPath
-			ca, serverCerts, clientCerts := testutils.NewTestCerts(t, &cfg)
+			serverCfg.Service.CertStore = testDirPath
+			ca, serverCerts, clientCerts := testutils.NewTestCerts(t, &serverCfg)
 
 			// create server
-			server, listener := testutils.NewTestServer(t, log, &cfg, store, ca, serverCerts)
-			cfg.Service.Address = listener.Addr().String()
+			server, listener := testutils.NewTestServer(t, serverLog, &serverCfg, store, ca, serverCerts)
+			serverCfg.Service.Address = listener.Addr().String()
 			defer listener.Close()
 
 			// start server
@@ -55,16 +54,20 @@ func TestDeviceAgent(t *testing.T) {
 				require.NoError(err)
 			}()
 
-			tpmChannel, err := tpm.OpenTPMSimulator()
-			require.NoError(err)
-
 			fetchSpecInterval := 1 * time.Second
 			statusUpdateInterval := 1 * time.Second
 
-			agentInstance := NewDeviceAgent("https://"+cfg.Service.Address, "https://"+cfg.Service.Address, cfg.Service.Address, testDirPath, log).
-				SetFetchSpecInterval(fetchSpecInterval, 0).
-				SetStatusUpdateInterval(statusUpdateInterval, 0).
-				SetIssueDir(testDirPath)
+			cfg := NewDefault()
+			cfg.CertDir = testDirPath
+			cfg.EnrollmentEndpoint = "https://" + serverCfg.Service.Address
+			cfg.ManagementEndpoint = "https://" + serverCfg.Service.Address
+			cfg.FetchSpecInterval = util.Duration(fetchSpecInterval)
+			cfg.StatusUpdateInterval = util.Duration(statusUpdateInterval)
+			cfg.SetTestRootDir(testDirPath)
+
+			agentLog := log.InitLogs()
+
+			agentInstance := New(agentLog, cfg)
 
 			// start agent
 			go func() {

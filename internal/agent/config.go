@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/util"
 	"gopkg.in/yaml.v2"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -34,6 +35,8 @@ type Config struct {
 	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
 	// LogPrefix is the log prefix used for testing
 	LogPrefix string `json:"logPrefix,omitempty"`
+	// testRootDir is the root directory of the test agent
+	testRootDir string
 }
 
 func NewDefault() *Config {
@@ -42,6 +45,15 @@ func NewDefault() *Config {
 		StatusUpdateInterval: util.Duration(DefaultStatusUpdateInterval),
 		FetchSpecInterval:    util.Duration(DefaultFetchSpecInterval),
 	}
+}
+
+func (cfg *Config) SetTestRootDir(rootDir string) {
+	klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
+	cfg.testRootDir = rootDir
+}
+
+func (cfg *Config) GetTestRootDir() string {
+	return cfg.testRootDir
 }
 
 // TODO: dedupe with internal/config/config.go

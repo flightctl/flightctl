@@ -52,7 +52,7 @@ func main() {
 		StatusUpdateInterval: util.Duration(*statusUpdateInterval),
 	}
 
-	agentInstance := agent.New(&cfg)
+	agentInstance := agent.New(log, &cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sigShutdown := make(chan os.Signal, 1)

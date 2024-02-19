@@ -16,6 +16,7 @@ import (
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -33,14 +34,16 @@ const (
 	clientKeyFile = "client.key"
 )
 
-func New(config *Config) *Agent {
+func New(log *logrus.Logger, config *Config) *Agent {
 	return &Agent{
 		config: config,
+		log:    log,
 	}
 }
 
 type Agent struct {
 	config *Config
+	log    *logrus.Logger
 }
 
 func (a *Agent) GetLogPrefix() string {
@@ -93,6 +96,10 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create device writer
 	deviceWriter := device.NewWriter()
+	if a.config.GetTestRootDir() != "" {
+		a.log.Printf("Setting testRootDir is intended for testing only. Do not use in production.")
+		deviceWriter.SetRootdir(a.config.GetTestRootDir())
+	}
 
 	// create device
 	device := device.New(deviceName)

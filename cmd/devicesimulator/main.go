@@ -62,7 +62,7 @@ func main() {
 			StatusUpdateInterval: util.Duration(*statusUpdateInterval),
 		}
 
-		agents[i] = agent.New(&cfg)
+		agents[i] = agent.New(log, &cfg)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
