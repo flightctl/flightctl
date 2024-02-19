@@ -15,7 +15,7 @@ import (
 
 var _ Getter = (*Manager)(nil)
 
-// NewManager creates a new device status exporter manager.
+// NewCollector creates a new device status collector.
 func NewManager(tpm *tpm.TPM, executor executer.Executer) *Manager {
 	exporters := []Exporter{
 		newSystemD(executor),
@@ -28,6 +28,7 @@ func NewManager(tpm *tpm.TPM, executor executer.Executer) *Manager {
 	}
 }
 
+// Manager aggregates device status from various exporters.
 type Manager struct {
 	exporters    []Exporter
 	pollInterval time.Duration
@@ -36,6 +37,7 @@ type Manager struct {
 
 	mu           sync.Mutex
 	deviceStatus v1alpha1.DeviceStatus
+	hasSynced    bool
 }
 
 type Exporter interface {
@@ -43,7 +45,8 @@ type Exporter interface {
 }
 
 type Getter interface {
-	Get() v1alpha1.DeviceStatus
+	Get(context.Context) v1alpha1.DeviceStatus
+	HasSynced(context.Context) bool
 }
 
 func (m *Manager) Run(ctx context.Context) error {
@@ -53,13 +56,14 @@ func (m *Manager) Run(ctx context.Context) error {
 	ctx, m.cancelFn = context.WithCancel(ctx)
 
 	wait.PollInfiniteWithContext(ctx, m.pollInterval, func(ctx context.Context) (bool, error) {
-		deviceStatus, err := m.getDeviceStatus(ctx)
+		deviceStatus, err := m.aggregateDeviceStatus(ctx)
 		if err != nil {
 			klog.Errorf("error getting device status: %v", err)
 			return false, nil
 		}
 		m.mu.Lock()
 		m.deviceStatus = deviceStatus
+		m.hasSynced = true
 		m.mu.Unlock()
 		return true, nil
 	})
@@ -67,7 +71,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) getDeviceStatus(ctx context.Context) (v1alpha1.DeviceStatus, error) {
+func (m *Manager) aggregateDeviceStatus(ctx context.Context) (v1alpha1.DeviceStatus, error) {
 	deviceStatus := v1alpha1.DeviceStatus{}
 	for _, exporter := range m.exporters {
 		err := exporter.Export(ctx, &deviceStatus)
@@ -80,8 +84,14 @@ func (m *Manager) getDeviceStatus(ctx context.Context) (v1alpha1.DeviceStatus, e
 	return deviceStatus, nil
 }
 
-func (m *Manager) Get() v1alpha1.DeviceStatus {
+func (m *Manager) Get(context.Context) v1alpha1.DeviceStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.deviceStatus
+}
+
+func (m *Manager) HasSynced(context.Context) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hasSynced
 }

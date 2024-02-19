@@ -43,7 +43,7 @@ func (w *Writer) UpdateFiles(config ign3types.Config) error {
 	return nil
 }
 
-func (w *Writer) WriteIgnitionToDevice(files ...ign3types.File) error {
+func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 	for _, file := range files {
 		decodedContents, err := DecodeIgnitionFileContents(file.Contents.Source, file.Contents.Compression)
 		if err != nil {

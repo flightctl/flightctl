@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/configcontroller"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/export"
 	"github.com/flightctl/flightctl/internal/agent/export/devicestatus"
+	"github.com/flightctl/flightctl/internal/agent/observe"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -91,21 +91,20 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	defer tpmChannel.Close()
 
-	// create serial writer
+	// create device writer
 	deviceWriter := device.NewWriter()
-	device := &v1alpha1.Device{
-		ApiVersion: "v1alpha1",
-		Kind:       "Device",
-		Status:     &v1alpha1.DeviceStatus{},
-		Metadata: v1alpha1.ObjectMeta{
-			Name: &deviceName,
-		},
-	}
 
+	// create device
+	device := device.New(deviceName)
+
+	// create device status exporter
 	deviceStatuseManager := devicestatus.NewManager(tpmChannel, &executer.CommonExecuter{})
 	deviceStatusExporter := export.NewDeviceStatus(
 		deviceStatuseManager,
 	)
+
+	// create device observer
+	deviceObserver := observe.NewDevice(device.Name())
 
 	configcontroller := configcontroller.New(
 		device,
@@ -121,10 +120,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.LogPrefix,
 	)
 
-	// TODO: add device update loop
-
-	go configcontroller.Run(ctx, 1)
+	go configcontroller.Run(ctx)
 	go deviceStatuseManager.Run(ctx)
+	go deviceObserver.Run(ctx)
 
 	<-ctx.Done()
 	return nil

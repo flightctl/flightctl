@@ -1,6 +1,8 @@
 package export
 
 import (
+	"context"
+
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/export/devicestatus"
 )
@@ -24,6 +26,10 @@ func NewDeviceStatus(
 	}
 }
 
-func (e *DeviceStatusExporter) Get() v1alpha1.DeviceStatus {
-	return e.status.Get()
+func (e *DeviceStatusExporter) Get(ctx context.Context) v1alpha1.DeviceStatus {
+	return e.status.Get(ctx)
+}
+
+func (e *DeviceStatusExporter) HasSynced(ctx context.Context) bool {
+	return e.status.HasSynced(ctx)
 }

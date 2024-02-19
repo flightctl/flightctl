@@ -26,12 +26,12 @@ func (c *ConfigController) ensureDeviceEnrollment(ctx context.Context, device *v
 
 	klog.Infof("%swaiting for enrollment to be approved", c.logPrefix)
 	err := wait.ExponentialBackoff(c.enrollmentVerifyBackoff, func() (bool, error) {
-		return c.verifyDeviceEnrollment(ctx)
+		return c.verifyDeviceEnrollment(ctx, device)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to verify device enrollment: %w", err)
 	}
-	if err := c.writeDeviceEnrollmentBanner(); err != nil {
+	if err := c.writeDeviceEnrollmentBanner(ctx, device); err != nil {
 		return fmt.Errorf("failed to write enrollment banner: %w", err)
 	}
 
@@ -51,8 +51,8 @@ func (c *ConfigController) isDeviceEnrolled() bool {
 	return !os.IsNotExist(err)
 }
 
-func (c *ConfigController) verifyDeviceEnrollment(ctx context.Context) (bool, error) {
-	enrollmentRequest, err := c.enrollmentClient.GetEnrollmentRequest(ctx, *c.device.Metadata.Name)
+func (c *ConfigController) verifyDeviceEnrollment(ctx context.Context, device *v1alpha1.Device) (bool, error) {
+	enrollmentRequest, err := c.enrollmentClient.GetEnrollmentRequest(ctx, *device.Metadata.Name)
 	if err != nil {
 		klog.Infof("%serror checking enrollment status: %v", c.logPrefix, err)
 		return false, nil
@@ -96,12 +96,8 @@ func (c *ConfigController) verifyDeviceEnrollment(ctx context.Context) (bool, er
 	return true, nil
 }
 
-func (c *ConfigController) SetDevice(device *v1alpha1.Device) {
-	c.device = device
-}
-
-func (c *ConfigController) writeDeviceEnrollmentBanner() error {
-	url := fmt.Sprintf("%s/enroll/%s", c.enrollmentEndpoint, *c.device.Metadata.Name)
+func (c *ConfigController) writeDeviceEnrollmentBanner(_ context.Context, device *v1alpha1.Device) error {
+	url := fmt.Sprintf("%s/enroll/%s", c.enrollmentEndpoint, device.Metadata.Name)
 	if err := c.writeQRBanner("\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
 		return fmt.Errorf("failed to write enrollment banner: %w", err)
 	}
