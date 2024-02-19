@@ -92,7 +92,7 @@ func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository model
 	if repository.Status.Data.Conditions == nil {
 		repository.Status.Data.Conditions = &[]api.Condition{}
 	}
-	changed := api.SetStatusConditionByError(repository.Status.Data.Conditions, api.Accessible, "Accessible", "Inaccessible", err)
+	changed := api.SetStatusConditionByError(repository.Status.Data.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
 	if changed {
 		return r.repoStore.UpdateStatusIgnoreOrg(&repository)
 	}

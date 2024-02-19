@@ -11,11 +11,11 @@ func SetStatusConditionByError(conditions *[]Condition, conditionType ConditionT
 		Type: conditionType,
 	}
 	if err == nil {
-		newCondition.Status = True
+		newCondition.Status = ConditionStatusTrue
 		newCondition.Reason = util.StrToPtr(okReason)
 		newCondition.Message = util.StrToPtr(okReason)
 	} else {
-		newCondition.Status = False
+		newCondition.Status = ConditionStatusFalse
 		newCondition.Reason = util.StrToPtr(failReason)
 		newCondition.Message = util.StrToPtr(err.Error())
 	}
@@ -100,12 +100,12 @@ func FindStatusCondition(conditions []Condition, conditionType ConditionType) *C
 
 // IsStatusConditionTrue returns true when the conditionType is present and set to `ConditionTrue`
 func IsStatusConditionTrue(conditions []Condition, conditionType ConditionType) bool {
-	return IsStatusConditionPresentAndEqual(conditions, conditionType, True)
+	return IsStatusConditionPresentAndEqual(conditions, conditionType, ConditionStatusTrue)
 }
 
 // IsStatusConditionFalse returns true when the conditionType is present and set to `ConditionFalse`
 func IsStatusConditionFalse(conditions []Condition, conditionType ConditionType) bool {
-	return IsStatusConditionPresentAndEqual(conditions, conditionType, False)
+	return IsStatusConditionPresentAndEqual(conditions, conditionType, ConditionStatusFalse)
 }
 
 // IsStatusConditionPresentAndEqual returns true when conditionType is present and equal to status.

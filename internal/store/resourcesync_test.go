@@ -164,9 +164,9 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 		It("CreateOrUpdateResourceSync create mode", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.ResourceSyncAccessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -194,9 +194,9 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 		It("CreateOrUpdateResourceSync update mode", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.ResourceSyncAccessible,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}

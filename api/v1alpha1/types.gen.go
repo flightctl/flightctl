@@ -11,16 +11,18 @@ import (
 
 // Defines values for ConditionStatus.
 const (
-	False   ConditionStatus = "False"
-	True    ConditionStatus = "True"
-	Unknown ConditionStatus = "Unknown"
+	ConditionStatusFalse   ConditionStatus = "False"
+	ConditionStatusTrue    ConditionStatus = "True"
+	ConditionStatusUnknown ConditionStatus = "Unknown"
 )
 
 // Defines values for ConditionType.
 const (
-	Accessible     ConditionType = "Accessible"
-	ResourceParsed ConditionType = "ResourceParsed"
-	Synced         ConditionType = "Synced"
+	EnrollmentRequestApproved  ConditionType = "Approved"
+	RepositoryAccessible       ConditionType = "Accessible"
+	ResourceSyncAccessible     ConditionType = "Accessible"
+	ResourceSyncResourceParsed ConditionType = "ResourceParsed"
+	ResourceSyncSynced         ConditionType = "Synced"
 )
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
