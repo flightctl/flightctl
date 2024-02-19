@@ -173,9 +173,9 @@ var _ = Describe("FleetStore create", func() {
 
 		It("CreateOrUpdate create mode", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -213,9 +213,9 @@ var _ = Describe("FleetStore create", func() {
 
 		It("CreateOrUpdate update mode same template", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -248,9 +248,9 @@ var _ = Describe("FleetStore create", func() {
 
 		It("CreateOrUpdate update mode updated spec", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -281,9 +281,9 @@ var _ = Describe("FleetStore create", func() {
 
 		It("CreateOrUpdateMultiple", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -343,9 +343,9 @@ var _ = Describe("FleetStore create", func() {
 		})
 		It("CreateOrUpdateMultiple with error", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -386,9 +386,9 @@ var _ = Describe("FleetStore create", func() {
 
 		It("UpdateStatus", func() {
 			condition := api.Condition{
-				Type:               api.Accessible,
+				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.False,
+				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),
 			}
@@ -406,7 +406,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
-			Expect((*updatedFleet.Status.Conditions)[0].Type).To(Equal(api.Accessible))
+			Expect((*updatedFleet.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 	})
 })

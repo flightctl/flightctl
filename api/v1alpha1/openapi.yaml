@@ -1692,12 +1692,24 @@ components:
     ConditionType:
       type: string
       enum:
-      - 'Accessible'     # Repository, RepoSync
-      - 'ResourceParsed' # RepoSync
-      - 'Synced'         # RepoSync
+      - 'Approved'       # EnrollmentRequest
+      - 'Accessible'     # Repository
+      - 'Accessible'     # ResourceSync
+      - 'ResourceParsed' # ResourceSync
+      - 'Synced'         # ResourceSync
+      x-enum-varnames:
+      - EnrollmentRequestApproved
+      - RepositoryAccessible
+      - ResourceSyncAccessible
+      - ResourceSyncResourceParsed
+      - ResourceSyncSynced
     ConditionStatus:
       type: string
       enum:
       - 'True'
       - 'False'
       - 'Unknown'
+      x-enum-varnames:
+      - 'ConditionStatusTrue'
+      - 'ConditionStatusFalse'
+      - 'ConditionStatusUnknown'
