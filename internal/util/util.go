@@ -1,8 +1,10 @@
 package util
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -158,4 +160,27 @@ func GetResourceOwner(owner *string) (string, string, error) {
 	}
 
 	return parts[0], parts[1], nil
+}
+
+// CreateJitter creates a random jitter duration in the range [0, max) * duration
+func CreateJitterDuration(max int64, duration time.Duration) (time.Duration, error) {
+	if max <= 0 {
+		return 0, fmt.Errorf("max must be positive")
+	}
+
+	// Generate a random number in the range [0, max)
+	n, err := rand.Int(rand.Reader, big.NewInt(max))
+	if err != nil {
+		return 0, err
+	}
+
+	return (duration * time.Duration(n.Int64())), nil
+}
+
+func NewTickerWithJitter(d time.Duration, jitterDuration time.Duration, maxJitter int64) (*time.Ticker, error) {
+	jitter, err := CreateJitterDuration(maxJitter, jitterDuration)
+	if err != nil {
+		return nil, err
+	}
+	return time.NewTicker(d + jitter), nil
 }
