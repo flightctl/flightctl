@@ -67,7 +67,12 @@ func main() {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	server := server.New(log, cfg, store, tlsConfig, ca)
+	listener, err := server.NewTLSListener(cfg.Service.Address, tlsConfig)
+	if err != nil {
+		log.Fatalf("creating listener: %s", err)
+	}
+
+	server := server.New(log, cfg, store, ca, listener)
 	if err := server.Run(); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
