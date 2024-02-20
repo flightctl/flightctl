@@ -67,7 +67,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server.DeleteResourceSyncsRequestObject) (server.DeleteResourceSyncsResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.ResourceSync().DeleteAll(ctx, orgId)
+	err := h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
 	switch err {
 	case nil:
 		return server.DeleteResourceSyncs200JSONResponse{}, nil
@@ -116,8 +116,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 // (DELETE /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.DeleteResourceSyncRequestObject) (server.DeleteResourceSyncResponseObject, error) {
 	orgId := store.NullOrgId
-
-	err := h.store.ResourceSync().Delete(ctx, orgId, request.Name)
+	err := h.store.ResourceSync().Delete(ctx, orgId, request.Name, h.store.Fleet().UnsetOwner)
 	switch err {
 	case nil:
 		return server.DeleteResourceSync200JSONResponse{}, nil

@@ -993,6 +993,9 @@ paths:
         "404":
           description: NotFound
           content: {}
+        "409":
+          description: Conflict
+          content: {}
     delete:
       tags:
         - fleet
@@ -1017,6 +1020,9 @@ paths:
           content: {}
         "404":
           description: NotFound
+          content: {}
+        "409":
+          description: Conflict
           content: {}
   /api/v1/fleets/{name}/status:
     get:
@@ -1495,14 +1501,15 @@ components:
     ResourceSyncStatus:
       type: object
       properties:
-        lastSyncedCommitHash:
+        observedCommit:
           type: string
           description: |
             The last commit hash that was synced
-        lastSyncedPath:
-          type: string
+        observedGeneration:
+          type: integer
+          format: int64
           description: |
-            The last repository path that was synced
+            The last generation that was synced
         conditions:
           type: array
           description: 'Current state of a resourcesync.'
