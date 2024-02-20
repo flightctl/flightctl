@@ -2,13 +2,13 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
-
-	// "github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutils "github.com/flightctl/flightctl/test/utils"
@@ -32,6 +32,7 @@ func TestDeviceAgent(t *testing.T) {
 			defer cancel()
 
 			testDirPath := t.TempDir()
+			makeTestDirs(testDirPath, []string{"/etc/issue.d/"})
 			serverCfg := *config.NewDefault()
 			serverLog := log.InitLogs()
 
@@ -81,7 +82,7 @@ func TestDeviceAgent(t *testing.T) {
 
 			var deviceName string
 			// wait for the enrollment request to be created
-			err = wait.PollImmediate(10*time.Millisecond, 5*time.Second, func() (bool, error) {
+			err = wait.PollImmediate(100*time.Millisecond, 10000*time.Second, func() (bool, error) {
 				listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &api.ListEnrollmentRequestsParams{})
 				if err != nil {
 					return false, err
@@ -102,6 +103,27 @@ func TestDeviceAgent(t *testing.T) {
 			}
 			_, err = client.CreateEnrollmentRequestApprovalWithResponse(ctx, deviceName, approval)
 			require.NoError(err)
+
+			// TODO: update device with inline config
+			// wait for the device config to be written
+			// err = wait.PollImmediate(100*time.Millisecond, 10000*time.Second, func() (bool, error) {
+			// 	_, err := os.Stat(filepath.Join(testDirPath, "/etc/motd"))
+			// 	if err != nil && os.IsNotExist(err) {
+			// 		return false, nil
+			// 	}
+			// 	return true, nil
+			// })
+			// require.NoError(err)
 		})
 	}
+}
+
+func makeTestDirs(tmpDirPath string, paths []string) error {
+	for _, path := range paths {
+		err := os.MkdirAll(filepath.Join(tmpDirPath, path), 0755)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

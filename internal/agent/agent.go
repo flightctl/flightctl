@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/configcontroller"
@@ -30,8 +31,6 @@ const (
 	enrollmentKeyFile = "client-enrollment.key"
 	// name of the management client certificate file
 	clientCertFile = "client.crt"
-	// name of the management client key file
-	clientKeyFile = "client.key"
 )
 
 func New(log *logrus.Logger, config *Config) *Agent {
@@ -56,7 +55,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	enrollmentCertFilePath := filepath.Join(a.config.CertDir, enrollmentCertFile)
 	enrollmentKeyFilePath := filepath.Join(a.config.CertDir, enrollmentKeyFile)
 	managementCertFilePath := filepath.Join(a.config.CertDir, clientCertFile)
-	managementKeyFilePath := filepath.Join(a.config.CertDir, clientKeyFile)
 
 	// ensure the agent key exists if not create it.
 	publicKey, privateKey, _, err := fcrypto.EnsureKey(agentKeyFilePath)
@@ -68,6 +66,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	enrollmentClient := client.NewEnrollment(enrollmentHTTPClient)
 
 	publicKeyHash, err := fcrypto.HashPublicKey(publicKey)
 	if err != nil {
@@ -105,30 +104,42 @@ func (a *Agent) Run(ctx context.Context) error {
 	device := device.New(deviceName)
 
 	// create device status exporter
-	deviceStatuseManager := devicestatus.NewManager(tpmChannel, &executer.CommonExecuter{})
+	deviceStatusManager := devicestatus.NewManager(
+		tpmChannel,
+		&executer.CommonExecuter{},
+		time.Duration(a.config.StatusUpdateInterval),
+	)
 	deviceStatusExporter := export.NewDeviceStatus(
-		deviceStatuseManager,
+		deviceStatusManager,
 	)
 
 	// create device observer
-	deviceObserver := observe.NewDevice(device.Name())
+	deviceObserver := observe.NewDevice(
+		device.Name(),
+		time.Duration(a.config.FetchSpecInterval),
+		caFilePath,
+		managementCertFilePath,
+		agentKeyFilePath,
+		a.config.ManagementEndpoint,
+	)
 
 	configcontroller := configcontroller.New(
 		device,
-		client.NewEnrollment(enrollmentHTTPClient),
+		enrollmentClient,
 		a.config.EnrollmentEndpoint,
 		a.config.ManagementEndpoint,
 		caFilePath,
 		managementCertFilePath,
-		managementKeyFilePath,
+		agentKeyFilePath,
 		deviceWriter,
 		deviceStatusExporter,
+		deviceObserver,
 		csr,
 		a.config.LogPrefix,
 	)
 
 	go configcontroller.Run(ctx)
-	go deviceStatuseManager.Run(ctx)
+	go deviceStatusManager.Run(ctx)
 	go deviceObserver.Run(ctx)
 
 	<-ctx.Done()

@@ -19,6 +19,9 @@ func (c *ConfigController) ensureDeviceEnrollment(ctx context.Context, device *v
 	if c.isDeviceEnrolled() {
 		return nil
 	}
+	if err := c.writeDeviceEnrollmentBanner(ctx, device); err != nil {
+		return fmt.Errorf("failed to write enrollment banner: %w", err)
+	}
 
 	if err := c.deviceEnrollmentRequest(ctx, device); err != nil {
 		return fmt.Errorf("failed to send enrollment request: %w", err)
@@ -31,12 +34,9 @@ func (c *ConfigController) ensureDeviceEnrollment(ctx context.Context, device *v
 	if err != nil {
 		return fmt.Errorf("failed to verify device enrollment: %w", err)
 	}
-	if err := c.writeDeviceEnrollmentBanner(ctx, device); err != nil {
-		return fmt.Errorf("failed to write enrollment banner: %w", err)
-	}
 
 	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(c.managementEndpoint, c.caFilePath, c.managementCertFilePath, c.managementKeyFilePath)
+	managementHTTPClient, err := client.NewWithResponses(c.managementEndpoint, c.caFilePath, c.managementCertFilePath, c.agentKeyFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to create management client: %w", err)
 	}
@@ -47,7 +47,7 @@ func (c *ConfigController) ensureDeviceEnrollment(ctx context.Context, device *v
 }
 
 func (c *ConfigController) isDeviceEnrolled() bool {
-	_, err := os.Stat(filepath.Join(c.certDir, clientCertFile))
+	_, err := os.Stat(c.managementCertFilePath)
 	return !os.IsNotExist(err)
 }
 
@@ -89,7 +89,7 @@ func (c *ConfigController) verifyDeviceEnrollment(ctx context.Context, device *v
 		return false, fmt.Errorf("%sparsing signed certificate: %v", c.logPrefix, err)
 	}
 
-	if err := os.WriteFile(filepath.Join(c.certDir, clientCertFile), []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
+	if err := os.WriteFile(filepath.Join(c.managementCertFilePath), []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
 		return false, fmt.Errorf("%swriting signed certificate: %v", c.logPrefix, err)
 	}
 
@@ -97,7 +97,7 @@ func (c *ConfigController) verifyDeviceEnrollment(ctx context.Context, device *v
 }
 
 func (c *ConfigController) writeDeviceEnrollmentBanner(_ context.Context, device *v1alpha1.Device) error {
-	url := fmt.Sprintf("%s/enroll/%s", c.enrollmentEndpoint, device.Metadata.Name)
+	url := fmt.Sprintf("%s/enroll/%s", c.enrollmentEndpoint, *device.Metadata.Name)
 	if err := c.writeQRBanner("\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
 		return fmt.Errorf("failed to write enrollment banner: %w", err)
 	}

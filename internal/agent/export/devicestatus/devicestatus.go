@@ -16,7 +16,11 @@ import (
 var _ Getter = (*Manager)(nil)
 
 // NewCollector creates a new device status collector.
-func NewManager(tpm *tpm.TPM, executor executer.Executer) *Manager {
+func NewManager(
+	tpm *tpm.TPM,
+	executor executer.Executer,
+	pollInterval time.Duration,
+) *Manager {
 	exporters := []Exporter{
 		newSystemD(executor),
 		newContainer(executor),
@@ -24,7 +28,8 @@ func NewManager(tpm *tpm.TPM, executor executer.Executer) *Manager {
 	}
 
 	return &Manager{
-		exporters: exporters,
+		exporters:    exporters,
+		pollInterval: pollInterval,
 	}
 }
 
@@ -55,18 +60,17 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	ctx, m.cancelFn = context.WithCancel(ctx)
 
-	wait.PollInfiniteWithContext(ctx, m.pollInterval, func(ctx context.Context) (bool, error) {
+	wait.UntilWithContext(ctx, func(context.Context) {
 		deviceStatus, err := m.aggregateDeviceStatus(ctx)
 		if err != nil {
 			klog.Errorf("error getting device status: %v", err)
-			return false, nil
+			return
 		}
 		m.mu.Lock()
 		m.deviceStatus = deviceStatus
 		m.hasSynced = true
 		m.mu.Unlock()
-		return true, nil
-	})
+	}, m.pollInterval)
 
 	return nil
 }

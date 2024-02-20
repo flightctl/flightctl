@@ -36,7 +36,7 @@ func NewTestServer(t testing.TB, log logrus.FieldLogger, cfg *config.Config, sto
 	require.NoError(err)
 
 	// create a listener using the next available port
-	listener, err := server.NewTLSLister("", tlsConfig)
+	listener, err := server.NewTLSListener("", tlsConfig)
 	require.NoError(err)
 
 	return server.New(log, cfg, store, ca, listener), listener

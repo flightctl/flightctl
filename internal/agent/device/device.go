@@ -23,7 +23,7 @@ func New(name string) *Device {
 
 type Device struct {
 	// mutex to protect the device resource
-	mu sync.RWMutex
+	mu sync.Mutex
 	// The device resource manifest
 	device v1alpha1.Device
 }
@@ -41,6 +41,7 @@ func (d *Device) Set(r v1alpha1.Device) {
 
 // Get returns a reference to the device resource.
 func (d *Device) Get(context.Context) *v1alpha1.Device {
-	defer d.mu.RUnlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return &d.device
 }

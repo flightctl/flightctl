@@ -33,7 +33,7 @@ func (e *Enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 		e.rpcMetricsCallbackFunc("create_enrollmentrequest_duration", time.Since(start).Seconds(), err)
 	}
 
-	if resp.StatusCode() != http.StatusOK {
+	if resp.StatusCode() != http.StatusCreated {
 		return nil, fmt.Errorf("create enrollmentrequest failed: %s", resp.Status())
 	}
 

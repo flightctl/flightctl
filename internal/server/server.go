@@ -116,9 +116,9 @@ func (s *Server) Run() error {
 	return nil
 }
 
-// NewTLSLister returns a new TLS listener. If the address is empty, it will
+// NewTLSListener returns a new TLS listener. If the address is empty, it will
 // listen on localhost's next available port.
-func NewTLSLister(address string, tlsConfig *tls.Config) (net.Listener, error) {
+func NewTLSListener(address string, tlsConfig *tls.Config) (net.Listener, error) {
 	if address == "" {
 		address = "localhost:0"
 	}

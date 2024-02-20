@@ -20,8 +20,6 @@ import (
 )
 
 const (
-	// name of the client certificate file
-	clientCertFile = "client.crt"
 	// maxUpdateBackoff is the maximum time to react to a change as we back off
 	// in the face of errors.
 	maxUpdateBackoff = 60 * time.Second
@@ -44,14 +42,12 @@ type ConfigController struct {
 	managementClient       *client.Management
 	managementEndpoint     string
 	managementCertFilePath string
-	managementKeyFilePath  string
+	agentKeyFilePath       string
 
 	// The device fingerprint
 	enrollmentCSR []byte
 	// The log prefix used for testing
 	logPrefix string
-	// The directory to write the certificate to
-	certDir string
 }
 
 func New(
@@ -61,9 +57,10 @@ func New(
 	managementEndpoint string,
 	caFilePath string,
 	managementCertFilePath string,
-	managementKeyFilePath string,
+	agentKeyFilePath string,
 	deviceWriter *device.Writer,
 	deviceStatusExporter export.DeviceStatus,
+	deviceObserver *observe.Device,
 	enrollmentCSR []byte,
 	logPrefix string,
 ) *ConfigController {
@@ -82,37 +79,102 @@ func New(
 		device:                  device,
 		deviceWriter:            deviceWriter,
 		deviceStatusExporter:    deviceStatusExporter,
+		deviceObserver:          deviceObserver,
 		caFilePath:              caFilePath,
 		managementEndpoint:      managementEndpoint,
 		managementCertFilePath:  managementCertFilePath,
-		managementKeyFilePath:   managementKeyFilePath,
+		agentKeyFilePath:        agentKeyFilePath,
 		enrollmentCSR:           enrollmentCSR,
 		logPrefix:               logPrefix,
 	}
 
 	c.queue = workqueue.NewNamedRateLimitingQueue(workqueue.NewMaxOfRateLimiter(
 		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(updateDelay), 1)},
-		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, maxUpdateBackoff)), "deviceconfig")
+		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, maxUpdateBackoff)), "device-config")
 
 	return c
+}
+
+func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) error {
+	deviceStatus := c.deviceStatusExporter.Get(ctx)
+	// ensure the device is enrolled
+	if err := c.ensureDeviceEnrollment(ctx, device); err != nil {
+		klog.Warningf("%s enrollment did not succeed: %v", c.logPrefix, err)
+		return err
+	}
+
+	var conditions []v1alpha1.DeviceCondition
+	// post enrollment update status
+	deviceCondition := v1alpha1.DeviceCondition{
+		Type:   "Enrolled",
+		Status: v1alpha1.True,
+	}
+	conditions = append(conditions, deviceCondition)
+	deviceStatus.Conditions = &conditions
+	_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
+	if updateErr != nil {
+		klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
+	}
+
+	// ensure the device is configured
+	if err := c.ensureConfig(ctx, device); err != nil {
+		klog.Errorf("%s configuration did not succeed: %v", c.logPrefix, err)
+
+		errMsg := err.Error()
+
+		// TODO: better status
+		condition := v1alpha1.DeviceCondition{
+			Type:    "Configured",
+			Status:  v1alpha1.False,
+			Message: &errMsg,
+		}
+		conditions = append(conditions, condition)
+		_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
+		if updateErr != nil {
+			klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
+			return updateErr
+		}
+		return err
+	}
+
+	// TODO: status should be more informative
+	// post configuration update status
+	configCondition := v1alpha1.DeviceCondition{
+		Type:   "Configured",
+		Status: v1alpha1.True,
+	}
+	conditions = append(conditions, configCondition)
+	deviceStatus.Conditions = &conditions
+
+	_, updateErr = c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
+	if updateErr != nil {
+		klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
+		return updateErr
+	}
+
+	return nil
 }
 
 func (c *ConfigController) Run(ctx context.Context) {
 	klog.Infof("%sstarting device config controller", c.logPrefix)
 	defer klog.Infof("%sstopping device config controller", c.logPrefix)
 
+	err := wait.PollInfinite(time.Second, func() (bool, error) {
+		if c.deviceStatusExporter.HasSynced(ctx) {
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		klog.Errorf("%sfailed to sync device status: %v", c.logPrefix, err)
+		return
+	}
+
+	go wait.UntilWithContext(ctx, c.inform, time.Minute)
 	go wait.UntilWithContext(ctx, c.worker, time.Second)
 
-	for {
-		observedDevice := c.deviceObserver.Get(ctx)
-		existingDevice := c.deviceStatusExporter.Get(ctx)
-		if !equality.Semantic.DeepEqual(existingDevice, observedDevice) {
-			klog.V(4).Infof("%s device changed, syncing", c.logPrefix)
-		}
-
-		// add regardless of change let the queue handle the rest
-		c.queue.Add(observedDevice)
-	}
+	<-ctx.Done()
 }
 
 type Ignition struct {
@@ -122,7 +184,8 @@ type Ignition struct {
 
 func (c *ConfigController) ensureConfig(_ context.Context, device *v1alpha1.Device) error {
 	if device.Spec.Config == nil {
-		return fmt.Errorf("device config is nil")
+		klog.V(4).Infof("%s device config is nil", c.logPrefix)
+		return nil
 	}
 
 	for _, config := range *device.Spec.Config {
@@ -142,25 +205,24 @@ func (c *ConfigController) ensureConfig(_ context.Context, device *v1alpha1.Devi
 			return fmt.Errorf("parsing and converting config failed: %w", err)
 		}
 
-		return c.deviceWriter.WriteIgnitionFiles(ignitionConfig.Storage.Files...)
+		err = c.deviceWriter.WriteIgnitionFiles(ignitionConfig.Storage.Files...)
+		if err != nil {
+			return fmt.Errorf("writing ignition files failed: %w", err)
+		}
 	}
 
 	return nil
 }
 
-func (c *ConfigController) inform(ctx context.Context, device *v1alpha1.Device) {
-	if !c.deviceObserver.HasSynced(ctx) || !c.deviceStatusExporter.HasSynced(ctx) {
-		klog.V(4).Infof("%s device controller not synced, skipping", c.logPrefix)
-		return
-	}
+func (c *ConfigController) inform(ctx context.Context) {
 	observedDevice := c.deviceObserver.Get(ctx)
-	existingDevice := c.deviceStatusExporter.Get(ctx)
-	if !equality.Semantic.DeepEqual(existingDevice, observedDevice) {
+	existingDevice := c.device.Get(ctx)
+	if !equality.Semantic.DeepEqual(existingDevice.Spec, observedDevice.Spec) {
 		klog.V(4).Infof("%s device changed, syncing", c.logPrefix)
 	}
 
 	// add regardless of change let the queue handle the rest
-	c.queue.Add(observedDevice)
+	c.queue.AddRateLimited(observedDevice)
 }
 
 func (c *ConfigController) worker(ctx context.Context) {
@@ -190,32 +252,4 @@ func (c *ConfigController) handleErr(err error, key interface{}) {
 
 	klog.V(2).Infof("Error syncing device %v (retries %d): %v", key, c.queue.NumRequeues(key), err)
 	c.queue.AddRateLimited(key)
-}
-
-func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) error {
-	deviceStatus := c.deviceStatusExporter.Get(ctx)
-	// ensure the device is enrolled
-	if err := c.ensureDeviceEnrollment(ctx, device); err != nil {
-		klog.Errorf("%s enrollment did not succeed: %v", c.logPrefix, err)
-		return err
-	}
-
-	// post enrollment update status
-	condition := v1alpha1.DeviceCondition{
-		Type:   "Enrolled",
-		Status: v1alpha1.True,
-	}
-	deviceStatus.Conditions = &[]v1alpha1.DeviceCondition{condition}
-	_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
-	if updateErr != nil {
-		klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
-		return updateErr
-	}
-
-	// ensure the device is configured
-	if err := c.ensureConfig(ctx, device); err != nil {
-		// TODO
-	}
-
-	return nil
 }
