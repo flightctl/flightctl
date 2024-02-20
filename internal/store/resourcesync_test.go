@@ -75,39 +75,93 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
-		It("Get repository - wrong org - not found error", func() {
+		It("Get resourcesync - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := store.ResourceSync().Get(ctx, badOrgId, "myresourcesync-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(gorm.ErrRecordNotFound))
 		})
 
-		It("Delete repository success", func() {
-			err := store.ResourceSync().Delete(ctx, orgId, "myresourcesync-1")
+		It("Delete resourcesync success", func() {
+			rsName := "myresourcesync-1"
+			fleetowner := util.SetResourceOwner(model.ResourceSyncKind, rsName)
+			listParams := ListParams{
+				Limit: 100,
+				Owner: fleetowner,
+			}
+			createFleets(1, ctx, store, orgId, fleetowner)
+			callbackCalled := false
+			err := store.ResourceSync().Delete(ctx, orgId, rsName, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+				Expect(owner).To(Equal(*fleetowner))
+				f, err := store.Fleet().List(ctx, orgId, listParams)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(len(f.Items)).To(Equal(1))
+				err = store.Fleet().UnsetOwner(ctx, tx, orgId, owner)
+				callbackCalled = true
+				return err
+			})
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
+			f, err := store.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(f.Items)).To(Equal(0))
 		})
 
-		It("Delete repository success when not found", func() {
-			err := store.ResourceSync().Delete(ctx, orgId, "nonexistent")
-			Expect(err).ToNot(HaveOccurred())
+		It("Delete resourcesync fail when not found", func() {
+			callbackCalled := false
+			err := store.ResourceSync().Delete(ctx, orgId, "nonexistent", func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+				callbackCalled = true
+				return nil
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(callbackCalled).To(BeFalse())
 		})
 
 		It("Delete all resourcesyncs in org", func() {
+			owner := util.SetResourceOwner(model.ResourceSyncKind, "myresourcesync-1")
 			otherOrgId, _ := uuid.NewUUID()
-			err := store.ResourceSync().DeleteAll(ctx, otherOrgId)
+			createFleets(2, ctx, store, orgId, owner)
+			createFleets(2, ctx, store, otherOrgId, owner)
+			callbackCalled := false
+			err := store.ResourceSync().DeleteAll(ctx, otherOrgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
+				callbackCalled = true
+				Expect(kind).To(Equal(model.ResourceSyncKind))
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
 
 			listParams := ListParams{Limit: 1000}
 			resourcesyncs, err := store.ResourceSync().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(numResourceSyncs))
 
-			err = store.ResourceSync().DeleteAll(ctx, orgId)
+			callbackCalled = false
+			fleet, err := store.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
+			Expect(fleet.Metadata.Owner).ToNot(BeNil())
+			Expect(*fleet.Metadata.Owner).To(Equal(*owner))
+
+			err = store.ResourceSync().DeleteAll(ctx, orgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
+				callbackCalled = true
+				Expect(kind).To(Equal(model.ResourceSyncKind))
+				return store.Fleet().UnsetOwnerByKind(ctx, tx, orgId, kind)
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
+
+			fleet, err = store.Fleet().Get(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleet.Metadata.Owner).To(BeNil())
 
 			resourcesyncs, err = store.ResourceSync().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(0))
+
+			fleet, err = store.Fleet().Get(ctx, otherOrgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleet.Metadata.Owner).ToNot(BeNil())
+			Expect(*fleet.Metadata.Owner).To(Equal(*owner))
 		})
 
 		It("List with paging", func() {

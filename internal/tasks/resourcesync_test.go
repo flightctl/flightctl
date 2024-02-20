@@ -83,6 +83,9 @@ var _ = Describe("ResourceSync", Ordered, func() {
 	Context("ResourceSync tests", func() {
 		It("parseAndValidate", func() {
 			rs := model.ResourceSync{
+				Resource: model.Resource{
+					Generation: util.Int64ToPtr(1),
+				},
 				Spec: &model.JSONField[api.ResourceSyncSpec]{
 					Data: api.ResourceSyncSpec{
 						Repository: util.StrToPtr("demoRepo"),
@@ -91,6 +94,7 @@ var _ = Describe("ResourceSync", Ordered, func() {
 				},
 			}
 			_, err := resourceSync.parseAndValidateResources(ctx, &rs, &repo)
+			// Have unsupported resources in folder
 			Expect(err).To(HaveOccurred())
 
 			rs.Spec.Data.Path = util.StrToPtr("/examples/fleet.yaml")
@@ -119,10 +123,12 @@ var _ = Describe("ResourceSync", Ordered, func() {
 			Expect(err).To(HaveOccurred())
 		})
 		It("parse fleet", func() {
+			owner := util.StrToPtr("ResourceSync/foo")
+
 			genericResources, err := resourceSync.extractResourcesFromFile(orgId.String(), memfs, "/examples/fleet.yaml")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(1))
-			fleets, err := resourceSync.parseFleets(genericResources, orgId)
+			fleets, err := resourceSync.parseFleets(genericResources, orgId, owner)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets)).To(Equal(1))
 			fleet := fleets[0]
@@ -132,18 +138,48 @@ var _ = Describe("ResourceSync", Ordered, func() {
 
 			// change the kind and parse
 			genericResources[0]["kind"] = "NotValid"
-			_, err = resourceSync.parseFleets(genericResources, orgId)
+			_, err = resourceSync.parseFleets(genericResources, orgId, owner)
 			Expect(err).To(HaveOccurred())
 
 			genericResources, err = resourceSync.extractResourcesFromDir(orgId.String(), memfs, "/fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(2))
-			fleets, err = resourceSync.parseFleets(genericResources, orgId)
+			fleets, err = resourceSync.parseFleets(genericResources, orgId, owner)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets)).To(Equal(2))
+			Expect(fleets[0].Metadata.Owner).ToNot(BeNil())
+			Expect(*fleets[0].Metadata.Owner).To(Equal(*owner))
+		})
+
+		It("delta calc", func() {
+			owner := "ResourceSync/foo"
+			ownedFleets := []api.Fleet{
+				{
+					Metadata: api.ObjectMeta{
+						Name:  util.StrToPtr("fleet-1"),
+						Owner: util.StrToPtr(owner),
+					},
+				},
+				{
+					Metadata: api.ObjectMeta{
+						Name:  util.StrToPtr("fleet-2"),
+						Owner: util.StrToPtr(owner),
+					},
+				},
+			}
+			newFleets := []*api.Fleet{
+				&ownedFleets[1],
+			}
+
+			delta := resourceSync.fleetsDelta(ownedFleets, newFleets)
+			Expect(len(delta)).To(Equal(1))
+			Expect(delta[0]).To(Equal("fleet-1"))
 		})
 		It("Should run sync", func() {
 			rs := model.ResourceSync{
+				Resource: model.Resource{
+					Generation: util.Int64ToPtr(1),
+				},
 				Spec: &model.JSONField[api.ResourceSyncSpec]{
 					Data: api.ResourceSyncSpec{
 						Repository: util.StrToPtr("demoRepo"),
@@ -152,35 +188,40 @@ var _ = Describe("ResourceSync", Ordered, func() {
 				},
 			}
 
-			// No hash, path, and sync condition in status
+			// no status - should run sync
 			willRunSync := shouldRunSync("hash", rs)
 			Expect(willRunSync).To(BeTrue())
 
 			rs.Status = &model.JSONField[api.ResourceSyncStatus]{
 				Data: api.ResourceSyncStatus{
-					LastSyncedCommitHash: util.StrToPtr("hash"),
-					LastSyncedPath:       util.StrToPtr("/examplesx"),
+					ObservedCommit:     util.StrToPtr("old"),
+					ObservedGeneration: util.Int64ToPtr(1),
 				},
 			}
-			// Sync condition is true
+			// hash changed - should run
+			willRunSync = shouldRunSync("hash", rs)
+			Expect(willRunSync).To(BeTrue())
+
+			// Observed generation not up do date - should run sync
+			rs.Status.Data.ObservedCommit = util.StrToPtr("hash")
+			rs.Status.Data.ObservedGeneration = util.Int64ToPtr(0)
+			willRunSync = shouldRunSync("hash", rs)
+			Expect(willRunSync).To(BeTrue())
+
+			// Generation and commit fine, but no sync condition
+			rs.Status.Data.ObservedGeneration = util.Int64ToPtr(1)
+			willRunSync = shouldRunSync("hash", rs)
+			Expect(willRunSync).To(BeTrue())
+
+			// Sync condition false - should run sync
+			addSyncedCondition(&rs, fmt.Errorf("Some error"))
+			willRunSync = shouldRunSync("hash", rs)
+			Expect(willRunSync).To(BeTrue())
+
+			// No need to run. all up to date
 			addSyncedCondition(&rs, nil)
-			// hash good, path not
 			willRunSync = shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeTrue())
-
-			// not same hash
-			willRunSync = shouldRunSync("hashx", rs)
-			Expect(willRunSync).To(BeTrue())
-
-			// not same path
-			rs.Status.Data.LastSyncedPath = util.StrToPtr("/examples")
-			willRunSync = shouldRunSync("hashx", rs)
-			Expect(willRunSync).To(BeTrue())
-
-			// sync condition false
-			addSyncedCondition(&rs, fmt.Errorf("some error"))
-			willRunSync = shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeTrue())
+			Expect(willRunSync).To(BeFalse())
 		})
 		It("File validation", func() {
 			Expect(isValidFile("something")).To(BeFalse())

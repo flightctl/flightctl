@@ -115,6 +115,9 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400Response{}, fmt.Errorf("fleet name specified in metadata does not match name in path")
 	}
 
+	// Since this is an api call, we remove the Owner from the fleet - to avoid user override
+	request.Body.Metadata.Owner = nil
+
 	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetTemplateRolloutCallback)
 	switch err {
 	case nil:
@@ -125,6 +128,9 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		}
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceFleet404Response{}, nil
+	case gorm.ErrInvalidData: // owner issue
+		h.log.Infof("an attempt do update Fleet/%s was blocked due to ownership", request.Name)
+		return server.ReplaceFleet409Response{}, nil
 	default:
 		return nil, err
 	}
@@ -134,7 +140,17 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Fleet().Delete(ctx, orgId, request.Name)
+	f, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	if err == gorm.ErrRecordNotFound {
+		return server.DeleteFleet404Response{}, nil
+	}
+	if f.Metadata.Owner != nil {
+		// Cant delete via api
+		h.log.Infof("an attempt do delete Fleet/%s was blocked due to ownership", request.Name)
+		return server.DeleteFleet409Response{}, nil
+	}
+
+	err = h.store.Fleet().Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil

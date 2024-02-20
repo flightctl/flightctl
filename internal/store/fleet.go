@@ -26,7 +26,9 @@ type Fleet interface {
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 	UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, fleets ...*api.Fleet) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, names ...string) error
+	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
+	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
 	ListIgnoreOrg() ([]model.Fleet, error)
 	InitialMigration() error
 }
@@ -193,6 +195,12 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 				return result.Error
 			}
 		} else {
+			// Compare owners
+			// To delete / modify owner - use a different func
+			resourceOwner := util.DefaultIfNil(resource.Metadata.Owner, "")
+			if existingRecord.Owner != nil && *existingRecord.Owner != resourceOwner {
+				return gorm.ErrInvalidData
+			}
 			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, fleet.Spec.Data)
 			sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
 			where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
@@ -221,6 +229,7 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uu
 			} else {
 				fleet.Spec.Data.Template.Metadata.Generation = existingRecord.Spec.Data.Template.Metadata.Generation
 			}
+			fleet.Owner = resource.Metadata.Owner
 			result = innerTx.Model(where).Updates(&fleet)
 			if result.Error != nil {
 				return result.Error
@@ -293,7 +302,48 @@ func (s *FleetStore) updateStatusTx(tx *gorm.DB, ctx context.Context, orgId uuid
 	return resource, result.Error
 }
 
-func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	db := s.db
+	log := log.WithReqIDFromCtx(ctx, s.log)
+	if tx != nil {
+		db = tx
+	}
+	fleetCondition := model.Fleet{
+		Resource: model.Resource{OrgID: orgId, Owner: &owner},
+	}
+	result := db.Model(fleetCondition).Where(fleetCondition).Select("owner").Updates(map[string]interface{}{"owner": nil})
+	log.Printf("db.Model(fleet).Select('owner').Update(owner->nil): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	return result.Error
+}
+
+func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error {
+	db := s.db
+	log := log.WithReqIDFromCtx(ctx, s.log)
+	if tx != nil {
+		db = tx
+	}
+	fleetCondition := model.Fleet{
+		Resource: model.Resource{OrgID: orgId},
+	}
+	result := db.Model(model.Fleet{}).Where(fleetCondition).Where("owner like ?", "%"+resourceKind+"/%").Select("owner").Updates(map[string]interface{}{"owner": nil})
+	log.Printf("db.Model(fleet).Select('owner').Update(owner->nil): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	return result.Error
+}
+
+func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, names ...string) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		for _, name := range names {
+			err := s.deleteTx(tx, ctx, orgId, name)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+func (s *FleetStore) deleteTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, name string) error {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}

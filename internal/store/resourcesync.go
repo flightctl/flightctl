@@ -5,9 +5,11 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -18,10 +20,10 @@ type ResourceSync interface {
 	Create(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	ListIgnoreOrg() ([]model.ResourceSync, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, bool, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
 	UpdateStatusIgnoreOrg(resourceSync *model.ResourceSync) error
 	InitialMigration() error
 }
@@ -33,6 +35,9 @@ type ResourceSyncStore struct {
 
 // Make sure we conform to ResourceSync interface
 var _ ResourceSync = (*ResourceSyncStore)(nil)
+
+type removeOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
+type removeAllResourceSyncOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error
 
 func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 	return &ResourceSyncStore{db: db, log: log}
@@ -97,10 +102,38 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	return &apiResourceSyncList, result.Error
 }
 
-func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
-	condition := model.ResourceSync{}
-	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	return result.Error
+func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error {
+	condition := model.ResourceSync{
+		Resource: model.Resource{OrgID: orgId},
+	}
+	var count int64
+	result := s.db.Model(condition).Where(condition).Count(&count)
+	if result.Error != nil {
+		return result.Error
+	}
+	resourceSyncs, err := s.List(ctx, orgId, ListParams{
+		Limit: int(count),
+	})
+	if err != nil {
+		return err
+	}
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		for _, resource := range resourceSyncs.Items {
+			rsName := *resource.Metadata.Name
+			resourceSync := model.ResourceSync{
+				Resource: model.Resource{OrgID: orgId, Name: rsName},
+			}
+			result := tx.Unscoped().Delete(resourceSync)
+			if result.Error != nil {
+				return result.Error
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return callback(ctx, tx, orgId, model.ResourceSyncKind)
+	})
+	return err
 }
 
 func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
@@ -134,9 +167,23 @@ func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 	result := s.db.First(&findResourceSync)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
+			resourcesync.Generation = util.Int64ToPtr(1)
 			created = true
 		} else {
 			return nil, false, result.Error
+		}
+	} else {
+		sameSpec := reflect.DeepEqual(findResourceSync.Spec.Data, resourcesync.Spec.Data)
+		resourcesync.Generation = findResourceSync.Generation
+		// Update the generation if the template was updated
+		if !sameSpec {
+			if resourcesync.Generation == nil {
+				resourcesync.Generation = util.Int64ToPtr(1)
+			} else {
+				resourcesync.Generation = util.Int64ToPtr(*findResourceSync.Generation + 1)
+			}
+		} else {
+			resourcesync.Generation = findResourceSync.Generation
 		}
 	}
 
@@ -158,12 +205,23 @@ func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) 
 	return result.Error
 }
 
-func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	condition := model.ResourceSync{
+func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error {
+	resourceSync := model.ResourceSync{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.Unscoped().Delete(&condition)
-	return result.Error
+	_, err := s.Get(ctx, orgId, name)
+	if err != nil {
+		return err
+	}
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		owner := util.SetResourceOwner(model.ResourceSyncKind, name)
+		result := tx.Unscoped().Delete(&resourceSync)
+		if result.Error != nil {
+			return result.Error
+		}
+		return callback(ctx, tx, orgId, *owner)
+	})
+	return err
 }
 
 // A method to get all ResourceSyncs , regardless of ownership. Used internally by the the ResourceSync monitor.
