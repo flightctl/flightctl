@@ -14,6 +14,7 @@ endif
 GINKGO_REPORTFILE := $(or $(GINKGO_REPORTFILE), ./junit_unit_test.xml)
 GO_UNITTEST_FLAGS = --format=$(GO_TEST_FORMAT) $(GOTEST_PUBLISH_FLAGS) -- -count=1 -coverprofile=coverage.out $(GO_BUILD_FLAGS)
 GINKGO_UNITTEST_FLAGS = -ginkgo.focus="$(FOCUS)" -ginkgo.v -ginkgo.skip="$(SKIP)" -ginkgo.v -ginkgo.reportFile=$(GINKGO_REPORTFILE)
+GO_UNITTEST_FLAGS=-race
 
 .EXPORT_ALL_VARIABLES:
 
@@ -103,7 +104,7 @@ clean:
 	- rm -f -r debian
 
 _unit_test: $(REPORTS)
-	gotestsum $(GO_UNITTEST_FLAGS) $(TEST) $(GINKGO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
+	gotestsum -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) ./... || ($(MAKE) _post_unit_test && /bin/false)
 	$(MAKE) _post_unit_test
 
 _post_unit_test: $(REPORTS)
