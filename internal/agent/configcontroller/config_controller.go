@@ -102,11 +102,11 @@ func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) er
 		return err
 	}
 
-	var conditions []v1alpha1.DeviceCondition
+	var conditions []v1alpha1.Condition
 	// post enrollment update status
-	deviceCondition := v1alpha1.DeviceCondition{
+	deviceCondition := v1alpha1.Condition{
 		Type:   "Enrolled",
-		Status: v1alpha1.True,
+		Status: v1alpha1.ConditionStatusTrue,
 	}
 	conditions = append(conditions, deviceCondition)
 	deviceStatus.Conditions = &conditions
@@ -127,9 +127,9 @@ func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) er
 		errMsg := err.Error()
 
 		// TODO: better status
-		condition := v1alpha1.DeviceCondition{
+		condition := v1alpha1.Condition{
 			Type:    "Configured",
-			Status:  v1alpha1.False,
+			Status:  v1alpha1.ConditionStatusFalse,
 			Message: &errMsg,
 		}
 		conditions = append(conditions, condition)
@@ -143,9 +143,9 @@ func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) er
 
 	// TODO: status should be more informative
 	// post configuration update status
-	configCondition := v1alpha1.DeviceCondition{
+	configCondition := v1alpha1.Condition{
 		Type:   "Configured",
-		Status: v1alpha1.True,
+		Status: v1alpha1.ConditionStatusTrue,
 	}
 	conditions = append(conditions, configCondition)
 	deviceStatus.Conditions = &conditions

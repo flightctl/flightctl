@@ -61,6 +61,7 @@ func main() {
 			FetchSpecInterval:    util.Duration(*fetchSpecInterval),
 			StatusUpdateInterval: util.Duration(*statusUpdateInterval),
 		}
+		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
 
 		agents[i] = agent.New(log, &cfg)
 	}

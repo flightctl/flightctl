@@ -23,6 +23,10 @@ type Enrollment struct {
 	rpcMetricsCallbackFunc func(operation string, durationSeconds float64, err error)
 }
 
+func (e *Enrollment) SetRPCMetricsCallback(cb func(operation string, durationSeconds float64, err error)) {
+	e.rpcMetricsCallbackFunc = cb
+}
+
 func (e *Enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
 	start := time.Now()
 	resp, err := e.client.CreateEnrollmentRequestWithResponse(ctx, req, cb...)

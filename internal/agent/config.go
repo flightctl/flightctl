@@ -35,8 +35,11 @@ type Config struct {
 	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
 	// LogPrefix is the log prefix used for testing
 	LogPrefix string `json:"logPrefix,omitempty"`
+
 	// testRootDir is the root directory of the test agent
 	testRootDir string
+	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
+	enrollmentMetricsCallback func(operation string, duractionSeconds float64, err error)
 }
 
 func NewDefault() *Config {
@@ -54,6 +57,10 @@ func (cfg *Config) SetTestRootDir(rootDir string) {
 
 func (cfg *Config) GetTestRootDir() string {
 	return cfg.testRootDir
+}
+
+func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {
+	cfg.enrollmentMetricsCallback = cb
 }
 
 // TODO: dedupe with internal/config/config.go
