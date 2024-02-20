@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -32,7 +32,9 @@ func TestDeviceAgent(t *testing.T) {
 			defer cancel()
 
 			testDirPath := t.TempDir()
-			makeTestDirs(testDirPath, []string{"/etc/issue.d/"})
+			err := makeTestDirs(testDirPath, []string{"/etc/issue.d/"})
+			require.NoError(err)
+
 			serverCfg := *config.NewDefault()
 			serverLog := log.InitLogs()
 
@@ -83,7 +85,7 @@ func TestDeviceAgent(t *testing.T) {
 			var deviceName string
 			// wait for the enrollment request to be created
 			err = wait.PollImmediate(100*time.Millisecond, 10000*time.Second, func() (bool, error) {
-				listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &api.ListEnrollmentRequestsParams{})
+				listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &v1alpha1.ListEnrollmentRequestsParams{})
 				if err != nil {
 					return false, err
 				}
@@ -96,7 +98,7 @@ func TestDeviceAgent(t *testing.T) {
 			require.NoError(err)
 
 			// approve the enrollment request
-			approval := api.EnrollmentRequestApproval{
+			approval := v1alpha1.EnrollmentRequestApproval{
 				Approved: true,
 				Labels:   &map[string]string{"label": "value"},
 				Region:   util.StrToPtr("region"),

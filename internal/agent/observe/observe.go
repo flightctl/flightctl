@@ -12,7 +12,7 @@ import (
 )
 
 type Observer interface {
-	Run(context.Context) error
+	Run(context.Context)
 	HasSynced(context.Context) bool
 }
 
@@ -62,14 +62,14 @@ type DeviceGetter interface {
 	Get(ctx context.Context) (*v1alpha1.Device, error)
 }
 
-func (d *Device) Run(ctx context.Context) error {
+func (d *Device) Run(ctx context.Context) {
 	ticker := time.NewTicker(d.fetchInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
 			if err := d.ensureClient(); err != nil {
 				klog.V(4).Infof("%smanagement client is not ready", d.logPrefix)

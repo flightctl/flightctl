@@ -5,12 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
-
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 )
 
 var _ Getter = (*Manager)(nil)
@@ -54,7 +53,7 @@ type Getter interface {
 	HasSynced(context.Context) bool
 }
 
-func (m *Manager) Run(ctx context.Context) error {
+func (m *Manager) Run(ctx context.Context) {
 	klog.Infof("%sstarting device exporter", m.logPrefix)
 	defer klog.Infof("%sstopping device exporter", m.logPrefix)
 
@@ -71,8 +70,6 @@ func (m *Manager) Run(ctx context.Context) error {
 		m.hasSynced = true
 		m.mu.Unlock()
 	}, m.pollInterval)
-
-	return nil
 }
 
 func (m *Manager) aggregateDeviceStatus(ctx context.Context) (v1alpha1.DeviceStatus, error) {

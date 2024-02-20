@@ -6,17 +6,16 @@ import (
 	"fmt"
 	"time"
 
-	"golang.org/x/time/rate"
-	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog/v2"
-
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/export"
 	"github.com/flightctl/flightctl/internal/agent/observe"
+	"golang.org/x/time/rate"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -111,15 +110,20 @@ func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) er
 	}
 	conditions = append(conditions, deviceCondition)
 	deviceStatus.Conditions = &conditions
-	_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
-	if updateErr != nil {
-		klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
+	// update the device status once if enrolled
+	if !c.isDeviceEnrolled() {
+		_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
+		if updateErr != nil {
+			klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
+			if !c.isDeviceEnrolled() {
+				return updateErr
+			}
+		}
 	}
 
 	// ensure the device is configured
 	if err := c.ensureConfig(ctx, device); err != nil {
 		klog.Errorf("%s configuration did not succeed: %v", c.logPrefix, err)
-
 		errMsg := err.Error()
 
 		// TODO: better status
@@ -146,7 +150,7 @@ func (c *ConfigController) sync(ctx context.Context, device *v1alpha1.Device) er
 	conditions = append(conditions, configCondition)
 	deviceStatus.Conditions = &conditions
 
-	_, updateErr = c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
+	_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, deviceStatus)
 	if updateErr != nil {
 		klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
 		return updateErr

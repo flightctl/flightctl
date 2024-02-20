@@ -7,11 +7,10 @@ import (
 	"net/http"
 	"net/url"
 
-	kcert "k8s.io/client-go/util/cert"
-
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/middleware"
+	kcert "k8s.io/client-go/util/cert"
 )
 
 var (

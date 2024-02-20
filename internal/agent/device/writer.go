@@ -12,11 +12,10 @@ import (
 	"path/filepath"
 	"strconv"
 
+	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/google/renameio"
 	"github.com/vincent-petithory/dataurl"
 	"k8s.io/klog/v2"
-
-	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
 )
 
 const (
@@ -85,7 +84,9 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 	if err != nil {
 		return err
 	}
-	defer t.Cleanup()
+	defer func() {
+		_ = t.Cleanup()
+	}()
 	// Set permissions before writing data, in case the data is sensitive.
 	if err := t.Chmod(fileMode); err != nil {
 		return err

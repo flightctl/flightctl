@@ -14,10 +14,6 @@ import (
 
 	cacheutil "github.com/argoproj/argo-cd/v2/util/cache"
 	oapimiddleware "github.com/deepmap/oapi-codegen/pkg/chi-middleware"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/sirupsen/logrus"
-
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/config"
@@ -26,6 +22,9 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/sirupsen/logrus"
 )
 
 const (

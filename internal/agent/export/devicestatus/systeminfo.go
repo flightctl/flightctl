@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/google/cadvisor/fs"
 	"github.com/google/cadvisor/machine"
 	"github.com/google/cadvisor/utils/sysfs"
-
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/tpm"
 )
 
 var _ Exporter = (*SystemInfo)(nil)
