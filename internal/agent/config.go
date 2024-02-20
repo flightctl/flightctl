@@ -5,33 +5,64 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
 	"gopkg.in/yaml.v2"
+	"k8s.io/klog/v2"
+)
+
+const (
+	// DefaultFetchSpecInterval is the default interval between two reads of the remote device spec
+	DefaultFetchSpecInterval = time.Second * 60
+
+	// DefaultStatusUpdateInterval is the default interval between two status updates
+	DefaultStatusUpdateInterval = time.Second * 60
 )
 
 type Config struct {
-	Agent *agentConfig `json:"agent,omitempty"`
-}
-
-type agentConfig struct {
-	Server               string        `json:"server,omitempty"`
-	EnrollmentUi         string        `json:"enrollmentUi,omitempty"`
-	TpmPath              string        `json:"tpmPath,omitempty"`
-	FetchSpecInterval    util.Duration `json:"fetchSpecInterval,omitempty"`
+	// ManagementEndpoint is the URL of the device management server
+	ManagementEndpoint string `json:"managementEndpoint,omitempty"`
+	// EnrollmentEndpoint is the URL of the device enrollment server
+	EnrollmentEndpoint string `json:"enrollmentEndpoint,omitempty"`
+	// CertDir is the directory where the device's certificates are stored
+	CertDir string `json:"certDir,omitempty"`
+	// TPMPath is the path to the TPM device
+	TPMPath string `json:"tpmPath,omitempty"`
+	// FetchSpecInterval is the interval between two reads of the remote device spec
+	FetchSpecInterval util.Duration `json:"fetchSpecInterval,omitempty"`
+	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
+	// ConfigSyncInterval is the interval that a config controller is synced
+	ConfigSyncInterval util.Duration `json:"configSyncInterval,omitempty"`
+	// LogPrefix is the log prefix used for testing
+	LogPrefix string `json:"logPrefix,omitempty"`
+
+	// testRootDir is the root directory of the test agent
+	testRootDir string
+	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
+	enrollmentMetricsCallback func(operation string, duractionSeconds float64, err error)
 }
 
 func NewDefault() *Config {
 	return &Config{
-		&agentConfig{
-			Server:               "https://localhost:3333",
-			EnrollmentUi:         "",
-			TpmPath:              "",
-			FetchSpecInterval:    util.Duration(DefaultFetchSpecInterval),
-			StatusUpdateInterval: util.Duration(DefaultStatusUpdateInterval),
-		},
+		ManagementEndpoint:   "https://localhost:3333",
+		StatusUpdateInterval: util.Duration(DefaultStatusUpdateInterval),
+		FetchSpecInterval:    util.Duration(DefaultFetchSpecInterval),
 	}
+}
+
+func (cfg *Config) SetTestRootDir(rootDir string) {
+	klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
+	cfg.testRootDir = rootDir
+}
+
+func (cfg *Config) GetTestRootDir() string {
+	return cfg.testRootDir
+}
+
+func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {
+	cfg.enrollmentMetricsCallback = cb
 }
 
 // TODO: dedupe with internal/config/config.go
