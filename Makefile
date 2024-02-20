@@ -44,8 +44,12 @@ lint: tools
 build: bin
 	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
 
-flightctl-server-container:
+# rebuild container only on source changes
+bin/.flightctl-server-container: bin Containerfile go.mod go.sum $(shell find ./ -name "*.go" -not -path "./packaging/*")
 	podman build -f Containerfile -t flightctl-server:latest
+	touch bin/.flightctl-server-container
+
+flightctl-server-container: bin/.flightctl-server-container
 
 deploy-db:
 	cd deploy/podman && podman-compose up -d flightctl-db
