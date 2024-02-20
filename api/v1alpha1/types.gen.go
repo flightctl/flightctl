@@ -448,11 +448,11 @@ type ResourceSyncStatus struct {
 	// Conditions Current state of a resourcesync.
 	Conditions *[]Condition `json:"conditions,omitempty"`
 
-	// LastSyncedCommitHash The last commit hash that was synced
-	LastSyncedCommitHash *string `json:"lastSyncedCommitHash,omitempty"`
+	// ObservedCommit The last commit hash that was synced
+	ObservedCommit *string `json:"observedCommit,omitempty"`
 
-	// LastSyncedPath The last repository path that was synced
-	LastSyncedPath *string `json:"lastSyncedPath,omitempty"`
+	// ObservedGeneration The last generation that was synced
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
 
 // Status Status is a return value for calls that don't return other objects.

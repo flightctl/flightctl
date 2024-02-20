@@ -2236,6 +2236,14 @@ func (response DeleteFleet404Response) VisitDeleteFleetResponse(w http.ResponseW
 	return nil
 }
 
+type DeleteFleet409Response struct {
+}
+
+func (response DeleteFleet409Response) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
 type ReadFleetRequestObject struct {
 	Name string `json:"name"`
 }
@@ -2317,6 +2325,14 @@ type ReplaceFleet404Response struct {
 
 func (response ReplaceFleet404Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
 	w.WriteHeader(404)
+	return nil
+}
+
+type ReplaceFleet409Response struct {
+}
+
+func (response ReplaceFleet409Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
 	return nil
 }
 
