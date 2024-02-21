@@ -17,6 +17,7 @@ const (
 
 var _ Exporter = (*Container)(nil)
 
+// Container collects podman container status.
 type Container struct {
 	exec executer.Executer
 }

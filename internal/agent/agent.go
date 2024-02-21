@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/writer"
+	"github.com/flightctl/flightctl/internal/client"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -102,6 +102,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create config controller
 	controller := config.NewController(
+		deviceName,
 		enrollmentClient,
 		a.config.EnrollmentEndpoint,
 		a.config.ManagementEndpoint,
