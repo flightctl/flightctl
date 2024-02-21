@@ -165,6 +165,7 @@ func GetResourceOwner(owner *string) (string, string, error) {
 // max must be greater than 0
 func CreateRandomJitterDuration(max int64, duration time.Duration) time.Duration {
 	// Generate a random number in the range [0, max)
+	// #nosec G404
 	n := rand.Int63n(max)
 	jitteredDuration := duration * time.Duration(n)
 	return jitteredDuration
