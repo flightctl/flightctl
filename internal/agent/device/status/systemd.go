@@ -18,6 +18,7 @@ const (
 
 var _ Exporter = (*SystemD)(nil)
 
+// SystemD collects systemd unit status as defined by match patterns.
 type SystemD struct {
 	exec          executer.Executer
 	mu            sync.Mutex

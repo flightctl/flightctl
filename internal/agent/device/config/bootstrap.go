@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"

@@ -177,6 +177,7 @@ func CreateJitterDuration(max int64, duration time.Duration) (time.Duration, err
 	return (duration * time.Duration(n.Int64())), nil
 }
 
+// NewTickerWithJitter creates a new ticker with a random jitter duration in the range [0, max) * duration
 func NewTickerWithJitter(d time.Duration, jitterDuration time.Duration, maxJitter int64) (*time.Ticker, error) {
 	jitter, err := CreateJitterDuration(maxJitter, jitterDuration)
 	if err != nil {

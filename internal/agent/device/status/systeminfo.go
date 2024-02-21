@@ -14,6 +14,7 @@ import (
 
 var _ Exporter = (*SystemInfo)(nil)
 
+// SystemInfo collects system information.
 type SystemInfo struct {
 	tpmChannel *tpm.TPM
 	systemInfo *v1alpha1.DeviceSystemInfo

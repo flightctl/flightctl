@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -15,12 +15,12 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// Agent is responsible for managing the configuration and status of the device.
 type Agent struct {
 	name                   string
 	device                 v1alpha1.Device
 	deviceStatus           v1alpha1.DeviceStatus
 	deviceStatusCollector  *status.Collector
-	hasSynced              bool
 	managementClient       *client.Management
 	managementEndpoint     string
 	managementCertFilePath string
@@ -33,6 +33,7 @@ type Agent struct {
 	configController       *config.Controller
 }
 
+// NewAgent creates a new device agent.
 func NewAgent(
 	name string,
 	fetchSpecInterval time.Duration,
@@ -74,18 +75,19 @@ type AgentGetter interface {
 	Get(ctx context.Context) (*v1alpha1.Device, error)
 }
 
+// Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	fetchSpecTicker, err := util.NewTickerWithJitter(a.fetchSpecInterval, 100*time.Millisecond, 100)
+	fetchSpecTicker, err := util.NewTickerWithJitter(a.fetchSpecInterval, 100*time.Millisecond, 50)
 	if err != nil {
 		return err
 	}
 	defer fetchSpecTicker.Stop()
-	fetchStatusTicker, err := util.NewTickerWithJitter(a.fetchStatusInterval, 100*time.Millisecond, 100)
+	fetchStatusTicker, err := util.NewTickerWithJitter(a.fetchStatusInterval, 100*time.Millisecond, 50)
 	if err != nil {
 		return err
 	}
 	defer fetchStatusTicker.Stop()
-	configSyncTicker, err := util.NewTickerWithJitter(a.syncConfigInterval, 100*time.Millisecond, 100)
+	configSyncTicker, err := util.NewTickerWithJitter(a.syncConfigInterval, 100*time.Millisecond, 50)
 	if err != nil {
 		return err
 	}
@@ -149,7 +151,7 @@ func (a *Agent) ensureClient() error {
 	return nil
 }
 
-// Get returns the device.
+// Get returns the most recently observed device.
 func (a *Agent) Get(ctx context.Context) v1alpha1.Device {
 	return a.device
 }
@@ -157,10 +159,4 @@ func (a *Agent) Get(ctx context.Context) v1alpha1.Device {
 func (a *Agent) set(device v1alpha1.Device) {
 	device.Status = &a.deviceStatus
 	a.device = device
-	a.hasSynced = true
-}
-
-// HasSynced returns true if the device has synced.
-func (a *Agent) HasSynced(context.Context) bool {
-	return a.hasSynced
 }
