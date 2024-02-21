@@ -43,6 +43,10 @@ func (w *Writer) SetRootdir(path string) {
 
 // WriteIgnitionFiles writes the provided files to the device
 func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
+	var testMode bool
+	if len(w.rootDir) > 0 {
+		testMode = true
+	}
 	for _, file := range files {
 		decodedContents, err := DecodeIgnitionFileContents(file.Contents.Source, file.Contents.Compression)
 		if err != nil {
@@ -53,7 +57,7 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 			mode = os.FileMode(*file.Mode)
 		}
 		// set chown if file information is provided
-		uid, gid, err := getFileOwnership(file)
+		uid, gid, err := getFileOwnership(file, testMode)
 		if err != nil {
 			return fmt.Errorf("failed to retrieve file ownership for file %q: %w", file.Path, err)
 		}
@@ -108,7 +112,25 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 }
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
-func getFileOwnership(file ign3types.File) (int, int, error) {
+// In testMode the permissions will be defined user
+func getFileOwnership(file ign3types.File, testMode bool) (int, int, error) {
+	if testMode {
+		// use local user
+		currentUser, err := user.Current()
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed retrieving current user: %w\n", err)
+		}
+		gid, err := strconv.Atoi(currentUser.Gid)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed converting GID to int: %w\n", err)
+		}
+		uid, err := strconv.Atoi(currentUser.Uid)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed converting UID to int: %w\n", err)
+		}
+		return uid, gid, nil
+	}
+
 	uid, gid := 0, 0 // default to root
 	var err error    // create default error var
 	if file.User.ID != nil {

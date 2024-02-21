@@ -17,17 +17,18 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceName              string
-	deviceWriter            *writer.Writer
-	enrollmentClient        *client.Enrollment
-	managementClient        *client.Management
-	enrollmentVerifyBackoff wait.Backoff
-	enrollmentEndpoint      string
+	deviceName               string
+	deviceWriter             *writer.Writer
+	enrollmentClient         *client.Enrollment
+	managementClient         *client.Management
+	enrollmentVerifyBackoff  wait.Backoff
+	enrollmentServerEndpoint string
+	enrollmentUIEndpoint     string
 
-	caFilePath             string
-	managementEndpoint     string
-	managementCertFilePath string
-	agentKeyFilePath       string
+	caFilePath               string
+	managementServerEndpoint string
+	managementCertFilePath   string
+	agentKeyFilePath         string
 
 	enrollmentCSR []byte
 	// The log prefix used for testing
@@ -38,8 +39,9 @@ type Controller struct {
 func NewController(
 	deviceName string,
 	enrollmentClient *client.Enrollment,
-	enrollmentEndpoint string,
-	managementEndpoint string,
+	enrollmentServerEndpoint string,
+	enrollmentUIEndpoint string,
+	managementServerEndpoint string,
 	caFilePath string,
 	managementCertFilePath string,
 	agentKeyFilePath string,
@@ -55,17 +57,17 @@ func NewController(
 	}
 
 	return &Controller{
-		deviceName:              deviceName,
-		enrollmentClient:        enrollmentClient,
-		enrollmentVerifyBackoff: enrollmentVerifyBackoff,
-		enrollmentEndpoint:      enrollmentEndpoint,
-		caFilePath:              caFilePath,
-		managementEndpoint:      managementEndpoint,
-		managementCertFilePath:  managementCertFilePath,
-		agentKeyFilePath:        agentKeyFilePath,
-		enrollmentCSR:           enrollmentCSR,
-		logPrefix:               logPrefix,
-		deviceWriter:            deviceWriter,
+		deviceName:               deviceName,
+		enrollmentClient:         enrollmentClient,
+		enrollmentVerifyBackoff:  enrollmentVerifyBackoff,
+		enrollmentServerEndpoint: enrollmentServerEndpoint,
+		caFilePath:               caFilePath,
+		managementServerEndpoint: managementServerEndpoint,
+		managementCertFilePath:   managementCertFilePath,
+		agentKeyFilePath:         agentKeyFilePath,
+		enrollmentCSR:            enrollmentCSR,
+		logPrefix:                logPrefix,
+		deviceWriter:             deviceWriter,
 	}
 }
 

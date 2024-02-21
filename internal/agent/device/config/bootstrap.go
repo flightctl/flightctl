@@ -21,11 +21,11 @@ func (c *Controller) ensureBootstrap(ctx context.Context, device *v1alpha1.Devic
 	}
 	// perform the device enrollment
 	if err := c.writeDeviceEnrollmentBanner(ctx, device); err != nil {
-		return fmt.Errorf("failed to write enrollment banner: %w", err)
+		return err
 	}
 
 	if err := c.deviceEnrollmentRequest(ctx, device); err != nil {
-		return fmt.Errorf("failed to send enrollment request: %w", err)
+		return err
 	}
 
 	klog.Infof("%swaiting for enrollment to be approved", c.logPrefix)
@@ -37,14 +37,15 @@ func (c *Controller) ensureBootstrap(ctx context.Context, device *v1alpha1.Devic
 	}
 
 	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(c.managementEndpoint, c.caFilePath, c.managementCertFilePath, c.agentKeyFilePath)
+	managementHTTPClient, err := client.NewWithResponses(c.managementServerEndpoint, c.caFilePath, c.managementCertFilePath, c.agentKeyFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to create management client: %w", err)
 	}
 
 	c.managementClient = client.NewManagement(managementHTTPClient)
 
-	return nil
+	// write the management banner
+	return c.writeDeviceManagementBanner(ctx, device)
 }
 
 func (c *Controller) isBootstrapComplete() bool {
@@ -98,9 +99,26 @@ func (c *Controller) verifyDeviceEnrollment(ctx context.Context, device *v1alpha
 }
 
 func (c *Controller) writeDeviceEnrollmentBanner(_ context.Context, device *v1alpha1.Device) error {
-	url := fmt.Sprintf("%s/enroll/%s", c.enrollmentEndpoint, *device.Metadata.Name)
+	if c.enrollmentUIEndpoint == "" {
+		klog.Warningf("%sflightctl enrollment UI endpoint is missing, skipping enrollment banner", c.logPrefix)
+		return nil
+	}
+	url := fmt.Sprintf("%s/enroll/%s", c.enrollmentUIEndpoint, *device.Metadata.Name)
 	if err := c.writeQRBanner("\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
-		return fmt.Errorf("failed to write enrollment banner: %w", err)
+		return fmt.Errorf("failed to write device enrollment banner: %w", err)
+	}
+	return nil
+}
+
+func (c *Controller) writeDeviceManagementBanner(_ context.Context, device *v1alpha1.Device) error {
+	// write a banner that explains that the device is enrolled
+	if c.enrollmentUIEndpoint == "" {
+		klog.Warningf("%sflightctl enrollment UI endpoint is missing, skipping management banner", c.logPrefix)
+		return nil
+	}
+	url := fmt.Sprintf("%s/manage/%s", c.enrollmentUIEndpoint, *device.Metadata.Name)
+	if err := c.writeQRBanner("\nYour device is enrolled to flightctl,\nyou can manage your device scanning the above QR. or following this URL:\n%s\n\n", url); err != nil {
+		return fmt.Errorf("%sfailed to write device management banner: %w", c.logPrefix, err)
 	}
 	return nil
 }
