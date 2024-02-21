@@ -14,6 +14,7 @@ import (
 	testutils "github.com/flightctl/flightctl/test/utils"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/yaml"
 )
 
 func TestDeviceAgent(t *testing.T) {
@@ -86,7 +87,7 @@ func TestDeviceAgent(t *testing.T) {
 
 			var deviceName string
 			// wait for the enrollment request to be created
-			err = wait.PollImmediate(100*time.Millisecond, 10000*time.Second, func() (bool, error) {
+			err = wait.PollImmediate(100*time.Millisecond, 10*time.Second, func() (bool, error) {
 				listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &v1alpha1.ListEnrollmentRequestsParams{})
 				if err != nil {
 					return false, err
@@ -95,6 +96,9 @@ func TestDeviceAgent(t *testing.T) {
 					return false, nil
 				}
 				deviceName = *listResp.JSON200.Items[0].Metadata.Name
+				if deviceName == "" {
+					return false, nil
+				}
 				return true, nil
 			})
 			require.NoError(err)
@@ -108,16 +112,46 @@ func TestDeviceAgent(t *testing.T) {
 			_, err = client.CreateEnrollmentRequestApprovalWithResponse(ctx, deviceName, approval)
 			require.NoError(err)
 
-			// TODO: update device with inline config
-			// wait for the device config to be written
-			// err = wait.PollImmediate(100*time.Millisecond, 10000*time.Second, func() (bool, error) {
-			// 	_, err := os.Stat(filepath.Join(testDirPath, "/etc/motd"))
-			// 	if err != nil && os.IsNotExist(err) {
-			// 		return false, nil
-			// 	}
-			// 	return true, nil
-			// })
-			// require.NoError(err)
+			// wait for the enrollment request to be approved
+			err = wait.PollImmediate(100*time.Millisecond, 10*time.Second, func() (bool, error) {
+				listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &v1alpha1.ListEnrollmentRequestsParams{})
+				if err != nil {
+					return false, err
+				}
+				if len(listResp.JSON200.Items) == 0 {
+					return false, nil
+				}
+				for _, cond := range *listResp.JSON200.Items[0].Status.Conditions {
+					if cond.Type == "Approved" {
+						return true, nil
+					}
+				}
+				return false, nil
+			})
+			require.NoError(err)
+
+			// get the device
+			resp, err := client.ReadDeviceStatusWithResponse(ctx, deviceName)
+			require.NoError(err)
+			require.Equal(200, resp.StatusCode())
+			device := *resp.JSON200
+
+			// update the device spec to include an ignition config
+			device.Spec, err = getTestSpec()
+			require.NoError(err)
+
+			_, err = client.ReplaceDeviceWithResponse(ctx, deviceName, device)
+			require.NoError(err)
+
+			// 	// wait for the device config to be written
+			err = wait.PollImmediate(100*time.Millisecond, 10000*time.Second, func() (bool, error) {
+				_, err := os.Stat(filepath.Join(testDirPath, "/etc/motd"))
+				if err != nil && os.IsNotExist(err) {
+					return false, nil
+				}
+				return true, nil
+			})
+			require.NoError(err)
 		})
 	}
 }
@@ -130,4 +164,18 @@ func makeTestDirs(tmpDirPath string, paths []string) error {
 		}
 	}
 	return nil
+}
+
+func getTestSpec() (v1alpha1.DeviceSpec, error) {
+	deviceBytes, err := os.ReadFile(filepath.Join("testdata", "device.yaml"))
+	if err != nil {
+		return v1alpha1.DeviceSpec{}, err
+	}
+
+	var device v1alpha1.Device
+	err = yaml.Unmarshal(deviceBytes, &device)
+	if err != nil {
+		return v1alpha1.DeviceSpec{}, err
+	}
+	return device.Spec, nil
 }

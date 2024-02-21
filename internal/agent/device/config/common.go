@@ -3,11 +3,17 @@ package config
 // The helpers in this file are intended to be migrated to a shared library such as library-go.
 
 import (
+	"encoding/json"
 	"fmt"
 
 	ignv3 "github.com/coreos/ignition/v2/config/v3_4"
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 )
+
+type Ignition struct {
+	Raw  json.RawMessage `json:"inline"`
+	Name string          `json:"name"`
+}
 
 // ParseAndConvertConfig parses rawIgn V3 ignition bytes and returns
 // a V3 config or an error.

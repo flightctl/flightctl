@@ -1,19 +1,23 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/client"
 	"github.com/flightctl/flightctl/internal/agent/device/writer"
+	"github.com/flightctl/flightctl/internal/client"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
+// Config controller is responsible for ensuring the device configuration is reconciled
+// against the device spec.
 type Controller struct {
+	deviceName              string
 	deviceWriter            *writer.Writer
 	enrollmentClient        *client.Enrollment
 	managementClient        *client.Management
@@ -30,7 +34,9 @@ type Controller struct {
 	logPrefix string
 }
 
+// NewController creates a new config controller.
 func NewController(
+	deviceName string,
 	enrollmentClient *client.Enrollment,
 	enrollmentEndpoint string,
 	managementEndpoint string,
@@ -41,7 +47,6 @@ func NewController(
 	enrollmentCSR []byte,
 	logPrefix string,
 ) *Controller {
-
 	enrollmentVerifyBackoff := wait.Backoff{
 		Cap:      3 * time.Minute,
 		Duration: 10 * time.Second,
@@ -49,7 +54,8 @@ func NewController(
 		Steps:    24,
 	}
 
-	c := &Controller{
+	return &Controller{
+		deviceName:              deviceName,
 		enrollmentClient:        enrollmentClient,
 		enrollmentVerifyBackoff: enrollmentVerifyBackoff,
 		enrollmentEndpoint:      enrollmentEndpoint,
@@ -61,75 +67,28 @@ func NewController(
 		logPrefix:               logPrefix,
 		deviceWriter:            deviceWriter,
 	}
-
-	return c
 }
 
 func (c *Controller) Sync(ctx context.Context, device v1alpha1.Device) error {
+	klog.V(4).Infof("%s syncing device configuration", c.logPrefix)
+	defer klog.V(4).Infof("%s finished syncing device configuration", c.logPrefix)
+
 	// ensure the device is bootstrapped
 	if err := c.ensureBootstrap(ctx, &device); err != nil {
 		klog.Warningf("%s bootstrap failed: %v", c.logPrefix, err)
 		return err
 	}
 
-	var conditions []v1alpha1.Condition
-	// post enrollment update status
-	deviceCondition := v1alpha1.Condition{
-		Type:   "Enrolled",
-		Status: v1alpha1.ConditionStatusTrue,
-	}
-	conditions = append(conditions, deviceCondition)
-	device.Status.Conditions = &conditions
-
-	if !c.isBootstrapComplete() {
-		_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, *device.Status)
-		if updateErr != nil {
-			klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
-			return updateErr
-		}
-	}
-
-	// ensure the device is configured
+	// ensure the device configuration is reconciled
 	if err := c.ensureConfig(ctx, &device); err != nil {
-		klog.Errorf("%s configuration did not succeed: %v", c.logPrefix, err)
-		errMsg := err.Error()
-
-		// TODO: better status
-		condition := v1alpha1.Condition{
-			Type:    "Configured",
-			Status:  v1alpha1.ConditionStatusFalse,
-			Message: &errMsg,
-		}
-		conditions = append(conditions, condition)
-		_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, *device.Status)
+		updateErr := c.updateStatus(ctx, &device, err.Error())
 		if updateErr != nil {
-			klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
-			return updateErr
+			klog.Warningf("%s failed to update device status: %v", c.logPrefix, updateErr)
 		}
 		return err
 	}
 
-	// TODO: status should be more informative
-	// post configuration update status
-	configCondition := v1alpha1.Condition{
-		Type:   "Configured",
-		Status: v1alpha1.ConditionStatusTrue,
-	}
-	conditions = append(conditions, configCondition)
-	device.Status.Conditions = &conditions
-
-	_, updateErr := c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, *device.Status)
-	if updateErr != nil {
-		klog.Errorf("%sfailed to update device status: %v", c.logPrefix, updateErr)
-		return updateErr
-	}
-
-	return nil
-}
-
-type Ignition struct {
-	Raw  json.RawMessage `json:"inline"`
-	Name string          `json:"name"`
+	return c.updateStatus(ctx, &device, "")
 }
 
 func (c *Controller) ensureConfig(_ context.Context, device *v1alpha1.Device) error {
@@ -162,4 +121,40 @@ func (c *Controller) ensureConfig(_ context.Context, device *v1alpha1.Device) er
 	}
 
 	return nil
+}
+
+func (c *Controller) updateStatus(ctx context.Context, device *v1alpha1.Device, errMsg string) error {
+	var conditions []v1alpha1.Condition
+
+	// client certs don not exist prior to enrollment so we can assume this is
+	// always true.
+	conditions = append(conditions, v1alpha1.Condition{
+		Type:   v1alpha1.EnrollmentRequestApproved,
+		Status: v1alpha1.ConditionStatusTrue,
+	})
+
+	status := v1alpha1.ConditionStatusTrue
+	var message *string
+	if len(errMsg) > 0 {
+		status = v1alpha1.ConditionStatusFalse
+		message = &errMsg
+	}
+
+	syncCondition := v1alpha1.Condition{
+		Type:   v1alpha1.ResourceSyncSynced,
+		Status: status,
+	}
+	if message != nil {
+		syncCondition.Message = message
+	}
+	conditions = append(conditions, syncCondition)
+	device.Status.Conditions = &conditions
+
+	buf := &bytes.Buffer{}
+	err := json.NewEncoder(buf).Encode(device)
+	if err != nil {
+		return fmt.Errorf("encoding device failed: %w", err)
+	}
+
+	return c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, buf)
 }

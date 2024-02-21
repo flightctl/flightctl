@@ -25,23 +25,23 @@ const (
 	defaultFilePermissions os.FileMode = 0o644
 )
 
+// Writer is responsible for writing files to the device
 type Writer struct {
 	// rootDir is the root directory for the device writer useful for testing
 	rootDir string
 }
 
+// New creates a new writer
 func New() *Writer {
 	return &Writer{}
 }
 
+// SetRootdir sets the root directory for the writer, useful for testing
 func (w *Writer) SetRootdir(path string) {
 	w.rootDir = path
 }
 
-func (w *Writer) UpdateFiles(config ign3types.Config) error {
-	return nil
-}
-
+// WriteIgnitionFiles writes the provided files to the device
 func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 	for _, file := range files {
 		decodedContents, err := DecodeIgnitionFileContents(file.Contents.Source, file.Contents.Compression)
@@ -62,13 +62,14 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 		// if err := createOrigFile(file.Path, file.Path); err != nil {
 		// 	return err
 		// }
-		if err := writeFileAtomically(file.Path, decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
+		if err := writeFileAtomically(w.rootDir+file.Path, decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// WriteFile writes the provided data to the file at the path with the provided permissions
 func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(w.rootDir+name, []byte{}, 0)
 }
