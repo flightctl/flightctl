@@ -3,7 +3,8 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -64,31 +65,19 @@ func (m *Management) UpdateDevice(ctx context.Context, name string, req v1alpha1
 	return resp.JSON200, nil
 }
 
-func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, req v1alpha1.DeviceStatus, rcb ...client.RequestEditorFn) (*v1alpha1.Device, error) {
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(req); err != nil {
-		return nil, err
-	}
-
-	device := v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
-			Name: &name,
-		},
-		Status: &req,
-	}
-
+func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, buf *bytes.Buffer, rcb ...client.RequestEditorFn) error {
 	start := time.Now()
-	resp, err := m.client.ReplaceDeviceStatusWithResponse(ctx, name, device, rcb...)
+	resp, err := m.client.ReplaceDeviceStatusWithBodyWithResponse(ctx, name, "application/json", buf, rcb...)
 	if m.rpcMetricsCallbackFunc != nil {
 		m.rpcMetricsCallbackFunc("update_device_status_duration", time.Since(start).Seconds(), err)
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if resp.JSON200 == nil {
-		return nil, ErrEmptyResponse
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("update device status failed: %s", resp.Status())
 	}
 
-	return resp.JSON200, nil
+	return nil
 }
