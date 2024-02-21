@@ -21,7 +21,7 @@ import (
 
 func main() {
 	log := log.InitLogs()
-	managementEndpoint := flag.String("management-endpoint", "https://localhost:3333", "device server URL")
+	managementServerEndpoint := flag.String("management-endpoint", "https://localhost:3333", "device server URL")
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
@@ -51,15 +51,15 @@ func main() {
 				log.Fatalf("copying %s: %v", filename, err)
 			}
 		}
-		enrollmentUiUrl := ""
+		enrollmentUIEndpoint := ""
 
 		cfg := agent.Config{
-			ManagementEndpoint:   *managementEndpoint,
-			EnrollmentEndpoint:   enrollmentUiUrl,
-			CertDir:              agentDir,
-			TPMPath:              *tpmPath,
-			FetchSpecInterval:    util.Duration(*fetchSpecInterval),
-			StatusUpdateInterval: util.Duration(*statusUpdateInterval),
+			ManagementServerEndpoint: *managementServerEndpoint,
+			EnrollmentUIEndpoint:     enrollmentUIEndpoint,
+			CertDir:                  agentDir,
+			TPMPath:                  *tpmPath,
+			FetchSpecInterval:        util.Duration(*fetchSpecInterval),
+			StatusUpdateInterval:     util.Duration(*statusUpdateInterval),
 		}
 		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
 

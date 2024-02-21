@@ -85,7 +85,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create enrollment client
-	enrollmentHTTPClient, err := client.NewWithResponses(a.config.EnrollmentEndpoint, caFilePath, enrollmentCertFilePath, enrollmentKeyFilePath)
+	enrollmentHTTPClient, err := client.NewWithResponses(a.config.EnrollmentServerEndpoint, caFilePath, enrollmentCertFilePath, enrollmentKeyFilePath)
 	if err != nil {
 		return err
 	}
@@ -128,8 +128,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	controller := config.NewController(
 		deviceName,
 		enrollmentClient,
-		a.config.EnrollmentEndpoint,
-		a.config.ManagementEndpoint,
+		a.config.EnrollmentServerEndpoint,
+		a.config.EnrollmentUIEndpoint,
+		a.config.ManagementServerEndpoint,
 		caFilePath,
 		managementCertFilePath,
 		agentKeyFilePath,
@@ -143,11 +144,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceName,
 		time.Duration(a.config.FetchSpecInterval),
 		time.Duration(a.config.StatusUpdateInterval),
-		time.Duration(a.config.ConfigSyncInterval),
 		caFilePath,
 		managementCertFilePath,
 		agentKeyFilePath,
-		a.config.ManagementEndpoint,
+		a.config.ManagementServerEndpoint,
 		tpmChannel,
 		&executer.CommonExecuter{},
 		a.config.LogPrefix,
