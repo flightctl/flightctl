@@ -21,10 +21,13 @@ const (
 )
 
 type Config struct {
-	// ManagementEndpoint is the URL of the device management server
-	ManagementEndpoint string `json:"managementEndpoint,omitempty"`
-	// EnrollmentEndpoint is the URL of the device enrollment server
-	EnrollmentEndpoint string `json:"enrollmentEndpoint,omitempty"`
+	// ManagementServerEndpoint is the address of the device management server
+	ManagementServerEndpoint string `json:"managementServerEndpoint,omitempty"`
+	// EnrollmentServerEndpoint is the address of the device enrollment server
+	EnrollmentServerEndpoint string `json:"enrollmentServerEndpoint,omitempty"`
+	// EnrollmentUIEndpoint is the address of the device enrollment UI
+	EnrollmentUIEndpoint string `json:"enrollmentUIEndpoint,omitempty"`
+
 	// CertDir is the directory where the device's certificates are stored
 	CertDir string `json:"certDir,omitempty"`
 	// TPMPath is the path to the TPM device
@@ -33,8 +36,6 @@ type Config struct {
 	FetchSpecInterval util.Duration `json:"fetchSpecInterval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
-	// ConfigSyncInterval is the interval that a config controller is synced
-	ConfigSyncInterval util.Duration `json:"configSyncInterval,omitempty"`
 	// LogPrefix is the log prefix used for testing
 	LogPrefix string `json:"logPrefix,omitempty"`
 
@@ -46,9 +47,9 @@ type Config struct {
 
 func NewDefault() *Config {
 	return &Config{
-		ManagementEndpoint:   "https://localhost:3333",
-		StatusUpdateInterval: util.Duration(DefaultStatusUpdateInterval),
-		FetchSpecInterval:    util.Duration(DefaultFetchSpecInterval),
+		ManagementServerEndpoint: "https://localhost:3333",
+		StatusUpdateInterval:     util.Duration(DefaultStatusUpdateInterval),
+		FetchSpecInterval:        util.Duration(DefaultFetchSpecInterval),
 	}
 }
 
