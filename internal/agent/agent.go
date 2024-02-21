@@ -5,7 +5,10 @@ import (
 	"crypto"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device"
@@ -16,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/sirupsen/logrus"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 const (
@@ -48,6 +52,26 @@ func (a *Agent) GetLogPrefix() string {
 }
 
 func (a *Agent) Run(ctx context.Context) error {
+	defer utilruntime.HandleCrash()
+	ctx, cancel := context.WithCancel(ctx)
+	shutdownSignals := []os.Signal{os.Interrupt, syscall.SIGTERM}
+
+	// handle teardown
+	shutdownHandler := make(chan os.Signal, 2)
+	signal.Notify(shutdownHandler, shutdownSignals...)
+	go func(ctx context.Context) {
+		select {
+		case <-shutdownHandler:
+			a.log.Infof("Received SIGTERM or SIGINT signal, shutting down.")
+			close(shutdownHandler)
+			cancel()
+		case <-ctx.Done():
+			a.log.Infof("Context has been cancelled, shutting down.")
+			close(shutdownHandler)
+			cancel()
+		}
+	}(ctx)
+
 	agentKeyFilePath := filepath.Join(a.config.CertDir, agentKeyFile)
 	caFilePath := filepath.Join(a.config.CertDir, caBundleFile)
 	enrollmentCertFilePath := filepath.Join(a.config.CertDir, enrollmentCertFile)
