@@ -13,8 +13,16 @@ jobs:
   lint:
     runs-on: "ubuntu-latest"
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Checkout
-        uses: actions/checkout@v4
+        run: |
+          commits=${{ github.event.pull_request.commits }}
+          if [[ -n "$commits" ]]; then
+            # Prepare enough depth for diffs with master
+            git fetch --depth="$(( commits + 1 ))"
+          fi
       - name: Setup Go
         uses: actions/setup-go@v4
 
@@ -23,7 +31,10 @@ jobs:
         run: |
           sudo apt install -y make golang-1.20
           go install gotest.tools/gotestsum@latest
-          go get -u github.com/proglottis/gpgme
+          go install github.com/golang/mock/mockgen@v1.6.0
    
+      - name: Running CI lint
+        run: make ci-lint
+
       - name: Running Linter
         run: make lint
