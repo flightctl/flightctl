@@ -38,6 +38,11 @@ generate:
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
 
+ci-lint:
+	${ROOT_DIR}/hack/check-commits.sh
+	$(MAKE) generate
+	git diff --exit-code  # this will fail if code generation caused any diff
+
 lint: tools
 	$(GOBIN)/golangci-lint run -v
 
