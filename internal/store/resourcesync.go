@@ -54,6 +54,7 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 	}
 	resourceSync := model.NewResourceSyncFromApiResource(resource)
 	resourceSync.OrgID = orgId
+	resourceSync.Generation = util.Int64ToPtr(1)
 	result := s.db.Create(resourceSync)
 	log.Debugf("db.Create(%s): %d rows affected, error is %v", resourceSync, result.RowsAffected, result.Error)
 
