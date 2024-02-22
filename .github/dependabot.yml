@@ -17,9 +17,20 @@ updates:
         patterns:
           - "github.com/onsi/ginkgo"
           - "github.com/onsi/gomega"
+    commit-message:
+      prefix: "NO-ISSUE"
 
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: daily
+    commit-message:
+      prefix: "NO-ISSUE"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: "NO-ISSUE"
