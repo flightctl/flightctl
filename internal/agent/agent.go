@@ -126,7 +126,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create config controller
 	controller := config.NewController(
-		deviceName,
 		enrollmentClient,
 		a.config.EnrollmentServerEndpoint,
 		a.config.EnrollmentUIEndpoint,
@@ -155,8 +154,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	go func() {
-		err := agent.Run(ctx)
-		if err != nil {
+		if err := agent.Run(ctx); err != nil {
 			a.log.Fatalf("%s: %v", a.config.LogPrefix, err)
 		}
 	}()
