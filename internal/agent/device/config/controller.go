@@ -17,7 +17,6 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceName               string
 	deviceWriter             *writer.Writer
 	enrollmentClient         *client.Enrollment
 	managementClient         *client.Management
@@ -26,9 +25,9 @@ type Controller struct {
 	enrollmentUIEndpoint     string
 
 	caFilePath               string
+	agentKeyFilePath         string
 	managementServerEndpoint string
 	managementCertFilePath   string
-	agentKeyFilePath         string
 
 	enrollmentCSR []byte
 	// The log prefix used for testing
@@ -37,7 +36,6 @@ type Controller struct {
 
 // NewController creates a new config controller.
 func NewController(
-	deviceName string,
 	enrollmentClient *client.Enrollment,
 	enrollmentServerEndpoint string,
 	enrollmentUIEndpoint string,
@@ -57,7 +55,6 @@ func NewController(
 	}
 
 	return &Controller{
-		deviceName:               deviceName,
 		enrollmentClient:         enrollmentClient,
 		enrollmentVerifyBackoff:  enrollmentVerifyBackoff,
 		enrollmentServerEndpoint: enrollmentServerEndpoint,
@@ -128,7 +125,7 @@ func (c *Controller) ensureConfig(_ context.Context, device *v1alpha1.Device) er
 func (c *Controller) updateStatus(ctx context.Context, device *v1alpha1.Device, errMsg string) error {
 	var conditions []v1alpha1.Condition
 
-	// client certs don not exist prior to enrollment so we can assume this is
+	// client certs do not exist prior to enrollment so we can assume this is
 	// always true.
 	conditions = append(conditions, v1alpha1.Condition{
 		Type:   v1alpha1.EnrollmentRequestApproved,
@@ -155,7 +152,7 @@ func (c *Controller) updateStatus(ctx context.Context, device *v1alpha1.Device, 
 	buf := &bytes.Buffer{}
 	err := json.NewEncoder(buf).Encode(device)
 	if err != nil {
-		return fmt.Errorf("encoding device failed: %w", err)
+		return fmt.Errorf("failed to encode device: %w", err)
 	}
 
 	return c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, buf)
