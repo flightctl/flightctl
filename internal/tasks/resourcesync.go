@@ -81,6 +81,10 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		log.Errorf("resourcesync/%s: parsing failed. error: %s", rs.Name, err.Error())
 		return err
 	}
+	if resources == nil {
+		// No resources to sync
+		return nil
+	}
 
 	owner := util.SetResourceOwner(model.ResourceSyncKind, rs.Name)
 	fleets, err := r.parseFleets(resources, rs.OrgID, owner)
@@ -92,7 +96,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	}
 	addResourceParsedCondition(rs, nil)
 
-	fleetsOwned := make([]api.Fleet, 0)
+	fleetsPreOwned := make([]api.Fleet, 0)
 
 	listParams := store.ListParams{
 		Owner: owner,
@@ -105,7 +109,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 			log.Errorf("%e", err)
 			return err
 		}
-		fleetsOwned = append(fleetsOwned, listRes.Items...)
+		fleetsPreOwned = append(fleetsPreOwned, listRes.Items...)
 		if listRes.Metadata.Continue == nil {
 			break
 		}
@@ -116,7 +120,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		listParams.Continue = cont
 	}
 
-	fleetsToRemove := r.fleetsDelta(fleetsOwned, fleets)
+	fleetsToRemove := r.fleetsDelta(fleetsPreOwned, fleets)
 
 	r.log.Infof("resourcesync/%s: applying #%d fleets ", rs.Name, len(fleets))
 	err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, r.taskManager.FleetTemplateRolloutCallback, fleets...)
@@ -124,7 +128,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		err = fmt.Errorf("one or more fleets are managed by a differen resource. %w", err)
 	}
 	if len(fleetsToRemove) > 0 {
-		r.log.Infof("resourcesync/%s: found #%d fleets to remove. removing\n", rs.Name, len(fleets))
+		r.log.Infof("resourcesync/%s: found #%d fleets to remove. removing\n", rs.Name, len(fleetsToRemove))
 		err := r.store.Fleet().Delete(ctx, rs.OrgID, fleetsToRemove...)
 		if err != nil {
 			log.Errorf("resourcesync/%s: failed to remove old fleets. error: %s", rs.Name, err.Error())
