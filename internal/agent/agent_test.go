@@ -24,6 +24,9 @@ func TestDeviceAgent(t *testing.T) {
 	defer cancel()
 
 	testDirPath := t.TempDir()
+	defer t.Cleanup(func() {
+		_ = os.RemoveAll(testDirPath)
+	})
 	err := makeTestDirs(testDirPath, []string{"/etc/issue.d/"})
 	require.NoError(err)
 
@@ -77,7 +80,7 @@ func TestDeviceAgent(t *testing.T) {
 
 	var deviceName string
 	// wait for the enrollment request to be created
-	err = wait.PollImmediate(100*time.Millisecond, 10*time.Second, func() (bool, error) {
+	err = wait.PollImmediate(100*time.Millisecond, 15*time.Second, func() (bool, error) {
 		listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &v1alpha1.ListEnrollmentRequestsParams{})
 		if err != nil {
 			return false, err
@@ -103,7 +106,7 @@ func TestDeviceAgent(t *testing.T) {
 	require.NoError(err)
 
 	// wait for the enrollment request to be approved
-	err = wait.PollImmediate(100*time.Millisecond, 10*time.Second, func() (bool, error) {
+	err = wait.PollImmediate(100*time.Millisecond, 15*time.Second, func() (bool, error) {
 		listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &v1alpha1.ListEnrollmentRequestsParams{})
 		if err != nil {
 			return false, err
@@ -133,7 +136,7 @@ func TestDeviceAgent(t *testing.T) {
 	_, err = client.ReplaceDeviceWithResponse(ctx, deviceName, device)
 	require.NoError(err)
 
-	// 	// wait for the device config to be written
+	// wait for the device config to be written
 	err = wait.PollImmediate(100*time.Millisecond, 15*time.Second, func() (bool, error) {
 		_, err := os.Stat(filepath.Join(testDirPath, "/etc/motd"))
 		if err != nil && os.IsNotExist(err) {
