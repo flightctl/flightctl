@@ -1639,6 +1639,11 @@ components:
         owner:
           type: string
           description: A resource that owns this resource, in "kind/name" format.
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'Properties set by the service.'
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
     LabelSelector:
       type: object
