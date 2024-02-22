@@ -30,8 +30,8 @@ require (
 	github.com/vincent-petithory/dataurl v1.0.0
 	google.golang.org/grpc v1.59.0
 	gorm.io/driver/postgres v1.5.4
-	gorm.io/driver/sqlite v1.5.3
-	gorm.io/gorm v1.25.6
+	gorm.io/driver/sqlite v1.5.5
+	gorm.io/gorm v1.25.7-0.20240204074919-46816ad31dde
 	k8s.io/apimachinery v0.29.0
 	k8s.io/client-go v0.29.0
 	k8s.io/klog/v2 v2.110.1
