@@ -43,10 +43,11 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 
 	return &Device{
 		Resource: Resource{
-			Name:       *resource.Metadata.Name,
-			Labels:     util.LabelMapToArray(resource.Metadata.Labels),
-			Generation: resource.Metadata.Generation,
-			Owner:      resource.Metadata.Owner,
+			Name:        *resource.Metadata.Name,
+			Labels:      util.LabelMapToArray(resource.Metadata.Labels),
+			Generation:  resource.Metadata.Generation,
+			Owner:       resource.Metadata.Owner,
+			Annotations: util.LabelMapToArray(resource.Metadata.Annotations),
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
@@ -64,6 +65,7 @@ func (d *Device) ToApiResource() api.Device {
 	}
 
 	metadataLabels := util.LabelArrayToMap(d.Resource.Labels)
+	metadataAnnotations := util.LabelArrayToMap(d.Resource.Annotations)
 
 	return api.Device{
 		ApiVersion: DeviceAPI,
@@ -74,6 +76,7 @@ func (d *Device) ToApiResource() api.Device {
 			Labels:            &metadataLabels,
 			Generation:        d.Generation,
 			Owner:             d.Owner,
+			Annotations:       &metadataAnnotations,
 		},
 		Spec:   d.Spec.Data,
 		Status: &status,
