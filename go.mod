@@ -4,7 +4,6 @@ go 1.21
 
 require (
 	github.com/argoproj/argo-cd/v2 v2.9.3
-	github.com/coreos/ignition v0.35.0
 	github.com/coreos/ignition/v2 v2.17.0
 	github.com/deepmap/oapi-codegen v1.15.0
 	github.com/getkin/kin-openapi v0.120.0
@@ -43,7 +42,6 @@ require (
 	github.com/aws/aws-sdk-go v1.47.9 // indirect
 	github.com/coreos/go-json v0.0.0-20230131223807-18775e0fb4fb // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
-	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/coreos/vcontext v0.0.0-20230201181013-d72178a18687 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
@@ -181,7 +179,7 @@ require (
 	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/term v0.16.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	golang.org/x/time v0.3.0
+	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.17.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto v0.0.0-20231016165738-49dd2c1f3d0b // indirect
