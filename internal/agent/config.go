@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
-	"gopkg.in/yaml.v2"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/yaml"
 )
 
 const (
