@@ -15,7 +15,7 @@ require (
 	github.com/google/go-tpm v0.9.0
 	github.com/google/go-tpm-tools v0.4.3
 	github.com/google/renameio v0.1.0
-	github.com/google/uuid v1.4.0
+	github.com/google/uuid v1.6.0
 	github.com/labstack/gommon v0.4.0
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/oapi-codegen/runtime v1.0.0
