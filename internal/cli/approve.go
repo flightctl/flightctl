@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -31,7 +31,7 @@ func NewCmdApprove() *cobra.Command {
 }
 
 func RunApprove(enrollmentRequestName string) error {
-	c, err := client.NewFromConfigFile(clientConfigFile)
+	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
 	}
