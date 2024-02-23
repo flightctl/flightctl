@@ -13,7 +13,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/google/cadvisor v0.48.1
 	github.com/google/go-tpm v0.9.0
-	github.com/google/go-tpm-tools v0.4.2
+	github.com/google/go-tpm-tools v0.4.3
 	github.com/google/renameio v0.1.0
 	github.com/google/uuid v1.4.0
 	github.com/labstack/gommon v0.4.0
@@ -46,6 +46,7 @@ require (
 	github.com/coreos/vcontext v0.0.0-20230201181013-d72178a18687 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/go-test/deep v1.1.0 // indirect
+	github.com/google/go-configfs-tsm v0.2.2 // indirect
 	github.com/google/pprof v0.0.0-20230323073829-e72429f035bd // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
