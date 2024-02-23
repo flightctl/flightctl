@@ -19,8 +19,8 @@ require (
 	github.com/labstack/gommon v0.4.0
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/oapi-codegen/runtime v1.0.0
-	github.com/onsi/ginkgo/v2 v2.12.1
-	github.com/onsi/gomega v1.27.10
+	github.com/onsi/ginkgo/v2 v2.15.0
+	github.com/onsi/gomega v1.31.1
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
 	github.com/prometheus/client_golang v1.17.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
