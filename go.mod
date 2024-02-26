@@ -9,7 +9,7 @@ require (
 	github.com/getkin/kin-openapi v0.120.0
 	github.com/go-chi/chi v1.5.5
 	github.com/go-chi/chi/v5 v5.0.10
-	github.com/go-git/go-git/v5 v5.10.1
+	github.com/go-git/go-git/v5 v5.11.0
 	github.com/golang/mock v1.6.0
 	github.com/google/cadvisor v0.48.1
 	github.com/google/go-tpm v0.9.0
