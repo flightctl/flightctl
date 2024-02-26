@@ -7,7 +7,7 @@ database:
   password: adminpass
 service:
   address: :3333
-  baseUrl: http://localhost:3333/api
+  baseUrl: https://localhost:3333
   altNames:
     - my-host.abc.com
     - localhost
