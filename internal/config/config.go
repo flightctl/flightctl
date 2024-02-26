@@ -68,7 +68,7 @@ func NewDefault() *Config {
 		Service: &svcConfig{
 			Address:   ":3333",
 			CertStore: CertificateDir(),
-			BaseUrl:   "https://localhost:3333/api",
+			BaseUrl:   "https://localhost:3333",
 		},
 	}
 	return c

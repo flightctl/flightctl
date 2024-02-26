@@ -521,56 +521,66 @@ func applyFromReader(client *apiclient.ClientWithResponses, filename string, r i
 		}
 
 		if dryRun {
-			fmt.Printf("%s: applying device/%s (dry run only)\n", filename, resourceName)
+			fmt.Printf("%s: applying %s/%s (dry run only)\n", strings.ToLower(kind), filename, resourceName)
 			continue
 		}
-		fmt.Printf("%s: applying device/%s: ", filename, resourceName)
+		fmt.Printf("%s: applying %s/%s: ", strings.ToLower(kind), filename, resourceName)
 		buf, err := json.Marshal(resource)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %v", filename, kind, err))
 		}
 
+		var httpResponse *http.Response
+
 		switch kind {
 		case "Device":
-			response, err := client.ReplaceDeviceWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
-			if err != nil {
-				errs = append(errs, err)
-				continue
+			var response *apiclient.ReplaceDeviceResponse
+			response, err = client.ReplaceDeviceWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			if response != nil {
+				httpResponse = response.HTTPResponse
 			}
-			fmt.Printf("%s\n", response.HTTPResponse.Status)
 
 		case "EnrollmentRequest":
-			response, err := client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
-			if err != nil {
-				errs = append(errs, err)
-				continue
+			var response *apiclient.ReplaceEnrollmentRequestResponse
+			response, err = client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			if response != nil {
+				httpResponse = response.HTTPResponse
 			}
-			fmt.Printf("%s\n", response.HTTPResponse.Status)
 
 		case "Fleet":
-			response, err := client.ReplaceFleetWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
-			if err != nil {
-				errs = append(errs, err)
-				continue
+			var response *apiclient.ReplaceFleetResponse
+			response, err = client.ReplaceFleetWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			if response != nil {
+				httpResponse = response.HTTPResponse
 			}
-			fmt.Printf("%s\n", response.HTTPResponse.Status)
 		case "Repository":
-			response, err := client.ReplaceRepositoryWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
-			if err != nil {
-				errs = append(errs, err)
-				continue
+			var response *apiclient.ReplaceRepositoryResponse
+			response, err = client.ReplaceRepositoryWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			if response != nil {
+				httpResponse = response.HTTPResponse
 			}
-			fmt.Printf("%s\n", response.HTTPResponse.Status)
 		case "ResourceSync":
-			response, err := client.ReplaceResourceSyncWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
-			if err != nil {
-				errs = append(errs, err)
-				continue
+			var response *apiclient.ReplaceResourceSyncResponse
+			response, err = client.ReplaceResourceSyncWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			if response != nil {
+				httpResponse = response.HTTPResponse
 			}
-			fmt.Printf("%s\n", response.HTTPResponse.Status)
 		default:
-			errs = append(errs, fmt.Errorf("%s: skipping resource of unkown kind %q: %v", filename, kind, resource))
+			err = fmt.Errorf("%s: skipping resource of unknown kind %q: %v", filename, kind, resource)
 		}
+
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		if httpResponse != nil {
+			fmt.Printf("%s\n", httpResponse.Status)
+			// bad HTTP Responses don't generate an error on the OpenAPI client, we need to check the status code manually
+			if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusCreated {
+				errs = append(errs, fmt.Errorf("%s: failed to apply %s/%s: %v", strings.ToLower(kind), filename, resourceName, httpResponse.Status))
+			}
+		}
+
 	}
 	return errs
 }
