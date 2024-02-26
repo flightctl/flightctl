@@ -23,6 +23,10 @@ jobs:
             # Prepare enough depth for diffs with master
             git fetch --depth="$(( commits + 1 ))"
           fi
+
+      - name: Check commit message
+        run: hack/check-commits.sh
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -43,9 +47,6 @@ jobs:
         run: |
           go mod tidy -v
           git diff --exit-code
-
-      - name: Running CI lint
-        run: make ci-lint
 
       - name: Running Linter
         run: make lint
