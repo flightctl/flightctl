@@ -14,7 +14,7 @@ require (
 	github.com/google/cadvisor v0.48.1
 	github.com/google/go-tpm v0.9.0
 	github.com/google/go-tpm-tools v0.4.3
-	github.com/google/renameio v0.1.0
+	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.6.0
 	github.com/labstack/gommon v0.4.0
 	github.com/lthibault/jitterbug v2.0.0+incompatible
