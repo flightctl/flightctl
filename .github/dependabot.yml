@@ -8,7 +8,7 @@ updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     groups:
       k8s:
         patterns:
@@ -24,13 +24,13 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     commit-message:
       prefix: "NO-ISSUE"
 
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
     commit-message:
       prefix: "NO-ISSUE"
