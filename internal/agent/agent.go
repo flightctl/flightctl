@@ -25,14 +25,14 @@ import (
 const (
 	// name of the CA bundle file
 	caBundleFile = "ca.crt"
-	// name of the agent's key file
+	// name of the agent's key file, this file is generated if it does not exist
 	agentKeyFile = "agent.key"
 	// name of the enrollment certificate file
 	enrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file
 	enrollmentKeyFile = "client-enrollment.key"
-	// name of the management client certificate file
-	clientCertFile = "client.crt"
+	// name of the management client certificate file, this file is generated during bootstrap
+	managementClientCertFile = "client-management.crt"
 )
 
 func New(log *logrus.Logger, config *Config) *Agent {
@@ -72,17 +72,20 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}(ctx)
 
-	agentKeyFilePath := filepath.Join(a.config.CertDir, agentKeyFile)
+	// the agent expects these files to exist to perform its bootstrap operations
 	caFilePath := filepath.Join(a.config.CertDir, caBundleFile)
 	enrollmentCertFilePath := filepath.Join(a.config.CertDir, enrollmentCertFile)
 	enrollmentKeyFilePath := filepath.Join(a.config.CertDir, enrollmentKeyFile)
-	managementCertFilePath := filepath.Join(a.config.CertDir, clientCertFile)
 
 	// ensure the agent key exists if not create it.
+	agentKeyFilePath := filepath.Join(a.config.CertDir, agentKeyFile)
 	publicKey, privateKey, _, err := fcrypto.EnsureKey(agentKeyFilePath)
 	if err != nil {
 		return err
 	}
+
+	// this cert is populated during runtime
+	managementCertFilePath := filepath.Join(a.config.CertDir, managementClientCertFile)
 
 	// create enrollment client
 	enrollmentHTTPClient, err := client.NewWithResponses(a.config.EnrollmentServerEndpoint, caFilePath, enrollmentCertFilePath, enrollmentKeyFilePath)
