@@ -14,7 +14,7 @@ import (
 func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
 	cfg := config.NewDefault()
 	cfg.Database.Name = ""
-	dbTemp, err := InitDB(cfg)
+	dbTemp, err := InitDB(cfg, log)
 	Expect(err).ShouldNot(HaveOccurred())
 	defer CloseDB(dbTemp)
 
@@ -24,7 +24,7 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
 	Expect(dbTemp.Error).ShouldNot(HaveOccurred())
 
 	cfg.Database.Name = randomDBName
-	db, err := InitDB(cfg)
+	db, err := InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
@@ -44,7 +44,7 @@ func DeleteTestDB(cfg *config.Config, store Store, dbName string) {
 	err := store.Close()
 	Expect(err).ShouldNot(HaveOccurred())
 	cfg.Database.Name = ""
-	db, err := InitDB(cfg)
+	db, err := InitDB(cfg, logrus.New())
 	Expect(err).ShouldNot(HaveOccurred())
 	defer CloseDB(db)
 	db = db.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))

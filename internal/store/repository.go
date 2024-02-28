@@ -8,7 +8,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -44,14 +43,12 @@ func (s *RepositoryStore) InitialMigration() error {
 }
 
 func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
 	repository := model.NewRepositoryFromApiResource(resource)
 	repository.OrgID = orgId
 	result := s.db.Create(repository)
-	log.Debugf("db.Create(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
 
 	apiRepository := repository.ToApiResource()
 	return &apiRepository, result.Error
@@ -62,12 +59,10 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	var nextContinue *string
 	var numRemaining *int64
 
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&repositories)
-	log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(repositories) > listParams.Limit {
@@ -104,7 +99,6 @@ func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 	var repositories model.RepositoryList
 
 	result := s.db.Model(&repositories).Find(&repositories)
-	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -127,12 +121,10 @@ func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 }
 
 func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.First(&repository)
-	log.Debugf("db.Find(%s): %d rows affected, error is %v", repository, result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}
