@@ -39,6 +39,7 @@ if [ -z "$ONLY_DB" ]; then
   if ! kind load docker-image localhost/flightctl-server:latest; then
     podman save localhost/flightctl-server:latest -o flightctl-server.tar && \
     kind load image-archive flightctl-server.tar
+    rm flightctl-server.tar
   fi
 fi
 
