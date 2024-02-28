@@ -57,7 +57,7 @@ func main() {
 	}
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg)
+	db, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}

@@ -2,15 +2,18 @@ package store
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"k8s.io/klog/v2"
 )
 
-func InitDB(cfg *config.Config) (*gorm.DB, error) {
+func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
 	if cfg.Database.Type == "pgsql" {
@@ -28,7 +31,18 @@ func InitDB(cfg *config.Config) (*gorm.DB, error) {
 		dia = sqlite.Open(cfg.Database.Name)
 	}
 
-	newDB, err := gorm.Open(dia, &gorm.Config{})
+	newLogger := logger.New(
+		log,
+		logger.Config{
+			SlowThreshold:             time.Second, // Slow SQL threshold
+			LogLevel:                  logger.Warn, // Log level
+			IgnoreRecordNotFoundError: true,        // Ignore ErrRecordNotFound error for logger
+			ParameterizedQueries:      true,        // Don't include params in the SQL log
+			Colorful:                  false,       // Disable color
+		},
+	)
+
+	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger})
 	if err != nil {
 		klog.Fatalf("failed to connect database: %v", err)
 		return nil, err

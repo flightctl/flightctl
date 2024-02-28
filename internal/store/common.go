@@ -1,8 +1,6 @@
 package store
 
 import (
-	"log"
-
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -31,7 +29,6 @@ func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
 
 func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
 	var count int64
-	result := query.Where("name >= ?", lastItemName).Count(&count)
-	log.Printf("db.Count(): %d rows affected, error is %v", result.RowsAffected, result.Error)
+	query.Where("name >= ?", lastItemName).Count(&count)
 	return count
 }
