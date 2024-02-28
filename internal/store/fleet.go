@@ -11,7 +11,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -52,7 +51,6 @@ func (s *FleetStore) InitialMigration() error {
 }
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -65,7 +63,6 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
 	callback(orgId, &fleet.Name, true)
 	result := s.db.Create(fleet)
-	log.Printf("db.Create(%s): %d rows affected, error is %v", fleet, result.RowsAffected, result.Error)
 	return resource, result.Error
 }
 
@@ -74,12 +71,10 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	var nextContinue *string
 	var numRemaining *int64
 
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&fleets)
-	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(fleets) > listParams.Limit {
@@ -116,7 +111,6 @@ func (s *FleetStore) ListIgnoreOrg() ([]model.Fleet, error) {
 	var fleets model.FleetList
 
 	result := s.db.Model(&fleets).Find(&fleets)
-	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -130,12 +124,10 @@ func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 }
 
 func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.First(&fleet)
-	log.Printf("db.Find(%s): %d rows affected, error is %v", fleet, result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -304,7 +296,6 @@ func (s *FleetStore) updateStatusTx(tx *gorm.DB, ctx context.Context, orgId uuid
 
 func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
 	db := s.db
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	if tx != nil {
 		db = tx
 	}
@@ -312,13 +303,11 @@ func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUI
 		Resource: model.Resource{OrgID: orgId, Owner: &owner},
 	}
 	result := db.Model(fleetCondition).Where(fleetCondition).Select("owner").Updates(map[string]interface{}{"owner": nil})
-	log.Printf("db.Model(fleet).Select('owner').Update(owner->nil): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	return result.Error
 }
 
 func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error {
 	db := s.db
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	if tx != nil {
 		db = tx
 	}
@@ -326,7 +315,6 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 		Resource: model.Resource{OrgID: orgId},
 	}
 	result := db.Model(model.Fleet{}).Where(fleetCondition).Where("owner like ?", "%"+resourceKind+"/%").Select("owner").Updates(map[string]interface{}{"owner": nil})
-	log.Printf("db.Model(fleet).Select('owner').Update(owner->nil): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	return result.Error
 }
 

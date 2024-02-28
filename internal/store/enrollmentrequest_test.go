@@ -93,7 +93,6 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 		It("Delete all enrollmentrequests in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			log.Infof("DELETING DEVICES WITH ORG ID %s", otherOrgId)
 			err := store.EnrollmentRequest().DeleteAll(ctx, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -102,7 +101,6 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(enrollmentrequests.Items)).To(Equal(numEnrollmentRequests))
 
-			log.Infof("DELETING DEVICES WITH ORG ID %s", orgId)
 			err = store.EnrollmentRequest().DeleteAll(ctx, orgId)
 			Expect(err).ToNot(HaveOccurred())
 

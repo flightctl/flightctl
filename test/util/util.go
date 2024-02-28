@@ -48,7 +48,7 @@ func NewTestStore(t testing.TB, cfg config.Config, log *logrus.Logger) (store.St
 
 	require := require.New(t)
 	// cfg.Database.Name = ""
-	dbTemp, err := store.InitDB(&cfg)
+	dbTemp, err := store.InitDB(&cfg, log)
 	require.NoError(err)
 	defer store.CloseDB(dbTemp)
 
@@ -58,7 +58,7 @@ func NewTestStore(t testing.TB, cfg config.Config, log *logrus.Logger) (store.St
 	require.NoError(dbTemp.Error)
 
 	cfg.Database.Name = randomDBName
-	db, err := store.InitDB(&cfg)
+	db, err := store.InitDB(&cfg, log)
 	require.NoError(err)
 
 	store := store.NewStore(db, log.WithField("pkg", "store"))

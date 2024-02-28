@@ -8,7 +8,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -60,7 +59,6 @@ func (s *DeviceStore) InitialMigration() error {
 }
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -68,7 +66,6 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api
 	device.OrgID = orgId
 
 	result := s.db.Create(device)
-	log.Printf("db.Create(%s): %d rows affected, error is %v", device, result.RowsAffected, result.Error)
 	return resource, result.Error
 }
 
@@ -76,13 +73,11 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	var devices model.DeviceList
 	var nextContinue *string
 	var numRemaining *int64
-	log := log.WithReqIDFromCtx(ctx, s.log)
 
 	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&devices)
-	log.Printf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(devices) > listParams.Limit {
@@ -114,20 +109,16 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 }
 
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	condition := model.Device{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	log.Printf("db.Delete(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	return result.Error
 }
 
 func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.First(&device)
-	log.Printf("db.Find(%s): %d rows affected, error is %v", device, result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}

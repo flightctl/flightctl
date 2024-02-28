@@ -10,7 +10,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -48,7 +47,6 @@ func (s *ResourceSyncStore) InitialMigration() error {
 }
 
 func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -56,7 +54,6 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 	resourceSync.OrgID = orgId
 	resourceSync.Generation = util.Int64ToPtr(1)
 	result := s.db.Create(resourceSync)
-	log.Debugf("db.Create(%s): %d rows affected, error is %v", resourceSync, result.RowsAffected, result.Error)
 
 	apiResourceSync := resourceSync.ToApiResource()
 	return &apiResourceSync, result.Error
@@ -67,12 +64,10 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	var nextContinue *string
 	var numRemaining *int64
 
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	query := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
 	// Request 1 more than the user asked for to see if we need to return "continue"
 	query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	result := query.Find(&resourceSyncs)
-	log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if len(resourceSyncs) > listParams.Limit {
@@ -138,12 +133,10 @@ func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, call
 }
 
 func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	resourcesync := model.ResourceSync{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.First(&resourcesync)
-	log.Debugf("db.Find(%s): %d rows affected, error is %v", resourcesync, result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -230,7 +223,6 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 func (s *ResourceSyncStore) ListIgnoreOrg() ([]model.ResourceSync, error) {
 	var resourcesyncs model.ResourceSyncList
 	result := s.db.Model(&resourcesyncs).Find(&resourcesyncs)
-	s.log.Debugf("db.Find(): %d rows affected, error is %v", result.RowsAffected, result.Error)
 	if result.Error != nil {
 		return nil, result.Error
 	}
