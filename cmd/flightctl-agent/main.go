@@ -17,7 +17,10 @@ import (
 func main() {
 	log := log.InitLogs()
 	dataDir := flag.String("data-dir", "/etc/flightctl", "device agent data directory")
-	agentConfig, _ := agent.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
+	agentConfig, err := agent.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
+	if err != nil {
+		log.Fatalf("loading or generating agent config: %v", err)
+	}
 
 	managementServerEndpoint := flag.String("management-endpoint", agentConfig.ManagementServerEndpoint, "device server endpoint")
 	enrollmentServerEndpoint := flag.String("enrollment-endpoint", agentConfig.EnrollmentServerEndpoint, "enrollment server endpoint")
