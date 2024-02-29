@@ -16,18 +16,31 @@ import (
 
 func main() {
 	log := log.InitLogs()
+
+	defaults := agent.NewDefault()
 	dataDir := flag.String("data-dir", "/etc/flightctl", "device agent data directory")
+	managementServerEndpoint := flag.String("management-endpoint", defaults.ManagementServerEndpoint, "device server endpoint")
+	enrollmentServerEndpoint := flag.String("enrollment-endpoint", defaults.EnrollmentServerEndpoint, "enrollment server endpoint")
+	enrollmentUIEndpoint := flag.String("enrollment-ui-endpoint", defaults.EnrollmentUIEndpoint, "enrollment UI endpoint")
+	tpmPath := flag.String("tpm", defaults.TPMPath, "Path to TPM device")
+	fetchSpecInterval := flag.Duration("fetch-spec-interval", time.Duration(defaults.FetchSpecInterval), "Duration between two reads of the remote device spec")
+	statusUpdateInterval := flag.Duration("status-update-interval", time.Duration(defaults.StatusUpdateInterval), "Duration between two status updates")
+	flag.Parse()
+
 	agentConfig, err := agent.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
 	if err != nil {
 		log.Fatalf("loading or generating agent config: %v", err)
 	}
 
-	managementServerEndpoint := flag.String("management-endpoint", agentConfig.ManagementServerEndpoint, "device server endpoint")
-	enrollmentServerEndpoint := flag.String("enrollment-endpoint", agentConfig.EnrollmentServerEndpoint, "enrollment server endpoint")
-	enrollmentUIEndpoint := flag.String("enrollment-ui-endpoint", agentConfig.EnrollmentUIEndpoint, "enrollment UI endpoint")
-	tpmPath := flag.String("tpm", agentConfig.TPMPath, "Path to TPM device")
-	fetchSpecInterval := flag.Duration("fetch-spec-interval", time.Duration(agentConfig.FetchSpecInterval), "Duration between two reads of the remote device spec")
-	statusUpdateInterval := flag.Duration("status-update-interval", time.Duration(agentConfig.StatusUpdateInterval), "Duration between two status updates")
+	// Now that we have a config, we can override the command line flags with the default values from the config%
+	*managementServerEndpoint = agentConfig.ManagementServerEndpoint
+	*enrollmentServerEndpoint = agentConfig.EnrollmentServerEndpoint
+	*enrollmentUIEndpoint = agentConfig.EnrollmentUIEndpoint
+	*tpmPath = agentConfig.TPMPath
+	*fetchSpecInterval = time.Duration(agentConfig.FetchSpecInterval)
+	*statusUpdateInterval = time.Duration(agentConfig.StatusUpdateInterval)
+
+	// and parse again to handle any config-file overrides
 	flag.Parse()
 
 	log.Infoln("starting flightctl device agent")
