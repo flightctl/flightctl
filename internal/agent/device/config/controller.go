@@ -58,6 +58,7 @@ func NewController(
 		enrollmentClient:         enrollmentClient,
 		enrollmentVerifyBackoff:  enrollmentVerifyBackoff,
 		enrollmentServerEndpoint: enrollmentServerEndpoint,
+		enrollmentUIEndpoint:     enrollmentUIEndpoint,
 		caFilePath:               caFilePath,
 		managementServerEndpoint: managementServerEndpoint,
 		managementCertFilePath:   managementCertFilePath,
