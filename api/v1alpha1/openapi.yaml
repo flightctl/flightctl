@@ -1714,6 +1714,14 @@ components:
       - 'ResourceParsed'       # ResourceSync
       - 'Synced'               # ResourceSync
       - 'OverlappingSelectors' # Fleet
+      - 'Ready'                # Device
+      - 'DiskPressure'         # Device
+      - 'MemoryPressure'       # Device
+      - 'PIDPressure'          # Device
+      - 'CPUPressure'          # Device
+      - 'Available'            # Device
+      - 'Progressing'          # Device
+      - 'Degraded'             # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - RepositoryAccessible
@@ -1721,6 +1729,14 @@ components:
       - ResourceSyncResourceParsed
       - ResourceSyncSynced
       - FleetOverlappingSelectors
+      - DeviceReady
+      - DeviceDiskPressure
+      - DeviceMemoryPressure
+      - DevicePIDPressure
+      - DeviceCPUPressure
+      - DeviceAvailable
+      - DeviceProgressing
+      - DeviceDegraded
     ConditionStatus:
       type: string
       enum:
