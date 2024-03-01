@@ -18,6 +18,14 @@ const (
 
 // Defines values for ConditionType.
 const (
+	DeviceAvailable            ConditionType = "Available"
+	DeviceCPUPressure          ConditionType = "CPUPressure"
+	DeviceDegraded             ConditionType = "Degraded"
+	DeviceDiskPressure         ConditionType = "DiskPressure"
+	DeviceMemoryPressure       ConditionType = "MemoryPressure"
+	DevicePIDPressure          ConditionType = "PIDPressure"
+	DeviceProgressing          ConditionType = "Progressing"
+	DeviceReady                ConditionType = "Ready"
 	EnrollmentRequestApproved  ConditionType = "Approved"
 	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
 	RepositoryAccessible       ConditionType = "Accessible"
