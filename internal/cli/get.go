@@ -99,130 +99,79 @@ func RunGet(kind, name string, labelSelector, owner *string, output string, limi
 		return fmt.Errorf("creating client: %v", err)
 	}
 
-	switch kind {
-	case DeviceKind:
-		if len(name) > 0 {
-			response, err := c.ReadDeviceWithResponse(context.Background(), name)
-			if err != nil {
-				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
-			}
-			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
-			if err != nil {
-				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
-			}
-			fmt.Printf("%s\n", string(out))
-		} else {
-			params := api.ListDevicesParams{
-				Owner:         owner,
-				LabelSelector: labelSelector,
-				Limit:         limit,
-				Continue:      cont,
-			}
-			response, err := c.ListDevicesWithResponse(context.Background(), &params)
-			if err != nil {
-				return fmt.Errorf("listing %s: %v", plural(kind), err)
-			}
-			return printListResourceResponse(response, err, plural(kind), output)
-		}
-	case EnrollmentRequestKind:
-		if len(name) > 0 {
-			response, err := c.ReadEnrollmentRequestWithResponse(context.Background(), name)
-			if err != nil {
-				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
-			}
-			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
-			if err != nil {
-				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
-			}
-			fmt.Printf("%s\n", string(out))
-		} else {
-			params := api.ListEnrollmentRequestsParams{
-				LabelSelector: labelSelector,
-				Limit:         limit,
-				Continue:      cont,
-			}
-			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
-			if err != nil {
-				return fmt.Errorf("listing %s: %v", plural(kind), err)
-			}
-			return printListResourceResponse(response, err, plural(kind), output)
-		}
-	case FleetKind:
-		if len(name) > 0 {
-			response, err := c.ReadFleetWithResponse(context.Background(), name)
-			if err != nil {
-				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
-			}
-			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
-			if err != nil {
-				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
-			}
-			fmt.Printf("%s\n", string(out))
-		} else {
-			params := api.ListFleetsParams{
-				LabelSelector: labelSelector,
-				Limit:         limit,
-				Continue:      cont,
-			}
+	var response interface{}
 
-			response, err := c.ListFleetsWithResponse(context.Background(), &params)
-			if err != nil {
-				return fmt.Errorf("listing %s: %v", plural(kind), err)
-			}
-			return printListResourceResponse(response, err, plural(kind), output)
+	switch {
+	case kind == DeviceKind && len(name) > 0:
+		response, err = c.ReadDeviceWithResponse(context.Background(), name)
+	case kind == DeviceKind && len(name) == 0:
+		params := api.ListDevicesParams{
+			Owner:         owner,
+			LabelSelector: labelSelector,
+			Limit:         limit,
+			Continue:      cont,
 		}
-	case RepositoryKind:
-		if len(name) > 0 {
-			response, err := c.ReadRepositoryWithResponse(context.Background(), name)
-			if err != nil {
-				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
-			}
-			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
-			if err != nil {
-				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
-			}
-			fmt.Printf("%s\n", string(out))
-		} else {
-			params := api.ListRepositoriesParams{
-				LabelSelector: labelSelector,
-				Limit:         limit,
-				Continue:      cont,
-			}
-
-			response, err := c.ListRepositoriesWithResponse(context.Background(), &params)
-			if err != nil {
-				return fmt.Errorf("listing %s: %v", plural(kind), err)
-			}
-			return printListResourceResponse(response, err, plural(kind), output)
+		response, err = c.ListDevicesWithResponse(context.Background(), &params)
+	case kind == EnrollmentRequestKind && len(name) > 0:
+		response, err = c.ReadEnrollmentRequestWithResponse(context.Background(), name)
+	case kind == EnrollmentRequestKind && len(name) == 0:
+		params := api.ListEnrollmentRequestsParams{
+			LabelSelector: labelSelector,
+			Limit:         limit,
+			Continue:      cont,
 		}
-	case ResourceSyncKind:
-		if len(name) > 0 {
-			response, err := c.ReadResourceSyncWithResponse(context.Background(), name)
-			if err != nil {
-				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
-			}
-			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
-			if err != nil {
-				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
-			}
-			fmt.Printf("%s\n", string(out))
-		} else {
-			params := api.ListResourceSyncParams{
-				LabelSelector: labelSelector,
-				Limit:         limit,
-				Continue:      cont,
-			}
-
-			response, err := c.ListResourceSyncWithResponse(context.Background(), &params)
-			if err != nil {
-				return fmt.Errorf("listing %s: %v", plural(kind), err)
-			}
-			return printListResourceResponse(response, err, plural(kind), output)
+		response, err = c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
+	case kind == FleetKind && len(name) > 0:
+		response, err = c.ReadFleetWithResponse(context.Background(), name)
+	case kind == FleetKind && len(name) == 0:
+		params := api.ListFleetsParams{
+			Owner:         owner,
+			LabelSelector: labelSelector,
+			Limit:         limit,
+			Continue:      cont,
 		}
+		response, err = c.ListFleetsWithResponse(context.Background(), &params)
+	case kind == RepositoryKind && len(name) > 0:
+		response, err = c.ReadRepositoryWithResponse(context.Background(), name)
+	case kind == RepositoryKind && len(name) == 0:
+		params := api.ListRepositoriesParams{
+			LabelSelector: labelSelector,
+			Limit:         limit,
+			Continue:      cont,
+		}
+		response, err = c.ListRepositoriesWithResponse(context.Background(), &params)
+	case kind == ResourceSyncKind && len(name) > 0:
+		response, err = c.ReadResourceSyncWithResponse(context.Background(), name)
+	case kind == ResourceSyncKind && len(name) == 0:
+		params := api.ListResourceSyncParams{
+			LabelSelector: labelSelector,
+			Limit:         limit,
+			Continue:      cont,
+		}
+		response, err = c.ListResourceSyncWithResponse(context.Background(), &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return nil
+	return processReponse(response, err, kind, name, output)
+}
+
+func processReponse(response interface{}, err error, kind string, name string, output string) error {
+	if len(name) > 0 {
+		if err != nil {
+			return fmt.Errorf("reading %s/%s: %v", kind, name, err)
+		}
+		out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
+		if err != nil {
+			return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
+		}
+		fmt.Printf("%s\n", string(out))
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("listing %s: %v", plural(kind), err)
+	}
+	return printListResourceResponse(response, err, plural(kind), output)
 }
 
 func serializeResponse(response interface{}, name string) ([]byte, error) {
