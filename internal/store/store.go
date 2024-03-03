@@ -20,6 +20,7 @@ type Store interface {
 	Device() Device
 	EnrollmentRequest() EnrollmentRequest
 	Fleet() Fleet
+	TemplateVersion() TemplateVersion
 	Repository() Repository
 	ResourceSync() ResourceSync
 	InitialMigration() error
@@ -30,6 +31,7 @@ type DataStore struct {
 	device            Device
 	enrollmentRequest EnrollmentRequest
 	fleet             Fleet
+	templateVersion   TemplateVersion
 	repository        Repository
 	resourceSync      ResourceSync
 
@@ -41,6 +43,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		device:            NewDevice(db, log),
 		enrollmentRequest: NewEnrollmentRequest(db, log),
 		fleet:             NewFleet(db, log),
+		templateVersion:   NewTemplateVersion(db, log),
 		repository:        NewRepository(db, log),
 		resourceSync:      NewResourceSync(db, log),
 		db:                db,
@@ -63,6 +66,10 @@ func (s *DataStore) Fleet() Fleet {
 	return s.fleet
 }
 
+func (s *DataStore) TemplateVersion() TemplateVersion {
+	return s.templateVersion
+}
+
 func (s *DataStore) ResourceSync() ResourceSync {
 	return s.resourceSync
 }
@@ -75,6 +82,9 @@ func (s *DataStore) InitialMigration() error {
 		return err
 	}
 	if err := s.Fleet().InitialMigration(); err != nil {
+		return err
+	}
+	if err := s.TemplateVersion().InitialMigration(); err != nil {
 		return err
 	}
 	if err := s.Repository().InitialMigration(); err != nil {

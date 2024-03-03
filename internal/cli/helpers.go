@@ -14,6 +14,7 @@ const (
 	FleetKind             = "fleet"
 	RepositoryKind        = "repository"
 	ResourceSyncKind      = "resourcesync"
+	TemplateVersionKind   = "templateversion"
 )
 
 var (
@@ -24,6 +25,7 @@ var (
 		FleetKind:             "fleets",
 		RepositoryKind:        "repositories",
 		ResourceSyncKind:      "resourcesyncs",
+		TemplateVersionKind:   "templateversions",
 	}
 )
 

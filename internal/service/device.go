@@ -40,7 +40,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListDevices400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+		return server.ListDevices400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
 	}
 
 	listParams := store.ListParams{
