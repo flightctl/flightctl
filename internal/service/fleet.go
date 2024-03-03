@@ -60,6 +60,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		Labels:   labelMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
+		Owner:    request.Params.Owner,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
