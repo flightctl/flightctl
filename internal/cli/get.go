@@ -80,7 +80,7 @@ func NewCmdGet() *cobra.Command {
 			if cmd.Flags().Lookup("continue").Changed {
 				cont = &o.Continue
 			}
-			return RunGet(kind, name, labelSelector, owner, o.Output, limit, cont)
+			return RunGet(cmd.Context(), kind, name, labelSelector, owner, o.Output, limit, cont)
 		},
 		SilenceUsage: true,
 	}
@@ -93,17 +93,17 @@ func NewCmdGet() *cobra.Command {
 	return cmd
 }
 
-func RunGet(kind, name string, labelSelector, owner *string, output string, limit *int32, cont *string) error {
+func RunGet(ctx context.Context, kind, name string, labelSelector, owner *string, output string, limit *int32, cont *string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
-		return fmt.Errorf("creating client: %v", err)
+		return fmt.Errorf("creating client: %w", err)
 	}
 
 	var response interface{}
 
 	switch {
 	case kind == DeviceKind && len(name) > 0:
-		response, err = c.ReadDeviceWithResponse(context.Background(), name)
+		response, err = c.ReadDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
 			Owner:         owner,
@@ -111,18 +111,18 @@ func RunGet(kind, name string, labelSelector, owner *string, output string, limi
 			Limit:         limit,
 			Continue:      cont,
 		}
-		response, err = c.ListDevicesWithResponse(context.Background(), &params)
+		response, err = c.ListDevicesWithResponse(ctx, &params)
 	case kind == EnrollmentRequestKind && len(name) > 0:
-		response, err = c.ReadEnrollmentRequestWithResponse(context.Background(), name)
+		response, err = c.ReadEnrollmentRequestWithResponse(ctx, name)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		params := api.ListEnrollmentRequestsParams{
 			LabelSelector: labelSelector,
 			Limit:         limit,
 			Continue:      cont,
 		}
-		response, err = c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
+		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
-		response, err = c.ReadFleetWithResponse(context.Background(), name)
+		response, err = c.ReadFleetWithResponse(ctx, name)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
 			Owner:         owner,
@@ -130,25 +130,25 @@ func RunGet(kind, name string, labelSelector, owner *string, output string, limi
 			Limit:         limit,
 			Continue:      cont,
 		}
-		response, err = c.ListFleetsWithResponse(context.Background(), &params)
+		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == RepositoryKind && len(name) > 0:
-		response, err = c.ReadRepositoryWithResponse(context.Background(), name)
+		response, err = c.ReadRepositoryWithResponse(ctx, name)
 	case kind == RepositoryKind && len(name) == 0:
 		params := api.ListRepositoriesParams{
 			LabelSelector: labelSelector,
 			Limit:         limit,
 			Continue:      cont,
 		}
-		response, err = c.ListRepositoriesWithResponse(context.Background(), &params)
+		response, err = c.ListRepositoriesWithResponse(ctx, &params)
 	case kind == ResourceSyncKind && len(name) > 0:
-		response, err = c.ReadResourceSyncWithResponse(context.Background(), name)
+		response, err = c.ReadResourceSyncWithResponse(ctx, name)
 	case kind == ResourceSyncKind && len(name) == 0:
 		params := api.ListResourceSyncParams{
 			LabelSelector: labelSelector,
 			Limit:         limit,
 			Continue:      cont,
 		}
-		response, err = c.ListResourceSyncWithResponse(context.Background(), &params)
+		response, err = c.ListResourceSyncWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -158,18 +158,18 @@ func RunGet(kind, name string, labelSelector, owner *string, output string, limi
 func processReponse(response interface{}, err error, kind string, name string, output string) error {
 	if len(name) > 0 {
 		if err != nil {
-			return fmt.Errorf("reading %s/%s: %v", kind, name, err)
+			return fmt.Errorf("reading %s/%s: %w", kind, name, err)
 		}
 		out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
 		if err != nil {
-			return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
+			return fmt.Errorf("serializing response for %s/%s: %w", kind, name, err)
 		}
 		fmt.Printf("%s\n", string(out))
 		return nil
 	}
 
 	if err != nil {
-		return fmt.Errorf("listing %s: %v", plural(kind), err)
+		return fmt.Errorf("listing %s: %w", plural(kind), err)
 	}
 	return printListResourceResponse(response, err, plural(kind), output)
 }
@@ -185,7 +185,7 @@ func serializeResponse(response interface{}, name string) ([]byte, error) {
 
 func printListResourceResponse(response interface{}, err error, resourceType string, output string) error {
 	if err != nil {
-		return fmt.Errorf("listing %s: %v", resourceType, err)
+		return fmt.Errorf("listing %s: %w", resourceType, err)
 	}
 	v := reflect.ValueOf(response).Elem()
 	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
@@ -195,7 +195,7 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 	if output == yamlFormat {
 		marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
 		if err != nil {
-			return fmt.Errorf("marshalling resource: %v", err)
+			return fmt.Errorf("marshalling resource: %w", err)
 		}
 
 		fmt.Printf("%s\n", string(marshalled))

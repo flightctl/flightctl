@@ -44,7 +44,7 @@ func NewCmdApply() *cobra.Command {
 			if len(args) > 0 {
 				return fmt.Errorf("unexpected arguments: %v (did you forget to quote wildcards?)", args)
 			}
-			return RunApply(o.Filenames, o.Recursive, o.DryRun)
+			return RunApply(cmd.Context(), o.Filenames, o.Recursive, o.DryRun)
 		},
 		SilenceUsage: true,
 	}
@@ -67,7 +67,7 @@ func NewCmdApply() *cobra.Command {
 
 type genericResource map[string]interface{}
 
-func applyFromReader(client *apiclient.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
+func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
 	decoder := yamlutil.NewYAMLOrJSONDecoder(r, 100)
 	resources := []genericResource{}
 
@@ -109,7 +109,7 @@ func applyFromReader(client *apiclient.ClientWithResponses, filename string, r i
 		fmt.Printf("%s: applying %s/%s: ", strings.ToLower(kind), filename, resourceName)
 		buf, err := json.Marshal(resource)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %v", filename, kind, err))
+			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %w", filename, kind, err))
 		}
 
 		var httpResponse *http.Response
@@ -117,33 +117,33 @@ func applyFromReader(client *apiclient.ClientWithResponses, filename string, r i
 		switch strings.ToLower(kind) {
 		case DeviceKind:
 			var response *apiclient.ReplaceDeviceResponse
-			response, err = client.ReplaceDeviceWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			response, err = client.ReplaceDeviceWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
 
 		case EnrollmentRequestKind:
 			var response *apiclient.ReplaceEnrollmentRequestResponse
-			response, err = client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			response, err = client.ReplaceEnrollmentRequestWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
 
 		case FleetKind:
 			var response *apiclient.ReplaceFleetResponse
-			response, err = client.ReplaceFleetWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			response, err = client.ReplaceFleetWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
 		case RepositoryKind:
 			var response *apiclient.ReplaceRepositoryResponse
-			response, err = client.ReplaceRepositoryWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			response, err = client.ReplaceRepositoryWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
 		case ResourceSyncKind:
 			var response *apiclient.ReplaceResourceSyncResponse
-			response, err = client.ReplaceResourceSyncWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
+			response, err = client.ReplaceResourceSyncWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
@@ -159,7 +159,7 @@ func applyFromReader(client *apiclient.ClientWithResponses, filename string, r i
 			fmt.Printf("%s\n", httpResponse.Status)
 			// bad HTTP Responses don't generate an error on the OpenAPI client, we need to check the status code manually
 			if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusCreated {
-				errs = append(errs, fmt.Errorf("%s: failed to apply %s/%s: %v", strings.ToLower(kind), filename, resourceName, httpResponse.Status))
+				errs = append(errs, fmt.Errorf("%s: failed to apply %s/%s: %s", strings.ToLower(kind), filename, resourceName, httpResponse.Status))
 			}
 		}
 
@@ -167,17 +167,17 @@ func applyFromReader(client *apiclient.ClientWithResponses, filename string, r i
 	return errs
 }
 
-func RunApply(filenames []string, recursive bool, dryRun bool) error {
+func RunApply(ctx context.Context, filenames []string, recursive bool, dryRun bool) error {
 	client, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
-		return fmt.Errorf("creating client: %v", err)
+		return fmt.Errorf("creating client: %w", err)
 	}
 
 	errs := make([]error, 0)
 	for _, filename := range filenames {
 		switch {
 		case filename == "-":
-			errs = append(errs, applyFromReader(client, "<stdin>", os.Stdin, dryRun)...)
+			errs = append(errs, applyFromReader(ctx, client, "<stdin>", os.Stdin, dryRun)...)
 		default:
 			expandedFilenames, err := expandIfFilePattern(filename)
 			if err != nil {
@@ -191,7 +191,7 @@ func RunApply(filenames []string, recursive bool, dryRun bool) error {
 					continue
 				}
 				if err != nil {
-					errs = append(errs, fmt.Errorf("the path %q cannot be accessed: %v", filename, err))
+					errs = append(errs, fmt.Errorf("the path %q cannot be accessed: %w", filename, err))
 					continue
 				}
 				err = filepath.Walk(filename, func(path string, fi os.FileInfo, err error) error {
@@ -215,11 +215,11 @@ func RunApply(filenames []string, recursive bool, dryRun bool) error {
 						return nil
 					}
 					defer r.Close()
-					errs = append(errs, applyFromReader(client, path, r, dryRun)...)
+					errs = append(errs, applyFromReader(ctx, client, path, r, dryRun)...)
 					return nil
 				})
 				if err != nil {
-					errs = append(errs, fmt.Errorf("error walking %q: %v", filename, err))
+					errs = append(errs, fmt.Errorf("error walking %q: %w", filename, err))
 				}
 			}
 		}
@@ -234,7 +234,7 @@ func expandIfFilePattern(pattern string) ([]string, error) {
 			return nil, fmt.Errorf("the path %q does not exist", pattern)
 		}
 		if err == filepath.ErrBadPattern {
-			return nil, fmt.Errorf("pattern %q is not valid: %v", pattern, err)
+			return nil, fmt.Errorf("pattern %q is not valid: %w", pattern, err)
 		}
 		return matches, err
 	}
