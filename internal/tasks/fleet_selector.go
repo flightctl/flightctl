@@ -57,7 +57,7 @@ func FleetSelectorMatching(taskManager TaskManager) {
 
 			var err error
 
-			switch true {
+			switch {
 			case resourceRef.Op == FleetSelectorOpUpdate && resourceRef.Kind == model.FleetKind:
 				err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
 			case resourceRef.Op == FleetSelectorOpUpdateOverlap && resourceRef.Kind == model.FleetKind:
