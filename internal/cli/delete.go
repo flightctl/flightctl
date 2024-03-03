@@ -18,87 +18,87 @@ func NewCmdDelete() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return RunDelete(kind, name)
+			return RunDelete(cmd.Context(), kind, name)
 		},
 		SilenceUsage: true,
 	}
 	return cmd
 }
 
-func RunDelete(kind, name string) error {
+func RunDelete(ctx context.Context, kind, name string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
-		return fmt.Errorf("creating client: %v", err)
+		return fmt.Errorf("creating client: %w", err)
 	}
 
 	switch kind {
 	case DeviceKind:
 		if len(name) > 0 {
-			response, err := c.DeleteDeviceWithResponse(context.Background(), name)
+			response, err := c.DeleteDeviceWithResponse(ctx, name)
 			if err != nil {
-				return fmt.Errorf("deleting %s/%s: %v", kind, name, err)
+				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteDevicesWithResponse(context.Background())
+			response, err := c.DeleteDevicesWithResponse(ctx)
 			if err != nil {
-				return fmt.Errorf("deleting %s: %v", plural(kind), err)
+				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		}
 	case EnrollmentRequestKind:
 		if len(name) > 0 {
-			response, err := c.DeleteEnrollmentRequestWithResponse(context.Background(), name)
+			response, err := c.DeleteEnrollmentRequestWithResponse(ctx, name)
 			if err != nil {
-				return fmt.Errorf("deleting %s/%s: %v", kind, name, err)
+				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteEnrollmentRequestsWithResponse(context.Background())
+			response, err := c.DeleteEnrollmentRequestsWithResponse(ctx)
 			if err != nil {
-				return fmt.Errorf("deleting %s: %v", plural(kind), err)
+				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		}
 	case FleetKind:
 		if len(name) > 0 {
-			response, err := c.DeleteFleetWithResponse(context.Background(), name)
+			response, err := c.DeleteFleetWithResponse(ctx, name)
 			if err != nil {
-				return fmt.Errorf("deleting %s/%s: %v", kind, name, err)
+				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteFleetsWithResponse(context.Background())
+			response, err := c.DeleteFleetsWithResponse(ctx)
 			if err != nil {
-				return fmt.Errorf("deleting %s: %v", plural(kind), err)
+				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		}
 	case RepositoryKind:
 		if len(name) > 0 {
-			response, err := c.DeleteRepositoryWithResponse(context.Background(), name)
+			response, err := c.DeleteRepositoryWithResponse(ctx, name)
 			if err != nil {
-				return fmt.Errorf("deleting %s/%s: %v", kind, name, err)
+				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteRepositoriesWithResponse(context.Background())
+			response, err := c.DeleteRepositoriesWithResponse(ctx)
 			if err != nil {
-				return fmt.Errorf("deleting %s: %v", plural(kind), err)
+				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		}
 	case ResourceSyncKind:
 		if len(name) > 0 {
-			response, err := c.DeleteResourceSyncWithResponse(context.Background(), name)
+			response, err := c.DeleteResourceSyncWithResponse(ctx, name)
 			if err != nil {
-				return fmt.Errorf("deleting %s/%s: %v", kind, name, err)
+				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteResourceSyncsWithResponse(context.Background())
+			response, err := c.DeleteResourceSyncsWithResponse(ctx)
 			if err != nil {
-				return fmt.Errorf("deleting %s: %v", plural(kind), err)
+				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		}

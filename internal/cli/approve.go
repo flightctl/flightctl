@@ -20,7 +20,7 @@ func NewCmdApprove() *cobra.Command {
 		Short: "approve enrollment-request fleet-name",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return RunApprove(args[0])
+			return RunApprove(cmd.Context(), args[0])
 		},
 		SilenceUsage: true,
 	}
@@ -30,10 +30,10 @@ func NewCmdApprove() *cobra.Command {
 	return cmd
 }
 
-func RunApprove(enrollmentRequestName string) error {
+func RunApprove(ctx context.Context, enrollmentRequestName string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
-		return fmt.Errorf("creating client: %v", err)
+		return fmt.Errorf("creating client: %w", err)
 	}
 	labels := util.LabelArrayToMap(approveLabels)
 
@@ -42,7 +42,7 @@ func RunApprove(enrollmentRequestName string) error {
 		Labels:   &labels,
 		Region:   util.StrToPtr(approveRegion),
 	}
-	resp, err := c.CreateEnrollmentRequestApproval(context.Background(), enrollmentRequestName, approval)
+	resp, err := c.CreateEnrollmentRequestApproval(ctx, enrollmentRequestName, approval)
 	if err != nil {
 		return fmt.Errorf("creating enrollmentrequestapproval: %w, http response: %+v", err, resp)
 	}
