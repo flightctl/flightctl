@@ -50,7 +50,7 @@ func NewCmdGet() *cobra.Command {
 			}
 
 			if cmd.Flags().Lookup("fleetname").Changed {
-				if kind != "device" {
+				if kind != DeviceKind {
 					return fmt.Errorf("fleetname can only be specified when fetching devices")
 				}
 				if len(name) > 0 {
@@ -100,15 +100,15 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 	}
 
 	switch kind {
-	case "device":
+	case DeviceKind:
 		if len(name) > 0 {
 			response, err := c.ReadDeviceWithResponse(context.Background(), name)
 			if err != nil {
-				return fmt.Errorf("reading device/%s: %v", name, err)
+				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("device/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
-				return fmt.Errorf("serializing response for device/%s: %v", name, err)
+				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
 			fmt.Printf("%s\n", string(out))
 		} else {
@@ -120,19 +120,19 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			}
 			response, err := c.ListDevicesWithResponse(context.Background(), &params)
 			if err != nil {
-				return fmt.Errorf("listing devices: %v", err)
+				return fmt.Errorf("listing %s: %v", plural(kind), err)
 			}
-			return printListResourceResponse(response, err, "devices", output)
+			return printListResourceResponse(response, err, plural(kind), output)
 		}
-	case "enrollmentrequest":
+	case EnrollmentRequestKind:
 		if len(name) > 0 {
 			response, err := c.ReadEnrollmentRequestWithResponse(context.Background(), name)
 			if err != nil {
-				return fmt.Errorf("reading enrollmentrequest/%s: %v", name, err)
+				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("enrollmentrequest/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
-				return fmt.Errorf("serializing response for enrollmentrequest/%s: %v", name, err)
+				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
 			fmt.Printf("%s\n", string(out))
 		} else {
@@ -143,19 +143,19 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			}
 			response, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &params)
 			if err != nil {
-				return fmt.Errorf("listing enrollmentrequests: %v", err)
+				return fmt.Errorf("listing %s: %v", plural(kind), err)
 			}
-			return printListResourceResponse(response, err, "enrollmentrequests", output)
+			return printListResourceResponse(response, err, plural(kind), output)
 		}
-	case "fleet":
+	case FleetKind:
 		if len(name) > 0 {
 			response, err := c.ReadFleetWithResponse(context.Background(), name)
 			if err != nil {
-				return fmt.Errorf("reading fleet/%s: %v", name, err)
+				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("fleet/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
-				return fmt.Errorf("serializing response for fleet/%s: %v", name, err)
+				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
 			fmt.Printf("%s\n", string(out))
 		} else {
@@ -167,19 +167,19 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 
 			response, err := c.ListFleetsWithResponse(context.Background(), &params)
 			if err != nil {
-				return fmt.Errorf("listing fleets: %v", err)
+				return fmt.Errorf("listing %s: %v", plural(kind), err)
 			}
-			return printListResourceResponse(response, err, "fleets", output)
+			return printListResourceResponse(response, err, plural(kind), output)
 		}
-	case "repository":
+	case RepositoryKind:
 		if len(name) > 0 {
 			response, err := c.ReadRepositoryWithResponse(context.Background(), name)
 			if err != nil {
-				return fmt.Errorf("reading repository/%s: %v", name, err)
+				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("repository/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
-				return fmt.Errorf("serializing response for repository/%s: %v", name, err)
+				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
 			fmt.Printf("%s\n", string(out))
 		} else {
@@ -191,19 +191,19 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 
 			response, err := c.ListRepositoriesWithResponse(context.Background(), &params)
 			if err != nil {
-				return fmt.Errorf("listing repositories: %v", err)
+				return fmt.Errorf("listing %s: %v", plural(kind), err)
 			}
-			return printListResourceResponse(response, err, "repositories", output)
+			return printListResourceResponse(response, err, plural(kind), output)
 		}
-	case "resourcesync":
+	case ResourceSyncKind:
 		if len(name) > 0 {
 			response, err := c.ReadResourceSyncWithResponse(context.Background(), name)
 			if err != nil {
-				return fmt.Errorf("reading resourcesync/%s: %v", name, err)
+				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("resourcesync/%s", name))
+			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
-				return fmt.Errorf("serializing response for resourcesync/%s: %v", name, err)
+				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
 			fmt.Printf("%s\n", string(out))
 		} else {
@@ -215,9 +215,9 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 
 			response, err := c.ListResourceSyncWithResponse(context.Background(), &params)
 			if err != nil {
-				return fmt.Errorf("listing resourcesyncs: %v", err)
+				return fmt.Errorf("listing %s: %v", plural(kind), err)
 			}
-			return printListResourceResponse(response, err, "resourcesyncs", output)
+			return printListResourceResponse(response, err, plural(kind), output)
 		}
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
@@ -256,15 +256,15 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 	// Tabular
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 	switch resourceType {
-	case "devices":
+	case plural(DeviceKind):
 		printDevicesTable(w, response.(*apiclient.ListDevicesResponse))
-	case "enrollmentrequests":
+	case plural(EnrollmentRequestKind):
 		printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse))
-	case "fleets":
+	case plural(FleetKind):
 		printFleetsTable(w, response.(*apiclient.ListFleetsResponse))
-	case "repositories":
+	case plural(RepositoryKind):
 		printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse))
-	case "resourcesyncs":
+	case plural(ResourceSyncKind):
 		printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse))
 	default:
 		return fmt.Errorf("unknown resource type %s", resourceType)

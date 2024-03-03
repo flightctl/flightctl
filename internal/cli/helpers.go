@@ -3,22 +3,28 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"k8s.io/client-go/util/homedir"
 )
 
+const (
+	DeviceKind            = "device"
+	EnrollmentRequestKind = "enrollmentrequest"
+	FleetKind             = "fleet"
+	RepositoryKind        = "repository"
+	ResourceSyncKind      = "resourcesync"
+)
+
 var (
 	defaultClientConfigFile string
 	resourceKinds           = map[string]string{
-		"device":            "",
-		"enrollmentrequest": "",
-		"fleet":             "",
-		"repository":        "",
-		"resourcesync":      "",
+		DeviceKind:            "devices",
+		EnrollmentRequestKind: "enrollmentrequests",
+		FleetKind:             "fleets",
+		RepositoryKind:        "repositories",
+		ResourceSyncKind:      "resourcesyncs",
 	}
-	resourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
 )
 
 func init() {
@@ -31,17 +37,18 @@ func parseAndValidateKindName(arg string) (string, string, error) {
 	if _, ok := resourceKinds[kind]; !ok {
 		return "", "", fmt.Errorf("invalid resource kind: %s", kind)
 	}
-	if len(name) > 0 && !resourceNameRegex.MatchString(name) {
-		return "", "", fmt.Errorf("invalid resource name: %s", name)
-	}
 	return kind, name, nil
 }
 
 func singular(kind string) string {
-	if kind == "repositories" {
-		return "repository"
-	} else if strings.HasSuffix(kind, "s") {
-		return kind[:len(kind)-1]
+	for singular, plural := range resourceKinds {
+		if kind == plural {
+			return singular
+		}
 	}
 	return kind
+}
+
+func plural(kind string) string {
+	return resourceKinds[kind]
 }
