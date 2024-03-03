@@ -39,7 +39,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListResourceSync400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+		return server.ListResourceSync400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
 	}
 
 	listParams := store.ListParams{

@@ -12,6 +12,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
 	"github.com/thoas/go-funk"
 	"sigs.k8s.io/yaml"
@@ -31,6 +32,7 @@ type GetOptions struct {
 	Output        string
 	Limit         int32
 	Continue      string
+	FleetName     string
 }
 
 func NewCmdGet() *cobra.Command {
@@ -50,11 +52,20 @@ func NewCmdGet() *cobra.Command {
 			}
 
 			if cmd.Flags().Lookup("owner").Changed {
-				if kind != DeviceKind {
-					return fmt.Errorf("owner can only be specified when fetching devices")
+				if kind != DeviceKind && kind != FleetKind && kind != TemplateVersionKind {
+					return fmt.Errorf("owner can only be specified when fetching devices, fleets, and templateversions")
 				}
-				if len(name) > 0 {
-					return fmt.Errorf("cannot specify owner together with a device name")
+				if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 {
+					return fmt.Errorf("cannot specify owner together with a device or fleet name")
+				}
+			}
+			if kind == TemplateVersionKind && len(name) > 0 {
+				if !cmd.Flags().Lookup("fleetname").Changed {
+					return fmt.Errorf("fleetname must be specified when fetching a specific templatevesion")
+				}
+			} else {
+				if cmd.Flags().Lookup("fleetname").Changed {
+					return fmt.Errorf("fleetname must only be specified when fetching a specific templatevesion")
 				}
 			}
 
@@ -80,7 +91,11 @@ func NewCmdGet() *cobra.Command {
 			if cmd.Flags().Lookup("continue").Changed {
 				cont = &o.Continue
 			}
-			return RunGet(cmd.Context(), kind, name, labelSelector, owner, o.Output, limit, cont)
+			var fleetName *string
+			if cmd.Flags().Lookup("fleetname").Changed {
+				fleetName = &o.FleetName
+			}
+			return RunGet(cmd.Context(), kind, name, labelSelector, owner, o.Output, limit, cont, fleetName)
 		},
 		SilenceUsage: true,
 	}
@@ -90,10 +105,11 @@ func NewCmdGet() *cobra.Command {
 	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, "output format (yaml)")
 	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "the maximum number of results returned in the list response")
 	cmd.Flags().StringVar(&o.Continue, "continue", o.Continue, "query more results starting from the value of the 'continue' field in the previous response")
+	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "fleet name for accessing individual templateversions")
 	return cmd
 }
 
-func RunGet(ctx context.Context, kind, name string, labelSelector, owner *string, output string, limit *int32, cont *string) error {
+func RunGet(ctx context.Context, kind, name string, labelSelector, owner *string, output string, limit *int32, cont *string, fleetName *string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -131,6 +147,16 @@ func RunGet(ctx context.Context, kind, name string, labelSelector, owner *string
 			Continue:      cont,
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
+	case kind == TemplateVersionKind && len(name) > 0:
+		response, err = c.ReadTemplateVersionWithResponse(ctx, *fleetName, name)
+	case kind == TemplateVersionKind && len(name) == 0:
+		params := api.ListTemplateVersionsParams{
+			Owner:         owner,
+			LabelSelector: labelSelector,
+			Limit:         limit,
+			Continue:      cont,
+		}
+		response, err = c.ListTemplateVersionsWithResponse(ctx, &params)
 	case kind == RepositoryKind && len(name) > 0:
 		response, err = c.ReadRepositoryWithResponse(ctx, name)
 	case kind == RepositoryKind && len(name) == 0:
@@ -211,6 +237,8 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 		printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse))
 	case plural(FleetKind):
 		printFleetsTable(w, response.(*apiclient.ListFleetsResponse))
+	case plural(TemplateVersionKind):
+		printTemplateVersionsTable(w, response.(*apiclient.ListTemplateVersionsResponse))
 	case plural(RepositoryKind):
 		printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse))
 	case plural(ResourceSyncKind):
@@ -223,9 +251,9 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 }
 
 func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesResponse) {
-	fmt.Fprintln(w, "NAME")
+	fmt.Fprintln(w, "NAME\tOWNER")
 	for _, d := range response.JSON200.Items {
-		fmt.Fprintln(w, *d.Metadata.Name)
+		fmt.Fprintf(w, "%s\t%s\n", *d.Metadata.Name, util.DefaultIfNil(d.Metadata.Owner, "<None>"))
 	}
 }
 
@@ -243,9 +271,16 @@ func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListE
 }
 
 func printFleetsTable(w *tabwriter.Writer, response *apiclient.ListFleetsResponse) {
-	fmt.Fprintln(w, "NAME")
+	fmt.Fprintln(w, "NAME\tOWNER")
 	for _, f := range response.JSON200.Items {
-		fmt.Fprintln(w, *f.Metadata.Name)
+		fmt.Fprintf(w, "%s\t%s\n", *f.Metadata.Name, util.DefaultIfNil(f.Metadata.Owner, "<None>"))
+	}
+}
+
+func printTemplateVersionsTable(w *tabwriter.Writer, response *apiclient.ListTemplateVersionsResponse) {
+	fmt.Fprintln(w, "FLEET\tNAME")
+	for _, f := range response.JSON200.Items {
+		fmt.Fprintf(w, "%s\t%s\n", f.Spec.Fleet, *f.Metadata.Name)
 	}
 }
 

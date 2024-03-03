@@ -105,7 +105,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListEnrollmentRequests400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+		return server.ListEnrollmentRequests400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
 	}
 
 	listParams := store.ListParams{
@@ -245,14 +245,14 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 		}
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
-			log.Errorf("Error approving and signing enrollment request: %s", err)
+			log.Errorf("Error approving and signing enrollment request: %v", err)
 			return server.CreateEnrollmentRequestApproval422JSONResponse{
 				Error: "Error approving and signing enrollment request: " + err.Error(),
 			}, nil
 		}
 
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			log.Errorf("Error creating device from enrollment request: %s", err)
+			log.Errorf("Error creating device from enrollment request: %v", err)
 			return server.CreateEnrollmentRequestApproval422JSONResponse{
 				Error: "Error creating device from enrollment request: " + err.Error(),
 			}, nil

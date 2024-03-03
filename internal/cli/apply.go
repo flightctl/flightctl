@@ -135,6 +135,12 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
+		case TemplateVersionKind:
+			var response *apiclient.CreateTemplateVersionResponse
+			response, err = client.CreateTemplateVersionWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
+			if response != nil {
+				httpResponse = response.HTTPResponse
+			}
 		case RepositoryKind:
 			var response *apiclient.ReplaceRepositoryResponse
 			response, err = client.ReplaceRepositoryWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
