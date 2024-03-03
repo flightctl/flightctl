@@ -39,7 +39,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListRepositories400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+		return server.ListRepositories400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
 	}
 
 	listParams := store.ListParams{

@@ -53,7 +53,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListFleets400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
+		return server.ListFleets400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
 	}
 
 	listParams := store.ListParams{

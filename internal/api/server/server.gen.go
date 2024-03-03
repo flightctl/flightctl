@@ -78,6 +78,12 @@ type ServerInterface interface {
 	// (POST /api/v1/fleets)
 	CreateFleet(w http.ResponseWriter, r *http.Request)
 
+	// (DELETE /api/v1/fleets/{fleet}/templateversions/{name})
+	DeleteTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string)
+
+	// (GET /api/v1/fleets/{fleet}/templateversions/{name})
+	ReadTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string)
+
 	// (DELETE /api/v1/fleets/{name})
 	DeleteFleet(w http.ResponseWriter, r *http.Request, name string)
 
@@ -128,6 +134,15 @@ type ServerInterface interface {
 
 	// (POST /api/v1/resourcesyncs)
 	CreateResourceSync(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /api/v1/templateversions)
+	DeleteTemplateVersions(w http.ResponseWriter, r *http.Request, params DeleteTemplateVersionsParams)
+
+	// (GET /api/v1/templateversions)
+	ListTemplateVersions(w http.ResponseWriter, r *http.Request, params ListTemplateVersionsParams)
+
+	// (POST /api/v1/templateversions)
+	CreateTemplateVersion(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -234,6 +249,16 @@ func (_ Unimplemented) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (DELETE /api/v1/fleets/{fleet}/templateversions/{name})
+func (_ Unimplemented) DeleteTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/fleets/{fleet}/templateversions/{name})
+func (_ Unimplemented) ReadTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (DELETE /api/v1/fleets/{name})
 func (_ Unimplemented) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -316,6 +341,21 @@ func (_ Unimplemented) ListResourceSync(w http.ResponseWriter, r *http.Request, 
 
 // (POST /api/v1/resourcesyncs)
 func (_ Unimplemented) CreateResourceSync(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/templateversions)
+func (_ Unimplemented) DeleteTemplateVersions(w http.ResponseWriter, r *http.Request, params DeleteTemplateVersionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/templateversions)
+func (_ Unimplemented) ListTemplateVersions(w http.ResponseWriter, r *http.Request, params ListTemplateVersionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/templateversions)
+func (_ Unimplemented) CreateTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -852,6 +892,76 @@ func (siw *ServerInterfaceWrapper) CreateFleet(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// DeleteTemplateVersion operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTemplateVersion(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "fleet" -------------
+	var fleet string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "fleet", runtime.ParamLocationPath, chi.URLParam(r, "fleet"), &fleet)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fleet", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTemplateVersion(w, r, fleet, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadTemplateVersion operation middleware
+func (siw *ServerInterfaceWrapper) ReadTemplateVersion(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "fleet" -------------
+	var fleet string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "fleet", runtime.ParamLocationPath, chi.URLParam(r, "fleet"), &fleet)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fleet", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "name", runtime.ParamLocationPath, chi.URLParam(r, "name"), &name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadTemplateVersion(w, r, fleet, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // DeleteFleet operation middleware
 func (siw *ServerInterfaceWrapper) DeleteFleet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1286,6 +1396,101 @@ func (siw *ServerInterfaceWrapper) CreateResourceSync(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// DeleteTemplateVersions operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTemplateVersions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteTemplateVersionsParams
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "owner", r.URL.Query(), &params.Owner)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTemplateVersions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ListTemplateVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListTemplateVersions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTemplateVersionsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "owner", r.URL.Query(), &params.Owner)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTemplateVersions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// CreateTemplateVersion operation middleware
+func (siw *ServerInterfaceWrapper) CreateTemplateVersion(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTemplateVersion(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1460,6 +1665,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/fleets", wrapper.CreateFleet)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions/{name}", wrapper.DeleteTemplateVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions/{name}", wrapper.ReadTemplateVersion)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/fleets/{name}", wrapper.DeleteFleet)
 	})
 	r.Group(func(r chi.Router) {
@@ -1509,6 +1720,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/resourcesyncs", wrapper.CreateResourceSync)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/templateversions", wrapper.DeleteTemplateVersions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/templateversions", wrapper.ListTemplateVersions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/templateversions", wrapper.CreateTemplateVersion)
 	})
 
 	return r
@@ -2211,6 +2431,74 @@ func (response CreateFleet409Response) VisitCreateFleetResponse(w http.ResponseW
 	return nil
 }
 
+type DeleteTemplateVersionRequestObject struct {
+	Fleet string `json:"fleet"`
+	Name  string `json:"name"`
+}
+
+type DeleteTemplateVersionResponseObject interface {
+	VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error
+}
+
+type DeleteTemplateVersion200JSONResponse TemplateVersion
+
+func (response DeleteTemplateVersion200JSONResponse) VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteTemplateVersion401Response struct {
+}
+
+func (response DeleteTemplateVersion401Response) VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type DeleteTemplateVersion404Response struct {
+}
+
+func (response DeleteTemplateVersion404Response) VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ReadTemplateVersionRequestObject struct {
+	Fleet string `json:"fleet"`
+	Name  string `json:"name"`
+}
+
+type ReadTemplateVersionResponseObject interface {
+	VisitReadTemplateVersionResponse(w http.ResponseWriter) error
+}
+
+type ReadTemplateVersion200JSONResponse TemplateVersion
+
+func (response ReadTemplateVersion200JSONResponse) VisitReadTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadTemplateVersion401Response struct {
+}
+
+func (response ReadTemplateVersion401Response) VisitReadTemplateVersionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ReadTemplateVersion404Response struct {
+}
+
+func (response ReadTemplateVersion404Response) VisitReadTemplateVersionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type DeleteFleetRequestObject struct {
 	Name string `json:"name"`
 }
@@ -2841,6 +3129,105 @@ func (response CreateResourceSync409Response) VisitCreateResourceSyncResponse(w 
 	return nil
 }
 
+type DeleteTemplateVersionsRequestObject struct {
+	Params DeleteTemplateVersionsParams
+}
+
+type DeleteTemplateVersionsResponseObject interface {
+	VisitDeleteTemplateVersionsResponse(w http.ResponseWriter) error
+}
+
+type DeleteTemplateVersions200JSONResponse Status
+
+func (response DeleteTemplateVersions200JSONResponse) VisitDeleteTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteTemplateVersions401Response struct {
+}
+
+func (response DeleteTemplateVersions401Response) VisitDeleteTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ListTemplateVersionsRequestObject struct {
+	Params ListTemplateVersionsParams
+}
+
+type ListTemplateVersionsResponseObject interface {
+	VisitListTemplateVersionsResponse(w http.ResponseWriter) error
+}
+
+type ListTemplateVersions200JSONResponse TemplateVersionList
+
+func (response ListTemplateVersions200JSONResponse) VisitListTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListTemplateVersions400Response struct {
+}
+
+func (response ListTemplateVersions400Response) VisitListTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type ListTemplateVersions401Response struct {
+}
+
+func (response ListTemplateVersions401Response) VisitListTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateTemplateVersionRequestObject struct {
+	Body *CreateTemplateVersionJSONRequestBody
+}
+
+type CreateTemplateVersionResponseObject interface {
+	VisitCreateTemplateVersionResponse(w http.ResponseWriter) error
+}
+
+type CreateTemplateVersion201JSONResponse TemplateVersion
+
+func (response CreateTemplateVersion201JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateTemplateVersion400Response struct {
+}
+
+func (response CreateTemplateVersion400Response) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type CreateTemplateVersion401Response struct {
+}
+
+func (response CreateTemplateVersion401Response) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type CreateTemplateVersion409Response struct {
+}
+
+func (response CreateTemplateVersion409Response) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -2904,6 +3291,12 @@ type StrictServerInterface interface {
 	// (POST /api/v1/fleets)
 	CreateFleet(ctx context.Context, request CreateFleetRequestObject) (CreateFleetResponseObject, error)
 
+	// (DELETE /api/v1/fleets/{fleet}/templateversions/{name})
+	DeleteTemplateVersion(ctx context.Context, request DeleteTemplateVersionRequestObject) (DeleteTemplateVersionResponseObject, error)
+
+	// (GET /api/v1/fleets/{fleet}/templateversions/{name})
+	ReadTemplateVersion(ctx context.Context, request ReadTemplateVersionRequestObject) (ReadTemplateVersionResponseObject, error)
+
 	// (DELETE /api/v1/fleets/{name})
 	DeleteFleet(ctx context.Context, request DeleteFleetRequestObject) (DeleteFleetResponseObject, error)
 
@@ -2954,6 +3347,15 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/resourcesyncs)
 	CreateResourceSync(ctx context.Context, request CreateResourceSyncRequestObject) (CreateResourceSyncResponseObject, error)
+
+	// (DELETE /api/v1/templateversions)
+	DeleteTemplateVersions(ctx context.Context, request DeleteTemplateVersionsRequestObject) (DeleteTemplateVersionsResponseObject, error)
+
+	// (GET /api/v1/templateversions)
+	ListTemplateVersions(ctx context.Context, request ListTemplateVersionsRequestObject) (ListTemplateVersionsResponseObject, error)
+
+	// (POST /api/v1/templateversions)
+	CreateTemplateVersion(ctx context.Context, request CreateTemplateVersionRequestObject) (CreateTemplateVersionResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHttpHandlerFunc
@@ -3549,6 +3951,60 @@ func (sh *strictHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteTemplateVersion operation middleware
+func (sh *strictHandler) DeleteTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
+	var request DeleteTemplateVersionRequestObject
+
+	request.Fleet = fleet
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTemplateVersion(ctx, request.(DeleteTemplateVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTemplateVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTemplateVersionResponseObject); ok {
+		if err := validResponse.VisitDeleteTemplateVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadTemplateVersion operation middleware
+func (sh *strictHandler) ReadTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
+	var request ReadTemplateVersionRequestObject
+
+	request.Fleet = fleet
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadTemplateVersion(ctx, request.(ReadTemplateVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadTemplateVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadTemplateVersionResponseObject); ok {
+		if err := validResponse.VisitReadTemplateVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteFleet operation middleware
 func (sh *strictHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
 	var request DeleteFleetRequestObject
@@ -4018,6 +4474,89 @@ func (sh *strictHandler) CreateResourceSync(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateResourceSyncResponseObject); ok {
 		if err := validResponse.VisitCreateResourceSyncResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTemplateVersions operation middleware
+func (sh *strictHandler) DeleteTemplateVersions(w http.ResponseWriter, r *http.Request, params DeleteTemplateVersionsParams) {
+	var request DeleteTemplateVersionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTemplateVersions(ctx, request.(DeleteTemplateVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTemplateVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTemplateVersionsResponseObject); ok {
+		if err := validResponse.VisitDeleteTemplateVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTemplateVersions operation middleware
+func (sh *strictHandler) ListTemplateVersions(w http.ResponseWriter, r *http.Request, params ListTemplateVersionsParams) {
+	var request ListTemplateVersionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTemplateVersions(ctx, request.(ListTemplateVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTemplateVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTemplateVersionsResponseObject); ok {
+		if err := validResponse.VisitListTemplateVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTemplateVersion operation middleware
+func (sh *strictHandler) CreateTemplateVersion(w http.ResponseWriter, r *http.Request) {
+	var request CreateTemplateVersionRequestObject
+
+	var body CreateTemplateVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTemplateVersion(ctx, request.(CreateTemplateVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTemplateVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTemplateVersionResponseObject); ok {
+		if err := validResponse.VisitCreateTemplateVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

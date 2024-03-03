@@ -5,6 +5,7 @@ package v1alpha1
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/oapi-codegen/runtime"
 )
@@ -32,6 +33,14 @@ const (
 	ResourceSyncAccessible     ConditionType = "Accessible"
 	ResourceSyncResourceParsed ConditionType = "ResourceParsed"
 	ResourceSyncSynced         ConditionType = "Synced"
+	TemplateVersionReady       ConditionType = "Ready"
+)
+
+// Defines values for TemplateDiscriminators.
+const (
+	TemplateDiscriminatorGitConfig        TemplateDiscriminators = "GitConfigProviderSpec"
+	TemplateDiscriminatorInlineConfig     TemplateDiscriminators = "InlineConfigProviderSpec"
+	TemplateDiscriminatorKubernetesSecret TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
@@ -300,11 +309,20 @@ type FleetStatus struct {
 	Conditions *[]Condition `json:"conditions,omitempty"`
 }
 
+// GenericConfigSpec defines model for GenericConfigSpec.
+type GenericConfigSpec struct {
+	ConfigType string `json:"configType"`
+	Name       string `json:"name"`
+}
+
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
 type GitConfigProviderSpec struct {
-	GitRef struct {
-		Path           string `json:"path"`
-		RepoURL        string `json:"repoURL"`
+	ConfigType string `json:"configType"`
+	GitRef     struct {
+		Path string `json:"path"`
+
+		// Repository The name of the repository resource to use as the sync source
+		Repository     string `json:"repository"`
 		TargetRevision string `json:"targetRevision"`
 	} `json:"gitRef"`
 	Name string `json:"name"`
@@ -312,17 +330,19 @@ type GitConfigProviderSpec struct {
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
-	Inline map[string]interface{} `json:"inline"`
-	Name   string                 `json:"name"`
+	ConfigType string                 `json:"configType"`
+	Inline     map[string]interface{} `json:"inline"`
+	Name       string                 `json:"name"`
 }
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
-	Name      string `json:"name"`
-	SecretRef struct {
-		MountPath string `json:"mountPath"`
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
+	ConfigType string `json:"configType"`
+	Name       string `json:"name"`
+	SecretRef  struct {
+		MountPath string  `json:"mountPath"`
+		Name      *string `json:"name,omitempty"`
+		Namespace string  `json:"namespace"`
 	} `json:"secretRef"`
 }
 
@@ -479,6 +499,62 @@ type Status struct {
 	Status *string `json:"status,omitempty"`
 }
 
+// TemplateDiscriminators defines model for TemplateDiscriminators.
+type TemplateDiscriminators string
+
+// TemplateVersion TemplateVersion represents a version of a template.
+type TemplateVersion struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta          `json:"metadata"`
+	Spec     TemplateVersionSpec `json:"spec"`
+
+	// Status TemplateVersionStatus represents information about the status of a template version.
+	Status *TemplateVersionStatus `json:"status,omitempty"`
+}
+
+// TemplateVersionList TemplateVersionList is a list of TemplateVersions.
+type TemplateVersionList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of TemplateVersions.
+	Items []TemplateVersion `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// TemplateVersionSpec defines model for TemplateVersionSpec.
+type TemplateVersionSpec struct {
+	// Fleet The fleet whose template this refers to.
+	Fleet string `json:"fleet"`
+}
+
+// TemplateVersionStatus TemplateVersionStatus represents information about the status of a template version.
+type TemplateVersionStatus struct {
+	// Conditions Current state of the device.
+	Conditions *[]Condition `json:"conditions,omitempty"`
+
+	// Config List of config resources.
+	Config    *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
+	Os        *DeviceOSSpec                        `json:"os,omitempty"`
+	UpdatedAt *string                              `json:"updatedAt,omitempty"`
+}
+
+// TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.
+type TemplateVersionStatus_Config_Item struct {
+	union json.RawMessage
+}
+
 // UnprocessableEntityResponse UnprocessableEntityResponse is returned when the request is not valid.
 type UnprocessableEntityResponse struct {
 	// Error Error message.
@@ -493,7 +569,7 @@ type ListDevicesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Owner The owner of the devices.
@@ -508,7 +584,7 @@ type ListEnrollmentRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
@@ -520,7 +596,7 @@ type ListFleetsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Owner The owner of the fleets.
@@ -535,7 +611,7 @@ type ListRepositoriesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
@@ -547,8 +623,29 @@ type ListResourceSyncParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// DeleteTemplateVersionsParams defines parameters for DeleteTemplateVersions.
+type DeleteTemplateVersionsParams struct {
+	// Owner The owner of the templateversions.
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+}
+
+// ListTemplateVersionsParams defines parameters for ListTemplateVersions.
+type ListTemplateVersionsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Owner The owner of the templateversions.
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
@@ -593,6 +690,9 @@ type ReplaceResourceSyncJSONRequestBody = ResourceSync
 // CreateResourceSyncJSONRequestBody defines body for CreateResourceSync for application/json ContentType.
 type CreateResourceSyncJSONRequestBody = ResourceSync
 
+// CreateTemplateVersionJSONRequestBody defines body for CreateTemplateVersion for application/json ContentType.
+type CreateTemplateVersionJSONRequestBody = TemplateVersion
+
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
 	var body GitConfigProviderSpec
@@ -602,6 +702,7 @@ func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec
 
 // FromGitConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided GitConfigProviderSpec
 func (t *DeviceSpec_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	v.ConfigType = "GitConfigProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -609,6 +710,7 @@ func (t *DeviceSpec_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSp
 
 // MergeGitConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided GitConfigProviderSpec
 func (t *DeviceSpec_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	v.ConfigType = "GitConfigProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -628,6 +730,7 @@ func (t DeviceSpec_Config_Item) AsKubernetesSecretProviderSpec() (KubernetesSecr
 
 // FromKubernetesSecretProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided KubernetesSecretProviderSpec
 func (t *DeviceSpec_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	v.ConfigType = "KubernetesSecretProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -635,6 +738,7 @@ func (t *DeviceSpec_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSe
 
 // MergeKubernetesSecretProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided KubernetesSecretProviderSpec
 func (t *DeviceSpec_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	v.ConfigType = "KubernetesSecretProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -654,6 +758,7 @@ func (t DeviceSpec_Config_Item) AsInlineConfigProviderSpec() (InlineConfigProvid
 
 // FromInlineConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided InlineConfigProviderSpec
 func (t *DeviceSpec_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	v.ConfigType = "InlineConfigProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -661,6 +766,7 @@ func (t *DeviceSpec_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProv
 
 // MergeInlineConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided InlineConfigProviderSpec
 func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	v.ConfigType = "InlineConfigProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -671,12 +777,125 @@ func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigPro
 	return err
 }
 
+func (t DeviceSpec_Config_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"configType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t DeviceSpec_Config_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "GitConfigProviderSpec":
+		return t.AsGitConfigProviderSpec()
+	case "InlineConfigProviderSpec":
+		return t.AsInlineConfigProviderSpec()
+	case "KubernetesSecretProviderSpec":
+		return t.AsKubernetesSecretProviderSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
 func (t DeviceSpec_Config_Item) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
 }
 
 func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsGitConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a GitConfigProviderSpec
+func (t TemplateVersionStatus_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
+	var body GitConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided GitConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided GitConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsKubernetesSecretProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a KubernetesSecretProviderSpec
+func (t TemplateVersionStatus_Config_Item) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
+	var body KubernetesSecretProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromKubernetesSecretProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided KubernetesSecretProviderSpec
+func (t *TemplateVersionStatus_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided KubernetesSecretProviderSpec
+func (t *TemplateVersionStatus_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInlineConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a InlineConfigProviderSpec
+func (t TemplateVersionStatus_Config_Item) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
+	var body InlineConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided InlineConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided InlineConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TemplateVersionStatus_Config_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TemplateVersionStatus_Config_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

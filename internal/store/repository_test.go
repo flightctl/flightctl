@@ -64,9 +64,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 	Context("Repository store", func() {
 		It("Get repository success", func() {
-			dev, err := storeInst.Repository().Get(ctx, orgId, "myrepository-1")
+			repo, err := storeInst.Repository().Get(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*dev.Metadata.Name).To(Equal("myrepository-1"))
+			Expect(*repo.Metadata.Name).To(Equal("myrepository-1"))
 		})
 
 		It("Get repository - not found error", func() {
@@ -92,22 +92,22 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("Delete all repositorys in org", func() {
+		It("Delete all repositories in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
 			err := storeInst.Repository().DeleteAll(ctx, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := store.ListParams{Limit: 1000}
-			repositorys, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositorys.Items)).To(Equal(numRepositories))
+			Expect(len(repositories.Items)).To(Equal(numRepositories))
 
 			err = storeInst.Repository().DeleteAll(ctx, orgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			repositorys, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositorys.Items)).To(Equal(0))
+			Expect(len(repositories.Items)).To(Equal(0))
 		})
 
 		It("List with paging", func() {
@@ -115,40 +115,40 @@ var _ = Describe("RepositoryStore create", func() {
 			allRepositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allRepositories.Items)).To(Equal(numRepositories))
-			allDevNames := make([]string, len(allRepositories.Items))
-			for i, dev := range allRepositories.Items {
-				allDevNames[i] = *dev.Metadata.Name
+			allRepoNames := make([]string, len(allRepositories.Items))
+			for i, repo := range allRepositories.Items {
+				allRepoNames[i] = *repo.Metadata.Name
 			}
 
-			foundDevNames := make([]string, len(allRepositories.Items))
+			foundRepoNames := make([]string, len(allRepositories.Items))
 			listParams.Limit = 1
-			repositorys, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositorys.Items)).To(Equal(1))
-			Expect(*repositorys.Metadata.RemainingItemCount).To(Equal(int64(2)))
-			foundDevNames[0] = *repositorys.Items[0].Metadata.Name
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Metadata.RemainingItemCount).To(Equal(int64(2)))
+			foundRepoNames[0] = *repositories.Items[0].Metadata.Name
 
-			cont, err := store.ParseContinueString(repositorys.Metadata.Continue)
+			cont, err := store.ParseContinueString(repositories.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			repositorys, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositorys.Items)).To(Equal(1))
-			Expect(*repositorys.Metadata.RemainingItemCount).To(Equal(int64(1)))
-			foundDevNames[1] = *repositorys.Items[0].Metadata.Name
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Metadata.RemainingItemCount).To(Equal(int64(1)))
+			foundRepoNames[1] = *repositories.Items[0].Metadata.Name
 
-			cont, err = store.ParseContinueString(repositorys.Metadata.Continue)
+			cont, err = store.ParseContinueString(repositories.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			repositorys, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositorys.Items)).To(Equal(1))
-			Expect(repositorys.Metadata.RemainingItemCount).To(BeNil())
-			Expect(repositorys.Metadata.Continue).To(BeNil())
-			foundDevNames[2] = *repositorys.Items[0].Metadata.Name
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(repositories.Metadata.RemainingItemCount).To(BeNil())
+			Expect(repositories.Metadata.Continue).To(BeNil())
+			foundRepoNames[2] = *repositories.Items[0].Metadata.Name
 
-			for i := range allDevNames {
-				Expect(allDevNames[i]).To(Equal(foundDevNames[i]))
+			for i := range allRepoNames {
+				Expect(allRepoNames[i]).To(Equal(foundRepoNames[i]))
 			}
 		})
 
@@ -156,10 +156,10 @@ var _ = Describe("RepositoryStore create", func() {
 			listParams := store.ListParams{
 				Limit:  1000,
 				Labels: map[string]string{"key": "value-1"}}
-			repositorys, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositorys.Items)).To(Equal(1))
-			Expect(*repositorys.Items[0].Metadata.Name).To(Equal("myrepository-1"))
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Items[0].Metadata.Name).To(Equal("myrepository-1"))
 		})
 
 		It("CreateOrUpdateRepository create mode", func() {
@@ -181,13 +181,13 @@ var _ = Describe("RepositoryStore create", func() {
 					Conditions: &[]api.Condition{condition},
 				},
 			}
-			dev, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			Expect(dev.ApiVersion).To(Equal(model.RepositoryAPI))
-			Expect(dev.Kind).To(Equal(model.RepositoryKind))
-			Expect(*dev.Spec.Repo).To(Equal("myrepo"))
-			Expect(dev.Status.Conditions).To(BeNil())
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
+			Expect(repo.Kind).To(Equal(model.RepositoryKind))
+			Expect(*repo.Spec.Repo).To(Equal("myrepo"))
+			Expect(repo.Status.Conditions).To(BeNil())
 		})
 
 		It("CreateOrUpdateRepository update mode", func() {
@@ -209,13 +209,13 @@ var _ = Describe("RepositoryStore create", func() {
 					Conditions: &[]api.Condition{condition},
 				},
 			}
-			dev, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			Expect(dev.ApiVersion).To(Equal(model.RepositoryAPI))
-			Expect(dev.Kind).To(Equal(model.RepositoryKind))
-			Expect(*dev.Spec.Repo).To(Equal("myotherrepo"))
-			Expect(dev.Status.Conditions).To(BeNil())
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
+			Expect(repo.Kind).To(Equal(model.RepositoryKind))
+			Expect(*repo.Spec.Repo).To(Equal("myotherrepo"))
+			Expect(repo.Status.Conditions).To(BeNil())
 		})
 	})
 })
