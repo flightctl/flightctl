@@ -26,7 +26,7 @@ var (
 )
 
 type GetOptions struct {
-	FleetName     string
+	Owner         string
 	LabelSelector string
 	Output        string
 	Limit         int32
@@ -49,12 +49,12 @@ func NewCmdGet() *cobra.Command {
 				return fmt.Errorf("cannot specify label selector together when fetching a single resource")
 			}
 
-			if cmd.Flags().Lookup("fleetname").Changed {
+			if cmd.Flags().Lookup("owner").Changed {
 				if kind != DeviceKind {
-					return fmt.Errorf("fleetname can only be specified when fetching devices")
+					return fmt.Errorf("owner can only be specified when fetching devices")
 				}
 				if len(name) > 0 {
-					return fmt.Errorf("cannot specify fleetname together with a device name")
+					return fmt.Errorf("cannot specify owner together with a device name")
 				}
 			}
 
@@ -68,9 +68,9 @@ func NewCmdGet() *cobra.Command {
 			if cmd.Flags().Lookup("labelselector").Changed {
 				labelSelector = &o.LabelSelector
 			}
-			var fleetName *string
-			if cmd.Flags().Lookup("fleetname").Changed {
-				fleetName = &o.FleetName
+			var owner *string
+			if cmd.Flags().Lookup("owner").Changed {
+				owner = &o.Owner
 			}
 			var limit *int32
 			if cmd.Flags().Lookup("limit").Changed {
@@ -80,12 +80,12 @@ func NewCmdGet() *cobra.Command {
 			if cmd.Flags().Lookup("continue").Changed {
 				cont = &o.Continue
 			}
-			return RunGet(kind, name, labelSelector, fleetName, o.Output, limit, cont)
+			return RunGet(kind, name, labelSelector, owner, o.Output, limit, cont)
 		},
 		SilenceUsage: true,
 	}
 
-	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "fleet name selector for listing devices")
+	cmd.Flags().StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
 	cmd.Flags().StringVarP(&o.LabelSelector, "labelselector", "l", o.LabelSelector, "label selector as a comma-separated list of key=value")
 	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, "output format (yaml)")
 	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "the maximum number of results returned in the list response")
@@ -93,7 +93,7 @@ func NewCmdGet() *cobra.Command {
 	return cmd
 }
 
-func RunGet(kind, name string, labelSelector, fleetName *string, output string, limit *int32, cont *string) error {
+func RunGet(kind, name string, labelSelector, owner *string, output string, limit *int32, cont *string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %v", err)
@@ -106,14 +106,14 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
+			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
 				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
 			fmt.Printf("%s\n", string(out))
 		} else {
 			params := api.ListDevicesParams{
-				FleetName:     fleetName,
+				Owner:         owner,
 				LabelSelector: labelSelector,
 				Limit:         limit,
 				Continue:      cont,
@@ -130,7 +130,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
+			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
 				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
@@ -153,7 +153,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
+			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
 				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
@@ -177,7 +177,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
+			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
 				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
@@ -201,7 +201,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 			if err != nil {
 				return fmt.Errorf("reading %s/%s: %v", kind, name, err)
 			}
-			out, err := serializeResponse(response, err, fmt.Sprintf("%s/%s", kind, name))
+			out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
 			if err != nil {
 				return fmt.Errorf("serializing response for %s/%s: %v", kind, name, err)
 			}
@@ -225,7 +225,7 @@ func RunGet(kind, name string, labelSelector, fleetName *string, output string, 
 	return nil
 }
 
-func serializeResponse(response interface{}, err error, name string) ([]byte, error) {
+func serializeResponse(response interface{}, name string) ([]byte, error) {
 	v := reflect.ValueOf(response).Elem()
 	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
 		return nil, fmt.Errorf("reading %s: %d", name, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())

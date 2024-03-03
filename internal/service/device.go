@@ -38,14 +38,6 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		return nil, err
 	}
 
-	if request.Params.FleetName != nil {
-		fleet, err := h.store.Fleet().Get(ctx, orgId, *request.Params.FleetName)
-		if err != nil {
-			return server.ListDevices400Response{}, fmt.Errorf("fleet not found %q, %w", *request.Params.FleetName, err)
-		}
-		labelMap = util.MergeLabels(fleet.Spec.Selector.MatchLabels, labelMap)
-	}
-
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListDevices400Response{}, fmt.Errorf("failed to parse continue parameter: %s", err)
@@ -55,6 +47,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		Labels:   labelMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
+		Owner:    request.Params.Owner,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest

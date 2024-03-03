@@ -496,8 +496,8 @@ type ListDevicesParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// FleetName The name of the fleet to which the devices belong.
-	FleetName *string `form:"fleetName,omitempty" json:"fleetName,omitempty"`
+	// Owner The owner of the devices.
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.
@@ -522,6 +522,9 @@ type ListFleetsParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subesquent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Owner The owner of the fleets.
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // ListRepositoriesParams defines parameters for ListRepositories.

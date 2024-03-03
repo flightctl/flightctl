@@ -375,9 +375,9 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: fleetName
+        - name: owner
           in: query
-          description: The name of the fleet to which the devices belong.
+          description: The owner of the devices.
           required: false
           schema:
             type: string
@@ -872,6 +872,12 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: owner
+          in: query
+          description: The owner of the fleets.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -1058,7 +1064,7 @@ paths:
       parameters:
         - name: name
           in: path
-          description: name of the Device
+          description: name of the Fleet
           required: true
           schema:
             type: string
