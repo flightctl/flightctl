@@ -114,34 +114,34 @@ func applyFromReader(client *apiclient.ClientWithResponses, filename string, r i
 
 		var httpResponse *http.Response
 
-		switch kind {
-		case "Device":
+		switch strings.ToLower(kind) {
+		case DeviceKind:
 			var response *apiclient.ReplaceDeviceResponse
 			response, err = client.ReplaceDeviceWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
 
-		case "EnrollmentRequest":
+		case EnrollmentRequestKind:
 			var response *apiclient.ReplaceEnrollmentRequestResponse
 			response, err = client.ReplaceEnrollmentRequestWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
 
-		case "Fleet":
+		case FleetKind:
 			var response *apiclient.ReplaceFleetResponse
 			response, err = client.ReplaceFleetWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
-		case "Repository":
+		case RepositoryKind:
 			var response *apiclient.ReplaceRepositoryResponse
 			response, err = client.ReplaceRepositoryWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
 			}
-		case "ResourceSync":
+		case ResourceSyncKind:
 			var response *apiclient.ReplaceResourceSyncResponse
 			response, err = client.ReplaceResourceSyncWithBodyWithResponse(context.Background(), resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
