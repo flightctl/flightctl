@@ -939,9 +939,9 @@ func NewListDevicesRequest(server string, params *ListDevicesParams) (*http.Requ
 
 		}
 
-		if params.FleetName != nil {
+		if params.Owner != nil {
 
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "fleetName", runtime.ParamLocationQuery, *params.FleetName); err != nil {
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "owner", runtime.ParamLocationQuery, *params.Owner); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -1677,6 +1677,22 @@ func NewListFleetsRequest(server string, params *ListFleetsParams) (*http.Reques
 		if params.Limit != nil {
 
 			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Owner != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "owner", runtime.ParamLocationQuery, *params.Owner); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
