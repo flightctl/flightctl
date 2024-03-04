@@ -40,7 +40,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListDevices400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
+		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
 	listParams := store.ListParams{
@@ -53,7 +53,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListDevices400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
+		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
 	result, err := h.store.Device().List(ctx, orgId, listParams)
@@ -87,7 +87,7 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 	case nil:
 		return server.ReadDevice200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadDevice404Response{}, nil
+		return server.ReadDevice404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -96,8 +96,11 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceDevice400Response{}, nil
+	if request.Body.Metadata.Name == nil {
+		return server.ReplaceDevice400JSONResponse{Message: "metadata.name is not specified"}, nil
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
 	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
@@ -109,7 +112,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 			return server.ReplaceDevice200JSONResponse(*result), nil
 		}
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceDevice404Response{}, nil
+		return server.ReplaceDevice404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -124,7 +127,7 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.DeleteDevice404Response{}, nil
+		return server.DeleteDevice404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -139,7 +142,7 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 	case nil:
 		return server.ReadDeviceStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadDeviceStatus404Response{}, nil
+		return server.ReadDeviceStatus404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -157,7 +160,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	case nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceDeviceStatus404Response{}, nil
+		return server.ReplaceDeviceStatus404JSONResponse{}, nil
 	default:
 		return nil, err
 	}

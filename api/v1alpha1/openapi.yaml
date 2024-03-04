@@ -42,10 +42,16 @@ paths:
                 $ref: '#/components/schemas/ResourceSyncList'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - resourcesync
@@ -66,13 +72,22 @@ paths:
                 $ref: '#/components/schemas/ResourceSync'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - resourcesync
@@ -87,7 +102,10 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/resourcesync/{name}:
     get:
       tags:
@@ -110,10 +128,16 @@ paths:
                 $ref: '#/components/schemas/ResourceSync'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - resourcesync
@@ -147,13 +171,22 @@ paths:
                 $ref: '#/components/schemas/ResourceSync'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - resourcesync
@@ -175,10 +208,16 @@ paths:
                 $ref: '#/components/schemas/ResourceSync'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/repositories:
     get:
       tags:
@@ -213,10 +252,16 @@ paths:
                 $ref: '#/components/schemas/RepositoryList'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - repository
@@ -237,13 +282,22 @@ paths:
                 $ref: '#/components/schemas/Repository'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - repository
@@ -258,7 +312,10 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/repositories/{name}:
     get:
       tags:
@@ -281,10 +338,16 @@ paths:
                 $ref: '#/components/schemas/Repository'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - repository
@@ -318,13 +381,22 @@ paths:
                 $ref: '#/components/schemas/Repository'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - repository
@@ -346,10 +418,16 @@ paths:
                 $ref: '#/components/schemas/Repository'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices:
     get:
       tags:
@@ -390,10 +468,16 @@ paths:
                 $ref: '#/components/schemas/DeviceList'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - device
@@ -414,10 +498,16 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - device
@@ -432,7 +522,10 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}:
     get:
       tags:
@@ -455,10 +548,16 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - device
@@ -492,13 +591,22 @@ paths:
                 $ref: '#/components/schemas/Device'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - device
@@ -520,10 +628,16 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/status:
     get:
       tags:
@@ -546,10 +660,16 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - device
@@ -577,13 +697,22 @@ paths:
                 $ref: '#/components/schemas/Device'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -618,10 +747,16 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequestList'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - enrollmentrequest
@@ -642,10 +777,16 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -660,7 +801,10 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentrequests/{name}:
     get:
       tags:
@@ -683,10 +827,16 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - enrollmentrequest
@@ -720,13 +870,22 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -748,10 +907,16 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentrequests/{name}/status:
     get:
       tags:
@@ -774,10 +939,16 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - enrollmentrequest
@@ -805,10 +976,16 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentrequests/{name}/approval:
     post:
       tags:
@@ -840,13 +1017,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UnprocessableEntityResponse'
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets:
     get:
       tags:
@@ -887,10 +1070,16 @@ paths:
                 $ref: '#/components/schemas/FleetList'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - fleet
@@ -911,13 +1100,22 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - fleet
@@ -932,7 +1130,10 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets/{name}:
     get:
       tags:
@@ -955,10 +1156,16 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - fleet
@@ -992,16 +1199,28 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - fleet
@@ -1023,13 +1242,22 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets/{name}/status:
     get:
       tags:
@@ -1052,10 +1280,16 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       tags:
         - fleet
@@ -1083,10 +1317,16 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/templateversions:
     description: |
       A TemplateVersion logically belongs to a Fleet, and so it might be natural to have
@@ -1136,10 +1376,16 @@ paths:
                 $ref: '#/components/schemas/TemplateVersionList'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - templateversion
@@ -1160,13 +1406,22 @@ paths:
                 $ref: '#/components/schemas/TemplateVersion'
         "400":
           description: Bad Request
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - templateversion
@@ -1188,7 +1443,10 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets/{fleet}/templateversions/{name}:
     get:
       tags:
@@ -1217,10 +1475,16 @@ paths:
                 $ref: '#/components/schemas/TemplateVersion'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - templateversion
@@ -1248,11 +1512,16 @@ paths:
                 $ref: '#/components/schemas/TemplateVersion'
         "401":
           description: Unauthorized
-          content: {}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
-          content: {}
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   schemas:
     Repository:
@@ -1925,15 +2194,13 @@ components:
           type: string
           description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
       description: Status is a return value for calls that don't return other objects.
-    UnprocessableEntityResponse:
-      description: UnprocessableEntityResponse is returned when the request is not valid.
-      type: object
-      properties:
-        error:
-          type: string
-          description: 'Error message.'
+    Error:
       required:
-        - error
+        - message
+      properties:
+        message:
+          type: string
+          description: Error message
     Condition:
       required:
         - status
@@ -2014,5 +2281,5 @@ components:
       - 'InlineConfigProviderSpec'
       x-enum-varnames:
       - 'TemplateDiscriminatorGitConfig'
-      - 'TemplateDiscriminatorKubernetesSecret'
+      - 'TemplateDiscriminatorKubernetesSec'
       - 'TemplateDiscriminatorInlineConfig'

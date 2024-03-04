@@ -32,11 +32,9 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, request serv
 	case nil:
 		return server.CreateTemplateVersion201JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.CreateTemplateVersion400Response{}, nil
+		return server.CreateTemplateVersion400JSONResponse{Message: "specified fleet not found"}, nil
 	case gorm.ErrInvalidData:
-		return server.CreateTemplateVersion409Response{}, nil
-	case gorm.ErrDuplicatedKey:
-		return server.CreateTemplateVersion409Response{}, nil
+		return server.CreateTemplateVersion409JSONResponse{Message: "a template version with this name and fleet already exists"}, nil
 
 	default:
 		return nil, err
@@ -58,7 +56,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListTemplateVersions400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
+		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
 	listParams := store.ListParams{
@@ -71,7 +69,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListTemplateVersions400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
+		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
 	result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
@@ -105,7 +103,7 @@ func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server
 	case nil:
 		return server.ReadTemplateVersion200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadTemplateVersion404Response{}, nil
+		return server.ReadTemplateVersion404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -120,7 +118,7 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request serv
 	case nil:
 		return server.DeleteTemplateVersion200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.DeleteTemplateVersion404Response{}, nil
+		return server.DeleteTemplateVersion404JSONResponse{}, nil
 	default:
 		return nil, err
 	}

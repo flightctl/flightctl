@@ -1750,12 +1750,13 @@ func (response DeleteDevices200JSONResponse) VisitDeleteDevicesResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteDevices401Response struct {
-}
+type DeleteDevices401JSONResponse Error
 
-func (response DeleteDevices401Response) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
+func (response DeleteDevices401JSONResponse) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListDevicesRequestObject struct {
@@ -1775,20 +1776,22 @@ func (response ListDevices200JSONResponse) VisitListDevicesResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListDevices400Response struct {
-}
+type ListDevices400JSONResponse Error
 
-func (response ListDevices400Response) VisitListDevicesResponse(w http.ResponseWriter) error {
+func (response ListDevices400JSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ListDevices401Response struct {
-}
+type ListDevices401JSONResponse Error
 
-func (response ListDevices401Response) VisitListDevicesResponse(w http.ResponseWriter) error {
+func (response ListDevices401JSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type CreateDeviceRequestObject struct {
@@ -1808,20 +1811,22 @@ func (response CreateDevice201JSONResponse) VisitCreateDeviceResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateDevice401Response struct {
-}
+type CreateDevice401JSONResponse Error
 
-func (response CreateDevice401Response) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+func (response CreateDevice401JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateDevice409Response struct {
-}
+type CreateDevice409JSONResponse Error
 
-func (response CreateDevice409Response) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+func (response CreateDevice409JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteDeviceRequestObject struct {
@@ -1841,20 +1846,22 @@ func (response DeleteDevice200JSONResponse) VisitDeleteDeviceResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteDevice401Response struct {
-}
+type DeleteDevice401JSONResponse Error
 
-func (response DeleteDevice401Response) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
+func (response DeleteDevice401JSONResponse) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteDevice404Response struct {
-}
+type DeleteDevice404JSONResponse Error
 
-func (response DeleteDevice404Response) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
+func (response DeleteDevice404JSONResponse) VisitDeleteDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadDeviceRequestObject struct {
@@ -1874,20 +1881,22 @@ func (response ReadDevice200JSONResponse) VisitReadDeviceResponse(w http.Respons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadDevice401Response struct {
-}
+type ReadDevice401JSONResponse Error
 
-func (response ReadDevice401Response) VisitReadDeviceResponse(w http.ResponseWriter) error {
+func (response ReadDevice401JSONResponse) VisitReadDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadDevice404Response struct {
-}
+type ReadDevice404JSONResponse Error
 
-func (response ReadDevice404Response) VisitReadDeviceResponse(w http.ResponseWriter) error {
+func (response ReadDevice404JSONResponse) VisitReadDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceDeviceRequestObject struct {
@@ -1917,28 +1926,31 @@ func (response ReplaceDevice201JSONResponse) VisitReplaceDeviceResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDevice400Response struct {
-}
+type ReplaceDevice400JSONResponse Error
 
-func (response ReplaceDevice400Response) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+func (response ReplaceDevice400JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDevice401Response struct {
-}
+type ReplaceDevice401JSONResponse Error
 
-func (response ReplaceDevice401Response) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+func (response ReplaceDevice401JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDevice404Response struct {
-}
+type ReplaceDevice404JSONResponse Error
 
-func (response ReplaceDevice404Response) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+func (response ReplaceDevice404JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadDeviceStatusRequestObject struct {
@@ -1958,20 +1970,22 @@ func (response ReadDeviceStatus200JSONResponse) VisitReadDeviceStatusResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadDeviceStatus401Response struct {
-}
+type ReadDeviceStatus401JSONResponse Error
 
-func (response ReadDeviceStatus401Response) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
+func (response ReadDeviceStatus401JSONResponse) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadDeviceStatus404Response struct {
-}
+type ReadDeviceStatus404JSONResponse Error
 
-func (response ReadDeviceStatus404Response) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
+func (response ReadDeviceStatus404JSONResponse) VisitReadDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceDeviceStatusRequestObject struct {
@@ -1992,28 +2006,31 @@ func (response ReplaceDeviceStatus200JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus400Response struct {
-}
+type ReplaceDeviceStatus400JSONResponse Error
 
-func (response ReplaceDeviceStatus400Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceDeviceStatus400JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus401Response struct {
-}
+type ReplaceDeviceStatus401JSONResponse Error
 
-func (response ReplaceDeviceStatus401Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceDeviceStatus401JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus404Response struct {
-}
+type ReplaceDeviceStatus404JSONResponse Error
 
-func (response ReplaceDeviceStatus404Response) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceDeviceStatus404JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteEnrollmentRequestsRequestObject struct {
@@ -2032,12 +2049,13 @@ func (response DeleteEnrollmentRequests200JSONResponse) VisitDeleteEnrollmentReq
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteEnrollmentRequests401Response struct {
-}
+type DeleteEnrollmentRequests401JSONResponse Error
 
-func (response DeleteEnrollmentRequests401Response) VisitDeleteEnrollmentRequestsResponse(w http.ResponseWriter) error {
+func (response DeleteEnrollmentRequests401JSONResponse) VisitDeleteEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListEnrollmentRequestsRequestObject struct {
@@ -2057,20 +2075,22 @@ func (response ListEnrollmentRequests200JSONResponse) VisitListEnrollmentRequest
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListEnrollmentRequests400Response struct {
-}
+type ListEnrollmentRequests400JSONResponse Error
 
-func (response ListEnrollmentRequests400Response) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+func (response ListEnrollmentRequests400JSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ListEnrollmentRequests401Response struct {
-}
+type ListEnrollmentRequests401JSONResponse Error
 
-func (response ListEnrollmentRequests401Response) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+func (response ListEnrollmentRequests401JSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type CreateEnrollmentRequestRequestObject struct {
@@ -2090,20 +2110,22 @@ func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest401Response struct {
-}
+type CreateEnrollmentRequest401JSONResponse Error
 
-func (response CreateEnrollmentRequest401Response) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response CreateEnrollmentRequest401JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest409Response struct {
-}
+type CreateEnrollmentRequest409JSONResponse Error
 
-func (response CreateEnrollmentRequest409Response) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response CreateEnrollmentRequest409JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteEnrollmentRequestRequestObject struct {
@@ -2123,20 +2145,22 @@ func (response DeleteEnrollmentRequest200JSONResponse) VisitDeleteEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteEnrollmentRequest401Response struct {
-}
+type DeleteEnrollmentRequest401JSONResponse Error
 
-func (response DeleteEnrollmentRequest401Response) VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response DeleteEnrollmentRequest401JSONResponse) VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteEnrollmentRequest404Response struct {
-}
+type DeleteEnrollmentRequest404JSONResponse Error
 
-func (response DeleteEnrollmentRequest404Response) VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response DeleteEnrollmentRequest404JSONResponse) VisitDeleteEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadEnrollmentRequestRequestObject struct {
@@ -2156,20 +2180,22 @@ func (response ReadEnrollmentRequest200JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest401Response struct {
-}
+type ReadEnrollmentRequest401JSONResponse Error
 
-func (response ReadEnrollmentRequest401Response) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response ReadEnrollmentRequest401JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest404Response struct {
-}
+type ReadEnrollmentRequest404JSONResponse Error
 
-func (response ReadEnrollmentRequest404Response) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response ReadEnrollmentRequest404JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceEnrollmentRequestRequestObject struct {
@@ -2199,28 +2225,31 @@ func (response ReplaceEnrollmentRequest201JSONResponse) VisitReplaceEnrollmentRe
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceEnrollmentRequest400Response struct {
-}
+type ReplaceEnrollmentRequest400JSONResponse Error
 
-func (response ReplaceEnrollmentRequest400Response) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response ReplaceEnrollmentRequest400JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceEnrollmentRequest401Response struct {
-}
+type ReplaceEnrollmentRequest401JSONResponse Error
 
-func (response ReplaceEnrollmentRequest401Response) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response ReplaceEnrollmentRequest401JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceEnrollmentRequest404Response struct {
-}
+type ReplaceEnrollmentRequest404JSONResponse Error
 
-func (response ReplaceEnrollmentRequest404Response) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+func (response ReplaceEnrollmentRequest404JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type CreateEnrollmentRequestApprovalRequestObject struct {
@@ -2241,23 +2270,25 @@ func (response CreateEnrollmentRequestApproval200JSONResponse) VisitCreateEnroll
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApproval401Response struct {
-}
+type CreateEnrollmentRequestApproval401JSONResponse Error
 
-func (response CreateEnrollmentRequestApproval401Response) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+func (response CreateEnrollmentRequestApproval401JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApproval404Response struct {
-}
+type CreateEnrollmentRequestApproval404JSONResponse Error
 
-func (response CreateEnrollmentRequestApproval404Response) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+func (response CreateEnrollmentRequestApproval404JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApproval422JSONResponse UnprocessableEntityResponse
+type CreateEnrollmentRequestApproval422JSONResponse Error
 
 func (response CreateEnrollmentRequestApproval422JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -2283,20 +2314,22 @@ func (response ReadEnrollmentRequestStatus200JSONResponse) VisitReadEnrollmentRe
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequestStatus401Response struct {
-}
+type ReadEnrollmentRequestStatus401JSONResponse Error
 
-func (response ReadEnrollmentRequestStatus401Response) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+func (response ReadEnrollmentRequestStatus401JSONResponse) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequestStatus404Response struct {
-}
+type ReadEnrollmentRequestStatus404JSONResponse Error
 
-func (response ReadEnrollmentRequestStatus404Response) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+func (response ReadEnrollmentRequestStatus404JSONResponse) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceEnrollmentRequestStatusRequestObject struct {
@@ -2317,20 +2350,22 @@ func (response ReplaceEnrollmentRequestStatus200JSONResponse) VisitReplaceEnroll
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceEnrollmentRequestStatus401Response struct {
-}
+type ReplaceEnrollmentRequestStatus401JSONResponse Error
 
-func (response ReplaceEnrollmentRequestStatus401Response) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceEnrollmentRequestStatus401JSONResponse) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceEnrollmentRequestStatus404Response struct {
-}
+type ReplaceEnrollmentRequestStatus404JSONResponse Error
 
-func (response ReplaceEnrollmentRequestStatus404Response) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceEnrollmentRequestStatus404JSONResponse) VisitReplaceEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteFleetsRequestObject struct {
@@ -2349,12 +2384,13 @@ func (response DeleteFleets200JSONResponse) VisitDeleteFleetsResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteFleets401Response struct {
-}
+type DeleteFleets401JSONResponse Error
 
-func (response DeleteFleets401Response) VisitDeleteFleetsResponse(w http.ResponseWriter) error {
+func (response DeleteFleets401JSONResponse) VisitDeleteFleetsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListFleetsRequestObject struct {
@@ -2374,20 +2410,22 @@ func (response ListFleets200JSONResponse) VisitListFleetsResponse(w http.Respons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListFleets400Response struct {
-}
+type ListFleets400JSONResponse Error
 
-func (response ListFleets400Response) VisitListFleetsResponse(w http.ResponseWriter) error {
+func (response ListFleets400JSONResponse) VisitListFleetsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ListFleets401Response struct {
-}
+type ListFleets401JSONResponse Error
 
-func (response ListFleets401Response) VisitListFleetsResponse(w http.ResponseWriter) error {
+func (response ListFleets401JSONResponse) VisitListFleetsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type CreateFleetRequestObject struct {
@@ -2407,28 +2445,31 @@ func (response CreateFleet201JSONResponse) VisitCreateFleetResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateFleet400Response struct {
-}
+type CreateFleet400JSONResponse Error
 
-func (response CreateFleet400Response) VisitCreateFleetResponse(w http.ResponseWriter) error {
+func (response CreateFleet400JSONResponse) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateFleet401Response struct {
-}
+type CreateFleet401JSONResponse Error
 
-func (response CreateFleet401Response) VisitCreateFleetResponse(w http.ResponseWriter) error {
+func (response CreateFleet401JSONResponse) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateFleet409Response struct {
-}
+type CreateFleet409JSONResponse Error
 
-func (response CreateFleet409Response) VisitCreateFleetResponse(w http.ResponseWriter) error {
+func (response CreateFleet409JSONResponse) VisitCreateFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteTemplateVersionRequestObject struct {
@@ -2449,20 +2490,22 @@ func (response DeleteTemplateVersion200JSONResponse) VisitDeleteTemplateVersionR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteTemplateVersion401Response struct {
-}
+type DeleteTemplateVersion401JSONResponse Error
 
-func (response DeleteTemplateVersion401Response) VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error {
+func (response DeleteTemplateVersion401JSONResponse) VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteTemplateVersion404Response struct {
-}
+type DeleteTemplateVersion404JSONResponse Error
 
-func (response DeleteTemplateVersion404Response) VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error {
+func (response DeleteTemplateVersion404JSONResponse) VisitDeleteTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadTemplateVersionRequestObject struct {
@@ -2483,20 +2526,22 @@ func (response ReadTemplateVersion200JSONResponse) VisitReadTemplateVersionRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadTemplateVersion401Response struct {
-}
+type ReadTemplateVersion401JSONResponse Error
 
-func (response ReadTemplateVersion401Response) VisitReadTemplateVersionResponse(w http.ResponseWriter) error {
+func (response ReadTemplateVersion401JSONResponse) VisitReadTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadTemplateVersion404Response struct {
-}
+type ReadTemplateVersion404JSONResponse Error
 
-func (response ReadTemplateVersion404Response) VisitReadTemplateVersionResponse(w http.ResponseWriter) error {
+func (response ReadTemplateVersion404JSONResponse) VisitReadTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteFleetRequestObject struct {
@@ -2516,28 +2561,31 @@ func (response DeleteFleet200JSONResponse) VisitDeleteFleetResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteFleet401Response struct {
-}
+type DeleteFleet401JSONResponse Error
 
-func (response DeleteFleet401Response) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+func (response DeleteFleet401JSONResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteFleet404Response struct {
-}
+type DeleteFleet404JSONResponse Error
 
-func (response DeleteFleet404Response) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+func (response DeleteFleet404JSONResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteFleet409Response struct {
-}
+type DeleteFleet409JSONResponse Error
 
-func (response DeleteFleet409Response) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+func (response DeleteFleet409JSONResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadFleetRequestObject struct {
@@ -2557,20 +2605,22 @@ func (response ReadFleet200JSONResponse) VisitReadFleetResponse(w http.ResponseW
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadFleet401Response struct {
-}
+type ReadFleet401JSONResponse Error
 
-func (response ReadFleet401Response) VisitReadFleetResponse(w http.ResponseWriter) error {
+func (response ReadFleet401JSONResponse) VisitReadFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadFleet404Response struct {
-}
+type ReadFleet404JSONResponse Error
 
-func (response ReadFleet404Response) VisitReadFleetResponse(w http.ResponseWriter) error {
+func (response ReadFleet404JSONResponse) VisitReadFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceFleetRequestObject struct {
@@ -2600,36 +2650,40 @@ func (response ReplaceFleet201JSONResponse) VisitReplaceFleetResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceFleet400Response struct {
-}
+type ReplaceFleet400JSONResponse Error
 
-func (response ReplaceFleet400Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+func (response ReplaceFleet400JSONResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceFleet401Response struct {
-}
+type ReplaceFleet401JSONResponse Error
 
-func (response ReplaceFleet401Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+func (response ReplaceFleet401JSONResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceFleet404Response struct {
-}
+type ReplaceFleet404JSONResponse Error
 
-func (response ReplaceFleet404Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+func (response ReplaceFleet404JSONResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceFleet409Response struct {
-}
+type ReplaceFleet409JSONResponse Error
 
-func (response ReplaceFleet409Response) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+func (response ReplaceFleet409JSONResponse) VisitReplaceFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadFleetStatusRequestObject struct {
@@ -2649,20 +2703,22 @@ func (response ReadFleetStatus200JSONResponse) VisitReadFleetStatusResponse(w ht
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadFleetStatus401Response struct {
-}
+type ReadFleetStatus401JSONResponse Error
 
-func (response ReadFleetStatus401Response) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+func (response ReadFleetStatus401JSONResponse) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadFleetStatus404Response struct {
-}
+type ReadFleetStatus404JSONResponse Error
 
-func (response ReadFleetStatus404Response) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+func (response ReadFleetStatus404JSONResponse) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceFleetStatusRequestObject struct {
@@ -2683,20 +2739,22 @@ func (response ReplaceFleetStatus200JSONResponse) VisitReplaceFleetStatusRespons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceFleetStatus401Response struct {
-}
+type ReplaceFleetStatus401JSONResponse Error
 
-func (response ReplaceFleetStatus401Response) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceFleetStatus401JSONResponse) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceFleetStatus404Response struct {
-}
+type ReplaceFleetStatus404JSONResponse Error
 
-func (response ReplaceFleetStatus404Response) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
+func (response ReplaceFleetStatus404JSONResponse) VisitReplaceFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteRepositoriesRequestObject struct {
@@ -2715,12 +2773,13 @@ func (response DeleteRepositories200JSONResponse) VisitDeleteRepositoriesRespons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteRepositories401Response struct {
-}
+type DeleteRepositories401JSONResponse Error
 
-func (response DeleteRepositories401Response) VisitDeleteRepositoriesResponse(w http.ResponseWriter) error {
+func (response DeleteRepositories401JSONResponse) VisitDeleteRepositoriesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListRepositoriesRequestObject struct {
@@ -2740,20 +2799,22 @@ func (response ListRepositories200JSONResponse) VisitListRepositoriesResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListRepositories400Response struct {
-}
+type ListRepositories400JSONResponse Error
 
-func (response ListRepositories400Response) VisitListRepositoriesResponse(w http.ResponseWriter) error {
+func (response ListRepositories400JSONResponse) VisitListRepositoriesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ListRepositories401Response struct {
-}
+type ListRepositories401JSONResponse Error
 
-func (response ListRepositories401Response) VisitListRepositoriesResponse(w http.ResponseWriter) error {
+func (response ListRepositories401JSONResponse) VisitListRepositoriesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type CreateRepositoryRequestObject struct {
@@ -2773,28 +2834,31 @@ func (response CreateRepository201JSONResponse) VisitCreateRepositoryResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateRepository400Response struct {
-}
+type CreateRepository400JSONResponse Error
 
-func (response CreateRepository400Response) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+func (response CreateRepository400JSONResponse) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateRepository401Response struct {
-}
+type CreateRepository401JSONResponse Error
 
-func (response CreateRepository401Response) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+func (response CreateRepository401JSONResponse) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateRepository409Response struct {
-}
+type CreateRepository409JSONResponse Error
 
-func (response CreateRepository409Response) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+func (response CreateRepository409JSONResponse) VisitCreateRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteRepositoryRequestObject struct {
@@ -2814,20 +2878,22 @@ func (response DeleteRepository200JSONResponse) VisitDeleteRepositoryResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteRepository401Response struct {
-}
+type DeleteRepository401JSONResponse Error
 
-func (response DeleteRepository401Response) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
+func (response DeleteRepository401JSONResponse) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteRepository404Response struct {
-}
+type DeleteRepository404JSONResponse Error
 
-func (response DeleteRepository404Response) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
+func (response DeleteRepository404JSONResponse) VisitDeleteRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadRepositoryRequestObject struct {
@@ -2847,20 +2913,22 @@ func (response ReadRepository200JSONResponse) VisitReadRepositoryResponse(w http
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadRepository401Response struct {
-}
+type ReadRepository401JSONResponse Error
 
-func (response ReadRepository401Response) VisitReadRepositoryResponse(w http.ResponseWriter) error {
+func (response ReadRepository401JSONResponse) VisitReadRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadRepository404Response struct {
-}
+type ReadRepository404JSONResponse Error
 
-func (response ReadRepository404Response) VisitReadRepositoryResponse(w http.ResponseWriter) error {
+func (response ReadRepository404JSONResponse) VisitReadRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceRepositoryRequestObject struct {
@@ -2890,28 +2958,31 @@ func (response ReplaceRepository201JSONResponse) VisitReplaceRepositoryResponse(
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceRepository400Response struct {
-}
+type ReplaceRepository400JSONResponse Error
 
-func (response ReplaceRepository400Response) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+func (response ReplaceRepository400JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceRepository401Response struct {
-}
+type ReplaceRepository401JSONResponse Error
 
-func (response ReplaceRepository401Response) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+func (response ReplaceRepository401JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceRepository404Response struct {
-}
+type ReplaceRepository404JSONResponse Error
 
-func (response ReplaceRepository404Response) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+func (response ReplaceRepository404JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteResourceSyncRequestObject struct {
@@ -2931,20 +3002,22 @@ func (response DeleteResourceSync200JSONResponse) VisitDeleteResourceSyncRespons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteResourceSync401Response struct {
-}
+type DeleteResourceSync401JSONResponse Error
 
-func (response DeleteResourceSync401Response) VisitDeleteResourceSyncResponse(w http.ResponseWriter) error {
+func (response DeleteResourceSync401JSONResponse) VisitDeleteResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteResourceSync404Response struct {
-}
+type DeleteResourceSync404JSONResponse Error
 
-func (response DeleteResourceSync404Response) VisitDeleteResourceSyncResponse(w http.ResponseWriter) error {
+func (response DeleteResourceSync404JSONResponse) VisitDeleteResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReadResourceSyncRequestObject struct {
@@ -2964,20 +3037,22 @@ func (response ReadResourceSync200JSONResponse) VisitReadResourceSyncResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadResourceSync401Response struct {
-}
+type ReadResourceSync401JSONResponse Error
 
-func (response ReadResourceSync401Response) VisitReadResourceSyncResponse(w http.ResponseWriter) error {
+func (response ReadResourceSync401JSONResponse) VisitReadResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadResourceSync404Response struct {
-}
+type ReadResourceSync404JSONResponse Error
 
-func (response ReadResourceSync404Response) VisitReadResourceSyncResponse(w http.ResponseWriter) error {
+func (response ReadResourceSync404JSONResponse) VisitReadResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ReplaceResourceSyncRequestObject struct {
@@ -3007,28 +3082,31 @@ func (response ReplaceResourceSync201JSONResponse) VisitReplaceResourceSyncRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceResourceSync400Response struct {
-}
+type ReplaceResourceSync400JSONResponse Error
 
-func (response ReplaceResourceSync400Response) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+func (response ReplaceResourceSync400JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceResourceSync401Response struct {
-}
+type ReplaceResourceSync401JSONResponse Error
 
-func (response ReplaceResourceSync401Response) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+func (response ReplaceResourceSync401JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceResourceSync404Response struct {
-}
+type ReplaceResourceSync404JSONResponse Error
 
-func (response ReplaceResourceSync404Response) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+func (response ReplaceResourceSync404JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteResourceSyncsRequestObject struct {
@@ -3047,12 +3125,13 @@ func (response DeleteResourceSyncs200JSONResponse) VisitDeleteResourceSyncsRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteResourceSyncs401Response struct {
-}
+type DeleteResourceSyncs401JSONResponse Error
 
-func (response DeleteResourceSyncs401Response) VisitDeleteResourceSyncsResponse(w http.ResponseWriter) error {
+func (response DeleteResourceSyncs401JSONResponse) VisitDeleteResourceSyncsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListResourceSyncRequestObject struct {
@@ -3072,20 +3151,22 @@ func (response ListResourceSync200JSONResponse) VisitListResourceSyncResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListResourceSync400Response struct {
-}
+type ListResourceSync400JSONResponse Error
 
-func (response ListResourceSync400Response) VisitListResourceSyncResponse(w http.ResponseWriter) error {
+func (response ListResourceSync400JSONResponse) VisitListResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ListResourceSync401Response struct {
-}
+type ListResourceSync401JSONResponse Error
 
-func (response ListResourceSync401Response) VisitListResourceSyncResponse(w http.ResponseWriter) error {
+func (response ListResourceSync401JSONResponse) VisitListResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type CreateResourceSyncRequestObject struct {
@@ -3105,28 +3186,31 @@ func (response CreateResourceSync201JSONResponse) VisitCreateResourceSyncRespons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateResourceSync400Response struct {
-}
+type CreateResourceSync400JSONResponse Error
 
-func (response CreateResourceSync400Response) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+func (response CreateResourceSync400JSONResponse) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateResourceSync401Response struct {
-}
+type CreateResourceSync401JSONResponse Error
 
-func (response CreateResourceSync401Response) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+func (response CreateResourceSync401JSONResponse) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateResourceSync409Response struct {
-}
+type CreateResourceSync409JSONResponse Error
 
-func (response CreateResourceSync409Response) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+func (response CreateResourceSync409JSONResponse) VisitCreateResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteTemplateVersionsRequestObject struct {
@@ -3146,12 +3230,13 @@ func (response DeleteTemplateVersions200JSONResponse) VisitDeleteTemplateVersion
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteTemplateVersions401Response struct {
-}
+type DeleteTemplateVersions401JSONResponse Error
 
-func (response DeleteTemplateVersions401Response) VisitDeleteTemplateVersionsResponse(w http.ResponseWriter) error {
+func (response DeleteTemplateVersions401JSONResponse) VisitDeleteTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListTemplateVersionsRequestObject struct {
@@ -3171,20 +3256,22 @@ func (response ListTemplateVersions200JSONResponse) VisitListTemplateVersionsRes
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListTemplateVersions400Response struct {
-}
+type ListTemplateVersions400JSONResponse Error
 
-func (response ListTemplateVersions400Response) VisitListTemplateVersionsResponse(w http.ResponseWriter) error {
+func (response ListTemplateVersions400JSONResponse) VisitListTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type ListTemplateVersions401Response struct {
-}
+type ListTemplateVersions401JSONResponse Error
 
-func (response ListTemplateVersions401Response) VisitListTemplateVersionsResponse(w http.ResponseWriter) error {
+func (response ListTemplateVersions401JSONResponse) VisitListTemplateVersionsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type CreateTemplateVersionRequestObject struct {
@@ -3204,28 +3291,31 @@ func (response CreateTemplateVersion201JSONResponse) VisitCreateTemplateVersionR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateTemplateVersion400Response struct {
-}
+type CreateTemplateVersion400JSONResponse Error
 
-func (response CreateTemplateVersion400Response) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+func (response CreateTemplateVersion400JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateTemplateVersion401Response struct {
-}
+type CreateTemplateVersion401JSONResponse Error
 
-func (response CreateTemplateVersion401Response) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+func (response CreateTemplateVersion401JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateTemplateVersion409Response struct {
-}
+type CreateTemplateVersion409JSONResponse Error
 
-func (response CreateTemplateVersion409Response) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+func (response CreateTemplateVersion409JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 // StrictServerInterface represents all server handlers.

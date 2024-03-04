@@ -10,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -105,7 +104,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListEnrollmentRequests400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
+		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
 	listParams := store.ListParams{
@@ -117,7 +116,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListEnrollmentRequests400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
+		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
 	result, err := h.store.EnrollmentRequest().List(ctx, orgId, listParams)
@@ -151,7 +150,7 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 	case nil:
 		return server.ReadEnrollmentRequest200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadEnrollmentRequest404Response{}, nil
+		return server.ReadEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -160,8 +159,11 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 // (PUT /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceEnrollmentRequest400Response{}, nil
+	if request.Body.Metadata.Name == nil {
+		return server.ReplaceEnrollmentRequest400JSONResponse{Message: "metadata.name is not specified"}, nil
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceEnrollmentRequest400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
 	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
@@ -177,7 +179,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
 		}
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceEnrollmentRequest404Response{}, nil
+		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -192,7 +194,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 	case nil:
 		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.DeleteEnrollmentRequest404Response{}, nil
+		return server.DeleteEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -207,7 +209,7 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 	case nil:
 		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadEnrollmentRequestStatus404Response{}, nil
+		return server.ReadEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -216,24 +218,19 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 // (POST /api/v1/enrollmentrequests/{name}/approval)
 func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, request server.CreateEnrollmentRequestApprovalRequestObject) (server.CreateEnrollmentRequestApprovalResponseObject, error) {
 	orgId := store.NullOrgId
-
-	log := log.WithReqIDFromCtx(ctx, h.log)
-
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	switch err {
 	default:
 		return nil, err
 	case gorm.ErrRecordNotFound:
-		return server.CreateEnrollmentRequestApproval404Response{}, nil
+		return server.CreateEnrollmentRequestApproval404JSONResponse{}, nil
 	case nil:
 	}
 
 	if request.Body.Approved {
 
 		if request.Body.ApprovedAt != nil {
-			return server.CreateEnrollmentRequestApproval422JSONResponse{
-				Error: "ApprovedAt is not allowed to be set when approving enrollment requests",
-			}, nil
+			return server.CreateEnrollmentRequestApproval422JSONResponse{Message: "ApprovedAt is not allowed to be set when approving enrollment requests"}, nil
 		}
 
 		request.Body.ApprovedAt = util.TimeStampStringPtr()
@@ -245,17 +242,11 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 		}
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
-			log.Errorf("Error approving and signing enrollment request: %v", err)
-			return server.CreateEnrollmentRequestApproval422JSONResponse{
-				Error: "Error approving and signing enrollment request: " + err.Error(),
-			}, nil
+			return server.CreateEnrollmentRequestApproval422JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
 		}
 
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			log.Errorf("Error creating device from enrollment request: %v", err)
-			return server.CreateEnrollmentRequestApproval422JSONResponse{
-				Error: "Error creating device from enrollment request: " + err.Error(),
-			}, nil
+			return server.CreateEnrollmentRequestApproval422JSONResponse{Message: fmt.Sprintf("Error creating device from enrollment request: %v", err.Error())}, nil
 		}
 	}
 
@@ -264,7 +255,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 	case nil:
 		return server.CreateEnrollmentRequestApproval200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.CreateEnrollmentRequestApproval404Response{}, nil
+		return server.CreateEnrollmentRequestApproval404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -283,7 +274,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 	case nil:
 		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceEnrollmentRequestStatus404Response{}, nil
+		return server.ReplaceEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
