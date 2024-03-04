@@ -16,11 +16,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/memfs"
-	"github.com/go-git/go-git/v5"
-	gitplumbing "github.com/go-git/go-git/v5/plumbing"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -76,7 +71,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		return err
 	}
 	addRepoNotFoundCondition(rs, nil)
-	resources, err := r.parseAndValidateResources(ctx, rs, repo)
+	resources, err := r.parseAndValidateResources(rs, repo)
 	if err != nil {
 		log.Errorf("resourcesync/%s: parsing failed. error: %s", rs.Name, err.Error())
 		return err
@@ -166,10 +161,10 @@ func (r *ResourceSync) fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []s
 	return dfleets
 }
 
-func (r *ResourceSync) parseAndValidateResources(ctx context.Context, rs *model.ResourceSync, repo *model.Repository) ([]genericResourceMap, error) {
+func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *model.Repository) ([]genericResourceMap, error) {
 	path := *rs.Spec.Data.Path
 	revision := rs.Spec.Data.TargetRevision
-	mfs, hash, err := r.cloneRepo(repo, revision)
+	mfs, hash, err := CloneGitRepo(repo, revision, util.IntToPtr(1))
 	if err != nil {
 		// Cant fetch git repo
 		addRepoAccessCondition(rs, err)
@@ -195,9 +190,9 @@ func (r *ResourceSync) parseAndValidateResources(ctx context.Context, rs *model.
 	addPathAccessCondition(rs, nil)
 	var resources []genericResourceMap
 	if fileInfo.IsDir() {
-		resources, err = r.extractResourcesFromDir(rs.OrgID.String(), mfs, path)
+		resources, err = r.extractResourcesFromDir(mfs, path)
 	} else {
-		resources, err = r.extractResourcesFromFile(rs.OrgID.String(), mfs, path)
+		resources, err = r.extractResourcesFromFile(mfs, path)
 	}
 	if err != nil {
 		// Failed to parse resources
@@ -209,35 +204,7 @@ func (r *ResourceSync) parseAndValidateResources(ctx context.Context, rs *model.
 	return resources, nil
 }
 
-func (r *ResourceSync) cloneRepo(repo *model.Repository, revision *string) (billy.Filesystem, string, error) {
-	storage := gitmemory.NewStorage()
-	mfs := memfs.New()
-	ops := &git.CloneOptions{
-		URL:   *repo.Spec.Data.Repo,
-		Depth: 1,
-	}
-	if repo.Spec.Data.Username != nil && repo.Spec.Data.Password != nil {
-		ops.Auth = &githttp.BasicAuth{
-			Username: *repo.Spec.Data.Username,
-			Password: *repo.Spec.Data.Password,
-		}
-	}
-	if revision != nil {
-		ops.ReferenceName = gitplumbing.ReferenceName(*revision)
-	}
-	gitRepo, err := git.Clone(storage, mfs, ops)
-	if err != nil {
-		return nil, "", err
-	}
-	head, err := gitRepo.Head()
-	if err != nil {
-		return nil, "", err
-	}
-	hash := head.Hash().String()
-	return mfs, hash, nil
-}
-
-func (r *ResourceSync) extractResourcesFromDir(orgId string, mfs billy.Filesystem, path string) ([]genericResourceMap, error) {
+func (r *ResourceSync) extractResourcesFromDir(mfs billy.Filesystem, path string) ([]genericResourceMap, error) {
 	genericResources := []genericResourceMap{}
 	files, err := mfs.ReadDir(path)
 	if err != nil {
@@ -245,7 +212,7 @@ func (r *ResourceSync) extractResourcesFromDir(orgId string, mfs billy.Filesyste
 	}
 	for _, file := range files {
 		if !file.IsDir() && isValidFile(file.Name()) { // Not going recursivly into subfolders
-			resources, err := r.extractResourcesFromFile(orgId, mfs, mfs.Join(path, file.Name()))
+			resources, err := r.extractResourcesFromFile(mfs, mfs.Join(path, file.Name()))
 			if err != nil {
 				return nil, err
 			}
@@ -255,7 +222,7 @@ func (r *ResourceSync) extractResourcesFromDir(orgId string, mfs billy.Filesyste
 	return genericResources, nil
 }
 
-func (r *ResourceSync) extractResourcesFromFile(orgId string, mfs billy.Filesystem, path string) ([]genericResourceMap, error) {
+func (r *ResourceSync) extractResourcesFromFile(mfs billy.Filesystem, path string) ([]genericResourceMap, error) {
 	genericResources := []genericResourceMap{}
 
 	file, err := mfs.Open(path)

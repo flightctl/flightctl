@@ -7,6 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -29,10 +30,14 @@ func createTemplateVersions(numTemplateVersions int, ctx context.Context, storeI
 			},
 		}
 
-		_, err := storeInst.TemplateVersion().Create(ctx, orgId, &resource)
+		called := false
+		callback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) { called = true })
+		_, err := storeInst.TemplateVersion().Create(ctx, orgId, &resource, callback)
 		if err != nil {
+			Expect(called).To(BeFalse())
 			return err
 		}
+		Expect(called).To(BeTrue())
 	}
 	return nil
 }

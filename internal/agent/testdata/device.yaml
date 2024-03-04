@@ -9,6 +9,7 @@ spec:
     image: quay.io/redhat/rhde:9.2
   config:
     - name: rendered-config  # <-- this is the merged config rendered by flightctl
+      configType: InlineConfigProviderSpec
       inline:
         ignition:
           version: 3.4.0

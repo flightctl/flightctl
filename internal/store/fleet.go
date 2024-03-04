@@ -144,7 +144,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*ap
 }
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error) {
-	oldFleet, newFleet, err := s.createOrUpdateTx(s.db, ctx, orgId, resource)
+	oldFleet, newFleet, err := s.createOrUpdateTx(s.db, orgId, resource)
 	if err == nil {
 		callback(oldFleet, newFleet)
 	}
@@ -153,7 +153,7 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 	return &updatedFleet, oldFleet == nil, err
 }
 
-func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*model.Fleet, *model.Fleet, error) {
+func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*model.Fleet, *model.Fleet, error) {
 	if resource == nil {
 		return nil, nil, fmt.Errorf("resource is nil")
 	}
@@ -254,7 +254,7 @@ func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID
 	var updates []update
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, resource := range resources {
-			oldFleet, newFleet, err := s.createOrUpdateTx(tx, ctx, orgId, resource)
+			oldFleet, newFleet, err := s.createOrUpdateTx(tx, orgId, resource)
 			if err == nil {
 				updates = append(updates, update{oldFleet: oldFleet, newFleet: newFleet})
 			}
@@ -274,13 +274,13 @@ func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID
 }
 
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
-	return s.updateStatusTx(s.db, ctx, orgId, resource)
+	return s.updateStatusTx(s.db, orgId, resource)
 }
 
 func (s *FleetStore) UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, resource := range resources {
-			_, err := s.updateStatusTx(tx, ctx, orgId, resource)
+			_, err := s.updateStatusTx(tx, orgId, resource)
 			if err != nil {
 				return err
 			}
@@ -290,7 +290,7 @@ func (s *FleetStore) UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, 
 	return err
 }
 
-func (s *FleetStore) updateStatusTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+func (s *FleetStore) updateStatusTx(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -300,7 +300,7 @@ func (s *FleetStore) updateStatusTx(tx *gorm.DB, ctx context.Context, orgId uuid
 	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
-	result := s.db.Model(&fleet).Updates(map[string]interface{}{
+	result := tx.Model(&fleet).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
 	return resource, result.Error
@@ -342,7 +342,7 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, callback Fleet
 				}
 				return result.Error
 			}
-			err := s.deleteTx(tx, ctx, orgId, name)
+			err := s.deleteTx(tx, orgId, name)
 			if err != nil {
 				return err
 			}
@@ -359,11 +359,11 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, callback Fleet
 	return err
 }
 
-func (s *FleetStore) deleteTx(tx *gorm.DB, ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *FleetStore) deleteTx(tx *gorm.DB, orgId uuid.UUID, name string) error {
 	condition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.Unscoped().Delete(&condition)
+	result := tx.Unscoped().Delete(&condition)
 	return result.Error
 }
 

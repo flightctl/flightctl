@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -27,6 +28,11 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil {
 		return server.CreateFleet400Response{}, fmt.Errorf("fleet name not specified")
+	}
+
+	err := validateDiscriminators(request.Body)
+	if err != nil {
+		return server.CreateFleet400Response{}, nil
 	}
 
 	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
@@ -116,6 +122,11 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400Response{}, fmt.Errorf("fleet name specified in metadata does not match name in path")
 	}
 
+	err := validateDiscriminators(request.Body)
+	if err != nil {
+		return server.ReplaceFleet400Response{}, nil
+	}
+
 	// Since this is an api call, we remove the Owner from the fleet - to avoid user override
 	request.Body.Metadata.Owner = nil
 
@@ -190,4 +201,30 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	default:
 		return nil, err
 	}
+}
+
+func validateDiscriminators(fleet *api.Fleet) error {
+	if fleet.Spec.Template.Spec.Config == nil {
+		return nil
+	}
+	for _, config := range *fleet.Spec.Template.Spec.Config {
+		discriminator, err := config.Discriminator()
+		if err != nil {
+			return err
+		}
+		found := false
+		discriminators := []string{
+			string(api.TemplateDiscriminatorGitConfig),
+			string(api.TemplateDiscriminatorKubernetesSecret),
+			string(api.TemplateDiscriminatorInlineConfig)}
+		for _, d := range discriminators {
+			if discriminator == d {
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("configType must be one of %s", strings.Join(discriminators, ","))
+		}
+	}
+	return nil
 }
