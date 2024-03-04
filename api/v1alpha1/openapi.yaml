@@ -48,7 +48,7 @@ paths:
           content: {}
     post:
       tags:
-        - reasourcesync
+        - resourcesync
       description: create a resourcesync
       operationId: createResourceSync
       requestBody:

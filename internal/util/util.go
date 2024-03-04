@@ -56,6 +56,10 @@ func Int64ToPtr(i int64) *int64 {
 	return &i
 }
 
+func IntToPtr(i int) *int {
+	return &i
+}
+
 func BoolToPtr(b bool) *bool {
 	return &b
 }
