@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/argoproj/argo-cd/v2 v2.9.3
 	github.com/coreos/ignition/v2 v2.17.0
-	github.com/deepmap/oapi-codegen v1.15.0
+	github.com/deepmap/oapi-codegen v1.16.2
 	github.com/getkin/kin-openapi v0.120.0
 	github.com/go-chi/chi v1.5.5
 	github.com/go-chi/chi/v5 v5.0.10
