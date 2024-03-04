@@ -39,7 +39,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListResourceSync400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
+		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
 	listParams := store.ListParams{
@@ -51,7 +51,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListResourceSync400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
+		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
 	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
@@ -85,7 +85,7 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 	case nil:
 		return server.ReadResourceSync200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadResourceSync404Response{}, nil
+		return server.ReadResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -94,8 +94,11 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 // (PUT /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server.ReplaceResourceSyncRequestObject) (server.ReplaceResourceSyncResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceResourceSync400Response{}, nil
+	if request.Body.Metadata.Name == nil {
+		return server.ReplaceResourceSync400JSONResponse{Message: "metadata.name is not specified"}, nil
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceResourceSync400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
 	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, request.Body)
@@ -107,7 +110,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 			return server.ReplaceResourceSync200JSONResponse(*result), nil
 		}
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceResourceSync404Response{}, nil
+		return server.ReplaceResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -121,7 +124,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.
 	case nil:
 		return server.DeleteResourceSync200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.DeleteResourceSync404Response{}, nil
+		return server.DeleteResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
 	}

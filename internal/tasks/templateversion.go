@@ -71,7 +71,7 @@ func SyncFleetTemplateToTemplateVersion(ctx context.Context, log logrus.FieldLog
 			switch disc {
 			case string(api.TemplateDiscriminatorGitConfig):
 				newConfig, err = handleGitConfig(taskManager, resourceRef.OrgID, &configItem)
-			case string(api.TemplateDiscriminatorKubernetesSecret):
+			case string(api.TemplateDiscriminatorKubernetesSec):
 				newConfig, err = handleK8sConfig(&configItem)
 			case string(api.TemplateDiscriminatorInlineConfig):
 				newConfig, err = handleInlineConfig(&configItem)
