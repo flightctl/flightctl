@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"context"
 	"fmt"
 	"io"
 
@@ -28,7 +27,6 @@ var repo model.Repository = model.Repository{
 var _ = Describe("ResourceSync", Ordered, func() {
 	var (
 		log          *logrus.Logger
-		ctx          context.Context
 		orgId        uuid.UUID
 		cfg          *config.Config
 		stores       store.Store
@@ -41,7 +39,7 @@ var _ = Describe("ResourceSync", Ordered, func() {
 
 	BeforeAll(func() {
 		// Clone the repo
-		fs, _, err := resourceSync.cloneRepo(&repo, nil)
+		fs, _, err := CloneGitRepo(&repo, nil, util.IntToPtr(1))
 		Expect(err).ToNot(HaveOccurred())
 		memfs = fs
 
@@ -68,7 +66,6 @@ var _ = Describe("ResourceSync", Ordered, func() {
 	})
 
 	BeforeEach(func() {
-		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
@@ -93,39 +90,39 @@ var _ = Describe("ResourceSync", Ordered, func() {
 					},
 				},
 			}
-			_, err := resourceSync.parseAndValidateResources(ctx, &rs, &repo)
+			_, err := resourceSync.parseAndValidateResources(&rs, &repo)
 			// Have unsupported resources in folder
 			Expect(err).To(HaveOccurred())
 
 			rs.Spec.Data.Path = util.StrToPtr("/examples/fleet.yaml")
-			resources, err := resourceSync.parseAndValidateResources(ctx, &rs, &repo)
+			resources, err := resourceSync.parseAndValidateResources(&rs, &repo)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resources)).To(Equal(1))
 			Expect(resources[0]["kind"]).To(Equal(model.FleetKind))
 		})
 		It("Parse generic resources", func() {
-			genericResources, err := resourceSync.extractResourcesFromFile(orgId.String(), memfs, "/examples/fleet.yaml")
+			genericResources, err := resourceSync.extractResourcesFromFile(memfs, "/examples/fleet.yaml")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(1))
 			Expect(genericResources[0]["kind"]).To(Equal(model.FleetKind))
 
-			genericResources, err = resourceSync.extractResourcesFromDir(orgId.String(), memfs, "/fleets")
+			genericResources, err = resourceSync.extractResourcesFromDir(memfs, "/fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(2))
 			Expect(genericResources[0]["kind"]).To(Equal(model.FleetKind))
 
 			// Dir contains fleets and other resources
-			_, err = resourceSync.extractResourcesFromDir(orgId.String(), memfs, "/examples/")
+			_, err = resourceSync.extractResourcesFromDir(memfs, "/examples/")
 			Expect(err).To(HaveOccurred())
 
 			// File is not a fleet
-			_, err = resourceSync.extractResourcesFromFile(orgId.String(), memfs, "/examples/device.yaml")
+			_, err = resourceSync.extractResourcesFromFile(memfs, "/examples/device.yaml")
 			Expect(err).To(HaveOccurred())
 		})
 		It("parse fleet", func() {
 			owner := util.StrToPtr("ResourceSync/foo")
 
-			genericResources, err := resourceSync.extractResourcesFromFile(orgId.String(), memfs, "/examples/fleet.yaml")
+			genericResources, err := resourceSync.extractResourcesFromFile(memfs, "/examples/fleet.yaml")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(1))
 			fleets, err := resourceSync.parseFleets(genericResources, orgId, owner)
@@ -141,7 +138,7 @@ var _ = Describe("ResourceSync", Ordered, func() {
 			_, err = resourceSync.parseFleets(genericResources, orgId, owner)
 			Expect(err).To(HaveOccurred())
 
-			genericResources, err = resourceSync.extractResourcesFromDir(orgId.String(), memfs, "/fleets")
+			genericResources, err = resourceSync.extractResourcesFromDir(memfs, "/fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(2))
 			fleets, err = resourceSync.parseFleets(genericResources, orgId, owner)

@@ -26,7 +26,7 @@ func TemplateVersionFromReader(r io.Reader) (*api.TemplateVersion, error) {
 func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, request server.CreateTemplateVersionRequestObject) (server.CreateTemplateVersionResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.TemplateVersion().Create(ctx, orgId, request.Body)
+	result, err := h.store.TemplateVersion().Create(ctx, orgId, request.Body, h.taskManager.TemplateVersionCreatedCallback)
 
 	switch err {
 	case nil:

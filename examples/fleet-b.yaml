@@ -15,16 +15,19 @@ spec:
         image: quay.io/redhat/rhde:9.2
       config:
         - name: base
+          configType: GitConfigProviderSpec
           gitRef:
             repoURL: https://github.com/flightctl/flightctl-demos.git
             targetRevision: main
             path: /production
         - name: acm-secrets
+          configType: KubernetesSecretProviderSpec
           secretRef:
             name: DEVICENAME
             namespace: devices
             mountPath: /etc/microshift/manifests
         - name: motd-update
+          configType: InlineConfigProviderSpec
           inline:
             ignition:
               version: 3.4.0

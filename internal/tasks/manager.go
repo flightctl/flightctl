@@ -22,6 +22,7 @@ type ResourceReference struct {
 	OrgID uuid.UUID
 	Kind  string
 	Name  string
+	Owner string
 }
 
 type TaskManager struct {
@@ -39,6 +40,8 @@ const (
 	ChannelFleetTemplateRollout = "fleet-template-rollout"
 	// Task to set devices' owners
 	ChannelFleetSelectorMatching = "fleet-selector-matching"
+	// Task to populate a template version
+	ChannelTemplateVersion = "template-version"
 
 	ChannelSize = 20
 
@@ -46,6 +49,7 @@ const (
 	FleetSelectorOpUpdate        = "update"
 	FleetSelectorOpUpdateOverlap = "update-overlap"
 	FleetSelectorOpDeleteAll     = "delete-all"
+	TemplateVersionOpCreated     = "create"
 )
 
 func Init(log logrus.FieldLogger, store store.Store) TaskManager {
@@ -55,6 +59,7 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 	channels := make(map[string](chan ResourceReference))
 	channels[ChannelFleetTemplateRollout] = make(chan ResourceReference, ChannelSize)
 	channels[ChannelFleetSelectorMatching] = make(chan ResourceReference, ChannelSize)
+	channels[ChannelTemplateVersion] = make(chan ResourceReference, ChannelSize)
 
 	reqid.OverridePrefix("tasks")
 
@@ -77,6 +82,7 @@ func (t TaskManager) Start() {
 
 	go FleetRollouts(t)
 	go FleetSelectorMatching(t)
+	go TemplateVersionCreated(t)
 
 	resourceSync := NewResourceSync(t)
 	resourceSyncThread := thread.New(
@@ -199,4 +205,14 @@ func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.De
 
 func threadIntervalMinute(min float64) time.Duration {
 	return time.Duration(min * float64(time.Minute))
+}
+
+func (t TaskManager) TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion) {
+	resourceRef := ResourceReference{
+		OrgID: templateVersion.OrgID,
+		Kind:  model.TemplateVersionKind,
+		Name:  templateVersion.Name,
+		Owner: *templateVersion.Owner,
+	}
+	t.SubmitTask(ChannelTemplateVersion, resourceRef, TemplateVersionOpCreated)
 }

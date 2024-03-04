@@ -16,11 +16,12 @@ import (
 )
 
 type TemplateVersion interface {
-	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion) (*api.TemplateVersion, error)
+	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion) error
 	InitialMigration() error
 }
 
@@ -29,8 +30,7 @@ type TemplateVersionStore struct {
 	log logrus.FieldLogger
 }
 
-type TemplateVersionStoreCallback func(before *model.TemplateVersion, after *model.TemplateVersion)
-type TemplateVersionStoreAllDeletedCallback func(orgId uuid.UUID)
+type TemplateVersionStoreCallback func(tv *model.TemplateVersion)
 
 // Make sure we conform to TemplateVersion interface
 var _ TemplateVersion = (*TemplateVersionStore)(nil)
@@ -43,7 +43,7 @@ func (s *TemplateVersionStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.TemplateVersion{})
 }
 
-func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion) (*api.TemplateVersion, error) {
+func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -80,6 +80,9 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 		result = innerTx.Create(templateVersion)
 		return result.Error
 	})
+	if err == nil {
+		callback(templateVersion)
+	}
 
 	return &apiResource, err
 }
@@ -153,5 +156,24 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 		ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: owner, Name: name},
 	}
 	result := s.db.Unscoped().Delete(&condition)
+	return result.Error
+}
+
+func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion) error {
+	if resource == nil {
+		return fmt.Errorf("resource is nil")
+	}
+	if resource.Metadata.Name == nil {
+		return fmt.Errorf("resource.metadata.name is nil")
+	}
+	templateVersion := model.TemplateVersion{
+		ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{
+			OrgID: orgId,
+			Owner: resource.Metadata.Owner,
+			Name:  *resource.Metadata.Name},
+	}
+	result := s.db.Model(&templateVersion).Updates(map[string]interface{}{
+		"status": model.MakeJSONField(resource.Status),
+	})
 	return result.Error
 }
