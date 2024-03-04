@@ -38,9 +38,9 @@ const (
 
 // Defines values for TemplateDiscriminators.
 const (
-	TemplateDiscriminatorGitConfig        TemplateDiscriminators = "GitConfigProviderSpec"
-	TemplateDiscriminatorInlineConfig     TemplateDiscriminators = "InlineConfigProviderSpec"
-	TemplateDiscriminatorKubernetesSecret TemplateDiscriminators = "KubernetesSecretProviderSpec"
+	TemplateDiscriminatorGitConfig     TemplateDiscriminators = "GitConfigProviderSpec"
+	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
+	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
@@ -255,6 +255,12 @@ type EnrollmentRequestStatus struct {
 
 	// Conditions Current state of the EnrollmentRequest.
 	Conditions *[]Condition `json:"conditions,omitempty"`
+}
+
+// Error defines model for Error.
+type Error struct {
+	// Message Error message
+	Message string `json:"message"`
 }
 
 // Fleet Fleet represents a set of devices.
@@ -553,12 +559,6 @@ type TemplateVersionStatus struct {
 // TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.
 type TemplateVersionStatus_Config_Item struct {
 	union json.RawMessage
-}
-
-// UnprocessableEntityResponse UnprocessableEntityResponse is returned when the request is not valid.
-type UnprocessableEntityResponse struct {
-	// Error Error message.
-	Error string `json:"error"`
 }
 
 // ListDevicesParams defines parameters for ListDevices.

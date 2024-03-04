@@ -27,12 +27,12 @@ func FleetFromReader(r io.Reader) (*api.Fleet, error) {
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
 	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil {
-		return server.CreateFleet400Response{}, fmt.Errorf("fleet name not specified")
+		return server.CreateFleet400JSONResponse{Message: "fleet name not specified"}, nil
 	}
 
 	err := validateDiscriminators(request.Body)
 	if err != nil {
-		return server.CreateFleet400Response{}, nil
+		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
 	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
@@ -59,7 +59,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListFleets400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
+		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
 	listParams := store.ListParams{
@@ -72,7 +72,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListFleets400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
+		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
 	result, err := h.store.Fleet().List(ctx, orgId, listParams)
@@ -106,7 +106,7 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 	case nil:
 		return server.ReadFleet200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadFleet404Response{}, nil
+		return server.ReadFleet404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -116,15 +116,15 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
 	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil {
-		return server.ReplaceFleet400Response{}, fmt.Errorf("fleet name not specified in metadata")
+		return server.ReplaceFleet400JSONResponse{Message: "metadata.name is not specified"}, nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceFleet400Response{}, fmt.Errorf("fleet name specified in metadata does not match name in path")
+		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
 	err := validateDiscriminators(request.Body)
 	if err != nil {
-		return server.ReplaceFleet400Response{}, nil
+		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
 	// Since this is an api call, we remove the Owner from the fleet - to avoid user override
@@ -139,10 +139,9 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 			return server.ReplaceFleet200JSONResponse(*result), nil
 		}
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceFleet404Response{}, nil
+		return server.ReplaceFleet404JSONResponse{}, nil
 	case gorm.ErrInvalidData: // owner issue
-		h.log.Infof("an attempt do update Fleet/%s was blocked due to ownership", request.Name)
-		return server.ReplaceFleet409Response{}, nil
+		return server.ReplaceFleet409JSONResponse{Message: "could not modify fleet because it is owned by another resource"}, nil
 	default:
 		return nil, err
 	}
@@ -154,12 +153,11 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 
 	f, err := h.store.Fleet().Get(ctx, orgId, request.Name)
 	if err == gorm.ErrRecordNotFound {
-		return server.DeleteFleet404Response{}, nil
+		return server.DeleteFleet404JSONResponse{}, nil
 	}
 	if f.Metadata.Owner != nil {
-		// Cant delete via api
-		h.log.Infof("an attempt do delete Fleet/%s was blocked due to ownership", request.Name)
-		return server.DeleteFleet409Response{}, nil
+		// Can't delete via api
+		return server.DeleteFleet409JSONResponse{Message: "could not delete fleet because it is owned by another resource"}, nil
 	}
 
 	err = h.store.Fleet().Delete(ctx, orgId, h.taskManager.FleetUpdatedCallback, request.Name)
@@ -167,7 +165,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.DeleteFleet404Response{}, nil
+		return server.DeleteFleet404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -182,7 +180,7 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 	case nil:
 		return server.ReadFleetStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadFleetStatus404Response{}, nil
+		return server.ReadFleetStatus404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -197,7 +195,7 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	case nil:
 		return server.ReplaceFleetStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceFleetStatus404Response{}, nil
+		return server.ReplaceFleetStatus404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -215,7 +213,7 @@ func validateDiscriminators(fleet *api.Fleet) error {
 		found := false
 		discriminators := []string{
 			string(api.TemplateDiscriminatorGitConfig),
-			string(api.TemplateDiscriminatorKubernetesSecret),
+			string(api.TemplateDiscriminatorKubernetesSec),
 			string(api.TemplateDiscriminatorInlineConfig)}
 		for _, d := range discriminators {
 			if discriminator == d {

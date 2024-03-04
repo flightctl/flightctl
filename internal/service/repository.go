@@ -39,7 +39,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListRepositories400Response{}, fmt.Errorf("failed to parse continue parameter: %w", err)
+		return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
 	listParams := store.ListParams{
@@ -51,7 +51,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListRepositories400Response{}, fmt.Errorf("limit cannot exceed %d", store.MaxRecordsPerListRequest)
+		return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
 	result, err := h.store.Repository().List(ctx, orgId, listParams)
@@ -85,7 +85,7 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 	case nil:
 		return server.ReadRepository200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
-		return server.ReadRepository404Response{}, nil
+		return server.ReadRepository404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -94,8 +94,11 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 // (PUT /api/v1/repositories/{name})
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.ReplaceRepositoryRequestObject) (server.ReplaceRepositoryResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil || request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceRepository400Response{}, nil
+	if request.Body.Metadata.Name == nil {
+		return server.ReplaceRepository400JSONResponse{Message: "metadata.name is not specified"}, nil
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceRepository400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
 	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body)
@@ -107,7 +110,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 			return server.ReplaceRepository200JSONResponse(*result), nil
 		}
 	case gorm.ErrRecordNotFound:
-		return server.ReplaceRepository404Response{}, nil
+		return server.ReplaceRepository404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -122,7 +125,7 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.De
 	case nil:
 		return server.DeleteRepository200JSONResponse{}, nil
 	case gorm.ErrRecordNotFound:
-		return server.DeleteRepository404Response{}, nil
+		return server.DeleteRepository404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
