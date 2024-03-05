@@ -2,6 +2,7 @@ GOBASE=$(shell pwd)
 GOBIN=$(GOBASE)/bin
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
+TIMEOUT ?= 30m
 
 VERBOSE ?= false
 REPORTS ?= $(ROOT_DIR)/reports
@@ -110,7 +111,7 @@ _post_unit_test: $(REPORTS)
 	done
 
 run-unit-test:
-	SKIP_UT_DB=1 $(MAKE) _unit_test TIMEOUT=30m TEST="$(or $(TEST),$(shell go list ./...))"
+	SKIP_UT_DB=1 $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./...))"
 
 unit-test: deploy-db run-unit-test kill-db
 
