@@ -247,14 +247,25 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
 	var existingRecord model.Device
+	log := log.WithReqIDFromCtx(ctx, s.log)
 	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
 		existingRecord = model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
 			return result.Error
 		}
-		result = innerTx.Unscoped().Delete(&existingRecord)
-		return result.Error
+
+		associatedRecord := model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
+
+		if err := innerTx.Unscoped().Delete(&existingRecord).Error; err != nil {
+			return err
+		}
+
+		if err := innerTx.Unscoped().Delete(&associatedRecord).Error; err != nil {
+			log.Warningf("failed to delete associated enrollment request: %v", err)
+		}
+
+		return nil
 	})
 
 	if err != nil {
