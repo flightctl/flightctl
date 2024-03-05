@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
 )
 
@@ -21,34 +22,13 @@ func NewCmdDelete() *cobra.Command {
 		Short: "delete resources",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			kind, name, err := parseAndValidateKindName(args[0])
-			if err != nil {
+			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
-
-			if cmd.Flags().Lookup("owner").Changed && kind != TemplateVersionKind {
-				return fmt.Errorf("owner can only be specified when deleting templateversions")
+			if err := o.Validate(args); err != nil {
+				return err
 			}
-			var owner *string
-			if cmd.Flags().Lookup("owner").Changed {
-				owner = &o.Owner
-			}
-
-			if kind == TemplateVersionKind && len(name) > 0 {
-				if !cmd.Flags().Lookup("fleetname").Changed {
-					return fmt.Errorf("fleetname must be specified when fetching a specific templatevesion")
-				}
-			} else {
-				if cmd.Flags().Lookup("fleetname").Changed {
-					return fmt.Errorf("fleetname must only be specified when fetching a specific templatevesion")
-				}
-			}
-			var fleetName *string
-			if cmd.Flags().Lookup("fleetname").Changed {
-				fleetName = &o.FleetName
-			}
-
-			return RunDelete(cmd.Context(), kind, name, owner, fleetName)
+			return o.Run(cmd.Context(), args)
 		},
 		SilenceUsage: true,
 	}
@@ -57,12 +37,40 @@ func NewCmdDelete() *cobra.Command {
 	return cmd
 }
 
-func RunDelete(ctx context.Context, kind string, name string, owner *string, fleetName *string) error {
+func (o *DeleteOptions) Complete(cmd *cobra.Command, args []string) error {
+	return nil
+}
+
+func (o *DeleteOptions) Validate(args []string) error {
+	kind, name, err := parseAndValidateKindName(args[0])
+	if err != nil {
+		return err
+	}
+	if len(o.Owner) > 0 && kind != TemplateVersionKind {
+		return fmt.Errorf("owner can only be specified when deleting templateversions")
+	}
+	if kind == TemplateVersionKind && len(name) > 0 {
+		if len(o.FleetName) == 0 {
+			return fmt.Errorf("fleetname must be specified when fetching a specific templatevesion")
+		}
+	} else {
+		if len(o.FleetName) > 0 {
+			return fmt.Errorf("fleetname must only be specified when fetching a specific templatevesion")
+		}
+	}
+	return nil
+}
+
+func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
+	kind, name, err := parseAndValidateKindName(args[0])
+	if err != nil {
+		return err
+	}
 	switch kind {
 	case DeviceKind:
 		if len(name) > 0 {
@@ -108,14 +116,14 @@ func RunDelete(ctx context.Context, kind string, name string, owner *string, fle
 		}
 	case TemplateVersionKind:
 		if len(name) > 0 {
-			response, err := c.DeleteTemplateVersionWithResponse(ctx, *fleetName, name)
+			response, err := c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 			fmt.Printf("%s\n", response.Status())
 		} else {
 			params := api.DeleteTemplateVersionsParams{
-				Owner: owner,
+				Owner: util.StrToPtrWithNilDefault(o.Owner),
 			}
 			response, err := c.DeleteTemplateVersionsWithResponse(ctx, &params)
 			if err != nil {
