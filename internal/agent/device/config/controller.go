@@ -79,6 +79,14 @@ func (c *Controller) Sync(ctx context.Context, device v1alpha1.Device) error {
 		return err
 	}
 
+	// create the management client now that we are properly bootstrapped
+	if managementHTTPClient, err := client.NewWithResponses(c.managementServerEndpoint,
+		c.caFilePath, c.managementCertFilePath, c.agentKeyFilePath); err == nil {
+		c.managementClient = client.NewManagement(managementHTTPClient)
+	} else {
+		return fmt.Errorf("failed to create management client: %w", err)
+	}
+
 	// ensure the device configuration is reconciled
 	if err := c.ensureConfig(ctx, &device); err != nil {
 		updateErr := c.updateStatus(ctx, &device, err.Error())

@@ -80,7 +80,7 @@ func TestDeviceAgent(t *testing.T) {
 
 	var deviceName string
 	// wait for the enrollment request to be created
-	err = wait.PollInfinite(100*time.Millisecond, func() (bool, error) {
+	err = wait.PollImmediate(100*time.Millisecond, 120*time.Second, func() (bool, error) {
 		listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &v1alpha1.ListEnrollmentRequestsParams{})
 		if err != nil {
 			return false, err
@@ -106,7 +106,7 @@ func TestDeviceAgent(t *testing.T) {
 	require.NoError(err)
 
 	// wait for the enrollment request to be approved
-	err = wait.PollInfinite(100*time.Millisecond, func() (bool, error) {
+	err = wait.PollImmediate(100*time.Millisecond, 120*time.Second, func() (bool, error) {
 		listResp, err := client.ListEnrollmentRequestsWithResponse(ctx, &v1alpha1.ListEnrollmentRequestsParams{})
 		if err != nil {
 			return false, err
@@ -137,7 +137,7 @@ func TestDeviceAgent(t *testing.T) {
 	require.NoError(err)
 
 	// wait for the device config to be written
-	err = wait.PollInfinite(100*time.Millisecond, func() (bool, error) {
+	err = wait.PollImmediate(100*time.Millisecond, 120*time.Second, func() (bool, error) {
 		_, err := os.Stat(filepath.Join(testDirPath, "/etc/motd"))
 		if err != nil && os.IsNotExist(err) {
 			return false, nil
