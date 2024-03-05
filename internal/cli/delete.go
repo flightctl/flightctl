@@ -18,8 +18,8 @@ type DeleteOptions struct {
 func NewCmdDelete() *cobra.Command {
 	o := &DeleteOptions{}
 	cmd := &cobra.Command{
-		Use:   "delete",
-		Short: "delete resources",
+		Use:   "delete (TYPE | TYPE/NAME)",
+		Short: "Delete resources by resources or owner.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -32,8 +32,8 @@ func NewCmdDelete() *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
-	cmd.Flags().StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
-	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "fleet name for accessing individual templateversions")
+	cmd.Flags().StringVar(&o.Owner, "owner", o.Owner, "Filter by owner.")
+	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing individual templateversions.")
 	return cmd
 }
 

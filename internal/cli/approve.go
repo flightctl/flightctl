@@ -19,8 +19,8 @@ type ApproveOptions struct {
 func NewCmdApprove() *cobra.Command {
 	o := &ApproveOptions{}
 	cmd := &cobra.Command{
-		Use:   "approve",
-		Short: "approve enrollment-request",
+		Use:   "approve enrollmentrequest/NAME",
+		Short: "Approve an enrollment request.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -34,8 +34,8 @@ func NewCmdApprove() *cobra.Command {
 		SilenceUsage: true,
 	}
 
-	cmd.Flags().StringArrayVarP(&o.ApproveLabels, "label", "l", []string{}, "labels to add to the device")
-	cmd.Flags().StringVarP(&o.ApproveRegion, "region", "r", "default", "region for the device")
+	cmd.Flags().StringArrayVarP(&o.ApproveLabels, "label", "l", []string{}, "Labels to add to the device, as a comma-separated list of key=value.")
+	cmd.Flags().StringVarP(&o.ApproveRegion, "region", "r", "default", "Region for the device.")
 	return cmd
 }
 
