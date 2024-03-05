@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
@@ -16,34 +15,24 @@ import (
 )
 
 func (c *Controller) ensureBootstrap(ctx context.Context, device *v1alpha1.Device) error {
-	if c.isBootstrapComplete() {
-		return nil
-	}
-	// perform the device enrollment
-	if err := c.writeDeviceEnrollmentBanner(ctx, device); err != nil {
-		return err
-	}
+	if !c.isBootstrapComplete() {
+		// perform the device enrollment
+		if err := c.writeDeviceEnrollmentBanner(ctx, device); err != nil {
+			return err
+		}
 
-	if err := c.deviceEnrollmentRequest(ctx, device); err != nil {
-		return err
+		if err := c.deviceEnrollmentRequest(ctx, device); err != nil {
+			return err
+		}
+
+		klog.Infof("%swaiting for enrollment to be approved", c.logPrefix)
+		err := wait.ExponentialBackoff(c.enrollmentVerifyBackoff, func() (bool, error) {
+			return c.verifyDeviceEnrollment(ctx, device)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to verify device enrollment: %w", err)
+		}
 	}
-
-	klog.Infof("%swaiting for enrollment to be approved", c.logPrefix)
-	err := wait.ExponentialBackoff(c.enrollmentVerifyBackoff, func() (bool, error) {
-		return c.verifyDeviceEnrollment(ctx, device)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to verify device enrollment: %w", err)
-	}
-
-	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(c.managementServerEndpoint, c.caFilePath, c.managementCertFilePath, c.agentKeyFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create management client: %w", err)
-	}
-
-	c.managementClient = client.NewManagement(managementHTTPClient)
-
 	// write the management banner
 	return c.writeDeviceManagementBanner(ctx, device)
 }
