@@ -32,19 +32,18 @@ type ApplyOptions struct {
 
 func NewCmdApply() *cobra.Command {
 	o := &ApplyOptions{Filenames: []string{}, DryRun: false, Recursive: false}
-
 	cmd := &cobra.Command{
 		Use:                   "apply -f FILENAME",
 		DisableFlagsInUseLine: true,
 		Short:                 "apply a configuration to a resource by file name or stdin",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !cmd.Flags().Lookup("filename").Changed {
-				return fmt.Errorf("must specify -f FILENAME")
+			if err := o.Complete(cmd, args); err != nil {
+				return err
 			}
-			if len(args) > 0 {
-				return fmt.Errorf("unexpected arguments: %v (did you forget to quote wildcards?)", args)
+			if err := o.Validate(args); err != nil {
+				return err
 			}
-			return RunApply(cmd.Context(), o.Filenames, o.Recursive, o.DryRun)
+			return o.Run(cmd.Context(), args)
 		},
 		SilenceUsage: true,
 	}
@@ -63,6 +62,80 @@ func NewCmdApply() *cobra.Command {
 	flags.BoolVarP(&o.Recursive, "recursive", "R", o.Recursive, "process the directory used in -f, --filename recursively")
 
 	return cmd
+}
+
+func (o *ApplyOptions) Complete(cmd *cobra.Command, args []string) error {
+	return nil
+}
+
+func (o *ApplyOptions) Validate(args []string) error {
+	if len(o.Filenames) == 0 {
+		return fmt.Errorf("must specify -f FILENAME")
+	}
+	if len(args) > 0 {
+		return fmt.Errorf("unexpected arguments: %v (did you forget to quote wildcards?)", args)
+	}
+	return nil
+}
+
+func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
+	client, err := client.NewFromConfigFile(defaultClientConfigFile)
+	if err != nil {
+		return fmt.Errorf("creating client: %w", err)
+	}
+
+	errs := make([]error, 0)
+	for _, filename := range o.Filenames {
+		switch {
+		case filename == "-":
+			errs = append(errs, applyFromReader(ctx, client, "<stdin>", os.Stdin, o.DryRun)...)
+		default:
+			expandedFilenames, err := expandIfFilePattern(filename)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			for _, filename := range expandedFilenames {
+				_, err := os.Stat(filename)
+				if os.IsNotExist(err) {
+					errs = append(errs, fmt.Errorf("the path %q does not exist", filename))
+					continue
+				}
+				if err != nil {
+					errs = append(errs, fmt.Errorf("the path %q cannot be accessed: %w", filename, err))
+					continue
+				}
+				err = filepath.Walk(filename, func(path string, fi os.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+
+					if fi.IsDir() {
+						if path != filename && !o.Recursive {
+							return filepath.SkipDir
+						}
+						return nil
+					}
+					// Don't check extension if the filepath was passed explicitly
+					if path != filename && ignoreFile(path, inputExtensions) {
+						return nil
+					}
+
+					r, err := os.Open(path)
+					if err != nil {
+						return nil
+					}
+					defer r.Close()
+					errs = append(errs, applyFromReader(ctx, client, path, r, o.DryRun)...)
+					return nil
+				})
+				if err != nil {
+					errs = append(errs, fmt.Errorf("error walking %q: %w", filename, err))
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type genericResource map[string]interface{}
@@ -177,66 +250,6 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 
 	}
 	return errs
-}
-
-func RunApply(ctx context.Context, filenames []string, recursive bool, dryRun bool) error {
-	client, err := client.NewFromConfigFile(defaultClientConfigFile)
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
-	}
-
-	errs := make([]error, 0)
-	for _, filename := range filenames {
-		switch {
-		case filename == "-":
-			errs = append(errs, applyFromReader(ctx, client, "<stdin>", os.Stdin, dryRun)...)
-		default:
-			expandedFilenames, err := expandIfFilePattern(filename)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			for _, filename := range expandedFilenames {
-				_, err := os.Stat(filename)
-				if os.IsNotExist(err) {
-					errs = append(errs, fmt.Errorf("the path %q does not exist", filename))
-					continue
-				}
-				if err != nil {
-					errs = append(errs, fmt.Errorf("the path %q cannot be accessed: %w", filename, err))
-					continue
-				}
-				err = filepath.Walk(filename, func(path string, fi os.FileInfo, err error) error {
-					if err != nil {
-						return err
-					}
-
-					if fi.IsDir() {
-						if path != filename && !recursive {
-							return filepath.SkipDir
-						}
-						return nil
-					}
-					// Don't check extension if the filepath was passed explicitly
-					if path != filename && ignoreFile(path, inputExtensions) {
-						return nil
-					}
-
-					r, err := os.Open(path)
-					if err != nil {
-						return nil
-					}
-					defer r.Close()
-					errs = append(errs, applyFromReader(ctx, client, path, r, dryRun)...)
-					return nil
-				})
-				if err != nil {
-					errs = append(errs, fmt.Errorf("error walking %q: %w", filename, err))
-				}
-			}
-		}
-	}
-	return errors.Join(errs...)
 }
 
 func expandIfFilePattern(pattern string) ([]string, error) {

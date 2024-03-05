@@ -64,6 +64,22 @@ func BoolToPtr(b bool) *bool {
 	return &b
 }
 
+func Int32ToPtrWithNilDefault(i int32) *int32 {
+	var defaultInt32 int32
+	if i == defaultInt32 {
+		return nil
+	}
+	return &i
+}
+
+func StrToPtrWithNilDefault(s string) *string {
+	var defaultString string
+	if s == defaultString {
+		return nil
+	}
+	return &s
+}
+
 func TimeStampStringPtr() *string {
 	return StrToPtr(time.Now().Format(time.RFC3339))
 }

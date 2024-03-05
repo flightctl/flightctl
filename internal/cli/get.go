@@ -43,59 +43,13 @@ func NewCmdGet() *cobra.Command {
 		Short: "get resources",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			kind, name, err := parseAndValidateKindName(args[0])
-			if err != nil {
+			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
-			if len(name) > 0 && cmd.Flags().Lookup("labelselector").Changed {
-				return fmt.Errorf("cannot specify label selector together when fetching a single resource")
+			if err := o.Validate(args); err != nil {
+				return err
 			}
-
-			if cmd.Flags().Lookup("owner").Changed {
-				if kind != DeviceKind && kind != FleetKind && kind != TemplateVersionKind {
-					return fmt.Errorf("owner can only be specified when fetching devices, fleets, and templateversions")
-				}
-				if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 {
-					return fmt.Errorf("cannot specify owner together with a device or fleet name")
-				}
-			}
-			if kind == TemplateVersionKind && len(name) > 0 {
-				if !cmd.Flags().Lookup("fleetname").Changed {
-					return fmt.Errorf("fleetname must be specified when fetching a specific templatevesion")
-				}
-			} else {
-				if cmd.Flags().Lookup("fleetname").Changed {
-					return fmt.Errorf("fleetname must only be specified when fetching a specific templatevesion")
-				}
-			}
-
-			if cmd.Flags().Lookup("output").Changed && !funk.Contains(legalOutputTypes, o.Output) {
-				return fmt.Errorf("output format must be one of %s", strings.Join(legalOutputTypes, ", "))
-			}
-			if o.Limit < 0 {
-				return fmt.Errorf("limit must be greater than 0")
-			}
-			var labelSelector *string
-			if cmd.Flags().Lookup("labelselector").Changed {
-				labelSelector = &o.LabelSelector
-			}
-			var owner *string
-			if cmd.Flags().Lookup("owner").Changed {
-				owner = &o.Owner
-			}
-			var limit *int32
-			if cmd.Flags().Lookup("limit").Changed {
-				limit = &o.Limit
-			}
-			var cont *string
-			if cmd.Flags().Lookup("continue").Changed {
-				cont = &o.Continue
-			}
-			var fleetName *string
-			if cmd.Flags().Lookup("fleetname").Changed {
-				fleetName = &o.FleetName
-			}
-			return RunGet(cmd.Context(), kind, name, labelSelector, owner, o.Output, limit, cont, fleetName)
+			return o.Run(cmd.Context(), args)
 		},
 		SilenceUsage: true,
 	}
@@ -109,7 +63,45 @@ func NewCmdGet() *cobra.Command {
 	return cmd
 }
 
-func RunGet(ctx context.Context, kind, name string, labelSelector, owner *string, output string, limit *int32, cont *string, fleetName *string) error {
+func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
+	return nil
+}
+
+func (o *GetOptions) Validate(args []string) error {
+	kind, name, err := parseAndValidateKindName(args[0])
+	if err != nil {
+		return err
+	}
+	if len(name) > 0 && len(o.LabelSelector) > 0 {
+		return fmt.Errorf("cannot specify label selector when fetching a single resource")
+	}
+	if len(o.Owner) > 0 {
+		if kind != DeviceKind && kind != FleetKind && kind != TemplateVersionKind {
+			return fmt.Errorf("owner can only be specified when fetching devices, fleets, and templateversions")
+		}
+		if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 {
+			return fmt.Errorf("cannot specify owner together with a device or fleet name")
+		}
+	}
+	if kind == TemplateVersionKind && len(name) > 0 {
+		if len(o.FleetName) == 0 {
+			return fmt.Errorf("fleetname must be specified when fetching a specific templatevesion")
+		}
+	} else {
+		if len(o.FleetName) > 0 {
+			return fmt.Errorf("fleetname must only be specified when fetching a specific templatevesion")
+		}
+	}
+	if len(o.Output) > 0 && !funk.Contains(legalOutputTypes, o.Output) {
+		return fmt.Errorf("output format must be one of %s", strings.Join(legalOutputTypes, ", "))
+	}
+	if o.Limit < 0 {
+		return fmt.Errorf("limit must be greater than 0")
+	}
+	return nil
+}
+
+func (o *GetOptions) Run(ctx context.Context, args []string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -117,68 +109,72 @@ func RunGet(ctx context.Context, kind, name string, labelSelector, owner *string
 
 	var response interface{}
 
+	kind, name, err := parseAndValidateKindName(args[0])
+	if err != nil {
+		return err
+	}
 	switch {
 	case kind == DeviceKind && len(name) > 0:
 		response, err = c.ReadDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
-			Owner:         owner,
-			LabelSelector: labelSelector,
-			Limit:         limit,
-			Continue:      cont,
+			Owner:         util.StrToPtrWithNilDefault(o.Owner),
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListDevicesWithResponse(ctx, &params)
 	case kind == EnrollmentRequestKind && len(name) > 0:
 		response, err = c.ReadEnrollmentRequestWithResponse(ctx, name)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		params := api.ListEnrollmentRequestsParams{
-			LabelSelector: labelSelector,
-			Limit:         limit,
-			Continue:      cont,
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
 		response, err = c.ReadFleetWithResponse(ctx, name)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
-			Owner:         owner,
-			LabelSelector: labelSelector,
-			Limit:         limit,
-			Continue:      cont,
+			Owner:         util.StrToPtrWithNilDefault(o.Owner),
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == TemplateVersionKind && len(name) > 0:
-		response, err = c.ReadTemplateVersionWithResponse(ctx, *fleetName, name)
+		response, err = c.ReadTemplateVersionWithResponse(ctx, o.FleetName, name)
 	case kind == TemplateVersionKind && len(name) == 0:
 		params := api.ListTemplateVersionsParams{
-			Owner:         owner,
-			LabelSelector: labelSelector,
-			Limit:         limit,
-			Continue:      cont,
+			Owner:         util.StrToPtrWithNilDefault(o.Owner),
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListTemplateVersionsWithResponse(ctx, &params)
 	case kind == RepositoryKind && len(name) > 0:
 		response, err = c.ReadRepositoryWithResponse(ctx, name)
 	case kind == RepositoryKind && len(name) == 0:
 		params := api.ListRepositoriesParams{
-			LabelSelector: labelSelector,
-			Limit:         limit,
-			Continue:      cont,
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListRepositoriesWithResponse(ctx, &params)
 	case kind == ResourceSyncKind && len(name) > 0:
 		response, err = c.ReadResourceSyncWithResponse(ctx, name)
 	case kind == ResourceSyncKind && len(name) == 0:
 		params := api.ListResourceSyncParams{
-			LabelSelector: labelSelector,
-			Limit:         limit,
-			Continue:      cont,
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListResourceSyncWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return processReponse(response, err, kind, name, output)
+	return processReponse(response, err, kind, name, o.Output)
 }
 
 func processReponse(response interface{}, err error, kind string, name string, output string) error {
