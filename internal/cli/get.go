@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,11 +20,12 @@ import (
 )
 
 const (
+	jsonFormat = "json"
 	yamlFormat = "yaml"
 )
 
 var (
-	legalOutputTypes = []string{yamlFormat}
+	legalOutputTypes = []string{jsonFormat, yamlFormat}
 )
 
 type GetOptions struct {
@@ -214,14 +216,22 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 		return fmt.Errorf("listing %s: %d", resourceType, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
 	}
 
-	if output == yamlFormat {
+	switch output {
+	case jsonFormat:
+		marshalled, err := json.Marshal(v.FieldByName("JSON200").Interface())
+		if err != nil {
+			return fmt.Errorf("marshalling resource: %w", err)
+		}
+		fmt.Printf("%s\n", string(marshalled))
+		return nil
+	case yamlFormat:
 		marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
 		if err != nil {
 			return fmt.Errorf("marshalling resource: %w", err)
 		}
-
 		fmt.Printf("%s\n", string(marshalled))
 		return nil
+	default:
 	}
 
 	// Tabular
