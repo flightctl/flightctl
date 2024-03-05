@@ -39,8 +39,8 @@ func NewCmdGet() *cobra.Command {
 	o := &GetOptions{LabelSelector: "", Limit: 0, Continue: ""}
 
 	cmd := &cobra.Command{
-		Use:   "get",
-		Short: "get resources",
+		Use:   "get (TYPE | TYPE/NAME)",
+		Short: "Display one or many resources.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -55,11 +55,11 @@ func NewCmdGet() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
-	cmd.Flags().StringVarP(&o.LabelSelector, "labelselector", "l", o.LabelSelector, "label selector as a comma-separated list of key=value")
-	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, "output format (yaml)")
-	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "the maximum number of results returned in the list response")
-	cmd.Flags().StringVar(&o.Continue, "continue", o.Continue, "query more results starting from the value of the 'continue' field in the previous response")
-	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "fleet name for accessing individual templateversions")
+	cmd.Flags().StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, as a comma-separated list of key=value.")
+	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
+	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
+	cmd.Flags().StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
+	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing individual templateversions.")
 	return cmd
 }
 
