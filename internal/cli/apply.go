@@ -33,9 +33,8 @@ type ApplyOptions struct {
 func NewCmdApply() *cobra.Command {
 	o := &ApplyOptions{Filenames: []string{}, DryRun: false, Recursive: false}
 	cmd := &cobra.Command{
-		Use:                   "apply -f FILENAME",
-		DisableFlagsInUseLine: true,
-		Short:                 "apply a configuration to a resource by file name or stdin",
+		Use:   "apply -f FILENAME",
+		Short: "Apply a configuration to a resource by file name or stdin.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -49,7 +48,7 @@ func NewCmdApply() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-	flags.StringSliceVarP(&o.Filenames, "filename", "f", o.Filenames, "read resources from file or directory")
+	flags.StringSliceVarP(&o.Filenames, "filename", "f", o.Filenames, "The files or directory that contain the resources to apply.")
 	annotations := make([]string, 0, len(fileExtensions))
 	for _, ext := range fileExtensions {
 		annotations = append(annotations, strings.TrimLeft(ext, "."))
@@ -58,8 +57,8 @@ func NewCmdApply() *cobra.Command {
 	if err != nil {
 		log.Fatalf("setting filename flag annotation: %v", err)
 	}
-	flags.BoolVarP(&o.DryRun, "dry-run", "", o.DryRun, "only print the object that would be sent, without sending it")
-	flags.BoolVarP(&o.Recursive, "recursive", "R", o.Recursive, "process the directory used in -f, --filename recursively")
+	flags.BoolVarP(&o.DryRun, "dry-run", "", o.DryRun, "Only print the object that would be sent, without sending it.")
+	flags.BoolVarP(&o.Recursive, "recursive", "R", o.Recursive, "Process the directory used in -f, --filename recursively.")
 
 	return cmd
 }
