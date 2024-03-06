@@ -44,13 +44,13 @@ var _ = Describe("Device Agent behavior", func() {
 	Context("enrollment", func() {
 		It("should submit a request for enrollment", func() {
 			deviceName := ""
-			Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
+			Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
 		})
 
 		When("an enrollment request is approved", func() {
 			It("should mark enrollment resquest as approved", func() {
 				deviceName := ""
-				Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
+				Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
 				approveEnrollment(h, deviceName, DefaultApproval())
 
 				// verify that the enrollment request is marked as approved
@@ -113,12 +113,32 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 		})
 
+		When("agent begins enrollment, and the enrollment is approved while the device is shutdown", func() {
+			It("the agent should start and complete enrollment successfully", func() {
+				deviceName := ""
+				Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
+
+				// shut down the agent before approving the enrollment request
+				GinkgoWriter.Printf("Agent has requested enrollment: %s, shutting it down\n", deviceName)
+				h.StopAgent()
+
+				// while the agent is down, we approve the enrollment for the device
+				approveEnrollment(h, deviceName, DefaultApproval())
+
+				// start the agent again
+				h.StartAgent()
+
+				// wait for the agent to retrieve the agent certificate from the EnrollmentRequest
+				Eventually(h.AgentDownloadedCertificate, TIMEOUT, POLLING).Should(BeTrue())
+			})
+		})
+
 	})
 })
 
 func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.EnrollmentRequestApproval) *v1alpha1.Device {
 	deviceName := ""
-	Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
+	Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
 	approveEnrollment(h, deviceName, approval)
 
 	// verify that the device is created
@@ -142,7 +162,7 @@ func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1al
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func getEnrolledDeviceName(h *harness.TestHarness, deviceName *string) bool {
+func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
 	listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
 	Expect(err).ToNot(HaveOccurred())
 

@@ -775,6 +775,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
+        "208":
+          description: Already Reported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
           content:

@@ -37,15 +37,18 @@ func (e *Enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 		e.rpcMetricsCallbackFunc("create_enrollmentrequest_duration", time.Since(start).Seconds(), err)
 	}
 
-	if resp.StatusCode() != http.StatusCreated {
+	if resp.StatusCode() != http.StatusCreated && resp.StatusCode() != http.StatusAlreadyReported {
 		return nil, fmt.Errorf("create enrollmentrequest failed: %s", resp.Status())
 	}
 
-	if resp.JSON201 == nil {
-		return nil, fmt.Errorf("create enrollmentrequest failed: %s", ErrEmptyResponse)
+	if resp.JSON201 != nil {
+		return resp.JSON201, nil
+	}
+	if resp.JSON208 != nil {
+		return resp.JSON208, nil
 	}
 
-	return resp.JSON201, nil
+	return nil, fmt.Errorf("create enrollmentrequest failed: %s", ErrEmptyResponse)
 }
 
 func (e *Enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
