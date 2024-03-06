@@ -19,9 +19,19 @@ import (
 )
 
 type TestHarness struct {
-	// internals for cleanup
-	cancelCtx      context.CancelFunc
+	// internals for agent
+	cancelAgentCtx context.CancelFunc
+	agentFinished  chan struct{}
+	agentConfig    *agent.Config
+
+	// internals for server
 	serverListener net.Listener
+
+	// error handler for go routines
+	goRoutineErrorHandler func(error)
+
+	// internals for client context
+	cancelCtx context.CancelFunc
 
 	// attributes for the test harness
 	Context     context.Context
@@ -94,35 +104,58 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
-	agentLog := log.InitLogs()
-	agentInstance := agent.New(agentLog, cfg)
-
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// start agent
-	go func() {
-		err := agentInstance.Run(ctx)
-		if err != nil {
-			goRoutineErrorHandler(fmt.Errorf("error starting agent: %w", err))
-		}
-	}()
+	testHarness := &TestHarness{
+		agentConfig:           cfg,
+		serverListener:        listener,
+		goRoutineErrorHandler: goRoutineErrorHandler,
+		Context:               ctx,
+		cancelCtx:             cancel,
+		Server:                server,
+		Client:                client,
+		Store:                 &store,
+		TestDirPath:           testDirPath}
 
-	return &TestHarness{
-		cancelCtx:      cancel,
-		serverListener: listener,
-		Context:        ctx,
-		Server:         server,
-		Client:         client,
-		Store:          &store,
-		Agent:          agentInstance,
-		TestDirPath:    testDirPath}, nil
+	testHarness.StartAgent()
+
+	return testHarness, nil
 }
 
 func (h *TestHarness) Cleanup() {
-	// stop the agent
+	h.StopAgent()
+	// stop any pending API requests
 	h.cancelCtx()
 	// stop the server
 	h.serverListener.Close()
+}
+
+func (h *TestHarness) StopAgent() {
+	h.cancelAgentCtx()
+	<-h.agentFinished
+}
+
+func (h *TestHarness) StartAgent() {
+	agentLog := log.InitLogs()
+	agentInstance := agent.New(agentLog, h.agentConfig)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	h.agentFinished = make(chan struct{})
+	// start agent
+	go func() {
+		err := agentInstance.Run(ctx)
+		close(h.agentFinished)
+		if err != nil {
+			h.goRoutineErrorHandler(fmt.Errorf("error starting agent: %w", err))
+		}
+	}()
+
+	h.cancelAgentCtx = cancel
+}
+
+func (h *TestHarness) RestartAgent() {
+	h.StopAgent()
+	h.StartAgent()
 }
 
 func makeTestDirs(tmpDirPath string, paths []string) error {
