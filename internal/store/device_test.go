@@ -165,7 +165,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("CreateOrUpdateDevice create mode", func() {
-			imageUrl := "imageurl"
+			templateVersion := "tv"
 			// Random Condition to make sure Conditions don't get stored
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
@@ -178,26 +178,36 @@ var _ = Describe("DeviceStore create", func() {
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
 				},
-				Spec: api.DeviceSpec{
-					Os: &api.DeviceOSSpec{
-						Image: imageUrl,
-					},
+				Spec: &api.DeviceSpec{
+					TemplateVersion: &templateVersion,
 				},
 				Status: &api.DeviceStatus{
 					Conditions: &[]api.Condition{condition},
 				},
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
-			Expect(dev.Spec.Os.Image).To(Equal(imageUrl))
+			Expect(*dev.Spec.TemplateVersion).To(Equal(templateVersion))
 			Expect(dev.Status.Conditions).To(BeNil())
 		})
 
+		It("CreateOrUpdateDevice update mode templateVersion", func() {
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("mydevice-1"),
+				},
+				Spec: &api.DeviceSpec{
+					TemplateVersion: util.StrToPtr("tv"),
+				},
+			}
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)
+			Expect(err).To(HaveOccurred())
+		})
+
 		It("CreateOrUpdateDevice update mode", func() {
-			imageUrl := "imageurl"
 			// Random Condition to make sure Conditions don't get stored
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
@@ -210,26 +220,26 @@ var _ = Describe("DeviceStore create", func() {
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("mydevice-1"),
 				},
-				Spec: api.DeviceSpec{
+				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOSSpec{
-						Image: imageUrl,
+						Image: "newos",
 					},
 				},
 				Status: &api.DeviceStatus{
 					Conditions: &[]api.Condition{condition},
 				},
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
-			Expect(dev.Spec.Os.Image).To(Equal(imageUrl))
+			Expect(dev.Spec.Os.Image).To(Equal("newos"))
 			Expect(dev.Status.Conditions).To(BeNil())
 		})
 
 		It("UpdateDeviceStatus", func() {
-			imageUrl := "imageurl"
+			templateVersion := "tv"
 			// Random Condition to make sure Conditions do get stored
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
@@ -242,10 +252,8 @@ var _ = Describe("DeviceStore create", func() {
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("mydevice-1"),
 				},
-				Spec: api.DeviceSpec{
-					Os: &api.DeviceOSSpec{
-						Image: imageUrl,
-					},
+				Spec: &api.DeviceSpec{
+					TemplateVersion: &templateVersion,
 				},
 				Status: &api.DeviceStatus{
 					Conditions: &[]api.Condition{condition},
@@ -257,22 +265,43 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
-			Expect(dev.Spec.Os.Image).ToNot(Equal(imageUrl))
+			Expect(dev.Spec.TemplateVersion).To(BeNil())
 			Expect(dev.Status.Conditions).ToNot(BeNil())
 			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 
-		It("UpdateDeviceOwner", func() {
+		It("UpdateTemplateVersionAndOwner", func() {
 			called := false
 			callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {
 				called = true
 			})
-			err := devStore.UpdateOwner(ctx, orgId, "mydevice-1", "newowner", callback)
+
+			err := devStore.UpdateTemplateVersionAndOwner(ctx, orgId, "mydevice-1", "tv", util.StrToPtr("newowner"), callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*dev.Metadata.Owner).To(Equal("newowner"))
+			Expect(*dev.Spec.TemplateVersion).To(Equal("tv"))
+			Expect(dev.Spec.Os).To(BeNil())
+
+			called = false
+			err = devStore.UpdateTemplateVersionAndOwner(ctx, orgId, "mydevice-1", "tv2", nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*dev.Metadata.Owner).To(Equal("newowner"))
+			Expect(*dev.Spec.TemplateVersion).To(Equal("tv2"))
+
+			called = false
+			err = devStore.UpdateTemplateVersionAndOwner(ctx, orgId, "mydevice-1", "", util.StrToPtr(""), callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*dev.Metadata.Owner).To(Equal(""))
+			Expect(*dev.Spec.TemplateVersion).To(Equal(""))
 		})
 
 		It("UpdateDeviceAnnotations", func() {
@@ -293,6 +322,36 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*dev.Metadata.Annotations).To(HaveLen(1))
 			_, ok := (*dev.Metadata.Annotations)["key2"]
 			Expect(ok).To(BeFalse())
+		})
+
+		It("GetRendered", func() {
+			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "fleet", nil, nil)
+			err := testutil.CreateTestTemplateVersion(ctx, storeInst.TemplateVersion(), orgId, "fleet", "tv", "os", true)
+			Expect(err).ToNot(HaveOccurred())
+			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev", util.SetResourceOwner(model.FleetKind, "fleet"), util.StrToPtr("tv"), nil)
+
+			// Not passing owner and templateversion
+			renderedConfig, err := devStore.GetRendered(ctx, orgId, "dev", nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*renderedConfig.Config).To(Equal("rendered config"))
+			Expect(renderedConfig.Os.Image).To(Equal("os"))
+
+			// Passing wrong owner
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("Fleet/otherfleet"), util.StrToPtr("tv"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*renderedConfig.Config).To(Equal("rendered config"))
+			Expect(renderedConfig.Os.Image).To(Equal("os"))
+
+			// Passing wrong tv
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("Fleet/fleet"), util.StrToPtr("othertv"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*renderedConfig.Config).To(Equal("rendered config"))
+			Expect(renderedConfig.Os.Image).To(Equal("os"))
+
+			// Passing current owner and tv
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("Fleet/fleet"), util.StrToPtr("tv"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(renderedConfig).To(BeNil())
 		})
 	})
 })

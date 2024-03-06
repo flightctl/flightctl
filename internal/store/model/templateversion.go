@@ -22,6 +22,12 @@ type TemplateVersion struct {
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.TemplateVersionStatus]
+
+	// The rendered ignition config, exposed in a separate endpoint.
+	RenderedConfig *string
+
+	// An indication if this version is valid. It exposed in a Condition but easier to query here.
+	Valid *bool
 }
 
 type TemplateVersionList []TemplateVersion

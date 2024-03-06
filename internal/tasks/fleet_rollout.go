@@ -25,12 +25,7 @@ func FleetRollouts(taskManager TaskManager) {
 			requestID := reqid.NextRequestID()
 			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
 			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := FleetRolloutsLogic{
-				log:         log,
-				fleetStore:  taskManager.store.Fleet(),
-				devStore:    taskManager.store.Device(),
-				resourceRef: resourceRef,
-			}
+			logic := NewFleetRolloutsLogic(taskManager, log, taskManager.store, resourceRef)
 
 			if resourceRef.Op != FleetRolloutOpUpdate {
 				taskManager.log.Errorf("received unknown op %s", resourceRef.Op)
@@ -54,18 +49,22 @@ func FleetRollouts(taskManager TaskManager) {
 }
 
 type FleetRolloutsLogic struct {
+	taskManager  TaskManager
 	log          logrus.FieldLogger
 	fleetStore   store.Fleet
 	devStore     store.Device
+	tvStore      store.TemplateVersion
 	resourceRef  ResourceReference
 	itemsPerPage int
 }
 
-func NewFleetRolloutsLogic(log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(tm TaskManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
+		taskManager:  tm,
 		log:          log,
 		fleetStore:   storeInst.Fleet(),
 		devStore:     storeInst.Device(),
+		tvStore:      storeInst.TemplateVersion(),
 		resourceRef:  resourceRef,
 		itemsPerPage: ItemsPerPage,
 	}
@@ -78,19 +77,14 @@ func (f *FleetRolloutsLogic) SetItemsPerPage(items int) {
 func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	f.log.Infof("Rolling out fleet %s/%s", f.resourceRef.OrgID, f.resourceRef.Name)
 
-	fleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
+	templateVersion, err := f.tvStore.GetNewestValid(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get fleet: %w", err)
-	}
-
-	// If there is no template set in the fleet, then there is nothing to sync to the devices
-	if fleet.Spec.Template.Metadata == nil {
-		f.log.Warn("fleet does not have a template")
-		return nil
+		return fmt.Errorf("failed to get templateVersion: %w", err)
 	}
 
 	failureCount := 0
-	owner := util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)
+	owner := util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)
+
 	listParams := store.ListParams{Owner: owner, Limit: ItemsPerPage}
 	for {
 		devices, err := f.devStore.List(ctx, f.resourceRef.OrgID, listParams)
@@ -101,9 +95,9 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 
 		for devIndex := range devices.Items {
 			device := &devices.Items[devIndex]
-			err = f.updateDeviceSpecAccordingToFleetTemplate(ctx, device, fleet)
+			err = f.updateDeviceToFleetTemplate(ctx, device, templateVersion)
 			if err != nil {
-				f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, *fleet.Metadata.Name, err)
+				f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.resourceRef.Name, err)
 				failureCount++
 			}
 		}
@@ -147,7 +141,7 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		}
 	}
 
-	owner, isFleetOwner, err := getOwnerFleet(device)
+	ownerName, isFleetOwner, err := getOwnerFleet(device)
 	if err != nil {
 		return fmt.Errorf("failed getting device owner: %w", err)
 	}
@@ -155,24 +149,21 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return nil
 	}
 
-	fleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, owner)
+	templateVersion, err := f.tvStore.GetNewestValid(ctx, f.resourceRef.OrgID, ownerName)
 	if err != nil {
-		return fmt.Errorf("failed to get fleet %s: %w", owner, err)
+		return fmt.Errorf("failed to get templateVersion: %w", err)
 	}
 
-	return f.updateDeviceSpecAccordingToFleetTemplate(ctx, device, fleet)
+	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion)
 }
 
-func (f FleetRolloutsLogic) updateDeviceSpecAccordingToFleetTemplate(ctx context.Context, device *api.Device, fleet *api.Fleet) error {
-	if fleet.Spec.Template.Metadata == nil {
-		return nil
-	}
-	targetGeneration := *fleet.Spec.Template.Metadata.Generation
-	if device.Metadata.Generation != nil && *device.Metadata.Generation == targetGeneration {
+func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *api.Device, templateVersion *api.TemplateVersion) error {
+	if device.Spec.TemplateVersion != nil && *device.Spec.TemplateVersion == *templateVersion.Metadata.Name {
 		// Nothing to do
 		return nil
 	}
 
-	f.log.Infof("Rolling out device %s/%s to generation %d", f.resourceRef.OrgID, *device.Metadata.Name, targetGeneration)
-	return f.devStore.UpdateSpec(ctx, f.resourceRef.OrgID, *device.Metadata.Name, targetGeneration, fleet.Spec.Template.Spec)
+	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
+
+	return f.devStore.UpdateTemplateVersionAndOwner(ctx, f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name, nil, f.taskManager.DeviceUpdatedCallback)
 }

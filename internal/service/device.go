@@ -103,7 +103,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, true, h.taskManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -113,6 +113,8 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		}
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceDevice404JSONResponse{}, nil
+	case gorm.ErrInvalidData:
+		return server.ReplaceDevice409JSONResponse{Message: "updating templateVersion is not allowed"}, nil
 	default:
 		return nil, err
 	}
@@ -161,6 +163,26 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
 	case gorm.ErrRecordNotFound:
 		return server.ReplaceDeviceStatus404JSONResponse{}, nil
+	default:
+		return nil, err
+	}
+}
+
+// (GET /api/v1/devices/{name}/rendered)
+func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
+	orgId := store.NullOrgId
+
+	result, err := h.store.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownOwner, request.Params.KnownTemplateVersion)
+	switch err {
+	case nil:
+		if result == nil {
+			return server.GetRenderedDeviceSpec204Response{}, nil
+		}
+		return server.GetRenderedDeviceSpec200JSONResponse(*result), nil
+	case gorm.ErrRecordNotFound:
+		return server.GetRenderedDeviceSpec404JSONResponse{}, nil
+	case gorm.ErrInvalidData:
+		return server.GetRenderedDeviceSpec409JSONResponse{Message: "rendered configuration is not currently available"}, nil
 	default:
 		return nil, err
 	}

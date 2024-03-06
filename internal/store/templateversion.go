@@ -21,7 +21,8 @@ type TemplateVersion interface {
 	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion) error
+	UpdateStatusAndConfig(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, config *string, callback TemplateVersionStoreCallback) error
+	GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
 	InitialMigration() error
 }
 
@@ -52,7 +53,7 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	templateVersion.Owner = util.SetResourceOwner(model.FleetKind, resource.Spec.Fleet)
 	templateVersion.Generation = util.Int64ToPtr(1)
 	status := api.TemplateVersionStatus{Conditions: &[]api.Condition{}}
-	api.SetStatusCondition(status.Conditions, api.Condition{Type: api.TemplateVersionReady, Status: api.ConditionStatusFalse})
+	api.SetStatusCondition(status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
 	templateVersion.Status = model.MakeJSONField(status)
 	apiResource := templateVersion.ToApiResource()
 
@@ -128,6 +129,17 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	return &apiTemplateVersionList, result.Error
 }
 
+func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
+	owner := util.SetResourceOwner(model.FleetKind, fleet)
+	var templateVersion model.TemplateVersion
+	result := s.db.Model(&templateVersion).Where("org_id = ? AND owner = ? AND valid = ?", orgId, owner, true).Order("created_at DESC").First(&templateVersion)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	apiResource := templateVersion.ToApiResource()
+	return &apiResource, nil
+}
+
 func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, owner *string) error {
 	condition := model.TemplateVersion{}
 	if owner != nil {
@@ -145,7 +157,6 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 	if result.Error != nil {
 		return nil, result.Error
 	}
-
 	apiTemplateVersion := templateVersion.ToApiResource()
 	return &apiTemplateVersion, nil
 }
@@ -159,7 +170,7 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 	return result.Error
 }
 
-func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion) error {
+func (s *TemplateVersionStore) UpdateStatusAndConfig(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, config *string, callback TemplateVersionStoreCallback) error {
 	if resource == nil {
 		return fmt.Errorf("resource is nil")
 	}
@@ -172,8 +183,21 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 			Owner: resource.Metadata.Owner,
 			Name:  *resource.Metadata.Name},
 	}
-	result := s.db.Model(&templateVersion).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(resource.Status),
-	})
-	return result.Error
+
+	updates := map[string]interface{}{"status": model.MakeJSONField(resource.Status)}
+	if valid != nil {
+		updates["valid"] = valid
+	}
+	if config != nil {
+		updates["rendered_config"] = *config
+	}
+	result := s.db.Model(&templateVersion).Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if valid != nil && *valid {
+		callback(&templateVersion)
+	}
+	return nil
 }

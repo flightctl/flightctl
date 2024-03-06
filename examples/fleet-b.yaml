@@ -17,7 +17,7 @@ spec:
         - name: base
           configType: GitConfigProviderSpec
           gitRef:
-            repoURL: https://github.com/flightctl/flightctl-demos.git
+            repository: defaultRepo
             targetRevision: main
             path: /production
         - name: acm-secrets
@@ -39,3 +39,6 @@ spec:
                   mode: 422
                   overwrite: true
                   path: "/etc/motd"
+      systemd:
+        matchPatterns:
+          - chronyd.service
