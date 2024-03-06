@@ -18,7 +18,7 @@ spec:
             - contents:
                 source: >-
                   data:,This%20system%20is%20managed%20by%20flightctl.%0A
-              mode: 600
+              mode: 0600
               overwrite: true
               path: "/etc/motd"
   systemd:

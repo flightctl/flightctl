@@ -1,113 +1,142 @@
 package agent_test
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/test/harness"
-	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/util/wait"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"sigs.k8s.io/yaml"
 )
 
-func TestDeviceAgent(t *testing.T) {
+const TIMEOUT = "20s"
+const POLLING = "250ms"
 
-	require := require.New(t)
+func TestAgent(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Agent Suite")
+}
 
-	testDirPath := t.TempDir()
-	defer t.Cleanup(func() {
-		_ = os.RemoveAll(testDirPath)
+var _ = Describe("Device Agent behavior", func() {
+	var (
+		h *harness.TestHarness
+	)
+
+	BeforeEach(func() {
+		var err error
+		h, err = harness.NewTestHarness(GinkgoT().TempDir(), func(err error) {
+			// this inline function handles any errors that are returned from go routines
+			Expect(err).ToNot(HaveOccurred())
+		})
+		// check for test harness creation errors
+		Expect(err).ToNot(HaveOccurred())
 	})
-	h, err := harness.NewTestHarness(testDirPath, func(err error) {
-		// this inline function handles any errors that are returned from go routines
-		require.NoError(err)
-	})
-	require.NoError(err)
-	defer h.Cleanup()
 
-	var deviceName string
-	// wait for the enrollment request to be created
-	err = wait.PollImmediate(100*time.Millisecond, 120*time.Second, func() (bool, error) {
-		listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
-		if err != nil {
-			return false, err
-		}
-		if len(listResp.JSON200.Items) == 0 {
-			return false, nil
-		}
-		deviceName = *listResp.JSON200.Items[0].Metadata.Name
-		if deviceName == "" {
-			return false, nil
-		}
-		return true, nil
+	AfterEach(func() {
+		h.Cleanup()
 	})
-	require.NoError(err)
 
-	// approve the enrollment request
+	Context("enrollment", func() {
+		It("should submit a request for enrollment", func() {
+			deviceName := ""
+			Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
+		})
+
+		When("an enrollment request is approved", func() {
+			It("should mark enrollment resquest as approved", func() {
+				deviceName := ""
+				Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
+				approveEnrollment(h, deviceName)
+
+				// verify that the enrollment request is marked as approved
+				er, err := h.Client.ReadEnrollmentRequestWithResponse(h.Context, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(er.JSON200.Status.Conditions).ToNot(BeNil())
+
+				Expect(v1alpha1.IsStatusConditionTrue(*er.JSON200.Status.Conditions, "Approved")).To(BeTrue())
+
+			})
+
+			It("should create a device", func() {
+				dev := enrollAndWaitForDevice(h)
+				Expect(dev.Metadata.Name).NotTo(BeNil())
+			})
+		})
+
+		When("updating the agent device spec", func() {
+			It("should write any files to the device", func() {
+				dev := enrollAndWaitForDevice(h)
+				dev.Spec = getTestSpec("device.yaml")
+				_, err := h.Client.ReplaceDeviceWithResponse(h.Context, *dev.Metadata.Name, *dev)
+				Expect(err).ToNot(HaveOccurred())
+
+				GinkgoWriter.Printf(
+					"Waiting for /etc/motd file to be created on the device %s, with testDirPath: %s\n",
+					*dev.Metadata.Name, h.TestDirPath)
+
+				var fileInfo fs.FileInfo
+				Eventually(func() bool {
+					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/etc/motd"))
+					if err != nil && os.IsNotExist(err) {
+						return false
+					}
+					return true
+				}, TIMEOUT, POLLING).Should(BeTrue())
+
+				Expect(fileInfo.Mode()).To(Equal(os.FileMode(0600)))
+			})
+		})
+
+	})
+})
+
+func enrollAndWaitForDevice(h *harness.TestHarness) *v1alpha1.Device {
+	deviceName := ""
+	Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
+	approveEnrollment(h, deviceName)
+
+	// verify that the device is created
+	dev, err := h.Client.ReadDeviceWithResponse(h.Context, deviceName)
+	Expect(err).ToNot(HaveOccurred())
+	return dev.JSON200
+}
+
+func approveEnrollment(h *harness.TestHarness, deviceName string) {
 	approval := v1alpha1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
 		Region:   util.StrToPtr("region"),
 	}
-	_, err = h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, deviceName, approval)
-	require.NoError(err)
-
-	// wait for the enrollment request to be approved
-	err = wait.PollImmediate(100*time.Millisecond, 120*time.Second, func() (bool, error) {
-		listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
-		if err != nil {
-			return false, err
-		}
-		if len(listResp.JSON200.Items) == 0 {
-			return false, nil
-		}
-		for _, cond := range *listResp.JSON200.Items[0].Status.Conditions {
-			if cond.Type == "Approved" {
-				return true, nil
-			}
-		}
-		return false, nil
-	})
-	require.NoError(err)
-
-	// get the device
-	resp, err := h.Client.ReadDeviceStatusWithResponse(h.Context, deviceName)
-	require.NoError(err)
-	require.Equal(200, resp.StatusCode())
-	device := *resp.JSON200
-
-	// update the device spec to include an ignition config
-	device.Spec, err = getTestSpec()
-	require.NoError(err)
-
-	_, err = h.Client.ReplaceDeviceWithResponse(h.Context, deviceName, device)
-	require.NoError(err)
-
-	// wait for the device config to be written
-	err = wait.PollImmediate(100*time.Millisecond, 120*time.Second, func() (bool, error) {
-		_, err := os.Stat(filepath.Join(h.TestDirPath, "/etc/motd"))
-		if err != nil && os.IsNotExist(err) {
-			return false, nil
-		}
-		return true, nil
-	})
-	require.NoError(err)
+	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
+	_, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, deviceName, approval)
+	Expect(err).ToNot(HaveOccurred())
 }
 
-func getTestSpec() (v1alpha1.DeviceSpec, error) {
-	deviceBytes, err := os.ReadFile(filepath.Join("testdata", "device.yaml"))
-	if err != nil {
-		return v1alpha1.DeviceSpec{}, err
+func getEnrolledDeviceName(h *harness.TestHarness, deviceName *string) bool {
+	listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
+	Expect(err).ToNot(HaveOccurred())
+
+	if len(listResp.JSON200.Items) == 0 {
+		return false
 	}
+
+	Expect(*listResp.JSON200.Items[0].Metadata.Name).ToNot(BeEmpty())
+	*deviceName = *listResp.JSON200.Items[0].Metadata.Name
+	return true
+}
+
+func getTestSpec(deviceYaml string) v1alpha1.DeviceSpec {
+	deviceBytes, err := os.ReadFile(filepath.Join("testdata", deviceYaml))
+	Expect(err).ToNot(HaveOccurred())
 
 	var device v1alpha1.Device
 	err = yaml.Unmarshal(deviceBytes, &device)
-	if err != nil {
-		return v1alpha1.DeviceSpec{}, err
-	}
-	return device.Spec, nil
+	Expect(err).ToNot(HaveOccurred())
+
+	return device.Spec
 }
