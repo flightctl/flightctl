@@ -130,6 +130,14 @@ func (h *TestHarness) Cleanup() {
 	h.serverListener.Close()
 }
 
+func (h *TestHarness) AgentDownloadedCertificate() bool {
+	_, err := os.Stat(filepath.Join(h.TestDirPath, "agent.crt"))
+	if err != nil && os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
 func (h *TestHarness) StopAgent() {
 	h.cancelAgentCtx()
 	<-h.agentFinished

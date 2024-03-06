@@ -2110,6 +2110,15 @@ func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
+type CreateEnrollmentRequest208JSONResponse EnrollmentRequest
+
+func (response CreateEnrollmentRequest208JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(208)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type CreateEnrollmentRequest401JSONResponse Error
 
 func (response CreateEnrollmentRequest401JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
