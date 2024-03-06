@@ -7,6 +7,7 @@ Before=getty@tty1.service
 [Service]
 ExecStart=/usr/bin/flightctl-agent
 Restart=always
+Type=notify
 
 [Install]
 WantedBy=multi-user.target
