@@ -44,6 +44,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.Enrol
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 		Certificate: util.StrToPtr(string(certData)),
 		Conditions:  &[]api.Condition{},
+		Approval:    approval,
 	}
 	condition := api.Condition{
 		Type:    api.EnrollmentRequestApproved,
