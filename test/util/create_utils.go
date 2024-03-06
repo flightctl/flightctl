@@ -8,19 +8,21 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 )
 
-func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, labels *map[string]string) {
+func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := api.Device{
 		Metadata: api.ObjectMeta{
 			Name:   &name,
 			Labels: labels,
 			Owner:  owner,
 		},
-		Spec: api.DeviceSpec{
+		Spec: &api.DeviceSpec{
+			TemplateVersion: tv,
 			Os: &api.DeviceOSSpec{
-				Image: "myimage",
+				Image: "os",
 			},
 		},
 	}
@@ -39,7 +41,7 @@ func CreateTestDevices(numDevices int, ctx context.Context, deviceStore store.De
 			labels["key"] = "value"
 		}
 
-		CreateTestDevice(ctx, deviceStore, orgId, fmt.Sprintf("mydevice-%d", i), owner, &labels)
+		CreateTestDevice(ctx, deviceStore, orgId, fmt.Sprintf("mydevice-%d", i), owner, nil, &labels)
 	}
 }
 
@@ -71,4 +73,38 @@ func CreateTestFleets(numFleets int, ctx context.Context, fleetStore store.Fleet
 		}
 		CreateTestFleet(ctx, fleetStore, orgId, fmt.Sprintf("%s-%d", namePrefix, i), &selector, owner)
 	}
+}
+
+func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name, osImage string, valid bool) error {
+	owner := util.SetResourceOwner(model.FleetKind, fleet)
+	resource := api.TemplateVersion{
+		Metadata: api.ObjectMeta{
+			Name:  &name,
+			Owner: owner,
+		},
+		Spec: api.TemplateVersionSpec{
+			Fleet: fleet,
+		},
+	}
+
+	callback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
+	tv, err := tvStore.Create(ctx, orgId, &resource, callback)
+	if err != nil {
+		return err
+	}
+
+	tv.Status = &api.TemplateVersionStatus{}
+	tv.Status.Os = &api.DeviceOSSpec{Image: osImage}
+	err = tvStore.UpdateStatusAndConfig(ctx, orgId, tv, &valid, util.StrToPtr("rendered config"), callback)
+	return err
+}
+
+func CreateTestTemplateVersions(numTemplateVersions int, ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet string) error {
+	for i := 1; i <= numTemplateVersions; i++ {
+		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), "myimage", true)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

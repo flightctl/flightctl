@@ -31,11 +31,13 @@ var _ = Describe("FleetRollout", func() {
 		orgId       uuid.UUID
 		deviceStore store.Device
 		fleetStore  store.Fleet
+		tvStore     store.TemplateVersion
 		storeInst   store.Store
 		cfg         *config.Config
 		dbName      string
 		numDevices  int
 		callback    store.FleetStoreCallback
+		taskManager tasks.TaskManager
 	)
 
 	BeforeEach(func() {
@@ -46,7 +48,9 @@ var _ = Describe("FleetRollout", func() {
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
+		tvStore = storeInst.TemplateVersion()
 		callback = func(before *model.Fleet, after *model.Fleet) {}
+		taskManager = tasks.Init(log, storeInst)
 	})
 
 	AfterEach(func() {
@@ -56,33 +60,35 @@ var _ = Describe("FleetRollout", func() {
 	Context("FleetRollout", func() {
 		It("Fleet rollout good flow", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet-1", nil, nil)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet-1", "1.0.bad", "my bad OS", false)
+			Expect(err).ToNot(HaveOccurred())
 			testutil.CreateTestDevices(numDevices, ctx, deviceStore, orgId, util.StrToPtr("Fleet/myfleet-1"), true)
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
+			devices, err := deviceStore.List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(numDevices))
+
 			// First update
-			logic := tasks.NewFleetRolloutsLogic(log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+			logic := tasks.NewFleetRolloutsLogic(taskManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 			logic.SetItemsPerPage(2)
 
-			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet-1", "1.0.0", "my first OS", true)
 			Expect(err).ToNot(HaveOccurred())
 			err = logic.RolloutFleet(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
-				Expect(*dev.Metadata.Generation).To(Equal(int64(2)))
-				Expect(dev.Spec.Os.Image).To(Equal("my first OS"))
+				Expect(*dev.Spec.TemplateVersion).To(Equal("1.0.0"))
 			}
-			fleet, err = fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(*fleet.Metadata.Generation).To(Equal(int64(2)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(2)))
 
 			// Second update
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet-1", "1.0.1", "my new OS", true)
+			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
 			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
@@ -91,35 +97,30 @@ var _ = Describe("FleetRollout", func() {
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
-				Expect(*dev.Metadata.Generation).To(Equal(int64(3)))
-				Expect(dev.Spec.Os.Image).To(Equal("my new OS"))
+				Expect(*dev.Spec.TemplateVersion).To(Equal("1.0.1"))
 			}
-			fleet, err = fleetStore.Get(ctx, orgId, *fleet.Metadata.Name)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(*fleet.Metadata.Generation).To(Equal(int64(3)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(3)))
 		})
 
 		It("Device rollout good flow", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet-1", nil, nil)
-			testutil.CreateTestDevices(1, ctx, deviceStore, orgId, util.StrToPtr("Fleet/myfleet-1"), true)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet-1", "1.0.bad", "my bad OS", false)
+			Expect(err).ToNot(HaveOccurred())
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet-1"), nil, nil)
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic := tasks.NewFleetRolloutsLogic(taskManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			logic.SetItemsPerPage(2)
 
-			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my first OS"}
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet-1", "1.0.0", "my first OS", true)
 			Expect(err).ToNot(HaveOccurred())
 			err = logic.RolloutDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*dev.Metadata.Generation).To(Equal(int64(2)))
-			Expect(dev.Spec.Os.Image).To(Equal("my first OS"))
+			Expect(*dev.Spec.TemplateVersion).To(Equal("1.0.0"))
 		})
 	})
 })

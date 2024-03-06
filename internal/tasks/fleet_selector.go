@@ -605,11 +605,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 		newOwnerRef = util.StrToPtr("")
 	}
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), *newOwnerRef)
-	err := f.devStore.UpdateOwner(ctx, f.resourceRef.OrgID, *device.Metadata.Name, *newOwnerRef, f.taskManager.DeviceUpdatedCallback)
-	if err != nil {
-		return fmt.Errorf("failed updating device owner: %w", err)
-	}
-	return nil
+	return f.devStore.UpdateTemplateVersionAndOwner(ctx, f.resourceRef.OrgID, *device.Metadata.Name, "", newOwnerRef, f.taskManager.DeviceUpdatedCallback)
 }
 
 func (f FleetSelectorMatchingLogic) setOverlappingFleetConditions(ctx context.Context, overlappingFleetNames []string) error {

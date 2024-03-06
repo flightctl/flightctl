@@ -50,6 +50,7 @@ const (
 	FleetSelectorOpUpdateOverlap = "update-overlap"
 	FleetSelectorOpDeleteAll     = "delete-all"
 	TemplateVersionOpCreated     = "create"
+	TemplateVersionOpFleetUpdate = "fleet-update"
 )
 
 func Init(log logrus.FieldLogger, store store.Store) TaskManager {
@@ -126,12 +127,12 @@ func (t TaskManager) FleetUpdatedCallback(before *model.Fleet, after *model.Flee
 	if before == nil {
 		// New fleet
 		fleet = after
-		templateUpdated = false // No point in rolling out until selectors are processed
+		templateUpdated = true
 		selectorUpdated = true
 	} else if after == nil {
 		// Deleted fleet
 		fleet = before
-		templateUpdated = false // Nothing to roll out
+		templateUpdated = false
 		selectorUpdated = true
 	} else {
 		fleet = after
@@ -142,7 +143,7 @@ func (t TaskManager) FleetUpdatedCallback(before *model.Fleet, after *model.Flee
 	ref := ResourceReference{OrgID: fleet.OrgID, Kind: model.FleetKind, Name: fleet.Name}
 	if templateUpdated {
 		// If the template was updated, start rolling out the new spec
-		t.SubmitTask(ChannelFleetTemplateRollout, ref, FleetRolloutOpUpdate)
+		t.SubmitTask(ChannelTemplateVersion, ref, TemplateVersionOpFleetUpdate)
 	}
 	if selectorUpdated {
 		op := FleetSelectorOpUpdate
@@ -215,4 +216,18 @@ func (t TaskManager) TemplateVersionCreatedCallback(templateVersion *model.Templ
 		Owner: *templateVersion.Owner,
 	}
 	t.SubmitTask(ChannelTemplateVersion, resourceRef, TemplateVersionOpCreated)
+}
+
+func (t TaskManager) TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion) {
+	_, fleetName, err := util.GetResourceOwner(templateVersion.Owner)
+	if err != nil {
+		t.log.Errorf("failed getting templateVersion owner: %v", err)
+		return
+	}
+	resourceRef := ResourceReference{
+		OrgID: templateVersion.OrgID,
+		Kind:  model.FleetKind,
+		Name:  fleetName,
+	}
+	t.SubmitTask(ChannelFleetTemplateRollout, resourceRef, FleetRolloutOpUpdate)
 }
