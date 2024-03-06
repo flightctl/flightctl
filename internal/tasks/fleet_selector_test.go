@@ -53,15 +53,15 @@ var _ = Describe("FleetSelector", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "otherfleet", &map[string]string{"otherkey": "othervalue"}, nil)
 
 			// This device has no current owner, should now match "fleet"
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-owner", nil, &map[string]string{"key": "value"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-owner", nil, nil, &map[string]string{"key": "value"})
 			// This device is owned by "otherfleet", should now match "fleet"
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "otherfleet-to-fleet", util.StrToPtr("Fleet/otherfleet"), &map[string]string{"key": "value"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "otherfleet-to-fleet", util.StrToPtr("Fleet/otherfleet"), nil, &map[string]string{"key": "value"})
 			// This device is owned by "fleet", but no longer matches it
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet-to-none", util.StrToPtr("Fleet/fleet"), &map[string]string{"key": "novalue"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet-to-none", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key": "novalue"})
 			// This device is owned by "fleet" and stays that way
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "stay-in-fleet", util.StrToPtr("Fleet/fleet"), &map[string]string{"key": "value"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "stay-in-fleet", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key": "value"})
 			// This device is owned by "otherfleet", should now match both fleets (error)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "otherfleet-to-error", util.StrToPtr("Fleet/otherfleet"), &map[string]string{"key": "value", "otherkey": "othervalue"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "otherfleet-to-error", util.StrToPtr("Fleet/otherfleet"), nil, &map[string]string{"key": "value", "otherkey": "othervalue"})
 
 			err := logic.FleetSelectorUpdatedNoOverlapping(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -98,7 +98,7 @@ var _ = Describe("FleetSelector", func() {
 		})
 
 		It("Fleet deleted no overlap", func() {
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device", util.StrToPtr("Fleet/fleet"), &map[string]string{"key": "value"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key": "value"})
 			err := logic.FleetSelectorUpdatedNoOverlapping(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			device, err := deviceStore.Get(ctx, orgId, "device")
@@ -108,7 +108,7 @@ var _ = Describe("FleetSelector", func() {
 
 		It("Fleet selector removed no overlap", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet", nil, nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device", util.StrToPtr("Fleet/fleet"), &map[string]string{"key": "value"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key": "value"})
 			err := logic.FleetSelectorUpdatedNoOverlapping(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			device, err := deviceStore.Get(ctx, orgId, "device")
@@ -118,10 +118,10 @@ var _ = Describe("FleetSelector", func() {
 
 		It("Empty fleet selector matches all", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet", &map[string]string{}, nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nillabels", util.StrToPtr("Fleet/fleet"), nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "emptylabels", util.StrToPtr("Fleet/fleet"), &map[string]string{})
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device1", util.StrToPtr("Fleet/fleet"), &map[string]string{"key1": "value1"})
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device2", util.StrToPtr("Fleet/fleet"), &map[string]string{"key2": "value2"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nillabels", util.StrToPtr("Fleet/fleet"), nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "emptylabels", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device1", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key1": "value1"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device2", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key2": "value2"})
 			err := logic.FleetSelectorUpdatedNoOverlapping(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -155,17 +155,17 @@ var _ = Describe("FleetSelector", func() {
 
 			// Now, some were fixed and not overlapping, but fleet2 and fleet3 still overlap on one device
 			// Match fleet1
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet", util.StrToPtr("Fleet/fleet2"), &map[string]string{"key1": "val1"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet", util.StrToPtr("Fleet/fleet2"), nil, &map[string]string{"key1": "val1"})
 			// Match fleet2
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet2", util.StrToPtr("Fleet/fleet"), &map[string]string{"key2": "val2"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet2", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key2": "val2"})
 			// Match fleet3
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet3", util.StrToPtr("Fleet/fleet2"), &map[string]string{"key3": "val3"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet3", util.StrToPtr("Fleet/fleet2"), nil, &map[string]string{"key3": "val3"})
 			// Match fleet2 and fleet3
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet2+3", util.StrToPtr("Fleet/fleet2"), &map[string]string{"key2": "val2", "key3": "val3"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "fleet2+3", util.StrToPtr("Fleet/fleet2"), nil, &map[string]string{"key2": "val2", "key3": "val3"})
 			// Match no fleet
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nofleet", util.StrToPtr("Fleet/fleet4"), &map[string]string{"key4": "val4"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nofleet", util.StrToPtr("Fleet/fleet4"), nil, &map[string]string{"key4": "val4"})
 			// Match no fleet with no labels
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nolabels", util.StrToPtr("Fleet/fleet4"), &map[string]string{})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nolabels", util.StrToPtr("Fleet/fleet4"), nil, &map[string]string{})
 
 			// All devices had multiple owners
 			devices, err := deviceStore.List(ctx, orgId, listParams)
@@ -228,15 +228,15 @@ var _ = Describe("FleetSelector", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet2", &map[string]string{"key2": "val2"}, nil)
 
 			// No ownership change
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "stay-with-fleet1", util.StrToPtr("Fleet/fleet1"), &map[string]string{"key1": "val1"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "stay-with-fleet1", util.StrToPtr("Fleet/fleet1"), nil, &map[string]string{"key1": "val1"})
 			// Ownership change
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "change-to-fleet2", util.StrToPtr("Fleet/fleet1"), &map[string]string{"key2": "val2"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "change-to-fleet2", util.StrToPtr("Fleet/fleet1"), nil, &map[string]string{"key2": "val2"})
 			// Multiple owners
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "multiple-owners", util.StrToPtr("Fleet/fleet1"), &map[string]string{"key1": "val1", "key2": "val2"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "multiple-owners", util.StrToPtr("Fleet/fleet1"), nil, &map[string]string{"key1": "val1", "key2": "val2"})
 			// No match
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-match", util.StrToPtr("Fleet/fleet2"), &map[string]string{"key3": "val3"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-match", util.StrToPtr("Fleet/fleet2"), nil, &map[string]string{"key3": "val3"})
 			// Match no fleet with no labels
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-labels", util.StrToPtr("Fleet/fleet3"), &map[string]string{})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-labels", util.StrToPtr("Fleet/fleet3"), nil, &map[string]string{})
 
 			listParams := store.ListParams{Limit: 0}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
@@ -305,10 +305,10 @@ var _ = Describe("FleetSelector", func() {
 		})
 
 		It("Delete all fleets", func() {
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "single-owner", util.StrToPtr("Fleet/fleet1"), &map[string]string{"key1": "val1"})
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "multiple-owners", util.StrToPtr("Fleet/fleet1"), &map[string]string{"key1": "val1", "key2": "val2"})
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-owner", nil, &map[string]string{"key3": "val3"})
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-labels", nil, &map[string]string{})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "single-owner", util.StrToPtr("Fleet/fleet1"), nil, &map[string]string{"key1": "val1"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "multiple-owners", util.StrToPtr("Fleet/fleet1"), nil, &map[string]string{"key1": "val1", "key2": "val2"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-owner", nil, nil, &map[string]string{"key3": "val3"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-labels", nil, nil, &map[string]string{})
 
 			annotations := map[string]string{model.DeviceAnnotationMultipleOwners: "fleetnames"}
 			err := deviceStore.UpdateAnnotations(ctx, orgId, "multiple-owners", annotations, nil)

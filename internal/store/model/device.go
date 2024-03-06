@@ -38,6 +38,11 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 		return &Device{}
 	}
 
+	var spec api.DeviceSpec
+	if resource.Spec != nil {
+		spec = *resource.Spec
+	}
+
 	var status api.DeviceStatus
 	if resource.Status != nil {
 		status = *resource.Status
@@ -51,7 +56,7 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 			Owner:       resource.Metadata.Owner,
 			Annotations: util.LabelMapToArray(resource.Metadata.Annotations),
 		},
-		Spec:   MakeJSONField(resource.Spec),
+		Spec:   MakeJSONField(spec),
 		Status: MakeJSONField(status),
 	}
 }
@@ -59,6 +64,11 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 func (d *Device) ToApiResource() api.Device {
 	if d == nil {
 		return api.Device{}
+	}
+
+	var spec api.DeviceSpec
+	if d.Spec != nil {
+		spec = d.Spec.Data
 	}
 
 	var status api.DeviceStatus
@@ -80,7 +90,7 @@ func (d *Device) ToApiResource() api.Device {
 			Owner:             d.Owner,
 			Annotations:       &metadataAnnotations,
 		},
-		Spec:   d.Spec.Data,
+		Spec:   &spec,
 		Status: &status,
 	}
 }

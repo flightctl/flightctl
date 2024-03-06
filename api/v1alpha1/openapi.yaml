@@ -607,6 +607,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - device
@@ -709,6 +715,59 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/devices/{name}/specification:
+    get:
+      tags:
+        - device
+      description: get the full specification for the specified device
+      operationId: getRenderedDeviceSpec
+      parameters:
+        - name: name
+          in: path
+          description: Name of the device
+          required: true
+          schema:
+            type: string
+        - name: knownOwner
+          in: query
+          description: The last known owner
+          required: false
+          schema:
+            type: string
+        - name: knownTemplateVersion
+          in: query
+          description: The last known template version
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderedDeviceSpec'
+        "204":
+          description: No content
+          content: {}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
@@ -1614,7 +1673,6 @@ components:
         - apiVersion
         - kind
         - metadata
-        - spec
       description: Device represents a physical device.
     GenericConfigSpec:
       type: object
@@ -1710,36 +1768,13 @@ components:
       required:
         - image
     DeviceSpec:
-      type: object
-      properties:
-        os:
-          $ref: '#/components/schemas/DeviceOSSpec'
-        config:
-          type: array
-          description: List of config resources.
-          items:
-            type: object
-            oneOf:
-              - $ref: "#/components/schemas/GitConfigProviderSpec"
-              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
-              - $ref: "#/components/schemas/InlineConfigProviderSpec"
-            discriminator:
-              propertyName: configType
-        containers:
-          type: object
+      allOf:
+        - $ref: '#/components/schemas/DeviceSpecification'
+        - type: object
           properties:
-            matchPattern:
-              type: array
-              items:
-                type: string
-                additionalProperties: true
-        systemd:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
+            templateVersion:
+              type: string
+              description: The TemplateVersion representing the target state for this device.
       description: DeviceSpec is a description of a device's target state.
     DeviceStatus:
       type: object
@@ -2050,12 +2085,72 @@ components:
             metadata:
               $ref: '#/components/schemas/ObjectMeta'
             spec:
-              $ref: '#/components/schemas/DeviceSpec'
+              $ref: '#/components/schemas/DeviceSpecification'
           required:
             - spec
       required:
         - template
       description: FleetSpec is a description of a fleet's target state.
+    RenderedDeviceSpec:
+      type: object
+      properties:
+        owner:
+          type: string
+        templateVersion:
+          type: string
+        os:
+          $ref: '#/components/schemas/DeviceOSSpec'
+        containers:
+          type: object
+          properties:
+            matchPattern:
+              type: array
+              items:
+                type: string
+                additionalProperties: true
+        config:
+          type: string
+        systemd:
+          type: object
+          properties:
+            matchPatterns:
+              type: array
+              items:
+                type: string
+      required:
+        - owner
+        - templateVersion
+    DeviceSpecification:
+      type: object
+      properties:
+        os:
+          $ref: '#/components/schemas/DeviceOSSpec'
+        config:
+          type: array
+          description: List of config resources.
+          items:
+            type: object
+            oneOf:
+              - $ref: "#/components/schemas/GitConfigProviderSpec"
+              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
+              - $ref: "#/components/schemas/InlineConfigProviderSpec"
+            discriminator:
+              propertyName: configType
+        containers:
+          type: object
+          properties:
+            matchPattern:
+              type: array
+              items:
+                type: string
+                additionalProperties: true
+        systemd:
+          type: object
+          properties:
+            matchPatterns:
+              type: array
+              items:
+                type: string
     FleetStatus:
       type: object
       properties:
@@ -2095,27 +2190,18 @@ components:
       required:
         - fleet
     TemplateVersionStatus:
-      type: object
-      properties:
-        os:
-          $ref: '#/components/schemas/DeviceOSSpec'
-        config:
-          type: array
-          description: List of config resources.
-          items:
-            type: object
-            oneOf:
-              - $ref: "#/components/schemas/GitConfigProviderSpec"
-              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
-              - $ref: "#/components/schemas/InlineConfigProviderSpec"
-        updatedAt:
-          type: string
-        conditions:
-          type: array
-          description: 'Current state of the device.'
-          items:
-            $ref: '#/components/schemas/Condition'
-      description: TemplateVersionStatus represents information about the status of a template version.
+      allOf:
+        - $ref: '#/components/schemas/DeviceSpecification'
+        - type: object
+          properties:
+            updatedAt:
+              type: string
+            conditions:
+              type: array
+              description: 'Current state of the device.'
+              items:
+                $ref: '#/components/schemas/Condition'
+          description: TemplateVersionStatus represents information about the status of a template version.
     TemplateVersionList:
       type: object
       properties:
@@ -2252,7 +2338,7 @@ components:
       - 'Available'            # Device
       - 'Progressing'          # Device
       - 'Degraded'             # Device
-      - 'Ready'                # TemplateVersion
+      - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
       - RepositoryAccessible
@@ -2268,7 +2354,7 @@ components:
       - DeviceAvailable
       - DeviceProgressing
       - DeviceDegraded
-      - TemplateVersionReady
+      - TemplateVersionValid
     ConditionStatus:
       type: string
       enum:

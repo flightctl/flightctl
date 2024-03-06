@@ -19,7 +19,7 @@ spec:
           gitRef:
             repository: defaultRepo
             targetRevision: main
-            path: /production
+            path: /basic-nginx-demo/configuration
         - name: motd-update
           configType: InlineConfigProviderSpec
           inline:
@@ -33,3 +33,6 @@ spec:
                   mode: 422
                   overwrite: true
                   path: "/etc/motd"
+      systemd:
+        matchPatterns:
+          - chronyd.service

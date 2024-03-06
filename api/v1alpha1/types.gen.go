@@ -33,7 +33,7 @@ const (
 	ResourceSyncAccessible     ConditionType = "Accessible"
 	ResourceSyncResourceParsed ConditionType = "ResourceParsed"
 	ResourceSyncSynced         ConditionType = "Synced"
-	TemplateVersionReady       ConditionType = "Ready"
+	TemplateVersionValid       ConditionType = "Valid"
 )
 
 // Defines values for TemplateDiscriminators.
@@ -95,7 +95,7 @@ type Device struct {
 	Metadata ObjectMeta `json:"metadata"`
 
 	// Spec DeviceSpec is a description of a device's target state.
-	Spec DeviceSpec `json:"spec"`
+	Spec *DeviceSpec `json:"spec,omitempty"`
 
 	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
 	Status *DeviceStatus `json:"status,omitempty"`
@@ -122,7 +122,7 @@ type DeviceOSSpec struct {
 	Image string `json:"image"`
 }
 
-// DeviceSpec DeviceSpec is a description of a device's target state.
+// DeviceSpec defines model for DeviceSpec.
 type DeviceSpec struct {
 	// Config List of config resources.
 	Config     *[]DeviceSpec_Config_Item `json:"config,omitempty"`
@@ -133,10 +133,31 @@ type DeviceSpec struct {
 	Systemd *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
+
+	// TemplateVersion The TemplateVersion representing the target state for this device.
+	TemplateVersion *string `json:"templateVersion,omitempty"`
 }
 
 // DeviceSpec_Config_Item defines model for DeviceSpec.config.Item.
 type DeviceSpec_Config_Item struct {
+	union json.RawMessage
+}
+
+// DeviceSpecification defines model for DeviceSpecification.
+type DeviceSpecification struct {
+	// Config List of config resources.
+	Config     *[]DeviceSpecification_Config_Item `json:"config,omitempty"`
+	Containers *struct {
+		MatchPattern *[]string `json:"matchPattern,omitempty"`
+	} `json:"containers,omitempty"`
+	Os      *DeviceOSSpec `json:"os,omitempty"`
+	Systemd *struct {
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
+	} `json:"systemd,omitempty"`
+}
+
+// DeviceSpecification_Config_Item defines model for DeviceSpecification.config.Item.
+type DeviceSpecification_Config_Item struct {
 	union json.RawMessage
 }
 
@@ -302,10 +323,8 @@ type FleetSpec struct {
 	Selector *LabelSelector `json:"selector,omitempty"`
 	Template struct {
 		// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-		Metadata *ObjectMeta `json:"metadata,omitempty"`
-
-		// Spec DeviceSpec is a description of a device's target state.
-		Spec DeviceSpec `json:"spec"`
+		Metadata *ObjectMeta         `json:"metadata,omitempty"`
+		Spec     DeviceSpecification `json:"spec"`
 	} `json:"template"`
 }
 
@@ -384,6 +403,20 @@ type ObjectMeta struct {
 
 	// Owner A resource that owns this resource, in "kind/name" format.
 	Owner *string `json:"owner,omitempty"`
+}
+
+// RenderedDeviceSpec defines model for RenderedDeviceSpec.
+type RenderedDeviceSpec struct {
+	Config     *string `json:"config,omitempty"`
+	Containers *struct {
+		MatchPattern *[]string `json:"matchPattern,omitempty"`
+	} `json:"containers,omitempty"`
+	Os      *DeviceOSSpec `json:"os,omitempty"`
+	Owner   string        `json:"owner"`
+	Systemd *struct {
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
+	} `json:"systemd,omitempty"`
+	TemplateVersion string `json:"templateVersion"`
 }
 
 // Repository Repository represents a git repository
@@ -517,11 +550,9 @@ type TemplateVersion struct {
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata ObjectMeta          `json:"metadata"`
-	Spec     TemplateVersionSpec `json:"spec"`
-
-	// Status TemplateVersionStatus represents information about the status of a template version.
-	Status *TemplateVersionStatus `json:"status,omitempty"`
+	Metadata ObjectMeta             `json:"metadata"`
+	Spec     TemplateVersionSpec    `json:"spec"`
+	Status   *TemplateVersionStatus `json:"status,omitempty"`
 }
 
 // TemplateVersionList TemplateVersionList is a list of TemplateVersions.
@@ -545,15 +576,21 @@ type TemplateVersionSpec struct {
 	Fleet string `json:"fleet"`
 }
 
-// TemplateVersionStatus TemplateVersionStatus represents information about the status of a template version.
+// TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
 	// Conditions Current state of the device.
 	Conditions *[]Condition `json:"conditions,omitempty"`
 
 	// Config List of config resources.
-	Config    *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
-	Os        *DeviceOSSpec                        `json:"os,omitempty"`
-	UpdatedAt *string                              `json:"updatedAt,omitempty"`
+	Config     *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
+	Containers *struct {
+		MatchPattern *[]string `json:"matchPattern,omitempty"`
+	} `json:"containers,omitempty"`
+	Os      *DeviceOSSpec `json:"os,omitempty"`
+	Systemd *struct {
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
+	} `json:"systemd,omitempty"`
+	UpdatedAt *string `json:"updatedAt,omitempty"`
 }
 
 // TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.
@@ -574,6 +611,15 @@ type ListDevicesParams struct {
 
 	// Owner The owner of the devices.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+}
+
+// GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
+type GetRenderedDeviceSpecParams struct {
+	// KnownOwner The last known owner
+	KnownOwner *string `form:"knownOwner,omitempty" json:"knownOwner,omitempty"`
+
+	// KnownTemplateVersion The last known template version
+	KnownTemplateVersion *string `form:"knownTemplateVersion,omitempty" json:"knownTemplateVersion,omitempty"`
 }
 
 // ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.
@@ -812,6 +858,125 @@ func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsGitConfigProviderSpec returns the union data inside the DeviceSpecification_Config_Item as a GitConfigProviderSpec
+func (t DeviceSpecification_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
+	var body GitConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitConfigProviderSpec overwrites any union data inside the DeviceSpecification_Config_Item as the provided GitConfigProviderSpec
+func (t *DeviceSpecification_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	v.ConfigType = "GitConfigProviderSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitConfigProviderSpec performs a merge with any union data inside the DeviceSpecification_Config_Item, using the provided GitConfigProviderSpec
+func (t *DeviceSpecification_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	v.ConfigType = "GitConfigProviderSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsKubernetesSecretProviderSpec returns the union data inside the DeviceSpecification_Config_Item as a KubernetesSecretProviderSpec
+func (t DeviceSpecification_Config_Item) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
+	var body KubernetesSecretProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromKubernetesSecretProviderSpec overwrites any union data inside the DeviceSpecification_Config_Item as the provided KubernetesSecretProviderSpec
+func (t *DeviceSpecification_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	v.ConfigType = "KubernetesSecretProviderSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the DeviceSpecification_Config_Item, using the provided KubernetesSecretProviderSpec
+func (t *DeviceSpecification_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	v.ConfigType = "KubernetesSecretProviderSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInlineConfigProviderSpec returns the union data inside the DeviceSpecification_Config_Item as a InlineConfigProviderSpec
+func (t DeviceSpecification_Config_Item) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
+	var body InlineConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineConfigProviderSpec overwrites any union data inside the DeviceSpecification_Config_Item as the provided InlineConfigProviderSpec
+func (t *DeviceSpecification_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	v.ConfigType = "InlineConfigProviderSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineConfigProviderSpec performs a merge with any union data inside the DeviceSpecification_Config_Item, using the provided InlineConfigProviderSpec
+func (t *DeviceSpecification_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	v.ConfigType = "InlineConfigProviderSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t DeviceSpecification_Config_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"configType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t DeviceSpecification_Config_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "GitConfigProviderSpec":
+		return t.AsGitConfigProviderSpec()
+	case "InlineConfigProviderSpec":
+		return t.AsInlineConfigProviderSpec()
+	case "KubernetesSecretProviderSpec":
+		return t.AsKubernetesSecretProviderSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t DeviceSpecification_Config_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *DeviceSpecification_Config_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsGitConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a GitConfigProviderSpec
 func (t TemplateVersionStatus_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
 	var body GitConfigProviderSpec
@@ -821,6 +986,7 @@ func (t TemplateVersionStatus_Config_Item) AsGitConfigProviderSpec() (GitConfigP
 
 // FromGitConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided GitConfigProviderSpec
 func (t *TemplateVersionStatus_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	v.ConfigType = "GitConfigProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -828,6 +994,7 @@ func (t *TemplateVersionStatus_Config_Item) FromGitConfigProviderSpec(v GitConfi
 
 // MergeGitConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided GitConfigProviderSpec
 func (t *TemplateVersionStatus_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
+	v.ConfigType = "GitConfigProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -847,6 +1014,7 @@ func (t TemplateVersionStatus_Config_Item) AsKubernetesSecretProviderSpec() (Kub
 
 // FromKubernetesSecretProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided KubernetesSecretProviderSpec
 func (t *TemplateVersionStatus_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	v.ConfigType = "KubernetesSecretProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -854,6 +1022,7 @@ func (t *TemplateVersionStatus_Config_Item) FromKubernetesSecretProviderSpec(v K
 
 // MergeKubernetesSecretProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided KubernetesSecretProviderSpec
 func (t *TemplateVersionStatus_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+	v.ConfigType = "KubernetesSecretProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -873,6 +1042,7 @@ func (t TemplateVersionStatus_Config_Item) AsInlineConfigProviderSpec() (InlineC
 
 // FromInlineConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided InlineConfigProviderSpec
 func (t *TemplateVersionStatus_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	v.ConfigType = "InlineConfigProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -880,6 +1050,7 @@ func (t *TemplateVersionStatus_Config_Item) FromInlineConfigProviderSpec(v Inlin
 
 // MergeInlineConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided InlineConfigProviderSpec
 func (t *TemplateVersionStatus_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+	v.ConfigType = "InlineConfigProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -888,6 +1059,31 @@ func (t *TemplateVersionStatus_Config_Item) MergeInlineConfigProviderSpec(v Inli
 	merged, err := runtime.JsonMerge(t.union, b)
 	t.union = merged
 	return err
+}
+
+func (t TemplateVersionStatus_Config_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"configType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t TemplateVersionStatus_Config_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "GitConfigProviderSpec":
+		return t.AsGitConfigProviderSpec()
+	case "InlineConfigProviderSpec":
+		return t.AsInlineConfigProviderSpec()
+	case "KubernetesSecretProviderSpec":
+		return t.AsKubernetesSecretProviderSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
 }
 
 func (t TemplateVersionStatus_Config_Item) MarshalJSON() ([]byte, error) {

@@ -22,13 +22,13 @@ type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, bool, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
-	UpdateSpec(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec api.DeviceSpec) error
-	UpdateOwner(ctx context.Context, orgId uuid.UUID, name string, owner string, callback DeviceStoreCallback) error
+	UpdateTemplateVersionAndOwner(ctx context.Context, orgId uuid.UUID, name string, tv string, owner *string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
+	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownOwner, knownTemplateVersion *string) (*api.RenderedDeviceSpec, error)
 	InitialMigration() error
 }
 
@@ -146,7 +146,7 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return &apiDevice, nil
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback) (*api.Device, bool, error) {
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
 	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
@@ -191,7 +191,9 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 			}
 		} else {
 			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, device.Spec.Data)
-			where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
+			if fromAPI && util.DefaultIfNil(existingRecord.Spec.Data.TemplateVersion, "") != util.DefaultIfNil(device.Spec.Data.TemplateVersion, "") {
+				return gorm.ErrInvalidData
+			}
 
 			// Update the generation if the spec was updated
 			if !sameSpec {
@@ -208,6 +210,7 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 				device.Generation = existingRecord.Generation
 			}
 
+			where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
 			result = innerTx.Model(where).Updates(&device)
 			if result.Error != nil {
 				return result.Error
@@ -279,27 +282,38 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 	return nil
 }
 
-// Sets the owner of the device. Also sets the generation to 0 because the device has a new identity.
-func (s *DeviceStore) UpdateOwner(ctx context.Context, orgId uuid.UUID, name string, owner string, callback DeviceStoreCallback) error {
-	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	err := s.db.Model(device).Updates(map[string]interface{}{
-		"generation": 0,
-		"owner":      owner,
-	}).Error
+// Sets spec.templateVersion and owner
+func (s *DeviceStore) UpdateTemplateVersionAndOwner(ctx context.Context, orgId uuid.UUID, name string, tv string, owner *string, callback DeviceStoreCallback) error {
+	var existingRecord *model.Device
+	var updatedRecord *model.Device
+	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord = &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := innerTx.First(existingRecord)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		updatedDevice := model.Device{
+			Resource: model.Resource{
+				Name:       existingRecord.Name,
+				Generation: util.Int64ToPtr(*existingRecord.Generation + 1),
+			},
+			Spec: model.MakeJSONField(api.DeviceSpec{TemplateVersion: &tv}),
+		}
+		if owner != nil {
+			updatedDevice.Owner = owner
+		}
+		updatedRecord = &updatedDevice
+
+		where := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result = innerTx.Model(where).Updates(&updatedDevice)
+		return result.Error
+	})
 	if err != nil {
 		return err
 	}
 
-	before := &device
-	after := &model.Device{
-		Resource: model.Resource{
-			OrgID:      orgId,
-			Name:       name,
-			Owner:      &owner,
-			Generation: util.Int64ToPtr(0),
-		}}
-	callback(before, after)
-
+	callback(existingRecord, updatedRecord)
 	return nil
 }
 
@@ -325,10 +339,55 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	})
 }
 
-func (s *DeviceStore) UpdateSpec(ctx context.Context, orgId uuid.UUID, name string, generation int64, spec api.DeviceSpec) error {
-	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	return s.db.Model(device).Updates(map[string]interface{}{
-		"generation": generation,
-		"spec":       model.MakeJSONField(spec),
-	}).Error
+func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownOwner, knownTemplateVersion *string) (*api.RenderedDeviceSpec, error) {
+	var deviceOwner string
+	var templateVersion *model.TemplateVersion
+	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		device := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := innerTx.First(device)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if device.Owner == nil || device.Spec.Data.TemplateVersion == nil {
+			return gorm.ErrInvalidData
+		}
+		deviceOwner = *device.Owner
+
+		if knownOwner != nil && knownTemplateVersion != nil && *device.Owner == *knownOwner && *device.Spec.Data.TemplateVersion == *knownTemplateVersion {
+			return nil
+		}
+
+		templateVersion = &model.TemplateVersion{
+			ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: device.Owner, Name: *device.Spec.Data.TemplateVersion},
+		}
+		result = s.db.First(templateVersion)
+		if result.Error != nil {
+			return result.Error
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if templateVersion == nil {
+		return nil, nil
+	}
+
+	if templateVersion.Valid == nil || !*templateVersion.Valid {
+		return nil, gorm.ErrInvalidData
+	}
+
+	renderedConfig := api.RenderedDeviceSpec{
+		Owner:           deviceOwner,
+		TemplateVersion: templateVersion.Name,
+		Config:          templateVersion.RenderedConfig,
+		Containers:      templateVersion.Status.Data.Containers,
+		Os:              templateVersion.Status.Data.Os,
+		Systemd:         templateVersion.Status.Data.Systemd,
+	}
+
+	return &renderedConfig, nil
 }
