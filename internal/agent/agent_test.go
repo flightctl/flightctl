@@ -51,7 +51,7 @@ var _ = Describe("Device Agent behavior", func() {
 			It("should mark enrollment resquest as approved", func() {
 				deviceName := ""
 				Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
-				approveEnrollment(h, deviceName)
+				approveEnrollment(h, deviceName, DefaultApproval())
 
 				// verify that the enrollment request is marked as approved
 				er, err := h.Client.ReadEnrollmentRequestWithResponse(h.Context, deviceName)
@@ -63,14 +63,35 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 
 			It("should create a device", func() {
-				dev := enrollAndWaitForDevice(h)
+				dev := enrollAndWaitForDevice(h, DefaultApproval())
 				Expect(dev.Metadata.Name).NotTo(BeNil())
 			})
+
+			It("should create a device, with the approval labels", func() {
+				// craft some specific labels and region we will test for in the device
+				approval := DefaultApproval()
+				const (
+					TEST_LABEL_1 = "label-1"
+					TEST_VALUE_1 = "value-1"
+					TEST_LABEL_2 = "label-2"
+					TEST_VALUE_2 = "value-2"
+					REGION       = "somewhere"
+				)
+				approval.Labels = &map[string]string{TEST_LABEL_1: TEST_VALUE_1, TEST_LABEL_2: TEST_VALUE_2}
+				approval.Region = util.StrToPtr(REGION)
+
+				dev := enrollAndWaitForDevice(h, approval)
+
+				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_1, TEST_VALUE_1))
+				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_2, TEST_VALUE_2))
+				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue("region", REGION))
+			})
+
 		})
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
-				dev := enrollAndWaitForDevice(h)
+				dev := enrollAndWaitForDevice(h, DefaultApproval())
 				dev.Spec = getTestSpec("device.yaml")
 				_, err := h.Client.ReplaceDeviceWithResponse(h.Context, *dev.Metadata.Name, *dev)
 				Expect(err).ToNot(HaveOccurred())
@@ -95,10 +116,10 @@ var _ = Describe("Device Agent behavior", func() {
 	})
 })
 
-func enrollAndWaitForDevice(h *harness.TestHarness) *v1alpha1.Device {
+func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.EnrollmentRequestApproval) *v1alpha1.Device {
 	deviceName := ""
 	Eventually(getEnrolledDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
-	approveEnrollment(h, deviceName)
+	approveEnrollment(h, deviceName, approval)
 
 	// verify that the device is created
 	dev, err := h.Client.ReadDeviceWithResponse(h.Context, deviceName)
@@ -106,14 +127,18 @@ func enrollAndWaitForDevice(h *harness.TestHarness) *v1alpha1.Device {
 	return dev.JSON200
 }
 
-func approveEnrollment(h *harness.TestHarness, deviceName string) {
-	approval := v1alpha1.EnrollmentRequestApproval{
+func DefaultApproval() *v1alpha1.EnrollmentRequestApproval {
+	return &v1alpha1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
 		Region:   util.StrToPtr("region"),
 	}
+}
+
+func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
+	Expect(approval).NotTo(BeNil())
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
-	_, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, deviceName, approval)
+	_, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, deviceName, *approval)
 	Expect(err).ToNot(HaveOccurred())
 }
 
