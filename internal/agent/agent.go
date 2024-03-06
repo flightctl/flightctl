@@ -27,12 +27,12 @@ const (
 	caBundleFile = "ca.crt"
 	// name of the agent's key file
 	agentKeyFile = "agent.key"
+	// name of the management client certificate file
+	clientCertFile = "agent.crt"
 	// name of the enrollment certificate file
 	enrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file
 	enrollmentKeyFile = "client-enrollment.key"
-	// name of the management client certificate file
-	clientCertFile = "client.crt"
 )
 
 func New(log *logrus.Logger, config *Config) *Agent {

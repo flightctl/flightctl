@@ -77,6 +77,12 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
 	orgId := store.NullOrgId
 
+	// verify if the enrollment request already exists, and return it with a 208 status code if it does
+	if enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, *request.Body.Metadata.Name); err == nil {
+		return server.CreateEnrollmentRequest208JSONResponse(*enrollmentReq), nil
+	}
+
+	// if the enrollment request does not exist, create it
 	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
