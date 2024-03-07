@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -96,6 +97,7 @@ func (c *Controller) writeDeviceEnrollmentBanner(_ context.Context, device *v1al
 	if err := c.writeQRBanner("\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
 		return fmt.Errorf("failed to write device enrollment banner: %w", err)
 	}
+
 	return nil
 }
 
@@ -133,6 +135,10 @@ func (c *Controller) writeQRBanner(message, url string) error {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
+	if err := SdNotify("READY=1"); err != nil {
+		klog.Warningf("failed to notify systemd: %v", err)
+	}
+
 	// additionally print the banner into the output console
 	klog.Info(buffer.String())
 	return nil
@@ -155,6 +161,30 @@ func (c *Controller) deviceEnrollmentRequest(ctx context.Context, device *v1alph
 	_, err := c.enrollmentClient.CreateEnrollmentRequest(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to create enrollment request: %w", err)
+	}
+	return nil
+}
+
+func SdNotify(state string) error {
+	socketAddr := &net.UnixAddr{
+		Name: os.Getenv("NOTIFY_SOCKET"),
+		Net:  "unixgram",
+	}
+
+	// NOTIFY_SOCKET not set
+	if socketAddr.Name == "" {
+		klog.Warningf("NOTIFY_SOCKET not set, skipping systemd notification")
+		return nil
+	}
+	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to systemd: %w", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Write([]byte("READY=1\n"))
+	if err != nil {
+		return fmt.Errorf("failed to write to systemd: %w", err)
 	}
 	return nil
 }
