@@ -7,7 +7,6 @@ import (
 	"os/exec"
 )
 
-//go:generate mockgen --build_flags=--mod=mod -package executer -destination mock_executer.go . Executer
 type Executer interface {
 	Execute(command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int)
