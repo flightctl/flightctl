@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
@@ -20,19 +18,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/sirupsen/logrus"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-)
-
-const (
-	// name of the CA bundle file
-	caBundleFile = "ca.crt"
-	// name of the agent's key file
-	agentKeyFile = "agent.key"
-	// name of the management client certificate file
-	clientCertFile = "agent.crt"
-	// name of the enrollment certificate file
-	enrollmentCertFile = "client-enrollment.crt"
-	// name of the enrollment key file
-	enrollmentKeyFile = "client-enrollment.key"
 )
 
 func New(log *logrus.Logger, config *Config) *Agent {
@@ -52,6 +37,9 @@ func (a *Agent) GetLogPrefix() string {
 }
 
 func (a *Agent) Run(ctx context.Context) error {
+	a.log.Infof("Starting agent...")
+	defer a.log.Infof("Agent stopped")
+
 	defer utilruntime.HandleCrash()
 	ctx, cancel := context.WithCancel(ctx)
 	shutdownSignals := []os.Signal{os.Interrupt, syscall.SIGTERM}
@@ -72,20 +60,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}(ctx)
 
-	agentKeyFilePath := filepath.Join(a.config.CertDir, agentKeyFile)
-	caFilePath := filepath.Join(a.config.CertDir, caBundleFile)
-	enrollmentCertFilePath := filepath.Join(a.config.CertDir, enrollmentCertFile)
-	enrollmentKeyFilePath := filepath.Join(a.config.CertDir, enrollmentKeyFile)
-	managementCertFilePath := filepath.Join(a.config.CertDir, clientCertFile)
-
 	// ensure the agent key exists if not create it.
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(agentKeyFilePath)
+	publicKey, privateKey, _, err := fcrypto.EnsureKey(a.config.Key)
 	if err != nil {
 		return err
 	}
 
 	// create enrollment client
-	enrollmentHTTPClient, err := client.NewWithResponses(a.config.EnrollmentServerEndpoint, caFilePath, enrollmentCertFilePath, enrollmentKeyFilePath)
+	enrollmentHTTPClient, err := client.NewWithResponses(a.config.EnrollmentEndpoint, a.config.Cacert, a.config.EnrollmentCertFile, a.config.EnrollmentKeyFile)
 	if err != nil {
 		return err
 	}
@@ -127,12 +109,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create config controller
 	controller := config.NewController(
 		enrollmentClient,
-		a.config.EnrollmentServerEndpoint,
+		a.config.EnrollmentEndpoint,
 		a.config.EnrollmentUIEndpoint,
-		a.config.ManagementServerEndpoint,
-		caFilePath,
-		managementCertFilePath,
-		agentKeyFilePath,
+		a.config.ManagementEndpoint,
+		a.config.Cacert,
+		a.config.GeneratedCert,
+		a.config.Key,
 		deviceWriter,
 		csr,
 		a.config.LogPrefix,
@@ -141,12 +123,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
-		time.Duration(a.config.FetchSpecInterval),
-		time.Duration(a.config.StatusUpdateInterval),
-		caFilePath,
-		managementCertFilePath,
-		agentKeyFilePath,
-		a.config.ManagementServerEndpoint,
+		a.config.SpecFetchInterval,
+		a.config.StatusUpdateInterval,
+		a.config.Cacert,
+		a.config.GeneratedCert,
+		a.config.Key,
+		a.config.ManagementEndpoint,
 		tpmChannel,
 		&executer.CommonExecuter{},
 		a.config.LogPrefix,

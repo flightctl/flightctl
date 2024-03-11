@@ -18,20 +18,20 @@ import (
 
 // Agent is responsible for managing the configuration and status of the device.
 type Agent struct {
-	name                     string
-	device                   v1alpha1.Device
-	deviceStatus             v1alpha1.DeviceStatus
-	deviceStatusCollector    *status.Collector
-	managementClient         *client.Management
-	managementServerEndpoint string
-	managementCertFilePath   string
-	agentKeyFilePath         string
-	caCertFilePath           string
-	logPrefix                string
-	fetchSpecInterval        time.Duration
-	fetchStatusInterval      time.Duration
-	configController         *config.Controller
-	isBootstrapComplete      bool
+	name                   string
+	device                 v1alpha1.Device
+	deviceStatus           v1alpha1.DeviceStatus
+	deviceStatusCollector  *status.Collector
+	managementClient       *client.Management
+	managementEndpoint     string
+	managementCertFilePath string
+	agentKeyFilePath       string
+	caCertFilePath         string
+	logPrefix              string
+	fetchSpecInterval      time.Duration
+	fetchStatusInterval    time.Duration
+	configController       *config.Controller
+	isBootstrapComplete    bool
 }
 
 // NewAgent creates a new device agent.
@@ -42,22 +42,22 @@ func NewAgent(
 	caCertFilePath string,
 	managementCertFilePath string,
 	agentKeyFilePath string,
-	managementServerEndpoint string,
+	managementEndpoint string,
 	tpm *tpm.TPM,
 	executor executer.Executer,
 	logPrefix string,
 	configController *config.Controller,
 ) *Agent {
 	return &Agent{
-		name:                     name,
-		fetchSpecInterval:        fetchSpecInterval,
-		fetchStatusInterval:      fetchStatusInterval,
-		caCertFilePath:           caCertFilePath,
-		managementCertFilePath:   managementCertFilePath,
-		agentKeyFilePath:         agentKeyFilePath,
-		managementServerEndpoint: managementServerEndpoint,
-		logPrefix:                logPrefix,
-		configController:         configController,
+		name:                   name,
+		fetchSpecInterval:      fetchSpecInterval,
+		fetchStatusInterval:    fetchStatusInterval,
+		caCertFilePath:         caCertFilePath,
+		managementCertFilePath: managementCertFilePath,
+		agentKeyFilePath:       agentKeyFilePath,
+		managementEndpoint:     managementEndpoint,
+		logPrefix:              logPrefix,
+		configController:       configController,
 		device: v1alpha1.Device{
 			ApiVersion: "v1alpha1",
 			Kind:       "Device",
@@ -144,7 +144,7 @@ func (a *Agent) ensureClient() error {
 	if a.managementClient != nil {
 		return nil
 	}
-	managementHTTPClient, err := client.NewWithResponses(a.managementServerEndpoint, a.caCertFilePath, a.managementCertFilePath, a.agentKeyFilePath)
+	managementHTTPClient, err := client.NewWithResponses(a.managementEndpoint, a.caCertFilePath, a.managementCertFilePath, a.agentKeyFilePath)
 	if err != nil {
 		return err
 	}

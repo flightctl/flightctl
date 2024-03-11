@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 )
@@ -89,13 +88,18 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	fetchSpecInterval := 1 * time.Second
 	statusUpdateInterval := 1 * time.Second
 
-	cfg := agent.NewDefault()
-	cfg.CertDir = testDirPath
-	cfg.EnrollmentServerEndpoint = "https://" + serverCfg.Service.Address
+	cfg := &agent.Config{}
+	cfg.DataDir = testDirPath
+	cfg.Cacert = filepath.Join(testDirPath, "ca.crt")
+	cfg.Key = filepath.Join(testDirPath, "agent.key")
+	cfg.GeneratedCert = filepath.Join(testDirPath, "agent.crt")
+	cfg.EnrollmentCertFile = filepath.Join(testDirPath, "client-enrollment.crt")
+	cfg.EnrollmentKeyFile = filepath.Join(testDirPath, "client-enrollment.key")
+	cfg.EnrollmentEndpoint = "https://" + serverCfg.Service.Address
 	cfg.EnrollmentUIEndpoint = "https://flightctl.ui/"
-	cfg.ManagementServerEndpoint = "https://" + serverCfg.Service.Address
-	cfg.FetchSpecInterval = util.Duration(fetchSpecInterval)
-	cfg.StatusUpdateInterval = util.Duration(statusUpdateInterval)
+	cfg.ManagementEndpoint = "https://" + serverCfg.Service.Address
+	cfg.SpecFetchInterval = fetchSpecInterval
+	cfg.StatusUpdateInterval = statusUpdateInterval
 	cfg.SetTestRootDir(testDirPath)
 
 	// create client to talk to the server
