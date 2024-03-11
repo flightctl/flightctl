@@ -3,73 +3,57 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
-	"os/signal"
-	"path/filepath"
-	"syscall"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	log := log.InitLogs()
-	dataDir := flag.String("data-dir", "/etc/flightctl", "device agent data directory")
-	agentConfig, err := agent.LoadOrGenerate(filepath.Join(*dataDir, "config.yaml"))
-	if err != nil {
-		log.Fatalf("loading or generating agent config: %v", err)
+	command := NewAgentCommand()
+	if err := command.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+type agentCmd struct {
+	log        *logrus.Logger
+	config     *agent.Config
+	configFile string
+}
+
+func NewAgentCommand() *agentCmd {
+	a := &agentCmd{
+		log:    log.InitLogs(),
+		config: agent.NewDefault(),
 	}
 
-	managementServerEndpoint := flag.String("management-endpoint", agentConfig.ManagementServerEndpoint, "device server endpoint")
-	enrollmentServerEndpoint := flag.String("enrollment-endpoint", agentConfig.EnrollmentServerEndpoint, "enrollment server endpoint")
-	enrollmentUIEndpoint := flag.String("enrollment-ui-endpoint", agentConfig.EnrollmentUIEndpoint, "enrollment UI endpoint")
-	tpmPath := flag.String("tpm", agentConfig.TPMPath, "Path to TPM device")
-	fetchSpecInterval := flag.Duration("fetch-spec-interval", time.Duration(agentConfig.FetchSpecInterval), "Duration between two reads of the remote device spec")
-	statusUpdateInterval := flag.Duration("status-update-interval", time.Duration(agentConfig.StatusUpdateInterval), "Duration between two status updates")
+	flag.StringVar(&a.configFile, "config", agent.DefaultConfigFile, fmt.Sprintf("path to config file: default: %s", agent.DefaultConfigFile))
+
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+		fmt.Println("This program starts an agent with the specified configuration. Below are the available flags:")
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
 
-	log.Infoln("starting flightctl device agent")
-	defer log.Infoln("flightctl device agent stopped")
-
-	log.Infoln("command line flags:")
-	flag.CommandLine.VisitAll(func(flg *flag.Flag) {
-		log.Infof("  %s=%s", flg.Name, flg.Value)
-	})
-
-	if len(*managementServerEndpoint) == 0 {
-		log.Fatalf("flightctl server URL is required")
+	if err := a.config.ParseConfigFile(a.configFile); err != nil {
+		a.log.Fatalf("Error parsing config: %v", err)
+	}
+	if err := a.config.Validate(); err != nil {
+		a.log.Fatalf("Error validating config: %v", err)
 	}
 
-	if *enrollmentServerEndpoint == "" {
-		log.Warningf("flightctl enrollment endpoint is missing, using management endpoint")
-		*enrollmentServerEndpoint = *managementServerEndpoint
+	return a
+}
+
+func (a *agentCmd) Execute() error {
+	agentInstance := agent.New(a.log, a.config)
+	if err := agentInstance.Run(context.Background()); err != nil {
+		a.log.Fatalf("running device agent: %v", err)
 	}
-
-	cfg := agent.Config{
-		ManagementServerEndpoint: *managementServerEndpoint,
-		EnrollmentServerEndpoint: *enrollmentServerEndpoint,
-		EnrollmentUIEndpoint:     *enrollmentUIEndpoint,
-		CertDir:                  filepath.Join(*dataDir, "certs"),
-		TPMPath:                  *tpmPath,
-		FetchSpecInterval:        util.Duration(*fetchSpecInterval),
-		StatusUpdateInterval:     util.Duration(*statusUpdateInterval),
-	}
-
-	agentInstance := agent.New(log, &cfg)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	sigShutdown := make(chan os.Signal, 1)
-	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigShutdown
-		signal.Stop(sigShutdown)
-		log.Printf("Shutdown signal received (%v).", sig)
-		cancel()
-	}()
-
-	if err := agentInstance.Run(ctx); err != nil {
-		log.Fatalf("running device agent: %v", err)
-	}
+	return nil
 }

@@ -15,17 +15,16 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
 func main() {
 	log := log.InitLogs()
-	managementServerEndpoint := flag.String("management-endpoint", "https://localhost:3333", "device server URL")
+	managementEndpoint := flag.String("management-endpoint", "https://localhost:3333", "device server URL")
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
-	fetchSpecInterval := flag.Duration("fetch-spec-interval", agent.DefaultFetchSpecInterval, "Duration between two reads of the remote device spec")
+	specFetchInterval := flag.Duration("spec-fetch-interval", agent.DefaultSpecFetchInterval, "Duration between two reads of the remote device spec")
 	statusUpdateInterval := flag.Duration("status-update-interval", agent.DefaultStatusUpdateInterval, "Duration between two status updates")
 	tpmPath := flag.String("tpm", "", "Path to TPM device")
 	flag.Parse()
@@ -54,14 +53,23 @@ func main() {
 		enrollmentUIEndpoint := ""
 
 		cfg := agent.Config{
-			ManagementServerEndpoint: *managementServerEndpoint,
-			EnrollmentUIEndpoint:     enrollmentUIEndpoint,
-			CertDir:                  agentDir,
-			TPMPath:                  *tpmPath,
-			FetchSpecInterval:        util.Duration(*fetchSpecInterval),
-			StatusUpdateInterval:     util.Duration(*statusUpdateInterval),
+			ManagementEndpoint:   *managementEndpoint,
+			EnrollmentEndpoint:   *managementEndpoint,
+			EnrollmentUIEndpoint: enrollmentUIEndpoint,
+			DataDir:              agentDir,
+			Key:                  filepath.Join(agentDir, agent.KeyFile),
+			Cacert:               filepath.Join(agentDir, agent.CacertFile),
+			GeneratedCert:        filepath.Join(agentDir, agent.GeneratedCertFile),
+			EnrollmentCertFile:   filepath.Join(agentDir, agent.EnrollmentCertFile),
+			EnrollmentKeyFile:    filepath.Join(agentDir, agent.EnrollmentKeyFile),
+			TPMPath:              *tpmPath,
+			SpecFetchInterval:    *specFetchInterval,
+			StatusUpdateInterval: *statusUpdateInterval,
 		}
 		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
+		if err := cfg.Validate(); err != nil {
+			log.Fatalf("agent config %d: %v", i, err)
+		}
 
 		agents[i] = agent.New(log, &cfg)
 	}
