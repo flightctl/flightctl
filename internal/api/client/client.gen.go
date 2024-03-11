@@ -216,17 +216,6 @@ type ClientInterface interface {
 
 	ReplaceRepository(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteResourceSync request
-	DeleteResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ReadResourceSync request
-	ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ReplaceResourceSyncWithBody request with any body
-	ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// DeleteResourceSyncs request
 	DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -237,6 +226,17 @@ type ClientInterface interface {
 	CreateResourceSyncWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CreateResourceSync(ctx context.Context, body CreateResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteResourceSync request
+	DeleteResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadResourceSync request
+	ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReplaceResourceSyncWithBody request with any body
+	ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteTemplateVersions request
 	DeleteTemplateVersions(ctx context.Context, params *DeleteTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -802,54 +802,6 @@ func (c *Client) ReplaceRepository(ctx context.Context, name string, body Replac
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteResourceSyncRequest(c.Server, name)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadResourceSyncRequest(c.Server, name)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReplaceResourceSyncRequestWithBody(c.Server, name, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReplaceResourceSyncRequest(c.Server, name, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteResourceSyncsRequest(c.Server)
 	if err != nil {
@@ -888,6 +840,54 @@ func (c *Client) CreateResourceSyncWithBody(ctx context.Context, contentType str
 
 func (c *Client) CreateResourceSync(ctx context.Context, body CreateResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateResourceSyncRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteResourceSyncRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadResourceSyncRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceResourceSyncRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceResourceSyncRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2474,121 +2474,6 @@ func NewReplaceRepositoryRequestWithBody(server string, name string, contentType
 	return req, nil
 }
 
-// NewDeleteResourceSyncRequest generates requests for DeleteResourceSync
-func NewDeleteResourceSyncRequest(server string, name string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/resourcesync/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewReadResourceSyncRequest generates requests for ReadResourceSync
-func NewReadResourceSyncRequest(server string, name string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/resourcesync/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewReplaceResourceSyncRequest calls the generic ReplaceResourceSync builder with application/json body
-func NewReplaceResourceSyncRequest(server string, name string, body ReplaceResourceSyncJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewReplaceResourceSyncRequestWithBody(server, name, "application/json", bodyReader)
-}
-
-// NewReplaceResourceSyncRequestWithBody generates requests for ReplaceResourceSync with any type of body
-func NewReplaceResourceSyncRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/resourcesync/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("PUT", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewDeleteResourceSyncsRequest generates requests for DeleteResourceSyncs
 func NewDeleteResourceSyncsRequest(server string) (*http.Request, error) {
 	var err error
@@ -2728,6 +2613,121 @@ func NewCreateResourceSyncRequestWithBody(server string, contentType string, bod
 	}
 
 	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteResourceSyncRequest generates requests for DeleteResourceSync
+func NewDeleteResourceSyncRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/resourcesyncs/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadResourceSyncRequest generates requests for ReadResourceSync
+func NewReadResourceSyncRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/resourcesyncs/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReplaceResourceSyncRequest calls the generic ReplaceResourceSync builder with application/json body
+func NewReplaceResourceSyncRequest(server string, name string, body ReplaceResourceSyncJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReplaceResourceSyncRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewReplaceResourceSyncRequestWithBody generates requests for ReplaceResourceSync with any type of body
+func NewReplaceResourceSyncRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/resourcesyncs/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -3092,17 +3092,6 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceRepositoryWithResponse(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceRepositoryResponse, error)
 
-	// DeleteResourceSyncWithResponse request
-	DeleteResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteResourceSyncResponse, error)
-
-	// ReadResourceSyncWithResponse request
-	ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error)
-
-	// ReplaceResourceSyncWithBodyWithResponse request with any body
-	ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
-
-	ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
-
 	// DeleteResourceSyncsWithResponse request
 	DeleteResourceSyncsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteResourceSyncsResponse, error)
 
@@ -3113,6 +3102,17 @@ type ClientWithResponsesInterface interface {
 	CreateResourceSyncWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateResourceSyncResponse, error)
 
 	CreateResourceSyncWithResponse(ctx context.Context, body CreateResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateResourceSyncResponse, error)
+
+	// DeleteResourceSyncWithResponse request
+	DeleteResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteResourceSyncResponse, error)
+
+	// ReadResourceSyncWithResponse request
+	ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error)
+
+	// ReplaceResourceSyncWithBodyWithResponse request with any body
+	ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
+
+	ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
 
 	// DeleteTemplateVersionsWithResponse request
 	DeleteTemplateVersionsWithResponse(ctx context.Context, params *DeleteTemplateVersionsParams, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error)
@@ -3955,6 +3955,78 @@ func (r ReplaceRepositoryResponse) StatusCode() int {
 	return 0
 }
 
+type DeleteResourceSyncsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Status
+	JSON401      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteResourceSyncsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteResourceSyncsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListResourceSyncResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ResourceSyncList
+	JSON400      *Error
+	JSON401      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ListResourceSyncResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListResourceSyncResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CreateResourceSyncResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *ResourceSync
+	JSON400      *Error
+	JSON401      *Error
+	JSON409      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateResourceSyncResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateResourceSyncResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteResourceSyncResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4023,78 +4095,6 @@ func (r ReplaceResourceSyncResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceResourceSyncResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteResourceSyncsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteResourceSyncsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteResourceSyncsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ListResourceSyncResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *ResourceSyncList
-	JSON400      *Error
-	JSON401      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r ListResourceSyncResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListResourceSyncResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type CreateResourceSyncResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *ResourceSync
-	JSON400      *Error
-	JSON401      *Error
-	JSON409      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateResourceSyncResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateResourceSyncResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -4575,41 +4575,6 @@ func (c *ClientWithResponses) ReplaceRepositoryWithResponse(ctx context.Context,
 	return ParseReplaceRepositoryResponse(rsp)
 }
 
-// DeleteResourceSyncWithResponse request returning *DeleteResourceSyncResponse
-func (c *ClientWithResponses) DeleteResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteResourceSyncResponse, error) {
-	rsp, err := c.DeleteResourceSync(ctx, name, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteResourceSyncResponse(rsp)
-}
-
-// ReadResourceSyncWithResponse request returning *ReadResourceSyncResponse
-func (c *ClientWithResponses) ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error) {
-	rsp, err := c.ReadResourceSync(ctx, name, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReadResourceSyncResponse(rsp)
-}
-
-// ReplaceResourceSyncWithBodyWithResponse request with arbitrary body returning *ReplaceResourceSyncResponse
-func (c *ClientWithResponses) ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error) {
-	rsp, err := c.ReplaceResourceSyncWithBody(ctx, name, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReplaceResourceSyncResponse(rsp)
-}
-
-func (c *ClientWithResponses) ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error) {
-	rsp, err := c.ReplaceResourceSync(ctx, name, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReplaceResourceSyncResponse(rsp)
-}
-
 // DeleteResourceSyncsWithResponse request returning *DeleteResourceSyncsResponse
 func (c *ClientWithResponses) DeleteResourceSyncsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteResourceSyncsResponse, error) {
 	rsp, err := c.DeleteResourceSyncs(ctx, reqEditors...)
@@ -4643,6 +4608,41 @@ func (c *ClientWithResponses) CreateResourceSyncWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseCreateResourceSyncResponse(rsp)
+}
+
+// DeleteResourceSyncWithResponse request returning *DeleteResourceSyncResponse
+func (c *ClientWithResponses) DeleteResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteResourceSyncResponse, error) {
+	rsp, err := c.DeleteResourceSync(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteResourceSyncResponse(rsp)
+}
+
+// ReadResourceSyncWithResponse request returning *ReadResourceSyncResponse
+func (c *ClientWithResponses) ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error) {
+	rsp, err := c.ReadResourceSync(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadResourceSyncResponse(rsp)
+}
+
+// ReplaceResourceSyncWithBodyWithResponse request with arbitrary body returning *ReplaceResourceSyncResponse
+func (c *ClientWithResponses) ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error) {
+	rsp, err := c.ReplaceResourceSyncWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceResourceSyncResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error) {
+	rsp, err := c.ReplaceResourceSync(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceResourceSyncResponse(rsp)
 }
 
 // DeleteTemplateVersionsWithResponse request returning *DeleteTemplateVersionsResponse
@@ -6131,6 +6131,126 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 	return response, nil
 }
 
+// ParseDeleteResourceSyncsResponse parses an HTTP response from a DeleteResourceSyncsWithResponse call
+func ParseDeleteResourceSyncsResponse(rsp *http.Response) (*DeleteResourceSyncsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteResourceSyncsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListResourceSyncResponse parses an HTTP response from a ListResourceSyncWithResponse call
+func ParseListResourceSyncResponse(rsp *http.Response) (*ListResourceSyncResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListResourceSyncResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ResourceSyncList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateResourceSyncResponse parses an HTTP response from a CreateResourceSyncWithResponse call
+func ParseCreateResourceSyncResponse(rsp *http.Response) (*CreateResourceSyncResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateResourceSyncResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ResourceSync
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteResourceSyncResponse parses an HTTP response from a DeleteResourceSyncWithResponse call
 func ParseDeleteResourceSyncResponse(rsp *http.Response) (*DeleteResourceSyncResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6259,126 +6379,6 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 			return nil, err
 		}
 		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteResourceSyncsResponse parses an HTTP response from a DeleteResourceSyncsWithResponse call
-func ParseDeleteResourceSyncsResponse(rsp *http.Response) (*DeleteResourceSyncsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteResourceSyncsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListResourceSyncResponse parses an HTTP response from a ListResourceSyncWithResponse call
-func ParseListResourceSyncResponse(rsp *http.Response) (*ListResourceSyncResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListResourceSyncResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ResourceSyncList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateResourceSyncResponse parses an HTTP response from a CreateResourceSyncWithResponse call
-func ParseCreateResourceSyncResponse(rsp *http.Response) (*CreateResourceSyncResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateResourceSyncResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest ResourceSync
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
 
 	}
 

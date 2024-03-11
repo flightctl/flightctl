@@ -730,11 +730,11 @@ type CreateRepositoryJSONRequestBody = Repository
 // ReplaceRepositoryJSONRequestBody defines body for ReplaceRepository for application/json ContentType.
 type ReplaceRepositoryJSONRequestBody = Repository
 
-// ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
-type ReplaceResourceSyncJSONRequestBody = ResourceSync
-
 // CreateResourceSyncJSONRequestBody defines body for CreateResourceSync for application/json ContentType.
 type CreateResourceSyncJSONRequestBody = ResourceSync
+
+// ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
+type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
 // CreateTemplateVersionJSONRequestBody defines body for CreateTemplateVersion for application/json ContentType.
 type CreateTemplateVersionJSONRequestBody = TemplateVersion
