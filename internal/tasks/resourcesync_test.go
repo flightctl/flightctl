@@ -82,6 +82,7 @@ var _ = Describe("ResourceSync", Ordered, func() {
 			rs := model.ResourceSync{
 				Resource: model.Resource{
 					Generation: util.Int64ToPtr(1),
+					Name:       *util.StrToPtr("rs"),
 				},
 				Spec: &model.JSONField[api.ResourceSyncSpec]{
 					Data: api.ResourceSyncSpec{
@@ -120,7 +121,7 @@ var _ = Describe("ResourceSync", Ordered, func() {
 			Expect(err).To(HaveOccurred())
 		})
 		It("parse fleet", func() {
-			owner := util.StrToPtr("ResourceSync/foo")
+			owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
 
 			genericResources, err := resourceSync.extractResourcesFromFile(memfs, "/examples/fleet.yaml")
 			Expect(err).ToNot(HaveOccurred())
@@ -149,18 +150,18 @@ var _ = Describe("ResourceSync", Ordered, func() {
 		})
 
 		It("delta calc", func() {
-			owner := "ResourceSync/foo"
+			owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
 			ownedFleets := []api.Fleet{
 				{
 					Metadata: api.ObjectMeta{
 						Name:  util.StrToPtr("fleet-1"),
-						Owner: util.StrToPtr(owner),
+						Owner: owner,
 					},
 				},
 				{
 					Metadata: api.ObjectMeta{
 						Name:  util.StrToPtr("fleet-2"),
-						Owner: util.StrToPtr(owner),
+						Owner: owner,
 					},
 				},
 			}

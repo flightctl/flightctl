@@ -163,13 +163,12 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 	}
 	fleet.OrgID = orgId
 
-	// don't overwrite status, generation, or owner
+	// don't overwrite status and generation
 	fleet.Status = nil
 	fleet.Generation = nil
 	if fleet.Spec != nil && fleet.Spec.Data.Template.Metadata != nil {
 		fleet.Spec.Data.Template.Metadata.Generation = nil
 	}
-	fleet.Owner = nil
 
 	var existingRecord *model.Fleet
 
