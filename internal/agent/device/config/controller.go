@@ -17,17 +17,17 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceWriter             *writer.Writer
-	enrollmentClient         *client.Enrollment
-	managementClient         *client.Management
-	enrollmentVerifyBackoff  wait.Backoff
-	enrollmentServerEndpoint string
-	enrollmentUIEndpoint     string
+	deviceWriter            *writer.Writer
+	enrollmentClient        *client.Enrollment
+	managementClient        *client.Management
+	enrollmentVerifyBackoff wait.Backoff
+	enrollmentEndpoint      string
+	enrollmentUIEndpoint    string
 
-	caFilePath               string
-	agentKeyFilePath         string
-	managementServerEndpoint string
-	managementCertFilePath   string
+	caFilePath             string
+	agentKeyFilePath       string
+	managementEndpoint     string
+	managementCertFilePath string
 
 	enrollmentCSR []byte
 	// The log prefix used for testing
@@ -37,9 +37,9 @@ type Controller struct {
 // NewController creates a new config controller.
 func NewController(
 	enrollmentClient *client.Enrollment,
-	enrollmentServerEndpoint string,
+	enrollmentEndpoint string,
 	enrollmentUIEndpoint string,
-	managementServerEndpoint string,
+	managementEndpoint string,
 	caFilePath string,
 	managementCertFilePath string,
 	agentKeyFilePath string,
@@ -55,17 +55,17 @@ func NewController(
 	}
 
 	return &Controller{
-		enrollmentClient:         enrollmentClient,
-		enrollmentVerifyBackoff:  enrollmentVerifyBackoff,
-		enrollmentServerEndpoint: enrollmentServerEndpoint,
-		enrollmentUIEndpoint:     enrollmentUIEndpoint,
-		caFilePath:               caFilePath,
-		managementServerEndpoint: managementServerEndpoint,
-		managementCertFilePath:   managementCertFilePath,
-		agentKeyFilePath:         agentKeyFilePath,
-		enrollmentCSR:            enrollmentCSR,
-		logPrefix:                logPrefix,
-		deviceWriter:             deviceWriter,
+		enrollmentClient:        enrollmentClient,
+		enrollmentVerifyBackoff: enrollmentVerifyBackoff,
+		enrollmentEndpoint:      enrollmentEndpoint,
+		enrollmentUIEndpoint:    enrollmentUIEndpoint,
+		caFilePath:              caFilePath,
+		managementEndpoint:      managementEndpoint,
+		managementCertFilePath:  managementCertFilePath,
+		agentKeyFilePath:        agentKeyFilePath,
+		enrollmentCSR:           enrollmentCSR,
+		logPrefix:               logPrefix,
+		deviceWriter:            deviceWriter,
 	}
 }
 
@@ -80,7 +80,7 @@ func (c *Controller) Sync(ctx context.Context, device v1alpha1.Device) error {
 	}
 
 	// create the management client now that we are properly bootstrapped
-	if managementHTTPClient, err := client.NewWithResponses(c.managementServerEndpoint,
+	if managementHTTPClient, err := client.NewWithResponses(c.managementEndpoint,
 		c.caFilePath, c.managementCertFilePath, c.agentKeyFilePath); err == nil {
 		c.managementClient = client.NewManagement(managementHTTPClient)
 	} else {

@@ -7,49 +7,87 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/util"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	// DefaultFetchSpecInterval is the default interval between two reads of the remote device spec
-	DefaultFetchSpecInterval = time.Second * 60
-
+	// DefaultSpecFetchInterval is the default interval between two reads of the remote device spec
+	DefaultSpecFetchInterval = time.Second * 60
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = time.Second * 60
+	// DefaultConfigDir is the default directory where the device's configuration is stored
+	DefaultConfigDir = "/etc/flightctl"
+	// DefaultConfigFile is the default path to the agent's configuration file
+	DefaultConfigFile = DefaultConfigDir + "/config.yaml"
+	// DefaultDataDir is the default directory where the device's data is stored
+	DefaultDataDir = "/var/lib/flightctl"
+	// DefaultCertsDir is the default directory where the device's certificates are stored
+	DefaultCertsDirName = "certs"
+	// DefaultManagementEndpoint is the default address of the device management server
+	DefaultManagementEndpoint = "https://localhost:3333"
+	// name of the CA bundle file
+	CacertFile = "ca.crt"
+	// GeneratedCertFile is the name of the cert file which is generated as the result of enrollment
+	GeneratedCertFile = "agent.crt"
+	// name of the agent's key file
+	KeyFile = "agent.key"
+	// name of the enrollment certificate file
+	EnrollmentCertFile = "client-enrollment.crt"
+	// name of the enrollment key file
+	EnrollmentKeyFile = "client-enrollment.key"
 )
 
 type Config struct {
-	// ManagementServerEndpoint is the address of the device management server
-	ManagementServerEndpoint string `json:"managementServerEndpoint,omitempty"`
-	// EnrollmentServerEndpoint is the address of the device enrollment server
-	EnrollmentServerEndpoint string `json:"enrollmentServerEndpoint,omitempty"`
+	// Key is the path to the agent's private key
+	Key string `yaml:"key"`
+	// Cacert is the path to the CA certificate
+	Cacert string `yaml:"ca-cert"`
+	// GenerateCert is the path to the cert file which is generated as the result of enrollment
+	GeneratedCert string `yaml:"generated-cert"`
+	// DataDir is the directory where the device's data is stored
+	DataDir string `yaml:"data-dir"`
+	// ConfigDir is the directory where the device's configuration is stored
+	ConfigDir string `yaml:"config-dir"`
+	// EnrollmentCertFile is the path to the enrollment certificate
+	EnrollmentCertFile string `yaml:"enrollment-cert-file"`
+	// EnrollmentKeyFile is the path to the enrollment key
+	EnrollmentKeyFile string `yaml:"enrollment-key-file"`
+	// ManagementEndpoint is the address of the device management server
+	ManagementEndpoint string `yaml:"management-endpoint,omitempty"`
+	// EnrollmentEndpoint is the address of the device enrollment server
+	EnrollmentEndpoint string `yaml:"enrollment-endpoint,omitempty"`
 	// EnrollmentUIEndpoint is the address of the device enrollment UI
-	EnrollmentUIEndpoint string `json:"enrollmentUIEndpoint,omitempty"`
-
-	// CertDir is the directory where the device's certificates are stored
-	CertDir string `json:"certDir,omitempty"`
+	EnrollmentUIEndpoint string `yaml:"enrollment-ui-endpoint,omitempty"`
 	// TPMPath is the path to the TPM device
-	TPMPath string `json:"tpmPath,omitempty"`
-	// FetchSpecInterval is the interval between two reads of the remote device spec
-	FetchSpecInterval util.Duration `json:"fetchSpecInterval,omitempty"`
+	TPMPath string `yaml:"tpm-path,omitempty"`
+	// SpecFetchInterval is the interval between two reads of the remote device spec
+	SpecFetchInterval time.Duration `yaml:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
-	StatusUpdateInterval util.Duration `json:"statusUpdateInterval,omitempty"`
+	StatusUpdateInterval time.Duration `yaml:"status-update-interval,omitempty"`
 	// LogPrefix is the log prefix used for testing
-	LogPrefix string `json:"logPrefix,omitempty"`
+	LogPrefix string `yaml:"log-prefix,omitempty"`
 
 	// testRootDir is the root directory of the test agent
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
-	enrollmentMetricsCallback func(operation string, duractionSeconds float64, err error)
+	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
 }
 
 func NewDefault() *Config {
 	return &Config{
-		ManagementServerEndpoint: "https://localhost:3333",
-		StatusUpdateInterval:     util.Duration(DefaultStatusUpdateInterval),
-		FetchSpecInterval:        util.Duration(DefaultFetchSpecInterval),
+		ManagementEndpoint:   DefaultManagementEndpoint,
+		EnrollmentEndpoint:   DefaultManagementEndpoint,
+		EnrollmentUIEndpoint: DefaultManagementEndpoint,
+		ConfigDir:            DefaultConfigDir,
+		DataDir:              DefaultDataDir,
+		Cacert:               filepath.Join(DefaultDataDir, DefaultCertsDirName, CacertFile),
+		Key:                  filepath.Join(DefaultDataDir, DefaultCertsDirName, KeyFile),
+		GeneratedCert:        filepath.Join(DefaultDataDir, DefaultCertsDirName, GeneratedCertFile),
+		EnrollmentCertFile:   filepath.Join(DefaultDataDir, DefaultCertsDirName, EnrollmentCertFile),
+		EnrollmentKeyFile:    filepath.Join(DefaultDataDir, DefaultCertsDirName, EnrollmentKeyFile),
+		StatusUpdateInterval: DefaultStatusUpdateInterval,
+		SpecFetchInterval:    DefaultSpecFetchInterval,
 	}
 }
 
@@ -66,13 +104,68 @@ func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duract
 	cfg.enrollmentMetricsCallback = cb
 }
 
-// TODO: dedupe with internal/config/config.go
+// Validate checks that the required fields are set and that the paths exist.
+func (cfg *Config) Validate() error {
+	requiredFields := []struct {
+		value     string
+		name      string
+		checkPath bool
+	}{
+		{cfg.ManagementEndpoint, "management-endpoint", false},
+		{cfg.EnrollmentEndpoint, "enrollment-endpoint", false},
+		{cfg.GeneratedCert, "generated-cert", false},
+		{cfg.ConfigDir, "config-dir", true},
+		{cfg.DataDir, "data-dir", true},
+		{cfg.Cacert, "ca-cert", true},
+		{cfg.Key, "key", true},
+		{cfg.EnrollmentCertFile, "enrollment-cert-file", true},
+		{cfg.EnrollmentKeyFile, "enrollment-key-file", true},
+	}
+
+	for _, field := range requiredFields {
+		if field.value == "" {
+			return fmt.Errorf("%s is required", field.name)
+		}
+		if field.checkPath {
+			if err := checkPathExists(field.value); err != nil {
+				return fmt.Errorf("%s: %w", field.name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ParseConfigFile reads the config file and unmarshals it into the Config struct
+func (cfg *Config) ParseConfigFile(cfgFile string) error {
+	contents, err := os.ReadFile(cfgFile)
+	if err != nil {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+	if err := yaml.Unmarshal(contents, cfg); err != nil {
+		return fmt.Errorf("unmarshalling config file: %w", err)
+	}
+	return nil
+}
+
+func checkPathExists(path string) error {
+	_, err := os.Stat(path)
+	if err != nil && os.IsNotExist(err) {
+		return fmt.Errorf("path does not exist: %s", path)
+	}
+	if err != nil {
+		return fmt.Errorf("error checking path: %w", err)
+	}
+
+	return nil
+}
+
 func NewFromFile(cfgFile string) (*Config, error) {
 	cfg, err := Load(cfgFile)
 	if err != nil {
 		return nil, err
 	}
-	if err := Validate(cfg); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
@@ -110,10 +203,6 @@ func Save(cfg *Config, cfgFile string) error {
 	if err := os.WriteFile(cfgFile, contents, 0600); err != nil {
 		return fmt.Errorf("writing config file: %v", err)
 	}
-	return nil
-}
-
-func Validate(cfg *Config) error {
 	return nil
 }
 
