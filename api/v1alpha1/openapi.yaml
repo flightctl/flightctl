@@ -106,7 +106,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/resourcesync/{name}:
+  /api/v1/resourcesyncs/{name}:
     get:
       tags:
         - resourcesync
