@@ -1867,6 +1867,15 @@ func (response CreateDevice201JSONResponse) VisitCreateDeviceResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
+type CreateDevice400JSONResponse Error
+
+func (response CreateDevice400JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type CreateDevice401JSONResponse Error
 
 func (response CreateDevice401JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
