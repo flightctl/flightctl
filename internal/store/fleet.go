@@ -214,10 +214,10 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 				fleet.Generation = existingRecord.Generation
 			}
 
+			if fleet.Spec.Data.Template.Metadata == nil {
+				fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
+			}
 			if !sameTemplateSpec {
-				if fleet.Spec.Data.Template.Metadata == nil {
-					fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
-				}
 				if existingRecord.Spec.Data.Template.Metadata.Generation == nil {
 					fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
 				} else {
