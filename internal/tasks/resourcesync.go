@@ -177,6 +177,7 @@ func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *m
 		r.log.Infof("resourcesync/%s: No new commits or path. skipping", rs.Name)
 		return nil, nil
 	}
+	addSyncedCondition(rs, fmt.Errorf("out of sync"))
 
 	rs.Status.Data.ObservedCommit = util.StrToPtr(hash)
 
