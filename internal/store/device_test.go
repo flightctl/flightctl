@@ -166,14 +166,6 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("CreateOrUpdateDevice create mode", func() {
 			templateVersion := "tv"
-			// Random Condition to make sure Conditions don't get stored
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			device := api.Device{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
@@ -181,9 +173,7 @@ var _ = Describe("DeviceStore create", func() {
 				Spec: &api.DeviceSpec{
 					TemplateVersion: &templateVersion,
 				},
-				Status: &api.DeviceStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)
 			Expect(err).ToNot(HaveOccurred())
@@ -208,14 +198,6 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("CreateOrUpdateDevice update mode", func() {
-			// Random Condition to make sure Conditions don't get stored
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			device := api.Device{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("mydevice-1"),
@@ -226,7 +208,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					Conditions: &[]api.Condition{condition},
+					Conditions: nil,
 				},
 			}
 			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)

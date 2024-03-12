@@ -163,13 +163,6 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		})
 
 		It("CreateOrUpdateEnrollmentRequest create mode", func() {
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
@@ -177,9 +170,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 				Spec: api.EnrollmentRequestSpec{
 					Csr: "csr string",
 				},
-				Status: &api.EnrollmentRequestStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			dev, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
@@ -191,13 +182,6 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		})
 
 		It("CreateOrUpdateEnrollmentRequest update mode", func() {
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("myenrollmentrequest-1"),
@@ -205,9 +189,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 				Spec: api.EnrollmentRequestSpec{
 					Csr: "csr string",
 				},
-				Status: &api.EnrollmentRequestStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			dev, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())

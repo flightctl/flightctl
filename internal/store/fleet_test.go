@@ -165,13 +165,6 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdate create mode", func() {
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
@@ -181,9 +174,7 @@ var _ = Describe("FleetStore create", func() {
 						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
-				Status: &api.FleetStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			called := false
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
@@ -205,20 +196,12 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdate update mode same template", func() {
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
-
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
-			fleet.Status = &api.FleetStatus{Conditions: &[]api.Condition{condition}}
+			fleet.Status = nil
 
 			called := false
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
@@ -240,18 +223,10 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdate update mode updated spec", func() {
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
-
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
-			fleet.Status = &api.FleetStatus{Conditions: &[]api.Condition{condition}}
+			fleet.Status = nil
 
 			called := false
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
@@ -273,18 +248,10 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdate wrong owner", func() {
-			condition := api.Condition{
-				Type:               "type",
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
-
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
-			fleet.Status = &api.FleetStatus{Conditions: &[]api.Condition{condition}}
+			fleet.Status = nil
 
 			called := false
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
@@ -363,13 +330,6 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CreateOrUpdateMultiple", func() {
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
@@ -379,9 +339,7 @@ var _ = Describe("FleetStore create", func() {
 						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
-				Status: &api.FleetStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			fleet2 := api.Fleet{
 				Metadata: api.ObjectMeta{
@@ -392,9 +350,7 @@ var _ = Describe("FleetStore create", func() {
 						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
-				Status: &api.FleetStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			called := 0
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
@@ -423,13 +379,6 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*createdFleet2.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 		})
 		It("CreateOrUpdateMultiple with error", func() {
-			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
@@ -439,9 +388,7 @@ var _ = Describe("FleetStore create", func() {
 						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
-				Status: &api.FleetStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			fleet2 := api.Fleet{
 				Metadata: api.ObjectMeta{},
@@ -450,9 +397,7 @@ var _ = Describe("FleetStore create", func() {
 						MatchLabels: map[string]string{"key": "value"},
 					},
 				},
-				Status: &api.FleetStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			called := 0
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {

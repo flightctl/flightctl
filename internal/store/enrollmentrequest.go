@@ -116,9 +116,6 @@ func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.
 	enrollmentrequest := model.NewEnrollmentRequestFromApiResource(resource)
 	enrollmentrequest.OrgID = orgId
 
-	// don't overwrite status
-	enrollmentrequest.Status = nil
-
 	created := false
 	findEnrollmentRequest := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},

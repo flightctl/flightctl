@@ -14,6 +14,13 @@ import (
 // (POST /api/v1/resourcesyncs)
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.CreateResourceSyncRequestObject) (server.CreateResourceSyncResponseObject, error) {
 	orgId := store.NullOrgId
+	if request.Body.Metadata.Name == nil {
+		return server.CreateResourceSync400JSONResponse{Message: "metadata.name not specified"}, nil
+	}
+
+	// don't set fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	result, err := h.store.ResourceSync().Create(ctx, orgId, request.Body)
 	switch err {
@@ -95,11 +102,15 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server.ReplaceResourceSyncRequestObject) (server.ReplaceResourceSyncResponseObject, error) {
 	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil {
-		return server.ReplaceResourceSync400JSONResponse{Message: "metadata.name is not specified"}, nil
+		return server.ReplaceResourceSync400JSONResponse{Message: "metadata.name not specified"}, nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceResourceSync400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
+
+	// don't overwrite fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
