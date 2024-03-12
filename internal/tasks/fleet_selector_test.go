@@ -78,7 +78,7 @@ var _ = Describe("FleetSelector", func() {
 				case "otherfleet-to-fleet":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 				case "fleet-to-none":
-					Expect(*device.Metadata.Owner).To(Equal(""))
+					Expect(device.Metadata.Owner).To(BeNil())
 				case "stay-in-fleet":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 				case "otherfleet-to-error":
@@ -103,7 +103,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			device, err := deviceStore.Get(ctx, orgId, "device")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*device.Metadata.Owner).To(BeEmpty())
+			Expect(device.Metadata.Owner).To(BeNil())
 		})
 
 		It("Fleet selector removed no overlap", func() {
@@ -113,7 +113,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			device, err := deviceStore.Get(ctx, orgId, "device")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*device.Metadata.Owner).To(BeEmpty())
+			Expect(device.Metadata.Owner).To(BeNil())
 		})
 
 		It("Empty fleet selector matches all", func() {
@@ -214,10 +214,10 @@ var _ = Describe("FleetSelector", func() {
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet2"))
 					Expect(tasks.GetOverlappingAnnotationValue(device.Metadata.Annotations)).ToNot(BeEmpty())
 				case "nofleet":
-					Expect(*device.Metadata.Owner).To(BeEmpty())
+					Expect(device.Metadata.Owner).To(BeNil())
 					Expect((*device.Metadata.Annotations)[model.DeviceAnnotationMultipleOwners]).To(BeEmpty())
 				case "nolabels":
-					Expect(*device.Metadata.Owner).To(BeEmpty())
+					Expect(device.Metadata.Owner).To(BeNil())
 					Expect((*device.Metadata.Annotations)[model.DeviceAnnotationMultipleOwners]).To(BeEmpty())
 				}
 			}
@@ -263,10 +263,10 @@ var _ = Describe("FleetSelector", func() {
 					Expect(*updatedDev.Metadata.Owner).To(Equal("Fleet/fleet1"))
 					Expect(tasks.GetOverlappingAnnotationValue(updatedDev.Metadata.Annotations)).ToNot(BeEmpty())
 				case "no-match":
-					Expect(*updatedDev.Metadata.Owner).To(BeEmpty())
+					Expect(updatedDev.Metadata.Owner).To(BeNil())
 					Expect(tasks.GetOverlappingAnnotationValue(updatedDev.Metadata.Annotations)).To(BeEmpty())
 				case "no-labels":
-					Expect(*updatedDev.Metadata.Owner).To(BeEmpty())
+					Expect(updatedDev.Metadata.Owner).To(BeNil())
 					Expect(tasks.GetOverlappingAnnotationValue(updatedDev.Metadata.Annotations)).To(BeEmpty())
 				}
 			}
@@ -323,7 +323,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(4))
 			for _, device := range devices.Items {
 				if device.Metadata.Owner != nil {
-					Expect(*device.Metadata.Owner).To(BeEmpty())
+					Expect(device.Metadata.Owner).To(BeNil())
 				}
 				Expect(tasks.GetOverlappingAnnotationValue(device.Metadata.Annotations)).To(BeEmpty())
 			}

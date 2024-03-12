@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -34,4 +35,22 @@ func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
 	var count int64
 	query.Where("name >= ?", lastItemName).Count(&count)
 	return count
+}
+
+func GetNonNilFieldsFromResource(resource model.Resource) []string {
+	ret := []string{}
+	if resource.Generation != nil {
+		ret = append(ret, "generation")
+	}
+	if resource.Labels != nil {
+		ret = append(ret, "labels")
+	}
+	if resource.Owner != nil {
+		ret = append(ret, "owner")
+	}
+	if resource.Annotations != nil {
+		ret = append(ret, "annotations")
+	}
+
+	return ret
 }

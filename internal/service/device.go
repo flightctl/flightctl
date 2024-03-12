@@ -118,7 +118,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, true, h.taskManager.DeviceUpdatedCallback)
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.taskManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		if created {

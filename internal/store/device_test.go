@@ -175,7 +175,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: nil,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
@@ -193,7 +193,7 @@ var _ = Describe("DeviceStore create", func() {
 					TemplateVersion: util.StrToPtr("tv"),
 				},
 			}
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -211,7 +211,7 @@ var _ = Describe("DeviceStore create", func() {
 					Conditions: nil,
 				},
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, true, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
@@ -258,32 +258,33 @@ var _ = Describe("DeviceStore create", func() {
 				called = true
 			})
 
-			err := devStore.UpdateTemplateVersionAndOwner(ctx, orgId, "mydevice-1", "tv", util.StrToPtr("newowner"), callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
+
+			dev.Metadata.Owner = util.StrToPtr("newowner")
+			dev.Spec.TemplateVersion = util.StrToPtr("tv")
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.Metadata.Owner).ToNot(BeNil())
 			Expect(*dev.Metadata.Owner).To(Equal("newowner"))
+			Expect(dev.Spec.TemplateVersion).ToNot(BeNil())
 			Expect(*dev.Spec.TemplateVersion).To(Equal("tv"))
-			Expect(dev.Spec.Os).To(BeNil())
 
 			called = false
-			err = devStore.UpdateTemplateVersionAndOwner(ctx, orgId, "mydevice-1", "tv2", nil, callback)
+			dev.Metadata.Owner = nil
+			dev.Spec.TemplateVersion = nil
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
-			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(*dev.Metadata.Owner).To(Equal("newowner"))
-			Expect(*dev.Spec.TemplateVersion).To(Equal("tv2"))
 
-			called = false
-			err = devStore.UpdateTemplateVersionAndOwner(ctx, orgId, "mydevice-1", "", util.StrToPtr(""), callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
 			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*dev.Metadata.Owner).To(Equal(""))
-			Expect(*dev.Spec.TemplateVersion).To(Equal(""))
+			Expect(dev.Metadata.Owner).To(BeNil())
+			Expect(dev.Spec.TemplateVersion).To(BeNil())
 		})
 
 		It("UpdateDeviceAnnotations", func() {
@@ -296,14 +297,21 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*dev.Metadata.Annotations).To(HaveLen(2))
 			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
 
-			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", nil, []string{"key2"})
+			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", map[string]string{"key1": "otherval"}, []string{"key2"})
 			Expect(err).ToNot(HaveOccurred())
 			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.Metadata.Annotations).ToNot(BeNil())
 			Expect(*dev.Metadata.Annotations).To(HaveLen(1))
+			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("otherval"))
 			_, ok := (*dev.Metadata.Annotations)["key2"]
 			Expect(ok).To(BeFalse())
+
+			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", nil, []string{"key1"})
+			Expect(err).ToNot(HaveOccurred())
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(0))
 		})
 
 		It("GetRendered", func() {
