@@ -81,6 +81,7 @@ func (t *TemplateVersionLogic) SyncFleetTemplateToTemplateVersion(ctx context.Co
 		if err != nil {
 			return err
 		}
+		// non-fleet owner
 		return nil
 	}
 	if err != nil {

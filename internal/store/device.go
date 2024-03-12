@@ -22,11 +22,10 @@ type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
-	UpdateTemplateVersionAndOwner(ctx context.Context, orgId uuid.UUID, name string, tv string, owner *string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownOwner, knownTemplateVersion *string) (*api.RenderedDeviceSpec, error)
 	InitialMigration() error
@@ -146,7 +145,7 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return &apiDevice, nil
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -188,9 +187,13 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 				return gorm.ErrInvalidData
 			}
 
+			val, _ := existingRecord.Spec.MarshalJSON()
+			fmt.Printf("existing spec: %v\n", string(val))
+			val, _ = device.Spec.MarshalJSON()
+			fmt.Printf("new spec: %v\n", string(val))
 			// Update the generation if the spec was updated
 			if !sameSpec {
-				if existingRecord.Owner != nil && len(*existingRecord.Owner) != 0 {
+				if fromAPI && existingRecord.Owner != nil && len(*existingRecord.Owner) != 0 {
 					return fmt.Errorf("cannot update a device owned by a fleet")
 				}
 
@@ -204,7 +207,15 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 			}
 
 			where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
-			result = innerTx.Model(where).Updates(&device)
+			query := innerTx.Model(where)
+
+			selectFields := []string{"spec"}
+			selectFields = append(selectFields, GetNonNilFieldsFromResource(device.Resource)...)
+			if len(fieldsToUnset) > 0 {
+				selectFields = append(selectFields, fieldsToUnset...)
+			}
+			query = query.Select(selectFields)
+			result := query.Updates(&device)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -272,41 +283,6 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 	}
 
 	callback(&existingRecord, nil)
-	return nil
-}
-
-// Sets spec.templateVersion and owner
-func (s *DeviceStore) UpdateTemplateVersionAndOwner(ctx context.Context, orgId uuid.UUID, name string, tv string, owner *string, callback DeviceStoreCallback) error {
-	var existingRecord *model.Device
-	var updatedRecord *model.Device
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord = &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(existingRecord)
-		if result.Error != nil {
-			return result.Error
-		}
-
-		updatedDevice := model.Device{
-			Resource: model.Resource{
-				Name:       existingRecord.Name,
-				Generation: util.Int64ToPtr(*existingRecord.Generation + 1),
-			},
-			Spec: model.MakeJSONField(api.DeviceSpec{TemplateVersion: &tv}),
-		}
-		if owner != nil {
-			updatedDevice.Owner = owner
-		}
-		updatedRecord = &updatedDevice
-
-		where := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result = innerTx.Model(where).Updates(&updatedDevice)
-		return result.Error
-	})
-	if err != nil {
-		return err
-	}
-
-	callback(existingRecord, updatedRecord)
 	return nil
 }
 

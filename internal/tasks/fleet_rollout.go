@@ -159,11 +159,13 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *api.Device, templateVersion *api.TemplateVersion) error {
 	if device.Spec.TemplateVersion != nil && *device.Spec.TemplateVersion == *templateVersion.Metadata.Name {
-		// Nothing to do
+		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
 		return nil
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
 
-	return f.devStore.UpdateTemplateVersionAndOwner(ctx, f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name, nil, f.taskManager.DeviceUpdatedCallback)
+	device.Spec.TemplateVersion = templateVersion.Metadata.Name
+	_, _, err := f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.taskManager.DeviceUpdatedCallback)
+	return err
 }
