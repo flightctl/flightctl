@@ -3177,6 +3177,7 @@ type CreateDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *Device
+	JSON400      *Error
 	JSON401      *Error
 	JSON409      *Error
 }
@@ -4773,6 +4774,13 @@ func ParseCreateDeviceResponse(rsp *http.Response) (*CreateDeviceResponse, error
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error

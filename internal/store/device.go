@@ -147,7 +147,6 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 }
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
-	log := log.WithReqIDFromCtx(ctx, s.log)
 	if resource == nil {
 		return nil, false, fmt.Errorf("resource is nil")
 	}
@@ -157,18 +156,12 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 	}
 	device.OrgID = orgId
 
-	// don't overwrite status, generation, or owner
-	device.Status = nil
-	device.Generation = nil
-	device.Owner = nil
-
 	created := false
 	var existingRecord *model.Device
 
 	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
 		existingRecord = &model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
 		result := innerTx.First(existingRecord)
-		log.Printf("db.Find(%s): %d rows affected, error is %v", *existingRecord, result.RowsAffected, result.Error)
 
 		deviceExists := true
 

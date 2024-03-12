@@ -30,6 +30,13 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 		return server.CreateFleet400JSONResponse{Message: "fleet name not specified"}, nil
 	}
 
+	// don't set fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	if request.Body.Spec.Template.Metadata != nil {
+		NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+	}
+
 	err := validateDiscriminators(request.Body)
 	if err != nil {
 		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
@@ -116,7 +123,7 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
 	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil {
-		return server.ReplaceFleet400JSONResponse{Message: "metadata.name is not specified"}, nil
+		return server.ReplaceFleet400JSONResponse{Message: "metadata.name not specified"}, nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
@@ -127,8 +134,12 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
-	// Since this is an api call, we remove the Owner from the fleet - to avoid user override
-	request.Body.Metadata.Owner = nil
+	// don't overwrite fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	if request.Body.Spec.Template.Metadata != nil {
+		NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+	}
 
 	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
 	switch err {

@@ -15,6 +15,17 @@ import (
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
 	orgId := store.NullOrgId
+	if request.Body.Metadata.Name == nil {
+		return server.CreateDevice400JSONResponse{Message: "metadata.name not specified"}, nil
+	}
+
+	if request.Body.Spec.TemplateVersion != nil {
+		return server.CreateDevice400JSONResponse{Message: "spec.templateVersion may not be specified"}, nil
+	}
+
+	// don't set fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
 	switch err {
@@ -97,11 +108,15 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil {
-		return server.ReplaceDevice400JSONResponse{Message: "metadata.name is not specified"}, nil
+		return server.ReplaceDevice400JSONResponse{Message: "metadata.name not specified"}, nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
+
+	// don't overwrite fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, true, h.taskManager.DeviceUpdatedCallback)
 	switch err {

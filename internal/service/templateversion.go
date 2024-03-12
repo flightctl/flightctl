@@ -25,6 +25,13 @@ func TemplateVersionFromReader(r io.Reader) (*api.TemplateVersion, error) {
 // (POST /api/v1/templateVersions)
 func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, request server.CreateTemplateVersionRequestObject) (server.CreateTemplateVersionResponseObject, error) {
 	orgId := store.NullOrgId
+	if request.Body.Metadata.Name == nil {
+		return server.CreateTemplateVersion400JSONResponse{Message: "metadata.name not specified"}, nil
+	}
+
+	// don't set fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	result, err := h.store.TemplateVersion().Create(ctx, orgId, request.Body, h.taskManager.TemplateVersionCreatedCallback)
 
