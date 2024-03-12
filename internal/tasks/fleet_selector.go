@@ -600,12 +600,17 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) e
 
 // Update a device's owner, which in effect updates the fleet (may require rollout to the device)
 func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, device *api.Device, newOwnerFleet string) error {
+	fieldsToNil := []string{}
 	newOwnerRef := util.SetResourceOwner(model.FleetKind, newOwnerFleet)
 	if len(newOwnerFleet) == 0 {
-		newOwnerRef = util.StrToPtr("")
+		newOwnerRef = nil
+		fieldsToNil = append(fieldsToNil, "owner")
 	}
-	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), *newOwnerRef)
-	return f.devStore.UpdateTemplateVersionAndOwner(ctx, f.resourceRef.OrgID, *device.Metadata.Name, "", newOwnerRef, f.taskManager.DeviceUpdatedCallback)
+	device.Metadata.Owner = newOwnerRef
+
+	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
+	_, _, err := f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.taskManager.DeviceUpdatedCallback)
+	return err
 }
 
 func (f FleetSelectorMatchingLogic) setOverlappingFleetConditions(ctx context.Context, overlappingFleetNames []string) error {
