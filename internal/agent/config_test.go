@@ -33,5 +33,6 @@ func TestParseConfigFile(t *testing.T) {
 	require.Equal("10s", cfg.StatusUpdateInterval.String())
 
 	// ensure defaults
-	require.Equal("/etc/flightctl", cfg.ConfigDir)
+	require.Equal(DefaultConfigDir, cfg.ConfigDir)
+	require.Equal(DefaultDataDir, cfg.DataDir)
 }
