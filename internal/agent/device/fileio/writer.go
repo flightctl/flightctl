@@ -67,7 +67,6 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 		// if err := createOrigFile(file.Path, file.Path); err != nil {
 		// 	return err
 		// }
-		klog.Info("Writing file: ", w.rootDir+file.Path)
 		if err := writeFileAtomically(w.rootDir+file.Path, decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
 			return err
 		}
@@ -77,6 +76,7 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 
 // WriteFile writes the provided data to the file at the path with the provided permissions
 func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	// TODO: rethink how we are persisting files
 	// convert to ign file so we can use the atomic writer we can do this more directly in future
 	return w.WriteIgnitionFiles(NewIgnFileBytes(name, data, perm))
 }
