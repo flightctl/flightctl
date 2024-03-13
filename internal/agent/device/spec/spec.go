@@ -7,13 +7,12 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
-	"k8s.io/apimachinery/pkg/util/wait"
-
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -41,7 +40,6 @@ type Manager struct {
 	logPrefix string
 	backoff   wait.Backoff
 }
-
 
 // NewManager creates a new device spec manager.
 func NewManager(
