@@ -8,9 +8,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-openapi/swag"
-	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -38,10 +38,12 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, request serv
 	switch err {
 	case nil:
 		return server.CreateTemplateVersion201JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
-		return server.CreateTemplateVersion400JSONResponse{Message: "specified fleet not found"}, nil
-	case gorm.ErrInvalidData:
-		return server.CreateTemplateVersion409JSONResponse{Message: "a template version with this name and fleet already exists"}, nil
+	case flterrors.ErrResourceIsNil:
+		return server.CreateTemplateVersion400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.CreateTemplateVersion400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateTemplateVersion409JSONResponse{Message: err.Error()}, nil
 
 	default:
 		return nil, err
@@ -109,7 +111,7 @@ func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server
 	switch err {
 	case nil:
 		return server.ReadTemplateVersion200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadTemplateVersion404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -124,7 +126,7 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request serv
 	switch err {
 	case nil:
 		return server.DeleteTemplateVersion200JSONResponse{}, nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.DeleteTemplateVersion404JSONResponse{}, nil
 	default:
 		return nil, err

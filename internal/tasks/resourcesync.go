@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -18,7 +19,6 @@ import (
 	"github.com/go-git/go-billy/v5"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
 
@@ -119,7 +119,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 
 	r.log.Infof("resourcesync/%s: applying #%d fleets ", rs.Name, len(fleets))
 	err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, r.taskManager.FleetUpdatedCallback, fleets...)
-	if err == gorm.ErrInvalidData {
+	if err == flterrors.ErrUpdatingResourceWithOwnerNotAllowed {
 		err = fmt.Errorf("one or more fleets are managed by a different resource. %w", err)
 	}
 	if len(fleetsToRemove) > 0 {

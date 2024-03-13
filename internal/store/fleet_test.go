@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -16,7 +17,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 var _ = Describe("FleetStore create", func() {
@@ -56,14 +56,14 @@ var _ = Describe("FleetStore create", func() {
 		It("Get fleet - not found error", func() {
 			_, err := storeInst.Fleet().Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get fleet - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := storeInst.Fleet().Get(ctx, badOrgId, "myfleet-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete fleet success", func() {
@@ -279,13 +279,13 @@ var _ = Describe("FleetStore create", func() {
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, callback)
 			Expect(called).To(BeFalse())
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, gorm.ErrInvalidData)).To(BeTrue())
+			Expect(errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed)).To(BeTrue())
 
 			updatedFleet.Metadata.Owner = nil
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, callback)
 			Expect(called).To(BeFalse())
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, gorm.ErrInvalidData)).To(BeTrue())
+			Expect(errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed)).To(BeTrue())
 
 			updatedFleet.Metadata.Owner = util.StrToPtr("test")
 			updatedFleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS2"}

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -12,7 +13,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 var _ = Describe("TemplateVersion", func() {
@@ -42,7 +42,7 @@ var _ = Describe("TemplateVersion", func() {
 		It("Create no fleet error", func() {
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", "os", true)
 			Expect(err).To(HaveOccurred())
-			Expect(err).Should(MatchError(gorm.ErrRecordNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Create duplicate error", func() {
@@ -51,7 +51,7 @@ var _ = Describe("TemplateVersion", func() {
 			Expect(err).ToNot(HaveOccurred())
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", "os", true)
 			Expect(err).To(HaveOccurred())
-			Expect(err).Should(MatchError(gorm.ErrInvalidData))
+			Expect(err).Should(MatchError(flterrors.ErrDuplicateName))
 		})
 
 		It("List with paging", func() {
@@ -147,19 +147,19 @@ var _ = Describe("TemplateVersion", func() {
 		It("Get templateVersion - not found errors", func() {
 			_, err := storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
 			_, err = storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", "os", true)
 			Expect(err).ToNot(HaveOccurred())
 			badOrgId, _ := uuid.NewUUID()
 			_, err = storeInst.TemplateVersion().Get(ctx, badOrgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete templateVersion success", func() {
@@ -170,7 +170,7 @@ var _ = Describe("TemplateVersion", func() {
 			Expect(err).ToNot(HaveOccurred())
 			_, err = storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete templateVersion success when not found", func() {

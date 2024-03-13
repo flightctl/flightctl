@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -74,14 +75,14 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("Get resourcesync - not found error", func() {
 			_, err := storeInst.ResourceSync().Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get resourcesync - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := storeInst.ResourceSync().Get(ctx, badOrgId, "myresourcesync-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete resourcesync success", func() {
@@ -219,13 +220,6 @@ var _ = Describe("ResourceSyncStore create", func() {
 		})
 
 		It("CreateOrUpdateResourceSync create mode", func() {
-			condition := api.Condition{
-				Type:               api.ResourceSyncAccessible,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
@@ -234,9 +228,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Repository: util.StrToPtr("myrepo"),
 					Path:       util.StrToPtr("my/path"),
 				},
-				Status: &api.ResourceSyncStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
@@ -249,13 +241,6 @@ var _ = Describe("ResourceSyncStore create", func() {
 		})
 
 		It("CreateOrUpdateResourceSync update mode", func() {
-			condition := api.Condition{
-				Type:               api.ResourceSyncAccessible,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("myresourcesync-1"),
@@ -264,9 +249,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Repository: util.StrToPtr("myotherrepo"),
 					Path:       util.StrToPtr("my/other/path"),
 				},
-				Status: &api.ResourceSyncStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
