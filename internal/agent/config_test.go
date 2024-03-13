@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var yamlConfig = `management-endpoint: https://api.flightctl.edge-devices.net
-enrollment-endpoint: https://api.flightctl.edge-devices.net
-enrollment-ui-endpoint: https://ui.flightctl.edge-devices.net
+var yamlConfig = `management-endpoint: https://management.endpoint
+enrollment-endpoint: https://management.endpoint
+enrollment-ui-endpoint: https://ui.management.endpoint
 spec-fetch-interval: 0m10s
 status-update-interval: 0m10s`
 
@@ -25,5 +25,13 @@ func TestParseConfigFile(t *testing.T) {
 	err = cfg.ParseConfigFile(filePath)
 	require.NoError(err)
 
-	require.Equal("https://api.flightctl.edge-devices.net", cfg.ManagementEndpoint)
+	// ensure override
+	require.Equal("https://management.endpoint", cfg.ManagementEndpoint)
+	require.Equal("https://management.endpoint", cfg.EnrollmentEndpoint)
+	require.Equal("https://ui.management.endpoint", cfg.EnrollmentUIEndpoint)
+	require.Equal("10s", cfg.SpecFetchInterval.String())
+	require.Equal("10s", cfg.StatusUpdateInterval.String())
+
+	// ensure defaults
+	require.Equal("/etc/flightctl", cfg.ConfigDir)
 }
