@@ -81,3 +81,27 @@ func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, buf *b
 
 	return nil
 }
+
+// GetRenderedDeviceSpec returns the rendered device spec for the given device
+// and the response code. If the server returns a 200, the rendered device spec
+// is returned. If the server returns a 204, the rendered device spec is nil,
+// and the response code is returned which should be evaluated but the caller.
+func (m *Management) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
+	start := time.Now()
+	resp, err := m.client.GetRenderedDeviceSpecWithResponse(ctx, name, params, rcb...)
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("get_rendered_device_spec_duration", time.Since(start).Seconds(), err)
+	}
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+
+	if resp.JSON200 != nil {
+		return resp.JSON200, resp.StatusCode(), nil
+	}
+
+	// since there is no JSON204 to return, we have to let the caller evaluate
+	// the status code
+
+	return nil, resp.StatusCode(), nil
+}
