@@ -2,7 +2,7 @@
 
 Name: flightctl-agent
 Version: 0.0.1
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Flightctl Agent
 
 License: XXX
@@ -36,6 +36,7 @@ make build
 
 mkdir -p %{buildroot}/usr/bin
 mkdir -p %{buildroot}/usr/lib/systemd/system
+mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
 cp bin/flightctl-agent %{buildroot}/usr/bin
 cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
 
@@ -43,9 +44,11 @@ cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
 %files
 /usr/bin/flightctl-agent
 /usr/lib/systemd/system/flightctl-agent.service
+%{_sharedstatedir}/flightctl
 
 %changelog
-
+* Wed Mar 13 2024 Ricardo Noriega <rnoriega@redhat.com> - 0.0.1-3
+- Adding default directory for runtime data
 * Wed Feb 7 2024 Miguel Angel Ajo Pelayo <majopela@redhat.com> - 0.0.1-2
 - Initial RPM building via packit for the flightctl agent
 * Mon Dec 11 2023 Ricardo Noriega <rnoriega@redhat.com> - 0.0.1-1
