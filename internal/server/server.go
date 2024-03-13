@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -87,12 +86,7 @@ func (s *Server) Run() error {
 	h := service.NewServiceHandler(s.store, taskManager, s.ca, s.log)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
-	srv := &http.Server{
-		Addr:         s.cfg.Service.Address,
-		Handler:      router,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
+	srv := NewHTTPServerWithTLSContext(router, s.log, s.cfg.Service.Address)
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
@@ -113,17 +107,4 @@ func (s *Server) Run() error {
 	}
 
 	return nil
-}
-
-// NewTLSListener returns a new TLS listener. If the address is empty, it will
-// listen on localhost's next available port.
-func NewTLSListener(address string, tlsConfig *tls.Config) (net.Listener, error) {
-	if address == "" {
-		address = "localhost:0"
-	}
-	ln, err := net.Listen("tcp", address)
-	if err != nil {
-		return nil, err
-	}
-	return tls.NewListener(ln, tlsConfig), nil
 }

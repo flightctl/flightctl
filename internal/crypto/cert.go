@@ -17,6 +17,8 @@ import (
 )
 
 // Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
+const ClientBootstrapCommonName = "client-enrollment"
+const AdminCommonName = "flightctl-admin"
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 

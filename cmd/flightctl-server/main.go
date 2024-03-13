@@ -15,9 +15,11 @@ const (
 	caCertValidityDays          = 365 * 10
 	serverCertValidityDays      = 365 * 1
 	clientBootStrapValidityDays = 365 * 1
+	adminCertValidityDays       = 365 * 1
 	signerCertName              = "ca"
 	serverCertName              = "server"
 	clientBootstrapCertName     = "client-enrollment"
+	flightctlAdminCertificate   = "flightctl-admin"
 )
 
 func main() {
@@ -45,13 +47,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("ensuring server cert: %v", err)
 	}
-	clientCert, _, err := ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), clientBootstrapCertName, clientBootStrapValidityDays)
+
+	_, _, err = ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), crypto.ClientBootstrapCommonName, clientBootStrapValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}
 
+	adminCert, _, err := ca.EnsureClientCertificate(certFile(flightctlAdminCertificate), keyFile(flightctlAdminCertificate), crypto.AdminCommonName, adminCertValidityDays)
+	if err != nil {
+		log.Fatalf("ensuring flightctl-admin client cert: %v", err)
+	}
 	// also write out a client config file
-	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, clientCert)
+	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, adminCert)
 	if err != nil {
 		log.Fatalf("writing client config: %v", err)
 	}
