@@ -11,7 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
-	"github.com/flightctl/flightctl/internal/agent/device/writer"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/client"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -99,12 +99,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	defer tpmChannel.Close()
 
-	// create device writer
-	deviceWriter := writer.New()
-	if a.config.GetTestRootDir() != "" {
-		a.log.Printf("Setting testRootDir is intended for testing only. Do not use in production.")
-		deviceWriter.SetRootdir(a.config.GetTestRootDir())
-	}
+	// create file io writer and reader
+	deviceWriter, _ := initializeFileIO(a.config)
 
 	// create config controller
 	controller := config.NewController(
@@ -143,4 +139,15 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	<-ctx.Done()
 	return nil
+}
+
+func initializeFileIO(cfg *Config) (*fileio.Writer, *fileio.Reader) {
+	deviceWriter := fileio.NewWriter()
+	deviceReader := fileio.NewReader()
+	testRootDir := cfg.GetTestRootDir()
+	if testRootDir != "" {
+		deviceWriter.SetRootdir(testRootDir)
+		deviceReader.SetRootdir(testRootDir)
+	}
+	return fileio.NewWriter(), fileio.NewReader()
 }

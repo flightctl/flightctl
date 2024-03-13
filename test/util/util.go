@@ -98,16 +98,19 @@ func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig,
 	return ca, serverCerts, clientCerts, nil
 }
 
-// NewClient creates a new client with the given server URL and certificates.
+// NewClient creates a new client with the given server URL and certificates. If the certs are nil a http client will be created.
 func NewClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateConfig) (*client.ClientWithResponses, error) {
-	tlsConfig, err := crypto.TLSConfigForClient(caCert, clientCert)
-	if err != nil {
-		return nil, fmt.Errorf("creating TLS config: %v", err)
-	}
-	httpClient := &http.Client{
-		Transport: &http.Transport{
+	httpClient := &http.Client{}
+	if caCert != nil && clientCert != nil {
+		var err error
+		tlsConfig, err := crypto.TLSConfigForClient(caCert, clientCert)
+		if err != nil {
+			return nil, fmt.Errorf("creating TLS config: %v", err)
+		}
+		httpClient.Transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
-		},
+		}
 	}
+
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
 }

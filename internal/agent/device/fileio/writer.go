@@ -1,4 +1,4 @@
-package writer
+package fileio
 
 import (
 	"bufio"
@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/renameio"
 	"github.com/vincent-petithory/dataurl"
 	"k8s.io/klog/v2"
@@ -22,7 +23,7 @@ const (
 	// defaultDirectoryPermissions houses the default mode to use when no directory permissions are provided
 	defaultDirectoryPermissions os.FileMode = 0o755
 	// defaultFilePermissions houses the default mode to use when no file permissions are provided
-	defaultFilePermissions os.FileMode = 0o644
+	DefaultFilePermissions os.FileMode = 0o644
 )
 
 // Writer is responsible for writing files to the device
@@ -32,7 +33,7 @@ type Writer struct {
 }
 
 // New creates a new writer
-func New() *Writer {
+func NewWriter() *Writer {
 	return &Writer{}
 }
 
@@ -52,7 +53,7 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 		if err != nil {
 			return fmt.Errorf("could not decode file %q: %w", file.Path, err)
 		}
-		mode := defaultFilePermissions
+		mode := DefaultFilePermissions
 		if file.Mode != nil {
 			mode = os.FileMode(*file.Mode)
 		}
@@ -75,7 +76,9 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 
 // WriteFile writes the provided data to the file at the path with the provided permissions
 func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	return os.WriteFile(filepath.Join(w.rootDir, name), data, perm)
+	// TODO: rethink how we are persisting files
+	// convert to ign file so we can use the atomic writer we can do this more directly in future
+	return w.WriteIgnitionFiles(NewIgnFileBytes(name, data, perm))
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
@@ -118,15 +121,15 @@ func getFileOwnership(file ign3types.File, testMode bool) (int, int, error) {
 		// use local user
 		currentUser, err := user.Current()
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed retrieving current user: %w\n", err)
+			return 0, 0, fmt.Errorf("failed retrieving current user: %w", err)
 		}
 		gid, err := strconv.Atoi(currentUser.Gid)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed converting GID to int: %w\n", err)
+			return 0, 0, fmt.Errorf("failed converting GID to int: %w", err)
 		}
 		uid, err := strconv.Atoi(currentUser.Uid)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed converting UID to int: %w\n", err)
+			return 0, 0, fmt.Errorf("failed converting UID to int: %w", err)
 		}
 		return uid, gid, nil
 	}
@@ -204,4 +207,21 @@ func DecodeIgnitionFileContents(source, compression *string) ([]byte, error) {
 		}
 	}
 	return contentsBytes, nil
+}
+
+// NewIgnFileBytes is like NewIgnFile, but accepts binary data
+func NewIgnFileBytes(path string, contents []byte, mode os.FileMode) ign3types.File {
+	fileMode := int(mode.Perm())
+	return ign3types.File{
+		Node: ign3types.Node{
+			Path: path,
+		},
+		FileEmbedded1: ign3types.FileEmbedded1{
+			Mode: &fileMode,
+			Contents: ign3types.Resource{
+				Source:      util.StrToPtr(dataurl.EncodeBytes(contents)),
+				Compression: util.StrToPtr(""),
+			},
+		},
+	}
 }

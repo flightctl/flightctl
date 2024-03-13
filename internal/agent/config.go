@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 )
@@ -72,6 +73,8 @@ type Config struct {
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
 	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
+
+	reader *fileio.Reader
 }
 
 func NewDefault() *Config {
@@ -88,11 +91,13 @@ func NewDefault() *Config {
 		EnrollmentKeyFile:    filepath.Join(DefaultConfigDir, DefaultCertsDirName, EnrollmentKeyFile),
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
+		reader:               fileio.NewReader(),
 	}
 }
 
 func (cfg *Config) SetTestRootDir(rootDir string) {
 	klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
+	cfg.reader.SetRootdir(rootDir)
 	cfg.testRootDir = rootDir
 }
 
@@ -127,7 +132,7 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("%s is required", field.name)
 		}
 		if field.checkPath {
-			if err := checkPathExists(field.value); err != nil {
+			if err := cfg.reader.CheckPathExists(field.value); err != nil {
 				return fmt.Errorf("%s: %w", field.name, err)
 			}
 		}
@@ -138,25 +143,13 @@ func (cfg *Config) Validate() error {
 
 // ParseConfigFile reads the config file and unmarshals it into the Config struct
 func (cfg *Config) ParseConfigFile(cfgFile string) error {
-	contents, err := os.ReadFile(cfgFile)
+	contents, err := cfg.reader.ReadFile(cfgFile)
 	if err != nil {
 		return fmt.Errorf("reading config file: %w", err)
 	}
 	if err := yaml.Unmarshal(contents, cfg); err != nil {
 		return fmt.Errorf("unmarshalling config file: %w", err)
 	}
-	return nil
-}
-
-func checkPathExists(path string) error {
-	_, err := os.Stat(path)
-	if err != nil && os.IsNotExist(err) {
-		return fmt.Errorf("path does not exist: %s", path)
-	}
-	if err != nil {
-		return fmt.Errorf("error checking path: %w", err)
-	}
-
 	return nil
 }
 

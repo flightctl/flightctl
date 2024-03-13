@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/writer"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/client"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -17,7 +17,7 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceWriter            *writer.Writer
+	deviceWriter            *fileio.Writer
 	enrollmentClient        *client.Enrollment
 	managementClient        *client.Management
 	enrollmentVerifyBackoff wait.Backoff
@@ -43,7 +43,7 @@ func NewController(
 	caFilePath string,
 	managementCertFilePath string,
 	agentKeyFilePath string,
-	deviceWriter *writer.Writer,
+	deviceWriter *fileio.Writer,
 	enrollmentCSR []byte,
 	logPrefix string,
 ) *Controller {
