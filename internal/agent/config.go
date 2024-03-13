@@ -81,11 +81,11 @@ func NewDefault() *Config {
 		EnrollmentUIEndpoint: DefaultManagementEndpoint,
 		ConfigDir:            DefaultConfigDir,
 		DataDir:              DefaultDataDir,
-		Cacert:               filepath.Join(DefaultDataDir, DefaultCertsDirName, CacertFile),
+		Cacert:               filepath.Join(DefaultConfigDir, DefaultCertsDirName, CacertFile),
 		Key:                  filepath.Join(DefaultDataDir, DefaultCertsDirName, KeyFile),
 		GeneratedCert:        filepath.Join(DefaultDataDir, DefaultCertsDirName, GeneratedCertFile),
-		EnrollmentCertFile:   filepath.Join(DefaultDataDir, DefaultCertsDirName, EnrollmentCertFile),
-		EnrollmentKeyFile:    filepath.Join(DefaultDataDir, DefaultCertsDirName, EnrollmentKeyFile),
+		EnrollmentCertFile:   filepath.Join(DefaultConfigDir, DefaultCertsDirName, EnrollmentCertFile),
+		EnrollmentKeyFile:    filepath.Join(DefaultConfigDir, DefaultCertsDirName, EnrollmentKeyFile),
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
 	}
@@ -117,7 +117,7 @@ func (cfg *Config) Validate() error {
 		{cfg.ConfigDir, "config-dir", true},
 		{cfg.DataDir, "data-dir", true},
 		{cfg.Cacert, "ca-cert", true},
-		{cfg.Key, "key", true},
+		{cfg.Key, "key", false},
 		{cfg.EnrollmentCertFile, "enrollment-cert-file", true},
 		{cfg.EnrollmentKeyFile, "enrollment-key-file", true},
 	}
