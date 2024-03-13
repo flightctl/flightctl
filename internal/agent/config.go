@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/yaml"
 )
 
 const (
