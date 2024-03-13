@@ -81,3 +81,21 @@ func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, buf *b
 
 	return nil
 }
+
+// GetRenderedDeviceSpec returns the rendered device spec for the given device and the response code.
+func (m *Management) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
+	start := time.Now()
+	resp, err := m.client.GetRenderedDeviceSpecWithResponse(ctx, name, params, rcb...)
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("get_rendered_device_spec_duration", time.Since(start).Seconds(), err)
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if resp.JSON200 != nil {
+		return resp.JSON200, resp.StatusCode(), nil
+	}
+
+	return nil, resp.StatusCode(), nil
+}
