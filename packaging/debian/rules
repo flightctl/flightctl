@@ -21,6 +21,8 @@ override_dh_auto_install:
 	cp bin/$(shell dpkg --print-architecture)/flightctl-agent debian/flightctl-agent/usr/bin/
 	cp bin/$(shell dpkg --print-architecture)/flightctl debian/flightctl-agent/usr/bin/
 
+	mkdir -p debian/flightctl-agent/var/lib/flightctl
+
 	dh_install
 
 	install -D -m 644 debian/flightctl-agent.service debian/flightctl-agent/lib/systemd/system/flightctl-agent.service
