@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -15,7 +16,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 func TestStore(t *testing.T) {
@@ -64,14 +64,14 @@ var _ = Describe("DeviceStore create", func() {
 		It("Get device - not found error", func() {
 			_, err := devStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get device - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := devStore.Get(ctx, badOrgId, "mydevice-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete device success", func() {

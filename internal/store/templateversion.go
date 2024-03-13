@@ -5,9 +5,9 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -46,7 +46,7 @@ func (s *TemplateVersionStore) InitialMigration() error {
 
 func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	templateVersion := model.NewTemplateVersionFromApiResource(resource)
 	templateVersion.OrgID = orgId
@@ -61,7 +61,7 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 		fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: resource.Spec.Fleet}}
 		result := innerTx.First(&fleet)
 		if result.Error != nil {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 		duplicateName := model.TemplateVersion{
 			ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{
@@ -72,14 +72,14 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 		}
 		result = innerTx.First(&duplicateName)
 		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 		if result.Error == nil {
-			return gorm.ErrInvalidData
+			return flterrors.ErrDuplicateName
 		}
 
 		result = innerTx.Create(templateVersion)
-		return result.Error
+		return flterrors.ErrorFromGormError(result.Error)
 	})
 	if err == nil {
 		callback(templateVersion)
@@ -126,7 +126,7 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	}
 
 	apiTemplateVersionList := templateVersions.ToApiResource(nextContinue, numRemaining)
-	return &apiTemplateVersionList, result.Error
+	return &apiTemplateVersionList, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
@@ -134,7 +134,7 @@ func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UU
 	var templateVersion model.TemplateVersion
 	result := s.db.Model(&templateVersion).Where("org_id = ? AND owner = ? AND valid = ?", orgId, owner, true).Order("created_at DESC").First(&templateVersion)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	apiResource := templateVersion.ToApiResource()
 	return &apiResource, nil
@@ -143,9 +143,11 @@ func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UU
 func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, owner *string) error {
 	condition := model.TemplateVersion{}
 	if owner != nil {
-		return s.db.Unscoped().Where("org_id = ? AND owner = ?", orgId, *owner).Delete(&condition).Error
+		result := s.db.Unscoped().Where("org_id = ? AND owner = ?", orgId, *owner).Delete(&condition)
+		return flterrors.ErrorFromGormError(result.Error)
 	}
-	return s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition).Error
+	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
@@ -155,7 +157,7 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 	}
 	result := s.db.First(&templateVersion)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	apiTemplateVersion := templateVersion.ToApiResource()
 	return &apiTemplateVersion, nil
@@ -167,15 +169,18 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 		ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: owner, Name: name},
 	}
 	result := s.db.Unscoped().Delete(&condition)
-	return result.Error
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) UpdateStatusAndConfig(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, config *string, callback TemplateVersionStoreCallback) error {
 	if resource == nil {
-		return fmt.Errorf("resource is nil")
+		return flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return fmt.Errorf("resource.metadata.name is nil")
+		return flterrors.ErrResourceNameIsNil
 	}
 	templateVersion := model.TemplateVersion{
 		ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{
@@ -193,7 +198,7 @@ func (s *TemplateVersionStore) UpdateStatusAndConfig(ctx context.Context, orgId 
 	}
 	result := s.db.Model(&templateVersion).Updates(updates)
 	if result.Error != nil {
-		return result.Error
+		return flterrors.ErrorFromGormError(result.Error)
 	}
 
 	if valid != nil && *valid {

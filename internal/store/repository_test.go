@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -15,7 +16,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 func createRepositories(numRepositories int, ctx context.Context, storeInst store.Store, orgId uuid.UUID) {
@@ -72,14 +72,14 @@ var _ = Describe("RepositoryStore create", func() {
 		It("Get repository - not found error", func() {
 			_, err := storeInst.Repository().Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get repository - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := storeInst.Repository().Get(ctx, badOrgId, "myrepository-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(gorm.ErrRecordNotFound))
+			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete repository success", func() {
@@ -163,13 +163,6 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("CreateOrUpdateRepository create mode", func() {
-			condition := api.Condition{
-				Type:               api.RepositoryAccessible,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			repository := api.Repository{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
@@ -177,9 +170,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec: api.RepositorySpec{
 					Repo: util.StrToPtr("myrepo"),
 				},
-				Status: &api.RepositoryStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
@@ -191,13 +182,6 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("CreateOrUpdateRepository update mode", func() {
-			condition := api.Condition{
-				Type:               api.RepositoryAccessible,
-				LastTransitionTime: util.TimeStampStringPtr(),
-				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
-			}
 			repository := api.Repository{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("myrepository-1"),
@@ -205,9 +189,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec: api.RepositorySpec{
 					Repo: util.StrToPtr("myotherrepo"),
 				},
-				Status: &api.RepositoryStatus{
-					Conditions: &[]api.Condition{condition},
-				},
+				Status: nil,
 			}
 			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())

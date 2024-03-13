@@ -3399,6 +3399,7 @@ type CreateEnrollmentRequestResponse struct {
 	HTTPResponse *http.Response
 	JSON201      *EnrollmentRequest
 	JSON208      *EnrollmentRequest
+	JSON400      *Error
 	JSON401      *Error
 	JSON409      *Error
 }
@@ -5176,6 +5177,13 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 			return nil, err
 		}
 		response.JSON208 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error

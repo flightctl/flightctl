@@ -9,9 +9,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-openapi/swag"
-	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -46,6 +46,8 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 	switch err {
 	case nil:
 		return server.CreateFleet201JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil:
+		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -112,7 +114,7 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 	switch err {
 	case nil:
 		return server.ReadFleet200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadFleet404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -149,10 +151,14 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		} else {
 			return server.ReplaceFleet200JSONResponse(*result), nil
 		}
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceIsNil:
+		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNameIsNil:
+		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
 		return server.ReplaceFleet404JSONResponse{}, nil
-	case gorm.ErrInvalidData: // owner issue
-		return server.ReplaceFleet409JSONResponse{Message: "could not modify fleet because it is owned by another resource"}, nil
+	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -163,7 +169,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 	orgId := store.NullOrgId
 
 	f, err := h.store.Fleet().Get(ctx, orgId, request.Name)
-	if err == gorm.ErrRecordNotFound {
+	if err == flterrors.ErrResourceNotFound {
 		return server.DeleteFleet404JSONResponse{}, nil
 	}
 	if f.Metadata.Owner != nil {
@@ -175,7 +181,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 	switch err {
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.DeleteFleet404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -190,7 +196,7 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 	switch err {
 	case nil:
 		return server.ReadFleetStatus200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadFleetStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -205,7 +211,7 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	switch err {
 	case nil:
 		return server.ReplaceFleetStatus200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReplaceFleetStatus404JSONResponse{}, nil
 	default:
 		return nil, err

@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-openapi/swag"
-	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -26,6 +26,8 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 	switch err {
 	case nil:
 		return server.CreateResourceSync201JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil:
+		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -91,7 +93,7 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 	switch err {
 	case nil:
 		return server.ReadResourceSync200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -120,7 +122,11 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 		} else {
 			return server.ReplaceResourceSync200JSONResponse(*result), nil
 		}
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceIsNil:
+		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNameIsNil:
+		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
 		return server.ReplaceResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -134,7 +140,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.
 	switch err {
 	case nil:
 		return server.DeleteResourceSync200JSONResponse{}, nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.DeleteResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
