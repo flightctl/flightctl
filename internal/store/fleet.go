@@ -5,10 +5,10 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -54,7 +54,7 @@ func (s *FleetStore) InitialMigration() error {
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	fleet := model.NewFleetFromApiResource(resource)
 	fleet.OrgID = orgId
@@ -65,7 +65,7 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
 	result := s.db.Create(fleet)
 	callback(nil, fleet)
-	return resource, result.Error
+	return resource, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error) {
@@ -106,7 +106,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	}
 
 	apiFleetList := fleets.ToApiResource(nextContinue, numRemaining)
-	return &apiFleetList, result.Error
+	return &apiFleetList, flterrors.ErrorFromGormError(result.Error)
 }
 
 // A method to get all Fleets regardless of ownership. Used internally by the DeviceUpdater.
@@ -116,7 +116,7 @@ func (s *FleetStore) ListIgnoreOrg() ([]model.Fleet, error) {
 
 	result := s.db.Model(&fleets).Find(&fleets)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	return fleets, nil
 }
@@ -127,7 +127,7 @@ func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback Fl
 	if result.Error == nil {
 		callback(orgId)
 	}
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
@@ -136,7 +136,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*ap
 	}
 	result := s.db.First(&fleet)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 
 	apiFleet := fleet.ToApiResource()
@@ -155,12 +155,12 @@ func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resour
 
 func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*model.Fleet, *model.Fleet, error) {
 	if resource == nil {
-		return nil, nil, fmt.Errorf("resource is nil")
+		return nil, nil, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, nil, flterrors.ErrResourceNameIsNil
 	}
 	fleet := model.NewFleetFromApiResource(resource)
-	if fleet.Name == "" {
-		return nil, nil, fmt.Errorf("resource has no name")
-	}
 	fleet.OrgID = orgId
 
 	var existingRecord *model.Fleet
@@ -171,7 +171,7 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 		result := innerTx.First(&existingRecord)
 		// NotFound is OK because in that case we will create the record, anything else is a real error
 		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 		if result.Error != nil {
 			existingRecord = nil
@@ -183,14 +183,14 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 
 			result = innerTx.Create(fleet)
 			if result.Error != nil {
-				return result.Error
+				return flterrors.ErrorFromGormError(result.Error)
 			}
 		} else {
 			// Compare owners
 			// To delete / modify owner - use a different func
 			resourceOwner := util.DefaultIfNil(resource.Metadata.Owner, "")
 			if existingRecord.Owner != nil && *existingRecord.Owner != resourceOwner {
-				return gorm.ErrInvalidData
+				return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 			}
 			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, fleet.Spec.Data)
 			sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
@@ -222,7 +222,7 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 			fleet.Owner = resource.Metadata.Owner
 			result = innerTx.Model(where).Updates(&fleet)
 			if result.Error != nil {
-				return result.Error
+				return flterrors.ErrorFromGormError(result.Error)
 			}
 		}
 		return nil
@@ -284,10 +284,10 @@ func (s *FleetStore) UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, 
 
 func (s *FleetStore) updateStatusTx(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, fmt.Errorf("resource.metadata.name is nil")
+		return nil, flterrors.ErrResourceNameIsNil
 	}
 	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
@@ -295,7 +295,7 @@ func (s *FleetStore) updateStatusTx(tx *gorm.DB, orgId uuid.UUID, resource *api.
 	result := tx.Model(&fleet).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
-	return resource, result.Error
+	return resource, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
@@ -307,7 +307,7 @@ func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUI
 		Resource: model.Resource{OrgID: orgId, Owner: &owner},
 	}
 	result := db.Model(fleetCondition).Where(fleetCondition).Select("owner").Updates(map[string]interface{}{"owner": nil})
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error {
@@ -319,7 +319,7 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 		Resource: model.Resource{OrgID: orgId},
 	}
 	result := db.Model(model.Fleet{}).Where(fleetCondition).Where("owner like ?", "%"+resourceKind+"/%").Select("owner").Updates(map[string]interface{}{"owner": nil})
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, names ...string) error {
@@ -332,7 +332,7 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, callback Fleet
 				if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 					continue
 				}
-				return result.Error
+				return flterrors.ErrorFromGormError(result.Error)
 			}
 			err := s.deleteTx(tx, orgId, name)
 			if err != nil {
@@ -356,7 +356,7 @@ func (s *FleetStore) deleteTx(tx *gorm.DB, orgId uuid.UUID, name string) error {
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := tx.Unscoped().Delete(&condition)
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
@@ -364,7 +364,7 @@ func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name
 		existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 
 		if existingRecord.Status == nil {
@@ -384,7 +384,7 @@ func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name
 		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
 			"status": existingRecord.Status,
 		})
-		return result.Error
+		return flterrors.ErrorFromGormError(result.Error)
 	})
 
 	return err

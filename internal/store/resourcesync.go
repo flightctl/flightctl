@@ -4,10 +4,11 @@ import (
 	"context"
 	b64 "encoding/base64"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -48,7 +49,7 @@ func (s *ResourceSyncStore) InitialMigration() error {
 
 func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	resourceSync := model.NewResourceSyncFromApiResource(resource)
 	resourceSync.OrgID = orgId
@@ -56,7 +57,7 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 	result := s.db.Create(resourceSync)
 
 	apiResourceSync := resourceSync.ToApiResource()
-	return &apiResourceSync, result.Error
+	return &apiResourceSync, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error) {
@@ -97,21 +98,11 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	}
 
 	apiResourceSyncList := resourceSyncs.ToApiResource(nextContinue, numRemaining)
-	return &apiResourceSyncList, result.Error
+	return &apiResourceSyncList, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error {
-	condition := model.ResourceSync{
-		Resource: model.Resource{OrgID: orgId},
-	}
-	var count int64
-	result := s.db.Model(condition).Where(condition).Count(&count)
-	if result.Error != nil {
-		return result.Error
-	}
-	resourceSyncs, err := s.List(ctx, orgId, ListParams{
-		Limit: int(count),
-	})
+	resourceSyncs, err := s.List(ctx, orgId, ListParams{})
 	if err != nil {
 		return err
 	}
@@ -123,10 +114,7 @@ func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, call
 			}
 			result := tx.Unscoped().Delete(resourceSync)
 			if result.Error != nil {
-				return result.Error
-			}
-			if err != nil {
-				return err
+				return flterrors.ErrorFromGormError(result.Error)
 			}
 		}
 		return callback(ctx, tx, orgId, model.ResourceSyncKind)
@@ -140,7 +128,7 @@ func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name strin
 	}
 	result := s.db.First(&resourcesync)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	apiResourceSync := resourcesync.ToApiResource()
 	return &apiResourceSync, nil
@@ -148,13 +136,13 @@ func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name strin
 
 func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, error) {
 	if resource == nil {
-		return nil, false, fmt.Errorf("resource is nil")
+		return nil, false, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, false, flterrors.ErrResourceNameIsNil
 	}
 	resourcesync := model.NewResourceSyncFromApiResource(resource)
 	resourcesync.OrgID = orgId
-
-	// don't overwrite status
-	resourcesync.Status = nil
 
 	created := false
 	findResourceSync := model.ResourceSync{
@@ -166,7 +154,7 @@ func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 			resourcesync.Generation = util.Int64ToPtr(1)
 			created = true
 		} else {
-			return nil, false, result.Error
+			return nil, false, flterrors.ErrorFromGormError(result.Error)
 		}
 	} else {
 		sameSpec := reflect.DeepEqual(findResourceSync.Spec.Data, resourcesync.Spec.Data)
@@ -188,7 +176,7 @@ func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 	result = s.db.Where(where).Assign(resourcesync).FirstOrCreate(&updatedResourceSync)
 
 	updatedResource := updatedResourceSync.ToApiResource()
-	return &updatedResource, created, result.Error
+	return &updatedResource, created, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) error {
@@ -198,7 +186,7 @@ func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) 
 	result := s.db.Model(&resourcesync).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error {
@@ -212,8 +200,11 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		owner := util.SetResourceOwner(model.ResourceSyncKind, name)
 		result := tx.Unscoped().Delete(&resourceSync)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil
+		}
 		if result.Error != nil {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 		return callback(ctx, tx, orgId, *owner)
 	})
@@ -226,7 +217,7 @@ func (s *ResourceSyncStore) ListIgnoreOrg() ([]model.ResourceSync, error) {
 	var resourcesyncs model.ResourceSyncList
 	result := s.db.Model(&resourcesyncs).Find(&resourcesyncs)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	return resourcesyncs, nil
 }

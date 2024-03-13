@@ -4,9 +4,10 @@ import (
 	"context"
 	b64 "encoding/base64"
 	"encoding/json"
-	"fmt"
+	"errors"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -42,12 +43,12 @@ func (s *EnrollmentRequestStore) InitialMigration() error {
 
 func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	enrollmentrequest := model.NewEnrollmentRequestFromApiResource(resource)
 	enrollmentrequest.OrgID = orgId
 	result := s.db.Create(enrollmentrequest)
-	return resource, result.Error
+	return resource, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error) {
@@ -88,13 +89,13 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 	}
 
 	apiEnrollmentRequestList := enrollmentRequests.ToApiResource(nextContinue, numRemaining)
-	return &apiEnrollmentRequestList, result.Error
+	return &apiEnrollmentRequestList, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.EnrollmentRequest{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error) {
@@ -103,7 +104,7 @@ func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name 
 	}
 	result := s.db.First(&enrollmentRequest)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	apiEnrollmentRequest := enrollmentRequest.ToApiResource()
 	return &apiEnrollmentRequest, nil
@@ -111,7 +112,10 @@ func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name 
 
 func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error) {
 	if resource == nil {
-		return nil, false, fmt.Errorf("resource is nil")
+		return nil, false, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, false, flterrors.ErrResourceNameIsNil
 	}
 	enrollmentrequest := model.NewEnrollmentRequestFromApiResource(resource)
 	enrollmentrequest.OrgID = orgId
@@ -125,7 +129,7 @@ func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.
 		if result.Error == gorm.ErrRecordNotFound {
 			created = true
 		} else {
-			return nil, false, result.Error
+			return nil, false, flterrors.ErrorFromGormError(result.Error)
 		}
 	}
 
@@ -134,15 +138,15 @@ func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.
 	result = s.db.Where(where).Assign(enrollmentrequest).FirstOrCreate(&updatedEnrollmentRequest)
 
 	updatedResource := updatedEnrollmentRequest.ToApiResource()
-	return &updatedResource, created, result.Error
+	return &updatedResource, created, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, fmt.Errorf("resource.metadata.name is nil")
+		return nil, flterrors.ErrResourceNameIsNil
 	}
 	enrollmentRequest := model.EnrollmentRequest{
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
@@ -150,7 +154,7 @@ func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UU
 	result := s.db.Model(&enrollmentRequest).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
-	return resource, result.Error
+	return resource, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
@@ -158,5 +162,8 @@ func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, na
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.Unscoped().Delete(&condition)
-	return result.Error
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return flterrors.ErrorFromGormError(result.Error)
 }

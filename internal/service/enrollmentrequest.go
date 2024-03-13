@@ -8,11 +8,11 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -91,6 +91,8 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request se
 	switch err {
 	case nil:
 		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil:
+		return server.CreateEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -156,7 +158,7 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 	switch err {
 	case nil:
 		return server.ReadEnrollmentRequest200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -185,7 +187,11 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 		} else {
 			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
 		}
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceIsNil:
+		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNameIsNil:
+		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
 		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -200,7 +206,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 	switch err {
 	case nil:
 		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.DeleteEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -215,7 +221,7 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 	switch err {
 	case nil:
 		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -229,7 +235,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 	switch err {
 	default:
 		return nil, err
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.CreateEnrollmentRequestApproval404JSONResponse{}, nil
 	case nil:
 	}
@@ -261,7 +267,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 	switch err {
 	case nil:
 		return server.CreateEnrollmentRequestApproval200JSONResponse{}, nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.CreateEnrollmentRequestApproval404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -280,7 +286,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 	switch err {
 	case nil:
 		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReplaceEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err

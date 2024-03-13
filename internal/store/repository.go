@@ -4,9 +4,10 @@ import (
 	"context"
 	b64 "encoding/base64"
 	"encoding/json"
-	"fmt"
+	"errors"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -44,14 +45,14 @@ func (s *RepositoryStore) InitialMigration() error {
 
 func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	repository := model.NewRepositoryFromApiResource(resource)
 	repository.OrgID = orgId
 	result := s.db.Create(repository)
 
 	apiRepository := repository.ToApiResource()
-	return &apiRepository, result.Error
+	return &apiRepository, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
@@ -92,7 +93,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	}
 
 	apiRepositoryList := repositories.ToApiResource(nextContinue, numRemaining)
-	return &apiRepositoryList, result.Error
+	return &apiRepositoryList, flterrors.ErrorFromGormError(result.Error)
 }
 
 // A method to get all Repositories with secrets, regardless of ownership. Used internally by the RepoTester.
@@ -102,7 +103,7 @@ func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 
 	result := s.db.Model(&repositories).Find(&repositories)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	return repositories, nil
 }
@@ -110,7 +111,7 @@ func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.Repository{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
@@ -128,20 +129,20 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	}
 	result := s.db.First(&repository)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	return &repository, nil
 }
 
 func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, bool, error) {
 	if resource == nil {
-		return nil, false, fmt.Errorf("resource is nil")
+		return nil, false, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, false, flterrors.ErrResourceNameIsNil
 	}
 	repository := model.NewRepositoryFromApiResource(resource)
 	repository.OrgID = orgId
-
-	// don't overwrite status
-	repository.Status = nil
 
 	created := false
 	findRepository := model.Repository{
@@ -152,7 +153,7 @@ func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 		if result.Error == gorm.ErrRecordNotFound {
 			created = true
 		} else {
-			return nil, false, result.Error
+			return nil, false, flterrors.ErrorFromGormError(result.Error)
 		}
 	}
 
@@ -161,7 +162,7 @@ func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedRepository)
 
 	updatedResource := updatedRepository.ToApiResource()
-	return &updatedResource, created, result.Error
+	return &updatedResource, created, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) error {
@@ -171,7 +172,7 @@ func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) erro
 	result := s.db.Model(&repository).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
-	return result.Error
+	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
@@ -179,5 +180,8 @@ func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name stri
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
 	result := s.db.Unscoped().Delete(&condition)
-	return result.Error
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return flterrors.ErrorFromGormError(result.Error)
 }

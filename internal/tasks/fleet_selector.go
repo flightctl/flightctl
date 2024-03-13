@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -14,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 // Wait to be notified via channel about fleet template updates, exit upon ctx.Done()
@@ -111,7 +111,7 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 
 	fleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return f.removeOwnerFromDevicesOwnedByFleet(ctx)
 		}
 		return err
@@ -220,7 +220,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 	// to make sure that the label selectors of both the current fleet and the new
 	// fleet aren't a match for this device.
 	currentOwningFleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, currentOwnerFleetName)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
 		return false, err
 	}
 

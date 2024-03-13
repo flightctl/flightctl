@@ -9,6 +9,7 @@ import (
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -69,7 +70,7 @@ func (s *DeviceStore) InitialMigration() error {
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback) (*api.Device, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	device := model.NewDeviceFromApiResource(resource)
 	device.OrgID = orgId
@@ -77,7 +78,7 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api
 
 	result := s.db.Create(device)
 	callback(nil, device)
-	return resource, result.Error
+	return resource, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
@@ -118,7 +119,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	}
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
-	return &apiDevicelist, result.Error
+	return &apiDevicelist, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
@@ -126,7 +127,7 @@ func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback D
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 
 	if result.Error != nil {
-		return result.Error
+		return flterrors.ErrorFromGormError(result.Error)
 	}
 	callback(orgId)
 
@@ -139,7 +140,7 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	}
 	result := s.db.First(&device)
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	apiDevice := device.ToApiResource()
 	return &apiDevice, nil
@@ -147,12 +148,12 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
 	if resource == nil {
-		return nil, false, fmt.Errorf("resource is nil")
+		return nil, false, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, false, flterrors.ErrResourceNameIsNil
 	}
 	device := model.NewDeviceFromApiResource(resource)
-	if device.Name == "" {
-		return nil, false, fmt.Errorf("resource has no name")
-	}
 	device.OrgID = orgId
 
 	created := false
@@ -169,7 +170,7 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 				deviceExists = false
 			} else {
-				return result.Error
+				return flterrors.ErrorFromGormError(result.Error)
 			}
 		}
 		// We returned
@@ -179,12 +180,12 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 
 			result = innerTx.Create(device)
 			if result.Error != nil {
-				return result.Error
+				return flterrors.ErrorFromGormError(result.Error)
 			}
 		} else {
 			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, device.Spec.Data)
 			if fromAPI && util.DefaultIfNil(existingRecord.Spec.Data.TemplateVersion, "") != util.DefaultIfNil(device.Spec.Data.TemplateVersion, "") {
-				return gorm.ErrInvalidData
+				return flterrors.ErrUpdatingTemplateVerionNotAllowed
 			}
 
 			val, _ := existingRecord.Spec.MarshalJSON()
@@ -194,7 +195,7 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 			// Update the generation if the spec was updated
 			if !sameSpec {
 				if fromAPI && existingRecord.Owner != nil && len(*existingRecord.Owner) != 0 {
-					return fmt.Errorf("cannot update a device owned by a fleet")
+					return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 				}
 
 				if existingRecord.Generation == nil {
@@ -217,7 +218,7 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 			query = query.Select(selectFields)
 			result := query.Updates(&device)
 			if result.Error != nil {
-				return result.Error
+				return flterrors.ErrorFromGormError(result.Error)
 			}
 		}
 		return nil
@@ -238,10 +239,10 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	if resource == nil {
-		return nil, fmt.Errorf("resource is nil")
+		return nil, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, fmt.Errorf("resource.metadata.name is nil")
+		return nil, flterrors.ErrResourceNameIsNil
 	}
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
@@ -249,7 +250,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 	result := s.db.Model(&device).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
-	return resource, result.Error
+	return resource, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
@@ -259,13 +260,13 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 		existingRecord = model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 
 		associatedRecord := model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
 
 		if err := innerTx.Unscoped().Delete(&existingRecord).Error; err != nil {
-			return err
+			return flterrors.ErrorFromGormError(err)
 		}
 
 		if err := innerTx.Unscoped().Delete(&associatedRecord).Error; err != nil {
@@ -276,7 +277,7 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 	})
 
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil
 		}
 		return err
@@ -291,7 +292,7 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 		existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 		existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 		existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
@@ -304,7 +305,7 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
 			"annotations": pq.StringArray(annotationsArray),
 		})
-		return result.Error
+		return flterrors.ErrorFromGormError(result.Error)
 	})
 }
 
@@ -315,13 +316,16 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		device := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		result := innerTx.First(device)
 		if result.Error != nil {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 
-		if device.Owner == nil || device.Spec.Data.TemplateVersion == nil {
-			return gorm.ErrInvalidData
+		if device.Owner == nil {
+			return flterrors.ErrResourceOwnerIsNil
 		}
-		deviceOwner = *device.Owner
+
+		if device.Spec.Data.TemplateVersion == nil {
+			return flterrors.ErrTemplateVersionIsNil
+		}
 
 		if knownOwner != nil && knownTemplateVersion != nil && *device.Owner == *knownOwner && *device.Spec.Data.TemplateVersion == *knownTemplateVersion {
 			return nil
@@ -332,7 +336,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		}
 		result = s.db.First(templateVersion)
 		if result.Error != nil {
-			return result.Error
+			return flterrors.ErrorFromGormError(result.Error)
 		}
 		return nil
 	})
@@ -346,7 +350,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	}
 
 	if templateVersion.Valid == nil || !*templateVersion.Valid {
-		return nil, gorm.ErrInvalidData
+		return nil, flterrors.ErrInvalidTemplateVersion
 	}
 
 	renderedConfig := api.RenderedDeviceSpec{

@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
-	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -31,6 +31,8 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil:
+		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -97,7 +99,7 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 	switch err {
 	case nil:
 		return server.ReadDevice200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadDevice404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -126,10 +128,16 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		} else {
 			return server.ReplaceDevice200JSONResponse(*result), nil
 		}
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceIsNil:
+		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNameIsNil:
+		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
 		return server.ReplaceDevice404JSONResponse{}, nil
-	case gorm.ErrInvalidData:
-		return server.ReplaceDevice409JSONResponse{Message: "updating templateVersion is not allowed"}, nil
+	case flterrors.ErrUpdatingTemplateVerionNotAllowed:
+		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -143,7 +151,7 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 	switch err {
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.DeleteDevice404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -158,7 +166,7 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 	switch err {
 	case nil:
 		return server.ReadDeviceStatus200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.ReadDeviceStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -176,7 +184,11 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	switch err {
 	case nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceIsNil:
+		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNameIsNil:
+		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
 		return server.ReplaceDeviceStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -194,10 +206,14 @@ func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request serv
 			return server.GetRenderedDeviceSpec204Response{}, nil
 		}
 		return server.GetRenderedDeviceSpec200JSONResponse(*result), nil
-	case gorm.ErrRecordNotFound:
+	case flterrors.ErrResourceNotFound:
 		return server.GetRenderedDeviceSpec404JSONResponse{}, nil
-	case gorm.ErrInvalidData:
-		return server.GetRenderedDeviceSpec409JSONResponse{Message: "rendered configuration is not currently available"}, nil
+	case flterrors.ErrResourceOwnerIsNil:
+		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrTemplateVersionIsNil:
+		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrInvalidTemplateVersion:
+		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
