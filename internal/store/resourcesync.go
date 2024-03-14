@@ -190,25 +190,29 @@ func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) 
 }
 
 func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error {
-	resourceSync := model.ResourceSync{
-		Resource: model.Resource{OrgID: orgId, Name: name},
-	}
-	_, err := s.Get(ctx, orgId, name)
-	if err != nil {
-		return err
-	}
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		owner := util.SetResourceOwner(model.ResourceSyncKind, name)
-		result := tx.Unscoped().Delete(&resourceSync)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil
-		}
+	existingRecord := model.ResourceSync{Resource: model.Resource{OrgID: orgId, Name: name}}
+	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
 			return flterrors.ErrorFromGormError(result.Error)
 		}
-		return callback(ctx, tx, orgId, *owner)
+
+		result = innerTx.Unscoped().Delete(&existingRecord)
+		if result.Error != nil {
+			return flterrors.ErrorFromGormError(result.Error)
+		}
+		owner := util.SetResourceOwner(model.ResourceSyncKind, name)
+		return callback(ctx, innerTx, orgId, *owner)
 	})
-	return err
+
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil
+		}
+		return err
+	}
+
+	return nil
 }
 
 // A method to get all ResourceSyncs , regardless of ownership. Used internally by the the ResourceSync monitor.

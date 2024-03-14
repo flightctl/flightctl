@@ -72,14 +72,14 @@ var _ = Describe("RepositoryStore create", func() {
 		It("Get repository - not found error", func() {
 			_, err := storeInst.Repository().Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get repository - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := storeInst.Repository().Get(ctx, badOrgId, "myrepository-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete repository success", func() {
