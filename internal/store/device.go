@@ -5,7 +5,6 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -188,10 +187,6 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 				return flterrors.ErrUpdatingTemplateVerionNotAllowed
 			}
 
-			val, _ := existingRecord.Spec.MarshalJSON()
-			fmt.Printf("existing spec: %v\n", string(val))
-			val, _ = device.Spec.MarshalJSON()
-			fmt.Printf("new spec: %v\n", string(val))
 			// Update the generation if the spec was updated
 			if !sameSpec {
 				if fromAPI && existingRecord.Owner != nil && len(*existingRecord.Owner) != 0 {
