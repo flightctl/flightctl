@@ -21,7 +21,7 @@ import (
 type Agent struct {
 	name             string
 	deviceWriter     *fileio.Writer
-	statusManager    status.Getter
+	statusManager    status.Manager
 	specManager      *spec.Manager
 	configController *config.Controller
 
@@ -36,7 +36,7 @@ type Agent struct {
 func NewAgent(
 	name string,
 	deviceWriter *fileio.Writer,
-	statusManager status.Getter,
+	statusManager status.Manager,
 	specManager *spec.Manager,
 	fetchSpecInterval time.Duration,
 	fetchStatusInterval time.Duration,
@@ -59,6 +59,7 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
+	// TODO: needs tuned
 	fetchSpecTicker := jitterbug.New(a.fetchSpecInterval, &jitterbug.Norm{Stdev: util.CreateRandomJitterDuration(20, time.Millisecond), Mean: 0})
 	defer fetchSpecTicker.Stop()
 	fetchStatusTicker := jitterbug.New(a.fetchStatusInterval, &jitterbug.Norm{Stdev: util.CreateRandomJitterDuration(20, time.Millisecond), Mean: 0})
@@ -71,13 +72,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-fetchSpecTicker.C:
 			klog.V(4).Infof("%s fetching device spec", a.logPrefix)
 			if err := a.ensureDevice(ctx); err != nil {
-				klog.Errorf("%sfailed to ensure device: %v", a.logPrefix, err)
+				a.log.Errorf("%sfailed to ensure device: %v", a.logPrefix, err)
 			}
 		case <-fetchStatusTicker.C:
 			klog.V(4).Infof("%s fetching device status", a.logPrefix)
-			if _, err := a.statusManager.Get(ctx); err != nil {
-				klog.Errorf("%s failed to ensure device status: %v", a.logPrefix, err)
+			status, err := a.statusManager.Get(ctx)
+			if err != nil {
+				a.log.Errorf("%s failed to  device status: %v", a.logPrefix, err)
 			}
+			if err := a.statusManager.Update(ctx, status); err != nil {
+				a.log.Errorf("%s failed to update device status: %v", a.logPrefix, err)
+			}
+
 		}
 	}
 }

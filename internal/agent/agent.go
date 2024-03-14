@@ -111,8 +111,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	deviceWriter, deviceReader := initializeFileIO(a.config)
 
 	// create status manager
-	statusManager := status.NewCollector(tpmChannel, &executer.CommonExecuter{})
+	statusManager := status.NewManager(deviceName, tpmChannel, &executer.CommonExecuter{})
 
+	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      3 * time.Minute,
 		Duration: 10 * time.Second,
@@ -147,6 +148,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
+	statusManager.SetClient(managementClient)
+
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
@@ -162,7 +165,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create config controller
 	controller := config.NewController(
-		managementClient,
 		deviceWriter,
 		csr,
 		a.log,

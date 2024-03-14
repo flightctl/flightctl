@@ -25,7 +25,7 @@ type Bootstrap struct {
 	deviceReader         *fileio.Reader
 	enrollmentClient     *client.Enrollment
 	enrollmentUIEndpoint string
-	statusManager        status.Getter
+	statusCollector      status.Collector
 	backoff              wait.Backoff
 
 	currentRenderedFile string
@@ -46,7 +46,7 @@ func NewBootstrap(
 	deviceName string,
 	deviceWriter *fileio.Writer,
 	deviceReader *fileio.Reader,
-	statusManager status.Getter,
+	statusCollector status.Collector,
 	enrollmentClient *client.Enrollment,
 	managementEndpoint string,
 	enrollmentUIEndpoint string,
@@ -61,7 +61,7 @@ func NewBootstrap(
 		deviceName:                  deviceName,
 		deviceWriter:                deviceWriter,
 		deviceReader:                deviceReader,
-		statusManager:               statusManager,
+		statusCollector:             statusCollector,
 		enrollmentClient:            enrollmentClient,
 		enrollmentUIEndpoint:        enrollmentUIEndpoint,
 		managementEndpoint:          managementEndpoint,
@@ -242,7 +242,7 @@ func (b *Bootstrap) writeQRBanner(message, url string) error {
 }
 
 func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
-	status, err := b.statusManager.Get(ctx)
+	status, err := b.statusCollector.Get(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get device status: %w", err)
 	}
@@ -255,7 +255,7 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
 			Csr:          string(b.enrollmentCSR),
-			DeviceStatus: &status,
+			DeviceStatus: status,
 		},
 	}
 

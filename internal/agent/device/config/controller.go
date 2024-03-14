@@ -5,7 +5,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/sirupsen/logrus"
 	"k8s.io/klog/v2"
 )
@@ -13,9 +12,8 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceWriter     *fileio.Writer
-	managementClient *client.Management
-	enrollmentCSR    []byte
+	deviceWriter  *fileio.Writer
+	enrollmentCSR []byte
 
 	log       *logrus.Logger
 	logPrefix string
@@ -23,18 +21,16 @@ type Controller struct {
 
 // NewController creates a new config controller.
 func NewController(
-	managementClient *client.Management,
 	deviceWriter *fileio.Writer,
 	enrollmentCSR []byte,
 	log *logrus.Logger,
 	logPrefix string,
 ) *Controller {
 	return &Controller{
-		managementClient: managementClient,
-		enrollmentCSR:    enrollmentCSR,
-		deviceWriter:     deviceWriter,
-		log:              log,
-		logPrefix:        logPrefix,
+		enrollmentCSR: enrollmentCSR,
+		deviceWriter:  deviceWriter,
+		log:           log,
+		logPrefix:     logPrefix,
 	}
 }
 

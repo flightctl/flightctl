@@ -54,40 +54,92 @@ func (mr *MockExporterMockRecorder) Export(ctx, device any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Export", reflect.TypeOf((*MockExporter)(nil).Export), ctx, device)
 }
 
-// MockGetter is a mock of Getter interface.
-type MockGetter struct {
+// MockCollector is a mock of Collector interface.
+type MockCollector struct {
 	ctrl     *gomock.Controller
-	recorder *MockGetterMockRecorder
+	recorder *MockCollectorMockRecorder
 }
 
-// MockGetterMockRecorder is the mock recorder for MockGetter.
-type MockGetterMockRecorder struct {
-	mock *MockGetter
+// MockCollectorMockRecorder is the mock recorder for MockCollector.
+type MockCollectorMockRecorder struct {
+	mock *MockCollector
 }
 
-// NewMockGetter creates a new mock instance.
-func NewMockGetter(ctrl *gomock.Controller) *MockGetter {
-	mock := &MockGetter{ctrl: ctrl}
-	mock.recorder = &MockGetterMockRecorder{mock}
+// NewMockCollector creates a new mock instance.
+func NewMockCollector(ctrl *gomock.Controller) *MockCollector {
+	mock := &MockCollector{ctrl: ctrl}
+	mock.recorder = &MockCollectorMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockGetter) EXPECT() *MockGetterMockRecorder {
+func (m *MockCollector) EXPECT() *MockCollectorMockRecorder {
 	return m.recorder
 }
 
 // Get mocks base method.
-func (m *MockGetter) Get(arg0 context.Context) (v1alpha1.DeviceStatus, error) {
+func (m *MockCollector) Get(arg0 context.Context) (*v1alpha1.DeviceStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0)
-	ret0, _ := ret[0].(v1alpha1.DeviceStatus)
+	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockGetterMockRecorder) Get(arg0 any) *gomock.Call {
+func (mr *MockCollectorMockRecorder) Get(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockGetter)(nil).Get), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockCollector)(nil).Get), arg0)
+}
+
+// MockManager is a mock of Manager interface.
+type MockManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockManagerMockRecorder
+}
+
+// MockManagerMockRecorder is the mock recorder for MockManager.
+type MockManagerMockRecorder struct {
+	mock *MockManager
+}
+
+// NewMockManager creates a new mock instance.
+func NewMockManager(ctrl *gomock.Controller) *MockManager {
+	mock := &MockManager{ctrl: ctrl}
+	mock.recorder = &MockManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockManager) EXPECT() *MockManagerMockRecorder {
+	return m.recorder
+}
+
+// Get mocks base method.
+func (m *MockManager) Get(arg0 context.Context) (*v1alpha1.DeviceStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", arg0)
+	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockManagerMockRecorder) Get(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockManager)(nil).Get), arg0)
+}
+
+// Update mocks base method.
+func (m *MockManager) Update(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockManagerMockRecorder) Update(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), arg0, arg1)
 }
