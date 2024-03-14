@@ -263,7 +263,6 @@ func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, ex
 
 	now := time.Now()
 	clientTemplate := &x509.Certificate{
-		Subject: pkix.Name{CommonName: subject},
 
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
 
@@ -277,6 +276,9 @@ func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, ex
 
 		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
 		SubjectKeyId:   clientPublicKeyHash,
+	}
+	if subject != "" {
+		clientTemplate.Subject = pkix.Name{CommonName: subject}
 	}
 	clientCrt, err := ca.signCertificate(clientTemplate, clientPublicKey)
 	if err != nil {
