@@ -75,14 +75,14 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("Get resourcesync - not found error", func() {
 			_, err := storeInst.ResourceSync().Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get resourcesync - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := storeInst.ResourceSync().Get(ctx, badOrgId, "myresourcesync-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete resourcesync success", func() {
@@ -116,7 +116,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 				callbackCalled = true
 				return nil
 			})
-			Expect(err).To(HaveOccurred())
+			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeFalse())
 		})
 

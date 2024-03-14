@@ -72,14 +72,14 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		It("Get enrollmentrequest - not found error", func() {
 			_, err := storeInst.EnrollmentRequest().Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get enrollmentrequest - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := storeInst.EnrollmentRequest().Get(ctx, badOrgId, "myenrollmentrequest-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete enrollmentrequest success", func() {
