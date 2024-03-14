@@ -97,7 +97,9 @@ func NewDefault() *Config {
 
 func (cfg *Config) SetTestRootDir(rootDir string) {
 	klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
-	cfg.reader.SetRootdir(rootDir)
+	if cfg.reader != nil {
+		cfg.reader.SetRootdir(rootDir)
+	}
 	cfg.testRootDir = rootDir
 }
 

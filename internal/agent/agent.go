@@ -188,7 +188,7 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
-	httpClient, err := client.NewWithResponses(cfg.EnrollmentEndpoint, cfg.Cacert, cfg.EnrollmentCertFile, cfg.Key)
+	httpClient, err := client.NewWithResponses(cfg.EnrollmentEndpoint, cfg.Cacert, cfg.EnrollmentCertFile, cfg.EnrollmentKeyFile)
 	if err != nil {
 		return nil, err
 	}
