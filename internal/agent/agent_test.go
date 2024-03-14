@@ -30,7 +30,6 @@ var _ = Describe("Device Agent behavior", func() {
 
 	BeforeEach(func() {
 		var err error
-		Skip("skipping agent tests until fixed")
 		h, err = harness.NewTestHarness(GinkgoT().TempDir(), func(err error) {
 			// this inline function handles any errors that are returned from go routines
 			Expect(err).ToNot(HaveOccurred())

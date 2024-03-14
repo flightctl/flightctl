@@ -88,7 +88,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	fetchSpecInterval := 1 * time.Second
 	statusUpdateInterval := 1 * time.Second
 
-	cfg := &agent.Config{}
+	cfg := agent.NewDefault()
 	cfg.DataDir = testDirPath
 	cfg.Cacert = filepath.Join(testDirPath, "ca.crt")
 	cfg.Key = filepath.Join(testDirPath, "agent.key")

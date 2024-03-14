@@ -211,5 +211,5 @@ func initializeFileIO(cfg *Config) (*fileio.Writer, *fileio.Reader) {
 		deviceWriter.SetRootdir(testRootDir)
 		deviceReader.SetRootdir(testRootDir)
 	}
-	return fileio.NewWriter(), fileio.NewReader()
+	return deviceWriter, deviceReader
 }
