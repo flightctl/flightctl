@@ -1,1 +1,2 @@
 pkg/executer/executer.go=pkg/executer/mock_executer.go
+internal/agent/device/status/status.go=internal/agent/device/status/mock_status.go

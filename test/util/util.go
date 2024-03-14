@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -113,4 +115,12 @@ func NewClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateConfig
 	}
 
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
+}
+
+func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {
+	return &v1alpha1.EnrollmentRequestApproval{
+		Approved: true,
+		Labels:   &map[string]string{"label": "value"},
+		Region:   util.StrToPtr("region"),
+	}
 }

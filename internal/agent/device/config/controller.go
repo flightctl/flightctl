@@ -1,168 +1,66 @@
 package config
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/client"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/sirupsen/logrus"
 	"k8s.io/klog/v2"
 )
 
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceWriter            *fileio.Writer
-	enrollmentClient        *client.Enrollment
-	managementClient        *client.Management
-	enrollmentVerifyBackoff wait.Backoff
-	enrollmentEndpoint      string
-	enrollmentUIEndpoint    string
+	deviceWriter     *fileio.Writer
+	managementClient *client.Management
+	enrollmentCSR    []byte
 
-	caFilePath             string
-	agentKeyFilePath       string
-	managementEndpoint     string
-	managementCertFilePath string
-
-	enrollmentCSR []byte
-	// The log prefix used for testing
+	log       *logrus.Logger
 	logPrefix string
 }
 
 // NewController creates a new config controller.
 func NewController(
-	enrollmentClient *client.Enrollment,
-	enrollmentEndpoint string,
-	enrollmentUIEndpoint string,
-	managementEndpoint string,
-	caFilePath string,
-	managementCertFilePath string,
-	agentKeyFilePath string,
+	managementClient *client.Management,
 	deviceWriter *fileio.Writer,
 	enrollmentCSR []byte,
+	log *logrus.Logger,
 	logPrefix string,
 ) *Controller {
-	enrollmentVerifyBackoff := wait.Backoff{
-		Cap:      3 * time.Minute,
-		Duration: 10 * time.Second,
-		Factor:   1.5,
-		Steps:    24,
-	}
-
 	return &Controller{
-		enrollmentClient:        enrollmentClient,
-		enrollmentVerifyBackoff: enrollmentVerifyBackoff,
-		enrollmentEndpoint:      enrollmentEndpoint,
-		enrollmentUIEndpoint:    enrollmentUIEndpoint,
-		caFilePath:              caFilePath,
-		managementEndpoint:      managementEndpoint,
-		managementCertFilePath:  managementCertFilePath,
-		agentKeyFilePath:        agentKeyFilePath,
-		enrollmentCSR:           enrollmentCSR,
-		logPrefix:               logPrefix,
-		deviceWriter:            deviceWriter,
+		managementClient: managementClient,
+		enrollmentCSR:    enrollmentCSR,
+		deviceWriter:     deviceWriter,
+		log:              log,
+		logPrefix:        logPrefix,
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, device v1alpha1.Device) error {
+func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
 	klog.V(4).Infof("%s syncing device configuration", c.logPrefix)
 	defer klog.V(4).Infof("%s finished syncing device configuration", c.logPrefix)
 
-	// ensure the device is bootstrapped
-	if err := c.ensureBootstrap(ctx, &device); err != nil {
-		klog.Warningf("%s bootstrap failed: %v", c.logPrefix, err)
-		return err
-	}
-
-	// create the management client now that we are properly bootstrapped
-	if managementHTTPClient, err := client.NewWithResponses(c.managementEndpoint,
-		c.caFilePath, c.managementCertFilePath, c.agentKeyFilePath); err == nil {
-		c.managementClient = client.NewManagement(managementHTTPClient)
-	} else {
-		return fmt.Errorf("failed to create management client: %w", err)
-	}
-
-	// ensure the device configuration is reconciled
-	if err := c.ensureConfig(ctx, &device); err != nil {
-		updateErr := c.updateStatus(ctx, &device, err.Error())
-		if updateErr != nil {
-			klog.Warningf("%s failed to update device status: %v", c.logPrefix, updateErr)
-		}
-		return err
-	}
-
-	return c.updateStatus(ctx, &device, "")
+	return c.ensureConfig(desired)
 }
 
-func (c *Controller) ensureConfig(_ context.Context, device *v1alpha1.Device) error {
-	if device.Spec.Config == nil {
+func (c *Controller) ensureConfig(desired *v1alpha1.RenderedDeviceSpec) error {
+	if desired.Config == nil {
 		klog.V(4).Infof("%s device config is nil", c.logPrefix)
 		return nil
 	}
 
-	for _, config := range *device.Spec.Config {
-		configBytes, err := json.Marshal(config)
-		if err != nil {
-			return fmt.Errorf("marshalling config failed: %w", err)
-		}
+	desiredConfigRaw := []byte(*desired.Config)
+	ignitionConfig, err := ParseAndConvertConfig(desiredConfigRaw)
+	if err != nil {
+		return fmt.Errorf("parsing and converting config failed: %w", err)
+	}
 
-		var ignition Ignition
-		err = json.Unmarshal(configBytes, &ignition)
-		if err != nil {
-			return fmt.Errorf("unmarshalling config failed: %w", err)
-		}
-
-		ignitionConfig, err := ParseAndConvertConfig(ignition.Raw)
-		if err != nil {
-			return fmt.Errorf("parsing and converting config failed: %w", err)
-		}
-
-		err = c.deviceWriter.WriteIgnitionFiles(ignitionConfig.Storage.Files...)
-		if err != nil {
-			return fmt.Errorf("writing ignition files failed: %w", err)
-		}
+	err = c.deviceWriter.WriteIgnitionFiles(ignitionConfig.Storage.Files...)
+	if err != nil {
+		return fmt.Errorf("writing ignition files failed: %w", err)
 	}
 
 	return nil
-}
-
-func (c *Controller) updateStatus(ctx context.Context, device *v1alpha1.Device, errMsg string) error {
-	var conditions []v1alpha1.Condition
-
-	// client certs do not exist prior to enrollment so we can assume this is
-	// always true.
-	conditions = append(conditions, v1alpha1.Condition{
-		Type:   v1alpha1.EnrollmentRequestApproved,
-		Status: v1alpha1.ConditionStatusTrue,
-	})
-
-	status := v1alpha1.ConditionStatusTrue
-	var message *string
-	if len(errMsg) > 0 {
-		status = v1alpha1.ConditionStatusFalse
-		message = &errMsg
-	}
-
-	syncCondition := v1alpha1.Condition{
-		Type:   v1alpha1.ResourceSyncSynced,
-		Status: status,
-	}
-	if message != nil {
-		syncCondition.Message = message
-	}
-	conditions = append(conditions, syncCondition)
-	device.Status.Conditions = &conditions
-
-	buf := &bytes.Buffer{}
-	err := json.NewEncoder(buf).Encode(device)
-	if err != nil {
-		return fmt.Errorf("failed to encode device: %w", err)
-	}
-
-	return c.managementClient.UpdateDeviceStatus(ctx, *device.Metadata.Name, buf)
 }

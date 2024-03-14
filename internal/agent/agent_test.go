@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/test/harness"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/yaml"
@@ -52,7 +53,7 @@ var _ = Describe("Device Agent behavior", func() {
 			It("should mark enrollment resquest as approved", func() {
 				deviceName := ""
 				Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
-				approveEnrollment(h, deviceName, DefaultApproval())
+				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// verify that the enrollment request is marked as approved
 				er, err := h.Client.ReadEnrollmentRequestWithResponse(h.Context, deviceName)
@@ -64,13 +65,13 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 
 			It("should create a device", func() {
-				dev := enrollAndWaitForDevice(h, DefaultApproval())
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
 				Expect(dev.Metadata.Name).NotTo(BeNil())
 			})
 
 			It("should create a device, with the approval labels", func() {
 				// craft some specific labels and region we will test for in the device
-				approval := DefaultApproval()
+				approval := testutil.TestEnrollmentApproval()
 				const (
 					TEST_LABEL_1 = "label-1"
 					TEST_VALUE_1 = "value-1"
@@ -92,7 +93,7 @@ var _ = Describe("Device Agent behavior", func() {
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
-				dev := enrollAndWaitForDevice(h, DefaultApproval())
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
 				dev.Spec = getTestSpec("device.yaml")
 				_, err := h.Client.ReplaceDeviceWithResponse(h.Context, *dev.Metadata.Name, *dev)
 				Expect(err).ToNot(HaveOccurred())
@@ -124,7 +125,7 @@ var _ = Describe("Device Agent behavior", func() {
 				h.StopAgent()
 
 				// while the agent is down, we approve the enrollment for the device
-				approveEnrollment(h, deviceName, DefaultApproval())
+				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// start the agent again
 				h.StartAgent()
@@ -146,14 +147,6 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 	dev, err := h.Client.ReadDeviceWithResponse(h.Context, deviceName)
 	Expect(err).ToNot(HaveOccurred())
 	return dev.JSON200
-}
-
-func DefaultApproval() *v1alpha1.EnrollmentRequestApproval {
-	return &v1alpha1.EnrollmentRequestApproval{
-		Approved: true,
-		Labels:   &map[string]string{"label": "value"},
-		Region:   util.StrToPtr("region"),
-	}
 }
 
 func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
