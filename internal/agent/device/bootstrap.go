@@ -114,30 +114,32 @@ func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
 }
 
 func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
-	if err := b.writeEnrollmentBanner(); err != nil {
-		return err
-	}
+	if !b.isBootstrapComplete() {
+		if err := b.writeEnrollmentBanner(); err != nil {
+			return err
+		}
 
-	if err := b.enrollmentRequest(ctx); err != nil {
-		return err
-	}
+		if err := b.enrollmentRequest(ctx); err != nil {
+			return err
+		}
 
-	b.log.Infof("%swaiting for enrollment to be approved", b.logPrefix)
-	err := wait.ExponentialBackoff(b.backoff, func() (bool, error) {
-		return b.verifyEnrollment(ctx)
-	})
-	if err != nil {
-		return err
+		b.log.Infof("%swaiting for enrollment to be approved", b.logPrefix)
+		err := wait.ExponentialBackoff(b.backoff, func() (bool, error) {
+			return b.verifyEnrollment(ctx)
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	// write the management banner
-	if err := b.writeManagementBanner(); err != nil {
-		return err
-	}
+	return b.writeManagementBanner()
+}
 
-	// notify
-
-	return nil
+// TODO: make more robust
+func (b *Bootstrap) isBootstrapComplete() bool {
+	_, err := b.deviceReader.ReadFile(b.managementGeneratedCertFile)
+	return !os.IsNotExist(err)
 }
 
 func (b *Bootstrap) verifyEnrollment(ctx context.Context) (bool, error) {
