@@ -66,6 +66,29 @@ var _ = Describe("ResourceSyncStore create", func() {
 	})
 
 	Context("ResourceSync store", func() {
+		It("Create resourcesync", func() {
+			var gen int64 = 1
+			rs := api.ResourceSync{
+				Metadata: api.ObjectMeta{
+					Name:   util.StrToPtr("rs1"),
+					Labels: &map[string]string{"key": "rs1"},
+				},
+				Spec: api.ResourceSyncSpec{
+					Repository: util.StrToPtr("myrepo"),
+					Path:       util.StrToPtr("my/path"),
+				},
+			}
+			resp, err := storeInst.ResourceSync().Create(context.Background(), orgId, &rs)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Metadata.Generation).ToNot(BeNil())
+			Expect(*resp.Metadata.Generation).To(Equal(gen))
+
+			// name already exisis
+			_, err = storeInst.ResourceSync().Create(context.Background(), orgId, &rs)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
+		})
+
 		It("Get resourcesync success", func() {
 			dev, err := storeInst.ResourceSync().Get(ctx, orgId, "myresourcesync-1")
 			Expect(err).ToNot(HaveOccurred())

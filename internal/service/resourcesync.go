@@ -28,6 +28,8 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 		return server.CreateResourceSync201JSONResponse(*result), nil
 	case flterrors.ErrResourceIsNil:
 		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}

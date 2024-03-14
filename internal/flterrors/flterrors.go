@@ -26,6 +26,8 @@ func ErrorFromGormError(err error) error {
 		return nil
 	case gorm.ErrRecordNotFound:
 		return ErrResourceNotFound
+	case gorm.ErrDuplicatedKey:
+		return ErrDuplicateName
 	default:
 		return err
 	}
