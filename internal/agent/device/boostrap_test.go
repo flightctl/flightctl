@@ -71,7 +71,7 @@ func TestEnsureEnrollment(t *testing.T) {
 			defer ctrl.Finish()
 
 			statusManager := status.NewMockManager(ctrl)
-			statusManager.EXPECT().Get(gomock.Any()).Return(v1alpha1.DeviceStatus{}, nil).Times(1)
+			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}, nil).Times(1)
 
 			log := log.InitLogs()
 
