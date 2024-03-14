@@ -64,14 +64,14 @@ var _ = Describe("DeviceStore create", func() {
 		It("Get device - not found error", func() {
 			_, err := devStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get device - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := devStore.Get(ctx, badOrgId, "mydevice-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete device success", func() {
@@ -195,6 +195,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrUpdatingTemplateVerionNotAllowed))
 		})
 
 		It("CreateOrUpdateDevice update mode", func() {

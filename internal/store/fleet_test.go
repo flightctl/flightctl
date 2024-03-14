@@ -2,7 +2,6 @@ package store_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -56,14 +55,14 @@ var _ = Describe("FleetStore create", func() {
 		It("Get fleet - not found error", func() {
 			_, err := storeInst.Fleet().Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get fleet - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
 			_, err := storeInst.Fleet().Get(ctx, badOrgId, "myfleet-1")
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete fleet success", func() {
@@ -279,13 +278,13 @@ var _ = Describe("FleetStore create", func() {
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, callback)
 			Expect(called).To(BeFalse())
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed)).To(BeTrue())
+			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 
 			updatedFleet.Metadata.Owner = nil
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, callback)
 			Expect(called).To(BeFalse())
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed)).To(BeTrue())
+			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 
 			updatedFleet.Metadata.Owner = util.StrToPtr("test")
 			updatedFleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS2"}
@@ -406,6 +405,7 @@ var _ = Describe("FleetStore create", func() {
 			err := storeInst.Fleet().CreateOrUpdateMultiple(ctx, orgId, callback, &fleet, &fleet2)
 			Expect(called).To(Equal(0))
 			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceNameIsNil))
 		})
 
 		It("UpdateStatus", func() {
