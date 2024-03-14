@@ -94,7 +94,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// initialize the TPM
 	var tpmChannel *tpm.TPM
-	if a.config.TPMPath == "" {
+	if len(a.config.TPMPath) > 0 {
 		tpmChannel, err = tpm.OpenTPM(a.config.TPMPath)
 		if err != nil {
 			return fmt.Errorf("opening TPM channel: %w", err)
@@ -184,14 +184,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.LogPrefix,
 	)
 
-	go func() {
-		if err := agent.Run(ctx); err != nil {
-			a.log.Fatalf("%s: %v", a.config.LogPrefix, err)
-		}
-	}()
-
-	<-ctx.Done()
-	return nil
+	return agent.Run(ctx)
 }
 
 func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
