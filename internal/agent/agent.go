@@ -125,6 +125,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceName,
 		deviceWriter,
 		deviceReader,
+		csr,
 		statusManager,
 		enrollmentClient,
 		a.config.ManagementEndpoint,
@@ -166,7 +167,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create config controller
 	controller := config.NewController(
 		deviceWriter,
-		csr,
 		a.log,
 		a.config.LogPrefix,
 	)

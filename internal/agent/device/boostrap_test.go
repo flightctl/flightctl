@@ -86,6 +86,7 @@ func TestEnsureEnrollment(t *testing.T) {
 				"test-device",
 				writer,
 				reader,
+				[]byte("test-csr"), // TODO: use real csr
 				statusManager,
 				enrollmentClient,
 				mockManagementServer.URL,
