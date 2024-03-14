@@ -25,16 +25,17 @@ func TestStore(t *testing.T) {
 
 var _ = Describe("DeviceStore create", func() {
 	var (
-		log        *logrus.Logger
-		ctx        context.Context
-		orgId      uuid.UUID
-		storeInst  store.Store
-		devStore   store.Device
-		cfg        *config.Config
-		dbName     string
-		numDevices int
-		called     bool
-		callback   store.DeviceStoreCallback
+		log                *logrus.Logger
+		ctx                context.Context
+		orgId              uuid.UUID
+		storeInst          store.Store
+		devStore           store.Device
+		cfg                *config.Config
+		dbName             string
+		numDevices         int
+		called             bool
+		callback           store.DeviceStoreCallback
+		allDeletedCallback store.DeviceStoreAllDeletedCallback
 	)
 
 	BeforeEach(func() {
@@ -46,6 +47,7 @@ var _ = Describe("DeviceStore create", func() {
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) { called = true })
+		allDeletedCallback = store.DeviceStoreAllDeletedCallback(func(orgId uuid.UUID) { called = true })
 
 		testutil.CreateTestDevices(3, ctx, devStore, orgId, nil, false)
 	})
@@ -87,13 +89,8 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("Delete all devices in org", func() {
-			called := false
-			callback := store.DeviceStoreAllDeletedCallback(func(orgId uuid.UUID) {
-				called = true
-			})
-
 			otherOrgId, _ := uuid.NewUUID()
-			err := devStore.DeleteAll(ctx, otherOrgId, callback)
+			err := devStore.DeleteAll(ctx, otherOrgId, allDeletedCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -103,7 +100,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(devices.Items).To(HaveLen(numDevices))
 
 			called = false
-			err = devStore.DeleteAll(ctx, orgId, callback)
+			err = devStore.DeleteAll(ctx, orgId, allDeletedCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -219,6 +216,21 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("newos"))
 			Expect(dev.Status.Conditions).To(BeNil())
+		})
+
+		It("CreateOrUpdateDevice update owned from API", func() {
+			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			dev.Metadata.Owner = util.StrToPtr("newowner")
+			dev.Spec.TemplateVersion = util.StrToPtr("tv")
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+
+			dev.Spec.Os.Image = "newos"
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, callback)
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 		})
 
 		It("UpdateDeviceStatus", func() {
