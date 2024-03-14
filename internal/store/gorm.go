@@ -42,7 +42,7 @@ func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 		},
 	)
 
-	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger})
+	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger, TranslateError: true})
 	if err != nil {
 		klog.Fatalf("failed to connect database: %v", err)
 		return nil, err

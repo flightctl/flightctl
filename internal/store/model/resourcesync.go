@@ -74,6 +74,7 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 			Name:              util.StrToPtr(r.Name),
 			CreationTimestamp: util.StrToPtr(r.CreatedAt.UTC().Format(time.RFC3339)),
 			Labels:            &metadataLabels,
+			Generation:        r.Generation,
 		},
 		Spec:   spec,
 		Status: &status,
