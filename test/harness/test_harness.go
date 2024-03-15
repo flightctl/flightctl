@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -89,12 +90,11 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	statusUpdateInterval := 1 * time.Second
 
 	cfg := agent.NewDefault()
-	cfg.DataDir = testDirPath
-	cfg.Cacert = filepath.Join(testDirPath, "ca.crt")
-	cfg.Key = filepath.Join(testDirPath, "agent.key")
-	cfg.GeneratedCert = filepath.Join(testDirPath, "agent.crt")
-	cfg.EnrollmentCertFile = filepath.Join(testDirPath, "client-enrollment.crt")
-	cfg.EnrollmentKeyFile = filepath.Join(testDirPath, "client-enrollment.key")
+	// TODO: remove the cert/key modifications from default, and start storing
+	// the test harness files for those in the testDir/etc/flightctl/certs path
+	cfg.Cacert = "ca.crt"
+	cfg.EnrollmentCertFile = "client-enrollment.crt"
+	cfg.EnrollmentKeyFile = "client-enrollment.key"
 	cfg.EnrollmentEndpoint = "https://" + serverCfg.Service.Address
 	cfg.EnrollmentUIEndpoint = "https://flightctl.ui/"
 	cfg.ManagementEndpoint = "https://" + serverCfg.Service.Address
@@ -135,7 +135,7 @@ func (h *TestHarness) Cleanup() {
 }
 
 func (h *TestHarness) AgentDownloadedCertificate() bool {
-	_, err := os.Stat(filepath.Join(h.TestDirPath, "agent.crt"))
+	_, err := os.Stat(filepath.Join(h.TestDirPath, "/var/lib/flightctl/certs/agent.crt"))
 	if err != nil && os.IsNotExist(err) {
 		return false
 	}
@@ -157,7 +157,7 @@ func (h *TestHarness) StartAgent() {
 	go func() {
 		err := agentInstance.Run(ctx)
 		close(h.agentFinished)
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			h.goRoutineErrorHandler(fmt.Errorf("error starting agent: %w", err))
 		}
 	}()

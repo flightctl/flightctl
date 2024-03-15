@@ -78,7 +78,7 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	// TODO: rethink how we are persisting files
 	// convert to ign file so we can use the atomic writer we can do this more directly in future
-	return w.WriteIgnitionFiles(NewIgnFileBytes(w.rootDir+name, data, perm))
+	return w.WriteIgnitionFiles(NewIgnFileBytes(name, data, perm))
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile

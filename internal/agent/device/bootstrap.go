@@ -100,7 +100,10 @@ func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
 	}
 
 	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(b.managementEndpoint, b.caFile, b.managementGeneratedCertFile, b.keyFile)
+	managementHTTPClient, err := client.NewWithResponses(b.managementEndpoint,
+		b.deviceReader.PathFor(b.caFile),
+		b.deviceReader.PathFor(b.managementGeneratedCertFile),
+		b.deviceReader.PathFor(b.keyFile))
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}
@@ -130,7 +133,7 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 		}
 
 		b.log.Infof("%swaiting for enrollment to be approved", b.logPrefix)
-		err := wait.ExponentialBackoff(b.backoff, func() (bool, error) {
+		err := wait.ExponentialBackoffWithContext(ctx, b.backoff, func() (bool, error) {
 			return b.verifyEnrollment(ctx)
 		})
 		if err != nil {
@@ -245,7 +248,7 @@ func (b *Bootstrap) writeQRBanner(message, url string) error {
 	}
 
 	// additionally print the banner into the output console
-	b.log.Info(buffer.String())
+	fmt.Println(buffer.String())
 	return nil
 }
 

@@ -66,17 +66,20 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}(ctx)
 
+	// create file io writer and reader
+	deviceWriter, deviceReader := initializeFileIO(a.config)
+
 	currentSpecFilePath := filepath.Join(a.config.DataDir, spec.CurrentFile)
 	desiredSpecFilePath := filepath.Join(a.config.DataDir, spec.DesiredFile)
 
 	// ensure the agent key exists if not create it.
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(a.config.Key)
+	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReader.PathFor(a.config.Key))
 	if err != nil {
 		return err
 	}
 
 	// create enrollment client
-	enrollmentClient, err := newEnrollmentClient(a.config)
+	enrollmentClient, err := newEnrollmentClient(deviceReader, a.config)
 	if err != nil {
 		return err
 	}
@@ -106,9 +109,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 	defer tpmChannel.Close()
-
-	// create file io writer and reader
-	deviceWriter, deviceReader := initializeFileIO(a.config)
 
 	// create status manager
 	statusManager := status.NewManager(deviceName, tpmChannel, &executer.CommonExecuter{})
@@ -189,8 +189,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
-	httpClient, err := client.NewWithResponses(cfg.EnrollmentEndpoint, cfg.Cacert, cfg.EnrollmentCertFile, cfg.EnrollmentKeyFile)
+func newEnrollmentClient(reader *fileio.Reader, cfg *Config) (*client.Enrollment, error) {
+	httpClient, err := client.NewWithResponses(cfg.EnrollmentEndpoint,
+		reader.PathFor(cfg.Cacert),
+		reader.PathFor(cfg.EnrollmentCertFile),
+		reader.PathFor(cfg.EnrollmentKeyFile))
 	if err != nil {
 		return nil, err
 	}

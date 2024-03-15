@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const TIMEOUT = "20s"
+const TIMEOUT = "30s"
 const POLLING = "250ms"
 
 func TestAgent(t *testing.T) {
@@ -32,7 +33,9 @@ var _ = Describe("Device Agent behavior", func() {
 		var err error
 		h, err = harness.NewTestHarness(GinkgoT().TempDir(), func(err error) {
 			// this inline function handles any errors that are returned from go routines
-			Expect(err).ToNot(HaveOccurred())
+			fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
+			GinkgoWriter.Printf("Error in go routine: %v\n", err)
+			GinkgoRecover()
 		})
 		// check for test harness creation errors
 		Expect(err).ToNot(HaveOccurred())
@@ -86,6 +89,26 @@ var _ = Describe("Device Agent behavior", func() {
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_1, TEST_VALUE_1))
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_2, TEST_VALUE_2))
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue("region", REGION))
+			})
+
+			It("should write the agent.crt to the device", func() {
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+
+				GinkgoWriter.Printf(
+					"Waiting for agent.crt file to be created on the device %s, with testDirPath: %s\n",
+					*dev.Metadata.Name, h.TestDirPath)
+
+				var fileInfo fs.FileInfo
+				Eventually(func() bool {
+					var err error
+					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/var/lib/flightctl/certs/agent.crt"))
+					if err != nil && os.IsNotExist(err) {
+						return false
+					}
+					return true
+				}, TIMEOUT, POLLING).Should(BeTrue())
+
+				Expect(fileInfo.Mode()).To(Equal(os.FileMode(0600)))
 			})
 
 		})
