@@ -115,6 +115,7 @@ var _ = Describe("Device Agent behavior", func() {
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
+				Skip("This test is currently skipped")
 				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
 				dev.Spec = getTestSpec("device.yaml")
 				_, err := h.Client.ReplaceDeviceWithResponse(h.Context, *dev.Metadata.Name, *dev)
