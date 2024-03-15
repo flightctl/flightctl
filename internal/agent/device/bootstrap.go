@@ -55,6 +55,8 @@ func NewBootstrap(
 	keyFile string,
 	managementGeneratedCertFile string,
 	backoff wait.Backoff,
+	currentRenderedFile string,
+	desiredRenderedFile string,
 	log *logrus.Logger,
 	logPrefix string,
 ) *Bootstrap {
@@ -65,14 +67,16 @@ func NewBootstrap(
 		enrollmentCSR:               enrollmentCSR,
 		statusCollector:             statusCollector,
 		enrollmentClient:            enrollmentClient,
-		enrollmentUIEndpoint:        enrollmentUIEndpoint,
 		managementEndpoint:          managementEndpoint,
-		managementGeneratedCertFile: managementGeneratedCertFile,
+		enrollmentUIEndpoint:        enrollmentUIEndpoint,
 		caFile:                      caFile,
 		keyFile:                     keyFile,
+		managementGeneratedCertFile: managementGeneratedCertFile,
+		backoff:                     backoff,
+		currentRenderedFile:         currentRenderedFile,
+		desiredRenderedFile:         desiredRenderedFile,
 		log:                         log,
 		logPrefix:                   logPrefix,
-		backoff:                     backoff,
 	}
 }
 

@@ -134,6 +134,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.Key,
 		a.config.GeneratedCert,
 		backoff,
+		currentSpecFilePath,
+		desiredSpecFilePath,
 		a.log,
 		a.config.LogPrefix,
 	)

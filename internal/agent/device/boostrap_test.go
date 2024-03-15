@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
@@ -49,6 +51,8 @@ func TestEnsureEnrollment(t *testing.T) {
 			tmpDir := t.TempDir()
 			err := os.MkdirAll(tmpDir+"/etc/flightctl", 0755)
 			require.NoError(err)
+			err = os.MkdirAll(tmpDir+"/var/lib/flightctl", 0755)
+			require.NoError(err)
 
 			writer := fileio.NewWriter()
 			writer.SetRootdir(tmpDir)
@@ -82,6 +86,9 @@ func TestEnsureEnrollment(t *testing.T) {
 				Steps:    1,
 			}
 
+			currentSpecFilePath := filepath.Join("/var/lib/flightctl", spec.CurrentFile)
+			desiredSpecFilePath := filepath.Join("/var/lib/flightctl", spec.DesiredFile)
+
 			b := NewBootstrap(
 				"test-device",
 				writer,
@@ -95,6 +102,8 @@ func TestEnsureEnrollment(t *testing.T) {
 				"",
 				"/etc/flightctl/agent.crt",
 				backoff,
+				currentSpecFilePath,
+				desiredSpecFilePath,
 				log,
 				"",
 			)
