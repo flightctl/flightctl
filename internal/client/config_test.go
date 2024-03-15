@@ -3,11 +3,13 @@ package client
 import (
 	"crypto/x509"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,6 +20,66 @@ const (
 	signerCertName              = "ca"
 	clientBootstrapCertName     = "client-enrollment"
 )
+
+func TestValidConfig(t *testing.T) {
+	assert := assert.New(t)
+	tests := []struct {
+		name   string
+		config Config
+	}{
+		{name: "server, no auth", config: Config{Service: Service{Server: "https://localhost:3333"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.NoError(tt.config.Validate())
+		})
+	}
+}
+
+func TestInvalidConfig(t *testing.T) {
+	assert := assert.New(t)
+	tests := []struct {
+		name                   string
+		config                 Config
+		expectedErrorSubstring string
+	}{
+		{name: "no server", config: Config{}, expectedErrorSubstring: "no server found"},
+		{name: "invalid server", config: Config{Service: Service{Server: "--"}}, expectedErrorSubstring: "invalid server"},
+		{name: "conflicting ca", config: Config{Service: Service{Server: "https://localhost", CertificateAuthority: "ca", CertificateAuthorityData: []byte{0}}}, expectedErrorSubstring: "both specified"},
+		{name: "conflicting cert", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientCertificateData: []byte{0}}}, expectedErrorSubstring: "both specified"},
+		{name: "conflicting key", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientKey: "key", ClientKeyData: []byte{0}}}, expectedErrorSubstring: "both specified"},
+		{name: "unreadable ca", config: Config{Service: Service{Server: "https://localhost", CertificateAuthority: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+		{name: "unreadable cert", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+		{name: "unreadable key", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientKey: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.ErrorContains(tt.config.Validate(), tt.expectedErrorSubstring)
+		})
+	}
+}
+
+func TestReadingCredentialsFromFiles(t *testing.T) {
+	require := require.New(t)
+
+	tempFile, _ := os.CreateTemp("", "")
+	defer os.Remove(tempFile.Name())
+
+	content := []byte("certdata")
+	if _, err := tempFile.Write(content); err != nil {
+		require.NoError(err)
+	}
+	require.NoError(tempFile.Close())
+
+	config := Config{
+		Service: Service{
+			Server:               "https://localhost",
+			CertificateAuthority: tempFile.Name(),
+		},
+	}
+	require.NoError(config.Flatten())
+	require.Equal(config.Service.CertificateAuthorityData, content)
+}
 
 func TestClientConfig(t *testing.T) {
 	require := require.New(t)
