@@ -7,19 +7,25 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/client"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/sirupsen/logrus"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+// New creates a new agent.
 func New(log *logrus.Logger, config *Config) *Agent {
 	return &Agent{
 		config: config,
@@ -60,18 +66,23 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}(ctx)
 
+	// create file io writer and reader
+	deviceWriter, deviceReader := initializeFileIO(a.config)
+
+	currentSpecFilePath := filepath.Join(a.config.DataDir, spec.CurrentFile)
+	desiredSpecFilePath := filepath.Join(a.config.DataDir, spec.DesiredFile)
+
 	// ensure the agent key exists if not create it.
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(a.config.Key)
+	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReader.PathFor(a.config.Key))
 	if err != nil {
 		return err
 	}
 
 	// create enrollment client
-	enrollmentHTTPClient, err := client.NewWithResponses(a.config.EnrollmentEndpoint, a.config.Cacert, a.config.EnrollmentCertFile, a.config.EnrollmentKeyFile)
+	enrollmentClient, err := newEnrollmentClient(deviceReader, a.config)
 	if err != nil {
 		return err
 	}
-	enrollmentClient := client.NewEnrollment(enrollmentHTTPClient)
 
 	publicKeyHash, err := fcrypto.HashPublicKey(publicKey)
 	if err != nil {
@@ -99,46 +110,102 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	defer tpmChannel.Close()
 
-	// create file io writer and reader
-	deviceWriter, _ := initializeFileIO(a.config)
+	// create status manager
+	statusManager := status.NewManager(deviceName, tpmChannel, &executer.CommonExecuter{})
+
+	// TODO: this needs tuned
+	backoff := wait.Backoff{
+		Cap:      3 * time.Minute,
+		Duration: 10 * time.Second,
+		Factor:   1.5,
+		Steps:    24,
+	}
+
+	bootstrap := device.NewBootstrap(
+		deviceName,
+		deviceWriter,
+		deviceReader,
+		csr,
+		statusManager,
+		enrollmentClient,
+		a.config.ManagementEndpoint,
+		a.config.EnrollmentUIEndpoint,
+		a.config.Cacert,
+		a.config.Key,
+		a.config.GeneratedCert,
+		backoff,
+		currentSpecFilePath,
+		desiredSpecFilePath,
+		a.log,
+		a.config.LogPrefix,
+	)
+
+	// bootstrap
+	if err := bootstrap.Initialize(ctx); err != nil {
+		return fmt.Errorf("bootstrap failed: %w", err)
+	}
+
+	// create the management client
+	managementClient, err := newManagementClient(a.config)
+	if err != nil {
+		return err
+	}
+
+	statusManager.SetClient(managementClient)
+
+	// create spec manager
+	specManager := spec.NewManager(
+		deviceName,
+		currentSpecFilePath,
+		desiredSpecFilePath,
+		deviceWriter,
+		deviceReader,
+		managementClient,
+		backoff,
+		a.log,
+		a.config.LogPrefix,
+	)
 
 	// create config controller
 	controller := config.NewController(
-		enrollmentClient,
-		a.config.EnrollmentEndpoint,
-		a.config.EnrollmentUIEndpoint,
-		a.config.ManagementEndpoint,
-		a.config.Cacert,
-		a.config.GeneratedCert,
-		a.config.Key,
 		deviceWriter,
-		csr,
+		a.log,
 		a.config.LogPrefix,
 	)
 
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
+		deviceWriter,
+		statusManager,
+		specManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
-		a.config.Cacert,
-		a.config.GeneratedCert,
-		a.config.Key,
-		a.config.ManagementEndpoint,
-		tpmChannel,
-		&executer.CommonExecuter{},
-		a.config.LogPrefix,
 		controller,
+		a.log,
+		a.config.LogPrefix,
 	)
 
-	go func() {
-		if err := agent.Run(ctx); err != nil {
-			a.log.Fatalf("%s: %v", a.config.LogPrefix, err)
-		}
-	}()
+	return agent.Run(ctx)
+}
 
-	<-ctx.Done()
-	return nil
+func newEnrollmentClient(reader *fileio.Reader, cfg *Config) (*client.Enrollment, error) {
+	httpClient, err := client.NewWithResponses(cfg.EnrollmentEndpoint,
+		reader.PathFor(cfg.Cacert),
+		reader.PathFor(cfg.EnrollmentCertFile),
+		reader.PathFor(cfg.EnrollmentKeyFile))
+	if err != nil {
+		return nil, err
+	}
+	return client.NewEnrollment(httpClient), nil
+}
+
+func newManagementClient(cfg *Config) (*client.Management, error) {
+	httpClient, err := client.NewWithResponses(cfg.ManagementEndpoint, cfg.Cacert, cfg.GeneratedCert, cfg.Key)
+	if err != nil {
+		return nil, err
+	}
+	return client.NewManagement(httpClient), nil
 }
 
 func initializeFileIO(cfg *Config) (*fileio.Writer, *fileio.Reader) {
@@ -149,5 +216,5 @@ func initializeFileIO(cfg *Config) (*fileio.Writer, *fileio.Reader) {
 		deviceWriter.SetRootdir(testRootDir)
 		deviceReader.SetRootdir(testRootDir)
 	}
-	return fileio.NewWriter(), fileio.NewReader()
+	return deviceWriter, deviceReader
 }

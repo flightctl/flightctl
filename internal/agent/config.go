@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -97,12 +98,21 @@ func NewDefault() *Config {
 
 func (cfg *Config) SetTestRootDir(rootDir string) {
 	klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
-	cfg.reader.SetRootdir(rootDir)
+	if cfg.reader != nil {
+		cfg.reader.SetRootdir(rootDir)
+	}
 	cfg.testRootDir = rootDir
 }
 
 func (cfg *Config) GetTestRootDir() string {
 	return cfg.testRootDir
+}
+
+// Some files are handled from the crypto modules that don't work with our device fileio
+// and need to know the real paths
+// TODO: potentially unify all file writer/readers under some mockable interface
+func (cfg *Config) PathFor(filePath string) string {
+	return path.Join(cfg.testRootDir, filePath)
 }
 
 func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {

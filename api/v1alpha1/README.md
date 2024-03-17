@@ -15,11 +15,11 @@ These are the core conditions that cover the ability of the device to accept/man
 | MemoryPressure |True if pressure exists on the device memory—that is, if the device memory is low, otherwise False
 | CPUPressure |True if device is experiencing high CPU utilization that might affect the performance of the workloads running on that device, otherwise False.
 
-### Config.Conditions
-These are the core conditions that cover the operation of the agent's device config controller
+### Conditions
+These conditions that cover the operation of the agent
 
 | Name    | Desc |
 | -------- | ------- |
 | Available  | True if the controller is available for deploying configurations and postAction commands otherwise False  |
 | Progressing | True if the controller is in the process of reconciling Spec, otherwise False    |
-| Degraded    |  True if the controllers functionality is impaired in some way but not unavailable, otherwise False |
+| Degraded    | True if the controllers functionality is impaired in some way but not unavailable, otherwise False |
