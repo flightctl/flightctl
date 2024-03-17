@@ -146,7 +146,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create the management client
-	managementClient, err := newManagementClient(a.config)
+	managementClient, err := newManagementClient(deviceReader, a.config)
 	if err != nil {
 		return err
 	}
@@ -200,8 +200,8 @@ func newEnrollmentClient(reader *fileio.Reader, cfg *Config) (*client.Enrollment
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newManagementClient(cfg *Config) (*client.Management, error) {
-	httpClient, err := client.NewWithResponses(cfg.ManagementEndpoint, cfg.Cacert, cfg.GeneratedCert, cfg.Key)
+func newManagementClient(reader *fileio.Reader, cfg *Config) (*client.Management, error) {
+	httpClient, err := client.NewWithResponses(cfg.ManagementEndpoint, reader.PathFor(cfg.Cacert), reader.PathFor(cfg.GeneratedCert), reader.PathFor(cfg.Key))
 	if err != nil {
 		return nil, err
 	}

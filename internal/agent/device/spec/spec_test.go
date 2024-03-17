@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
@@ -116,6 +117,7 @@ func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
 		resp := v1alpha1.RenderedDeviceSpec{
 			Owner:           mockOwner,
 			TemplateVersion: mockTemplateVersion,
+			Config:          util.StrToPtr("ignitionConfig"),
 		}
 
 		w.Header().Set("Content-Type", "application/json")

@@ -115,17 +115,27 @@ var _ = Describe("Device Agent behavior", func() {
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
-				Skip("This test is currently skipped")
-				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
-				dev.Spec = getTestSpec("device.yaml")
-				_, err := h.Client.ReplaceDeviceWithResponse(h.Context, *dev.Metadata.Name, *dev)
+				_, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
 				Expect(err).ToNot(HaveOccurred())
+				approval := testutil.TestEnrollmentApproval()
+				approval.Labels = &map[string]string{"fleet": "default"}
+
+				dev := enrollAndWaitForDevice(h, approval)
 
 				GinkgoWriter.Printf(
 					"Waiting for /etc/motd file to be created on the device %s, with testDirPath: %s\n",
 					*dev.Metadata.Name, h.TestDirPath)
 
 				var fileInfo fs.FileInfo
+				Eventually(func() bool {
+					var err error
+					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/var/lib/flightctl/certs/agent.crt"))
+					if err != nil && os.IsNotExist(err) {
+						return false
+					}
+					return true
+				}, TIMEOUT, POLLING).Should(BeTrue())
+
 				Eventually(func() bool {
 					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/etc/motd"))
 					if err != nil && os.IsNotExist(err) {
@@ -192,13 +202,13 @@ func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
 	return true
 }
 
-func getTestSpec(deviceYaml string) *v1alpha1.DeviceSpec {
-	deviceBytes, err := os.ReadFile(filepath.Join("testdata", deviceYaml))
+func getTestFleet(fleetYaml string) v1alpha1.Fleet {
+	fleetBytes, err := os.ReadFile(filepath.Join("testdata", fleetYaml))
 	Expect(err).ToNot(HaveOccurred())
 
-	var device v1alpha1.Device
-	err = yaml.Unmarshal(deviceBytes, &device)
+	var fleet v1alpha1.Fleet
+	err = yaml.Unmarshal(fleetBytes, &fleet)
 	Expect(err).ToNot(HaveOccurred())
 
-	return device.Spec
+	return fleet
 }
