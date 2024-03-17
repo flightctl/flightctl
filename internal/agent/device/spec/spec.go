@@ -150,15 +150,19 @@ func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
 	templateVersion string,
 	rendered *v1alpha1.RenderedDeviceSpec,
 ) (bool, error) {
-	params := &v1alpha1.GetRenderedDeviceSpecParams{
-		KnownOwner:           &owner,
-		KnownTemplateVersion: &templateVersion,
+	params := &v1alpha1.GetRenderedDeviceSpecParams{}
+	if owner != "" {
+		params.KnownOwner = &owner
 	}
+	if templateVersion != "" {
+		params.KnownTemplateVersion = &templateVersion
+	}
+
 	resp, statusCode, err := m.managementClient.GetRenderedDeviceSpec(ctx, m.deviceName, params)
 	if err != nil {
 		return false, err
 	}
-	if statusCode == http.StatusNoContent {
+	if statusCode == http.StatusNoContent || statusCode == http.StatusConflict {
 		// TODO: this is a bit of a hack
 		return true, ErrNoContent
 	}
@@ -223,11 +227,11 @@ func EnsureDesiredRenderedSpec(
 				var statusCode int
 				log.Infof("%s attempting to fetch desired spec from management API", logPrefix)
 				rendered, statusCode, err = managementClient.GetRenderedDeviceSpec(ctx, deviceName, &v1alpha1.GetRenderedDeviceSpecParams{})
-				if err != nil {
+				if err != nil && statusCode != http.StatusConflict {
 					return false, err
 				}
-				if statusCode == http.StatusNoContent {
-					log.Warningf("%s received 204 from management API", logPrefix)
+				if statusCode != http.StatusOK {
+					log.Warningf("%s received %d from management API", logPrefix, statusCode)
 				}
 
 				return true, nil
@@ -239,9 +243,9 @@ func EnsureDesiredRenderedSpec(
 				// and require a restart.
 				return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("get rendered device spec: %w", err)
 			}
-			// on StatusNoContent the response object is nil
+			// on StatusConflict the response object is nil
 			if rendered == nil {
-				return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("received empty response for rendered device spec")
+				rendered = &v1alpha1.RenderedDeviceSpec{}
 			}
 
 			if err := writeRenderedSpecToFile(writer, rendered, filePath); err != nil {
