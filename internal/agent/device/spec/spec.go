@@ -219,7 +219,7 @@ func EnsureDesiredRenderedSpec(
 			log.Infof("%sdesired rendered spec file does not exist, fetching from management API", logPrefix)
 			var rendered *v1alpha1.RenderedDeviceSpec
 			// retry on failure
-			err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+			err := wait.ExponentialBackoffWithContext(ctx, backoff, func() (bool, error) {
 				var statusCode int
 				log.Infof("%s attempting to fetch desired spec from management API", logPrefix)
 				rendered, statusCode, err = managementClient.GetRenderedDeviceSpec(ctx, deviceName, &v1alpha1.GetRenderedDeviceSpecParams{})
@@ -239,6 +239,11 @@ func EnsureDesiredRenderedSpec(
 				// and require a restart.
 				return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("get rendered device spec: %w", err)
 			}
+			// on StatusNoContent the response object is nil
+			if rendered == nil {
+				return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("received empty response for rendered device spec")
+			}
+
 			if err := writeRenderedSpecToFile(writer, rendered, filePath); err != nil {
 				return v1alpha1.RenderedDeviceSpec{}, err
 			}

@@ -1,57 +1,72 @@
 package status
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"k8s.io/klog/v2"
 )
 
-var _ Getter = (*Collector)(nil)
+var _ Manager = (*StatusManager)(nil)
 
-// NewCollector creates a new device status collector.
-func NewCollector(
+// NewManager creates a new device status manager.
+func NewManager(
+	deviceName string,
 	tpm *tpm.TPM,
 	executor executer.Executer,
-) *Collector {
+) *StatusManager {
 	exporters := []Exporter{
 		newSystemD(executor),
 		newContainer(executor),
 		newSystemInfo(tpm),
 	}
-
-	return &Collector{
-		exporters: exporters,
+	return &StatusManager{
+		deviceName: deviceName,
+		exporters:  exporters,
 	}
 }
 
 // Collector aggregates device status from various exporters.
-type Collector struct {
-	exporters []Exporter
+type StatusManager struct {
+	deviceName       string
+	managementClient *client.Management
+	exporters        []Exporter
 }
 
 type Exporter interface {
 	Export(ctx context.Context, device *v1alpha1.DeviceStatus) error
 }
 
-type Getter interface {
-	Get(context.Context) (v1alpha1.DeviceStatus, error)
+type Collector interface {
+	Get(context.Context) (*v1alpha1.DeviceStatus, error)
 }
 
-func (c *Collector) Get(ctx context.Context) (v1alpha1.DeviceStatus, error) {
-	deviceStatus, err := c.aggregateDeviceStatus(ctx)
+type Manager interface {
+	Collector
+	Update(context.Context, *v1alpha1.DeviceStatus) error
+}
+
+func (m *StatusManager) SetClient(managementCLient *client.Management) {
+	m.managementClient = managementCLient
+}
+
+func (m *StatusManager) Get(ctx context.Context) (*v1alpha1.DeviceStatus, error) {
+	deviceStatus, err := m.aggregateDeviceStatus(ctx)
 	if err != nil {
-		return v1alpha1.DeviceStatus{}, fmt.Errorf("failed to get device status: %w", err)
+		return nil, fmt.Errorf("failed to get device status: %w", err)
 	}
 	return deviceStatus, nil
 }
 
-func (c *Collector) aggregateDeviceStatus(ctx context.Context) (v1alpha1.DeviceStatus, error) {
+func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.DeviceStatus, error) {
 	deviceStatus := v1alpha1.DeviceStatus{}
-	for _, exporter := range c.exporters {
+	for _, exporter := range m.exporters {
 		err := exporter.Export(ctx, &deviceStatus)
 		if err != nil {
 			klog.Errorf("failed getting status from exporter: %v", err)
@@ -59,5 +74,18 @@ func (c *Collector) aggregateDeviceStatus(ctx context.Context) (v1alpha1.DeviceS
 		}
 	}
 
-	return deviceStatus, nil
+	return &deviceStatus, nil
+}
+
+func (m *StatusManager) Update(ctx context.Context, device *v1alpha1.DeviceStatus) error {
+	if m.managementClient == nil {
+		return fmt.Errorf("management client not set")
+	}
+
+	buf := &bytes.Buffer{}
+	err := json.NewEncoder(buf).Encode(device)
+	if err != nil {
+		return fmt.Errorf("failed to encode device: %w", err)
+	}
+	return m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, buf)
 }

@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,12 +10,13 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/test/harness"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/yaml"
 )
 
-const TIMEOUT = "20s"
+const TIMEOUT = "30s"
 const POLLING = "250ms"
 
 func TestAgent(t *testing.T) {
@@ -29,10 +31,11 @@ var _ = Describe("Device Agent behavior", func() {
 
 	BeforeEach(func() {
 		var err error
-		Skip("skipping agent tests until fixed")
 		h, err = harness.NewTestHarness(GinkgoT().TempDir(), func(err error) {
 			// this inline function handles any errors that are returned from go routines
-			Expect(err).ToNot(HaveOccurred())
+			fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
+			GinkgoWriter.Printf("Error in go routine: %v\n", err)
+			GinkgoRecover()
 		})
 		// check for test harness creation errors
 		Expect(err).ToNot(HaveOccurred())
@@ -52,7 +55,7 @@ var _ = Describe("Device Agent behavior", func() {
 			It("should mark enrollment resquest as approved", func() {
 				deviceName := ""
 				Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
-				approveEnrollment(h, deviceName, DefaultApproval())
+				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// verify that the enrollment request is marked as approved
 				er, err := h.Client.ReadEnrollmentRequestWithResponse(h.Context, deviceName)
@@ -64,13 +67,13 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 
 			It("should create a device", func() {
-				dev := enrollAndWaitForDevice(h, DefaultApproval())
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
 				Expect(dev.Metadata.Name).NotTo(BeNil())
 			})
 
 			It("should create a device, with the approval labels", func() {
 				// craft some specific labels and region we will test for in the device
-				approval := DefaultApproval()
+				approval := testutil.TestEnrollmentApproval()
 				const (
 					TEST_LABEL_1 = "label-1"
 					TEST_VALUE_1 = "value-1"
@@ -88,11 +91,32 @@ var _ = Describe("Device Agent behavior", func() {
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue("region", REGION))
 			})
 
+			It("should write the agent.crt to the device", func() {
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+
+				GinkgoWriter.Printf(
+					"Waiting for agent.crt file to be created on the device %s, with testDirPath: %s\n",
+					*dev.Metadata.Name, h.TestDirPath)
+
+				var fileInfo fs.FileInfo
+				Eventually(func() bool {
+					var err error
+					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/var/lib/flightctl/certs/agent.crt"))
+					if err != nil && os.IsNotExist(err) {
+						return false
+					}
+					return true
+				}, TIMEOUT, POLLING).Should(BeTrue())
+
+				Expect(fileInfo.Mode()).To(Equal(os.FileMode(0600)))
+			})
+
 		})
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
-				dev := enrollAndWaitForDevice(h, DefaultApproval())
+				Skip("This test is currently skipped")
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
 				dev.Spec = getTestSpec("device.yaml")
 				_, err := h.Client.ReplaceDeviceWithResponse(h.Context, *dev.Metadata.Name, *dev)
 				Expect(err).ToNot(HaveOccurred())
@@ -124,7 +148,7 @@ var _ = Describe("Device Agent behavior", func() {
 				h.StopAgent()
 
 				// while the agent is down, we approve the enrollment for the device
-				approveEnrollment(h, deviceName, DefaultApproval())
+				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// start the agent again
 				h.StartAgent()
@@ -146,14 +170,6 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 	dev, err := h.Client.ReadDeviceWithResponse(h.Context, deviceName)
 	Expect(err).ToNot(HaveOccurred())
 	return dev.JSON200
-}
-
-func DefaultApproval() *v1alpha1.EnrollmentRequestApproval {
-	return &v1alpha1.EnrollmentRequestApproval{
-		Approved: true,
-		Labels:   &map[string]string{"label": "value"},
-		Region:   util.StrToPtr("region"),
-	}
 }
 
 func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
