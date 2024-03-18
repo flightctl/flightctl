@@ -55,6 +55,18 @@ func (mr *MockExporterMockRecorder) Export(ctx, device any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Export", reflect.TypeOf((*MockExporter)(nil).Export), ctx, device)
 }
 
+// SetProperties mocks base method.
+func (m *MockExporter) SetProperties(arg0 *v1alpha1.RenderedDeviceSpec) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetProperties", arg0)
+}
+
+// SetProperties indicates an expected call of SetProperties.
+func (mr *MockExporterMockRecorder) SetProperties(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProperties", reflect.TypeOf((*MockExporter)(nil).SetProperties), arg0)
+}
+
 // MockCollector is a mock of Collector interface.
 type MockCollector struct {
 	ctrl     *gomock.Controller
@@ -141,6 +153,18 @@ func (m *MockManager) SetClient(arg0 *client.Management) {
 func (mr *MockManagerMockRecorder) SetClient(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClient", reflect.TypeOf((*MockManager)(nil).SetClient), arg0)
+}
+
+// SetProperties mocks base method.
+func (m *MockManager) SetProperties(arg0 *v1alpha1.RenderedDeviceSpec) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetProperties", arg0)
+}
+
+// SetProperties indicates an expected call of SetProperties.
+func (mr *MockManagerMockRecorder) SetProperties(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProperties", reflect.TypeOf((*MockManager)(nil).SetProperties), arg0)
 }
 
 // Update mocks base method.

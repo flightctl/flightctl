@@ -82,7 +82,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			klog.V(4).Infof("%s fetching device status", a.logPrefix)
 			status, err := a.statusManager.Get(ctx)
 			if err != nil {
-				a.log.Errorf("%s failed to  device status: %v", a.logPrefix, err)
+				a.log.Errorf("%s failed to get device status: %v", a.logPrefix, err)
 			}
 			if err := a.statusManager.Update(ctx, status); err != nil {
 				a.log.Errorf("%s failed to update device status: %v", a.logPrefix, err)
@@ -112,6 +112,9 @@ func (a *Agent) ensureDevice(ctx context.Context) error {
 	if err := a.osImageController.Sync(ctx, &desired); err != nil {
 		return fmt.Errorf("sync os image: %w", err)
 	}
+
+	// set status collector properties based on new desired spec
+	a.statusManager.SetProperties(&desired)
 
 	// write the desired spec to the current spec file
 	// this would only happen if there was no os image change as that requires a reboot
