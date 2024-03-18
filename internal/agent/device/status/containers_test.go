@@ -133,7 +133,8 @@ var _ = Describe("containers exporter", func() {
 
 	Context("containers controller", func() {
 		It("list podman containers", func() {
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json").Return(podmanListResult, "", 0)
+			container.matchPatterns = []string{"myfirstname", "agreatname"}
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json", "--filter", "name=myfirstname", "--filter", "name=agreatname").Return(podmanListResult, "", 0)
 			err := container.Export(context.TODO(), &deviceStatus)
 			Expect(err).ToNot(HaveOccurred())
 

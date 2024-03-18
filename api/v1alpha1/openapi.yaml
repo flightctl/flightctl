@@ -2115,11 +2115,10 @@ components:
         containers:
           type: object
           properties:
-            matchPattern:
+            matchPatterns:
               type: array
               items:
                 type: string
-                additionalProperties: true
         config:
           type: string
         systemd:
@@ -2151,11 +2150,11 @@ components:
         containers:
           type: object
           properties:
-            matchPattern:
+            matchPatterns:
               type: array
               items:
                 type: string
-                additionalProperties: true
+                pattern: '^[a-z][a-z0-9-_.]*$'
         systemd:
           type: object
           properties:
@@ -2163,6 +2162,8 @@ components:
               type: array
               items:
                 type: string
+                pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
+                maxLength: 256
     FleetStatus:
       type: object
       properties:

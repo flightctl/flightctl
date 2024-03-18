@@ -97,8 +97,11 @@ func (c *SystemD) Export(ctx context.Context, status *v1alpha1.DeviceStatus) err
 	return nil
 }
 
-func (c *SystemD) SetMatchPatterns(matchPatterns []string) {
+func (c *SystemD) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
+	if spec.Systemd == nil || spec.Systemd.MatchPatterns == nil {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.matchPatterns = matchPatterns
+	c.matchPatterns = *spec.Systemd.MatchPatterns
 }
