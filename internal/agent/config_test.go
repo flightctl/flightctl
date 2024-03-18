@@ -36,3 +36,16 @@ func TestParseConfigFile(t *testing.T) {
 	require.Equal(DefaultConfigDir, cfg.ConfigDir)
 	require.Equal(DefaultDataDir, cfg.DataDir)
 }
+
+func TestParseConfigFile_NoFile(t *testing.T) {
+	require := require.New(t)
+
+	tmpDir := t.TempDir()
+	filePath := tmpDir + "/nonexistent.yaml"
+
+	cfg := NewDefault()
+	err := cfg.ParseConfigFile(filePath)
+
+	// Expect an error because the file does not exist
+	require.Error(err)
+}
