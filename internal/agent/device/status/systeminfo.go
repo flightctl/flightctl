@@ -60,3 +60,6 @@ func (c *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) 
 
 	return nil
 }
+
+func (c *SystemInfo) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
+}

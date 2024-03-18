@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -21,7 +22,9 @@ var _ Exporter = (*Container)(nil)
 
 // Container collects podman container status.
 type Container struct {
-	exec executer.Executer
+	exec          executer.Executer
+	mu            sync.Mutex
+	matchPatterns []string
 }
 
 func newContainer(exec executer.Executer) *Container {
@@ -46,6 +49,10 @@ func (c *Container) Export(ctx context.Context, status *v1alpha1.DeviceStatus) e
 	execCtx, cancel := context.WithTimeout(ctx, podmanCommandTimeout)
 	defer cancel()
 	args := []string{"ps", "-a", "--format", "json"}
+	for _, pattern := range c.matchPatterns {
+		args = append(args, "--filter")
+		args = append(args, fmt.Sprintf("name=%s", pattern))
+	}
 	out, errOut, exitCode := c.exec.ExecuteWithContext(execCtx, podmanCommand, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("failed listing podman containers with code %d: %s", exitCode, errOut)
@@ -89,4 +96,13 @@ func (c *Container) Export(ctx context.Context, status *v1alpha1.DeviceStatus) e
 	status.Containers = &deviceContainerStatus
 
 	return nil
+}
+
+func (c *Container) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
+	if spec.Containers == nil || spec.Containers.MatchPatterns == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.matchPatterns = *spec.Containers.MatchPatterns
 }

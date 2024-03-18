@@ -48,6 +48,7 @@ type StatusManager struct {
 
 type Exporter interface {
 	Export(ctx context.Context, device *v1alpha1.DeviceStatus) error
+	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
 type Collector interface {
@@ -60,6 +61,7 @@ type Manager interface {
 	SetClient(*client.Management)
 	UpdateConditionError(ctx context.Context, reason string, err error) error
 	UpdateCondition(ctx context.Context, conditionType v1alpha1.ConditionType, conditionStatus v1alpha1.ConditionStatus, reason, message string) error
+	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
 func (m *StatusManager) SetClient(managementCLient *client.Management) {
@@ -165,4 +167,10 @@ func (m *StatusManager) UpdateConditionError(ctx context.Context, reason string,
 	}
 
 	return m.Update(ctx, status)
+}
+
+func (m *StatusManager) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
+	for _, exporter := range m.exporters {
+		exporter.SetProperties(spec)
+	}
 }

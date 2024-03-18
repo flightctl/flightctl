@@ -130,7 +130,7 @@ type DeviceSpec struct {
 	// Config List of config resources.
 	Config     *[]DeviceSpec_Config_Item `json:"config,omitempty"`
 	Containers *struct {
-		MatchPattern *[]string `json:"matchPattern,omitempty"`
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
 	Os      *DeviceOSSpec `json:"os,omitempty"`
 	Systemd *struct {
@@ -151,7 +151,7 @@ type DeviceSpecification struct {
 	// Config List of config resources.
 	Config     *[]DeviceSpecification_Config_Item `json:"config,omitempty"`
 	Containers *struct {
-		MatchPattern *[]string `json:"matchPattern,omitempty"`
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
 	Os      *DeviceOSSpec `json:"os,omitempty"`
 	Systemd *struct {
@@ -412,7 +412,7 @@ type ObjectMeta struct {
 type RenderedDeviceSpec struct {
 	Config     *string `json:"config,omitempty"`
 	Containers *struct {
-		MatchPattern *[]string `json:"matchPattern,omitempty"`
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
 	Os      *DeviceOSSpec `json:"os,omitempty"`
 	Owner   string        `json:"owner"`
@@ -587,7 +587,7 @@ type TemplateVersionStatus struct {
 	// Config List of config resources.
 	Config     *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
 	Containers *struct {
-		MatchPattern *[]string `json:"matchPattern,omitempty"`
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
 	Os      *DeviceOSSpec `json:"os,omitempty"`
 	Systemd *struct {

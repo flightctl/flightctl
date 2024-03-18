@@ -3,6 +3,7 @@ package agent_test
 import (
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -115,8 +116,9 @@ var _ = Describe("Device Agent behavior", func() {
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
-				_, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
+				resp, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
 				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.HTTPResponse.StatusCode).To(Equal(http.StatusCreated))
 				approval := testutil.TestEnrollmentApproval()
 				approval.Labels = &map[string]string{"fleet": "default"}
 
