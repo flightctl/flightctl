@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"time"
@@ -159,52 +158,6 @@ func (cfg *Config) ParseConfigFile(cfgFile string) error {
 	}
 	if err := yaml.Unmarshal(contents, cfg); err != nil {
 		return fmt.Errorf("unmarshalling config file: %w", err)
-	}
-	return nil
-}
-
-func NewFromFile(cfgFile string) (*Config, error) {
-	cfg, err := Load(cfgFile)
-	if err != nil {
-		return nil, err
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-func LoadOrGenerate(cfgFile string) (*Config, error) {
-	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(cfgFile), os.FileMode(0755)); err != nil {
-			return nil, fmt.Errorf("creating directory for config file: %v", err)
-		}
-		if err := Save(NewDefault(), cfgFile); err != nil {
-			return nil, err
-		}
-	}
-	return NewFromFile(cfgFile)
-}
-
-func Load(cfgFile string) (*Config, error) {
-	contents, err := os.ReadFile(cfgFile)
-	if err != nil {
-		return nil, fmt.Errorf("reading config file: %v", err)
-	}
-	c := &Config{}
-	if err := yaml.Unmarshal(contents, c); err != nil {
-		return nil, fmt.Errorf("decoding config: %v", err)
-	}
-	return c, nil
-}
-
-func Save(cfg *Config, cfgFile string) error {
-	contents, err := yaml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("encoding config: %v", err)
-	}
-	if err := os.WriteFile(cfgFile, contents, 0600); err != nil {
-		return fmt.Errorf("writing config file: %v", err)
 	}
 	return nil
 }
