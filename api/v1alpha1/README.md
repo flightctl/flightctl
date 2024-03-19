@@ -9,11 +9,13 @@ These are the core conditions that cover the ability of the device to accept/man
 
 | Name    | Desc |
 | -------- | ------- |
-| Ready  | True if the Device is ready and can accept new containers otherwise False. This is also the only condition which can be set by the server, otherwise False|
-| DiskPressure | True if pressure exists on the disk size—that is, if the disk capacity is low; otherwise False |
-| PIDPressure | True if pressure exists on the processes—that is, if there are too many processes on the node, otherwise False | 
-| MemoryPressure |True if pressure exists on the device memory—that is, if the device memory is low, otherwise False
-| CPUPressure |True if device is experiencing high CPU utilization that might affect the performance of the workloads running on that device, otherwise False.
+| Ready  | True if the Device is ready and can accept new containers otherwise False. This is also the only condition which can be set by the server, otherwise False. |
+| DiskPressure | True if pressure exists on the disk size—that is, if the disk capacity is low; otherwise False. |
+| PIDPressure | True if pressure exists on the processes—that is, if there are too many processes on the node, otherwise False. | 
+| MemoryPressure |True if pressure exists on the device memory—that is, if the device memory is low, otherwise False. |
+| CPUPressure |True if device is experiencing high CPU utilization that might affect the performance of the workloads running on that device, otherwise False. |
+| SystemdUnitsRunning | True is all specified systemd units are running, otherwise False. |
+| ContainersRunning | True is all specified containers are running, otherwise False. |
 
 ### Conditions
 These conditions that cover the operation of the agent

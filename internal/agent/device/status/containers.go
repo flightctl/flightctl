@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 )
 
 const (
-	podmanCommand        = "/usr/bin/podman"
-	podmanCommandTimeout = 2 * time.Minute
+	podmanCommand          = "/usr/bin/podman"
+	podmanCommandTimeout   = 2 * time.Minute
+	podmanContainerRunning = "running"
 )
 
 var _ Exporter = (*Container)(nil)
@@ -54,13 +56,36 @@ func (c *Container) Export(ctx context.Context, status *v1alpha1.DeviceStatus) e
 		return fmt.Errorf("failed unmarshalling podman list output: %w", err)
 	}
 
+	notRunning := 0
+	runningCondition := v1alpha1.Condition{
+		Type: v1alpha1.DeviceContainersRunning,
+	}
+
 	deviceContainerStatus := make([]v1alpha1.ContainerStatus, len(containers))
 	for i, c := range containers {
 		deviceContainerStatus[i].Name = c.Names[0]
 		deviceContainerStatus[i].Status = c.State
 		deviceContainerStatus[i].Image = c.Image
 		deviceContainerStatus[i].Id = c.Id
+
+		if c.State != podmanContainerRunning {
+			notRunning++
+		}
 	}
+
+	if notRunning == 0 {
+		runningCondition.Status = v1alpha1.ConditionStatusTrue
+		runningCondition.Reason = util.StrToPtr("Running")
+	} else {
+		runningCondition.Status = v1alpha1.ConditionStatusFalse
+		runningCondition.Reason = util.StrToPtr("NotRunning")
+		containerStr := "container"
+		if notRunning > 1 {
+			containerStr = "containers"
+		}
+		runningCondition.Message = util.StrToPtr(fmt.Sprintf("%d %s not running", notRunning, containerStr))
+	}
+	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
 	status.Containers = &deviceContainerStatus
 
 	return nil

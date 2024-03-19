@@ -76,7 +76,7 @@ func (m *StatusManager) Get(ctx context.Context) (*v1alpha1.DeviceStatus, error)
 }
 
 func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.DeviceStatus, error) {
-	deviceStatus := v1alpha1.DeviceStatus{}
+	deviceStatus := v1alpha1.DeviceStatus{Conditions: &[]v1alpha1.Condition{}}
 	for _, exporter := range m.exporters {
 		err := exporter.Export(ctx, &deviceStatus)
 		if err != nil {

@@ -126,7 +126,7 @@ var _ = Describe("containers exporter", func() {
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
-		deviceStatus = v1alpha1.DeviceStatus{}
+		deviceStatus = v1alpha1.DeviceStatus{Conditions: &[]v1alpha1.Condition{}}
 		execMock = executer.NewMockExecuter(ctrl)
 		container = newContainer(execMock)
 	})
@@ -147,6 +147,12 @@ var _ = Describe("containers exporter", func() {
 			Expect((*deviceStatus.Containers)[1].Image).To(Equal("quay.io/image2:latest"))
 			Expect((*deviceStatus.Containers)[1].Name).To(Equal("agreatname"))
 			Expect((*deviceStatus.Containers)[1].Status).To(Equal("paused"))
+
+			Expect(*deviceStatus.Conditions).To(HaveLen(1))
+			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
+			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
+			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
+			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
 		})
 	})
 })

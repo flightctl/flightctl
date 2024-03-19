@@ -2351,6 +2351,8 @@ components:
       - 'Available'            # Device
       - 'Progressing'          # Device
       - 'Degraded'             # Device
+      - 'SystemdUnitsRunning'  # Device
+      - 'ContainersRunning'    # Device
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
@@ -2368,6 +2370,8 @@ components:
       - DeviceAvailable
       - DeviceProgressing
       - DeviceDegraded
+      - DeviceSystemdUnitsRunning
+      - DeviceContainersRunning
       - TemplateVersionValid
     ConditionStatus:
       type: string
