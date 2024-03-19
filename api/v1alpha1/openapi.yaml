@@ -1878,12 +1878,18 @@ components:
       description: The status of the systemd unit.
     DeviceVersions:
       required:
-        - os
+        - osBooted
       type: object
       properties:
-        os:
+        osBooted:
           type: string
-          description: The version of the operating system.
+          description: The booted version of the operating system.
+        osStaged:
+          type: string
+          description: The staged version of the operating system.
+        osRollback:
+          type: string
+          description: The rollback version of the operating system.
         bootc:
           type: string
           description: The version of bootc.

@@ -215,8 +215,14 @@ type DeviceVersions struct {
 	// Bootc The version of bootc.
 	Bootc *string `json:"bootc,omitempty"`
 
-	// Os The version of the operating system.
-	Os string `json:"os"`
+	// OsBooted The booted version of the operating system.
+	OsBooted string `json:"osBooted"`
+
+	// OsRollback The rollback version of the operating system.
+	OsRollback *string `json:"osRollback,omitempty"`
+
+	// OsStaged The staged version of the operating system.
+	OsStaged *string `json:"osStaged,omitempty"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
