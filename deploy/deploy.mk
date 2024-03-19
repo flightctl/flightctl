@@ -5,12 +5,15 @@ cluster:
 clean-cluster:
 	kind delete cluster
 
-deploy: flightctl-server-container cluster deploy-helm
+deploy: flightctl-server-container cluster deploy-helm prepare-agent-config
 
 deploy-helm:
 	kubectl config set-context kind-kind
 	hack/install_helm.sh
 	hack/deploy_with_helm.sh
+
+prepare-agent-config:
+	hack/prepare_agent_config.sh
 
 deploy-db-helm: cluster
 	hack/deploy_with_helm.sh --only-db
