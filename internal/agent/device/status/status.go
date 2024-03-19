@@ -1,9 +1,7 @@
 package status
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -21,6 +19,8 @@ func NewManager(
 	deviceName string,
 	tpm *tpm.TPM,
 	executor executer.Executer,
+	log *logrus.Logger,
+	logPrefix string,
 ) *StatusManager {
 	exporters := []Exporter{
 		newSystemD(executor),
@@ -31,6 +31,8 @@ func NewManager(
 		deviceName: deviceName,
 		exporters:  exporters,
 		conditions: DefaultConditions(),
+		log:        log,
+		logPrefix:  logPrefix,
 	}
 }
 
@@ -99,12 +101,15 @@ func (m *StatusManager) Update(ctx context.Context, status *v1alpha1.DeviceStatu
 		return fmt.Errorf("status conditions not set")
 	}
 
-	buf := &bytes.Buffer{}
-	err := json.NewEncoder(buf).Encode(status)
-	if err != nil {
-		return fmt.Errorf("failed to encode device: %w", err)
+	// need a basic device object to update status
+	device := v1alpha1.Device{
+		Metadata: v1alpha1.ObjectMeta{
+			Name: &m.deviceName,
+		},
+		Status: status,
 	}
-	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, buf); err != nil {
+
+	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, device); err != nil {
 		return fmt.Errorf("failed to update device status: %w", err)
 	}
 	// update conditions
