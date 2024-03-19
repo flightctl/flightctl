@@ -5,6 +5,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 METHOD=install
 ONLY_DB=
 NO_AUTH=
+IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 
 # Use external getopt for long options
 options=$(getopt -o adh --long only-db,no-auth,help -n "$0" -- "$@")
@@ -53,7 +54,7 @@ if [ ! -z "$PGSQL_IMAGE" ]; then
   DB_IMG="--set flightctl.db.image=${DB_IMG}"
 fi
 
-helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml ${ONLY_DB} ${NO_AUTH} ${DB_IMG} flightctl \
+helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml --set flightctl.server.hostName=${IP} ${ONLY_DB} ${NO_AUTH} ${DB_IMG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind 
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
