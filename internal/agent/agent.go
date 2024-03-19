@@ -113,7 +113,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	executer := &executer.CommonExecuter{}
 
 	// create status manager
-	statusManager := status.NewManager(deviceName, tpmChannel, executer)
+	statusManager := status.NewManager(
+		deviceName,
+		tpmChannel,
+		executer,
+		a.log,
+		a.config.LogPrefix,
+	)
 
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
