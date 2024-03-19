@@ -8,12 +8,15 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 )
 
 const (
 	systemdCommand        = "/usr/bin/systemctl"
 	systemdCommandTimeout = 2 * time.Minute
+	systemdUnitLoaded     = "loaded"
+	systemdUnitActive     = "active"
 )
 
 var _ Exporter = (*SystemD)(nil)
@@ -60,12 +63,35 @@ func (c *SystemD) Export(ctx context.Context, status *v1alpha1.DeviceStatus) err
 		return fmt.Errorf("failed unmarshalling systemctl list-units output: %w", err)
 	}
 
+	notRunning := 0
+	runningCondition := v1alpha1.Condition{
+		Type: v1alpha1.DeviceSystemdUnitsRunning,
+	}
+
 	deviceSystemdUnitStatus := make([]v1alpha1.DeviceSystemdUnitStatus, len(units))
 	for i, u := range units {
 		deviceSystemdUnitStatus[i].Name = u.Unit
 		deviceSystemdUnitStatus[i].LoadState = u.LoadState
 		deviceSystemdUnitStatus[i].ActiveState = u.ActiveState
+
+		if u.LoadState != systemdUnitLoaded || u.ActiveState != systemdUnitActive {
+			notRunning++
+		}
 	}
+
+	if notRunning == 0 {
+		runningCondition.Status = v1alpha1.ConditionStatusTrue
+		runningCondition.Reason = util.StrToPtr("Running")
+	} else {
+		runningCondition.Status = v1alpha1.ConditionStatusFalse
+		runningCondition.Reason = util.StrToPtr("NotRunning")
+		unitStr := "unit"
+		if notRunning > 1 {
+			unitStr = "units"
+		}
+		runningCondition.Message = util.StrToPtr(fmt.Sprintf("%d %s not running", notRunning, unitStr))
+	}
+	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
 
 	status.SystemdUnits = &deviceSystemdUnitStatus
 	return nil
