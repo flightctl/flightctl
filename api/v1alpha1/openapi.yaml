@@ -227,7 +227,7 @@ paths:
       parameters:
         - name: continue
           in: query
-          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
           required: false
           schema:
             type: string
@@ -437,7 +437,7 @@ paths:
       parameters:
         - name: continue
           in: query
-          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
           required: false
           schema:
             type: string
@@ -787,7 +787,7 @@ paths:
       parameters:
         - name: continue
           in: query
-          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
           required: false
           schema:
             type: string
@@ -1116,7 +1116,7 @@ paths:
       parameters:
         - name: continue
           in: query
-          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
           required: false
           schema:
             type: string
@@ -1422,7 +1422,7 @@ paths:
       parameters:
         - name: continue
           in: query
-          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
           required: false
           schema:
             type: string
@@ -1810,6 +1810,8 @@ components:
           description: 'Current state of systemd units on the device.'
           items:
             $ref: '#/components/schemas/DeviceSystemdUnitStatus'
+        versions:
+          $ref: '#/components/schemas/DeviceVersions'
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
     DeviceSystemInfo:
       required:
@@ -1874,6 +1876,18 @@ components:
           type: string
           description: The active state of the systemd unit.
       description: The status of the systemd unit.
+    DeviceVersions:
+      required:
+        - os
+      type: object
+      properties:
+        os:
+          type: string
+          description: The version of the operating system.
+        bootc:
+          type: string
+          description: The version of bootc.
+      description: The versions of various components on the device.
 
     EnrollmentRequestApproval:
       type: object
