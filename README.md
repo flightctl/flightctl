@@ -51,6 +51,53 @@ bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```
 
+Use an agent VM to test a device interaction, an image is automatically created from
+hack/Containerfile.local and a qcow2 image is derived in output/qcow2/disk.qcow2, currently
+this only works on a Linux host.
+
+```
+make agent-vm agent-vm-console # user/password is redhat/redhat
+```
+
+The agent-vm target accepts multiple parameters:
+- VMNAME: the name of the VM to create (default: flightctl-device-default)
+- VMCPUS: the number of CPUs to allocate to the VM (default: 1)
+- VMMEM: the amount of memory to allocate to the VM (default: 512)
+- VMWAIT: the amount of minutes to wait on the console during first boot (default: 0)
+
+It is possible to create multiple VMs with different names:
+
+```
+make agent-vm VMNAME=flightctl-device-1
+make agent-vm VMNAME=flightctl-device-2
+make agent-vm VMNAME=flightctl-device-3
+```
+
+Those should appear on the root virsh list:
+```
+$ sudo virsh list
+ Id   Name                        State
+-------------------------------------------
+ 13   flightctl-device-1          running
+ 14   flightctl-device-2          running
+ 15   flightctl-device-3          running
+````
+
+And you can log in the consoles with agent-vm-console:
+```
+make agent-vm-console VMNAME=flightctl-device-1
+```
+
+NOTE: You can exit the console with Ctrl + ] , and `stty rows 80` and `stty columns 140` (for example) are useful to resize your console otherwise very small.
+
+
+If you created individual devices you need to clean them one by one:
+```
+make agent-vm-clean VMNAME=flightctl-device-1
+make agent-vm-clean VMNAME=flightctl-device-2
+make agent-vm-clean VMNAME=flightctl-device-3
+```
+
 Use the `devicesimulator` to simulate load from devices:
 
 ```
