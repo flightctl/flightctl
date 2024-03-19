@@ -19,11 +19,12 @@ import (
 
 // Agent is responsible for managing the workloads, configuration and status of the device.
 type Agent struct {
-	name             string
-	deviceWriter     *fileio.Writer
-	statusManager    status.Manager
-	specManager      *spec.Manager
-	configController *config.Controller
+	name              string
+	deviceWriter      *fileio.Writer
+	statusManager     status.Manager
+	specManager       *spec.Manager
+	configController  *config.Controller
+	osImageController *OSImageController
 
 	fetchSpecInterval   time.Duration
 	fetchStatusInterval time.Duration
@@ -41,6 +42,7 @@ func NewAgent(
 	fetchSpecInterval time.Duration,
 	fetchStatusInterval time.Duration,
 	configController *config.Controller,
+	osImageController *OSImageController,
 	log *logrus.Logger,
 	logPrefix string,
 ) *Agent {
@@ -52,6 +54,7 @@ func NewAgent(
 		fetchSpecInterval:   fetchSpecInterval,
 		fetchStatusInterval: fetchStatusInterval,
 		configController:    configController,
+		osImageController:   osImageController,
 		log:                 log,
 		logPrefix:           logPrefix,
 	}
@@ -72,6 +75,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-fetchSpecTicker.C:
 			klog.V(4).Infof("%s fetching device spec", a.logPrefix)
 			if err := a.ensureDevice(ctx); err != nil {
+				// TODO handle status updates
 				a.log.Errorf("%sfailed to ensure device: %v", a.logPrefix, err)
 			}
 		case <-fetchStatusTicker.C:
@@ -89,6 +93,7 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) ensureDevice(ctx context.Context) error {
+	// TODO: don't keep the spec constantly in memory
 	current, desired, skipSync, err := a.specManager.GetRendered(ctx)
 	if err != nil {
 		return err
@@ -104,7 +109,12 @@ func (a *Agent) ensureDevice(ctx context.Context) error {
 		return fmt.Errorf("reconcile device: %w", err)
 	}
 
-	// desired is now the new current
+	if err := a.osImageController.Sync(ctx, &desired); err != nil {
+		return fmt.Errorf("sync os image: %w", err)
+	}
+
+	// write the desired spec to the current spec file
+	// this would only happen if there was no os image change as that requires a reboot
 	return a.specManager.WriteCurrentRendered(&desired)
 }
 

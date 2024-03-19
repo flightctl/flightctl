@@ -3,9 +3,12 @@ package container
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"gopkg.in/yaml.v3"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -88,13 +91,36 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 }
 
 // Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
+// The status will be updated in logger.
 func (b *BootcCmd) Switch(ctx context.Context, image string) error {
-	args := []string{"switch", "--retain", image}
-	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
-	if exitCode != 0 {
-		return fmt.Errorf("stage image: %s", stderr)
+	done := make(chan error, 1)
+	go func() {
+		args := []string{"switch", "--retain", image}
+		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, "CmdBootc", args...)
+		if exitCode != 0 {
+			done <- fmt.Errorf("stage image: %s", stderr)
+			return
+		}
+		done <- nil
+	}()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	start := time.Now()
+	// log progress
+	for {
+		select {
+		case err := <-done:
+			klog.Infof("Switching image complete took: %v", time.Since(start))
+			return err
+		case <-ticker.C:
+			klog.Infof("Switching image, please wait...")
+		case <-ctx.Done():
+			klog.Infof("Switching image failed after: %v", time.Since(start))
+			return ctx.Err()
+		}
 	}
-	return nil
 }
 
 // Apply restart or reboot into the new target image.
@@ -115,4 +141,16 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 		return fmt.Errorf("overlay image: %s", stderr)
 	}
 	return nil
+}
+
+// IsOsImageDirty returns true if the booted image does not equal the spec image.
+func IsOsImageDirty(host *BootcHost) bool {
+	// If the booted image does not equal the spec image, the OS image is not reconciled
+	return host.Status.Booted.Image.Image.Image != host.Spec.Image.Image
+}
+
+// IsOsImageReconciled returns true if the booted image equals the spec image.
+func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
+	// If the booted image equals the spec image, the OS image is reconciled
+	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
 }
