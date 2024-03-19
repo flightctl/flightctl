@@ -33,7 +33,7 @@ func DefaultConditions() *[]v1alpha1.Condition {
 
 // SetProgressingConditionByError sets the degraded condition based on the error.
 func SetDegradedConditionByError(conditions *[]v1alpha1.Condition, reason string, err error) bool {
-	condition := v1alpha1.FindStatusCondition(*conditions, v1alpha1.DeviceDegraded)
+	condition := v1alpha1.Condition{Type: v1alpha1.DeviceDegraded}
 	if err != nil {
 		condition.Status = v1alpha1.ConditionStatusTrue
 		condition.Reason = util.StrToPtr(reason)
@@ -44,16 +44,16 @@ func SetDegradedConditionByError(conditions *[]v1alpha1.Condition, reason string
 		condition.Message = util.StrToPtr("All is well")
 	}
 
-	return v1alpha1.SetStatusCondition(conditions, *condition)
+	return v1alpha1.SetStatusCondition(conditions, condition)
 }
 
 // SetProgressingCondition sets the progressing condition to true and adds the reason and message.
 func SetProgressingCondition(conditions *[]v1alpha1.Condition, conditionType v1alpha1.ConditionType, conditionStatus v1alpha1.ConditionStatus, reason string, message string) bool {
 	// TODO: ensure condition exists.
-	condition := v1alpha1.FindStatusCondition(*conditions, conditionType)
+	condition := v1alpha1.Condition{Type: conditionType}
 	condition.Status = conditionStatus
 	condition.Reason = util.StrToPtr(reason)
 	condition.Message = util.StrToPtr(message)
 
-	return v1alpha1.SetStatusCondition(conditions, *condition)
+	return v1alpha1.SetStatusCondition(conditions, condition)
 }

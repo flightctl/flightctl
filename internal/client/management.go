@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -65,9 +64,10 @@ func (m *Management) UpdateDevice(ctx context.Context, name string, req v1alpha1
 	return resp.JSON200, nil
 }
 
-func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, buf *bytes.Buffer, rcb ...client.RequestEditorFn) error {
+// UpdateDeviceStatus updates the status of the device with the given name.
+func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
 	start := time.Now()
-	resp, err := m.client.ReplaceDeviceStatusWithBodyWithResponse(ctx, name, "application/json", buf, rcb...)
+	resp, err := m.client.ReplaceDeviceStatus(ctx, name, device, rcb...)
 	if m.rpcMetricsCallbackFunc != nil {
 		m.rpcMetricsCallbackFunc("update_device_status_duration", time.Since(start).Seconds(), err)
 	}
@@ -75,8 +75,8 @@ func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, buf *b
 		return err
 	}
 
-	if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("update device status failed: %s", resp.Status())
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("update device status failed: %s", resp.Status)
 	}
 
 	return nil
