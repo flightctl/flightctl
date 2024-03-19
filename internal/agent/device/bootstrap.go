@@ -25,12 +25,13 @@ type Bootstrap struct {
 	deviceReader         *fileio.Reader
 	enrollmentClient     *client.Enrollment
 	enrollmentUIEndpoint string
-	statusCollector      status.Collector
+	statusManager        status.Manager
 	backoff              wait.Backoff
 
 	currentRenderedFile string
 	desiredRenderedFile string
 
+	managementClient            *client.Management
 	managementEndpoint          string
 	managementGeneratedCertFile string
 	caFile                      string
@@ -47,7 +48,7 @@ func NewBootstrap(
 	deviceWriter *fileio.Writer,
 	deviceReader *fileio.Reader,
 	enrollmentCSR []byte,
-	statusCollector status.Collector,
+	statusManager status.Manager,
 	enrollmentClient *client.Enrollment,
 	managementEndpoint string,
 	enrollmentUIEndpoint string,
@@ -65,7 +66,7 @@ func NewBootstrap(
 		deviceWriter:                deviceWriter,
 		deviceReader:                deviceReader,
 		enrollmentCSR:               enrollmentCSR,
-		statusCollector:             statusCollector,
+		statusManager:               statusManager,
 		enrollmentClient:            enrollmentClient,
 		managementEndpoint:          managementEndpoint,
 		enrollmentUIEndpoint:        enrollmentUIEndpoint,
@@ -86,8 +87,23 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.ensureRenderedSpec(ctx); err != nil {
+	if err := b.setManagementClient(); err != nil {
 		return err
+	}
+
+	if err := b.ensureRenderedSpec(ctx); err != nil {
+		if updateErr := b.statusManager.UpdateConditionError(ctx, "BootstrapFailed", err); err != nil {
+			b.log.Errorf("Failed to update condition: %v", updateErr)
+		}
+		return err
+	}
+
+	// TODO: allow multiple conditions to be set with retry
+	if err := b.statusManager.UpdateCondition(ctx, v1alpha1.DeviceAvailable, v1alpha1.ConditionStatusTrue, "AsExpected", "All is good"); err != nil {
+		b.log.Errorf("Failed to update condition: %v", err)
+	}
+	if err := b.statusManager.UpdateCondition(ctx, v1alpha1.DeviceProgressing, v1alpha1.ConditionStatusFalse, "AsExpected", "All is good"); err != nil {
+		b.log.Errorf("Failed to update condition: %v", err)
 	}
 
 	b.log.Infof("%sbootstrap complete", b.logPrefix)
@@ -253,7 +269,7 @@ func (b *Bootstrap) writeQRBanner(message, url string) error {
 }
 
 func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
-	status, err := b.statusCollector.Get(ctx)
+	status, err := b.statusManager.Get(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get device status: %w", err)
 	}
@@ -274,6 +290,24 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create enrollment request: %w", err)
 	}
+	return nil
+}
+
+func (b *Bootstrap) setManagementClient() error {
+	if err := b.deviceReader.CheckPathExists(b.managementGeneratedCertFile); err != nil {
+		return fmt.Errorf("generated cert: %q: %w", b.managementGeneratedCertFile, err)
+	}
+
+	// create the management client
+	managementHTTPClient, err := client.NewWithResponses(b.managementEndpoint,
+		b.deviceReader.PathFor(b.caFile),
+		b.deviceReader.PathFor(b.managementGeneratedCertFile),
+		b.deviceReader.PathFor(b.keyFile))
+	if err != nil {
+		return fmt.Errorf("create management client: %w", err)
+	}
+	b.managementClient = client.NewManagement(managementHTTPClient)
+	b.statusManager.SetClient(b.managementClient)
 	return nil
 }
 

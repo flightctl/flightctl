@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	client "github.com/flightctl/flightctl/internal/client"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -130,6 +131,18 @@ func (mr *MockManagerMockRecorder) Get(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockManager)(nil).Get), arg0)
 }
 
+// SetClient mocks base method.
+func (m *MockManager) SetClient(arg0 *client.Management) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetClient", arg0)
+}
+
+// SetClient indicates an expected call of SetClient.
+func (mr *MockManagerMockRecorder) SetClient(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClient", reflect.TypeOf((*MockManager)(nil).SetClient), arg0)
+}
+
 // Update mocks base method.
 func (m *MockManager) Update(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
 	m.ctrl.T.Helper()
@@ -142,4 +155,32 @@ func (m *MockManager) Update(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) 
 func (mr *MockManagerMockRecorder) Update(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), arg0, arg1)
+}
+
+// UpdateCondition mocks base method.
+func (m *MockManager) UpdateCondition(ctx context.Context, conditionType v1alpha1.ConditionType, conditionStatus v1alpha1.ConditionStatus, reason, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCondition", ctx, conditionType, conditionStatus, reason, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCondition indicates an expected call of UpdateCondition.
+func (mr *MockManagerMockRecorder) UpdateCondition(ctx, conditionType, conditionStatus, reason, message any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCondition", reflect.TypeOf((*MockManager)(nil).UpdateCondition), ctx, conditionType, conditionStatus, reason, message)
+}
+
+// UpdateConditionError mocks base method.
+func (m *MockManager) UpdateConditionError(ctx context.Context, reason string, err error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateConditionError", ctx, reason, err)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateConditionError indicates an expected call of UpdateConditionError.
+func (mr *MockManagerMockRecorder) UpdateConditionError(ctx, reason, err any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateConditionError", reflect.TypeOf((*MockManager)(nil).UpdateConditionError), ctx, reason, err)
 }

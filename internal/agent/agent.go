@@ -110,8 +110,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	defer tpmChannel.Close()
 
+	executer := &executer.CommonExecuter{}
+
 	// create status manager
-	statusManager := status.NewManager(deviceName, tpmChannel, &executer.CommonExecuter{})
+	statusManager := status.NewManager(deviceName, tpmChannel, executer)
 
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
@@ -167,8 +169,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create config controller
-	controller := config.NewController(
+	configController := config.NewController(
 		deviceWriter,
+		a.log,
+		a.config.LogPrefix,
+	)
+
+	// create os image controller
+	osImageController := device.NewOSImageController(
+		executer,
+		statusManager,
 		a.log,
 		a.config.LogPrefix,
 	)
@@ -181,7 +191,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		specManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
-		controller,
+		configController,
+		osImageController,
 		a.log,
 		a.config.LogPrefix,
 	)
