@@ -96,7 +96,7 @@ func (b *BootcCmd) Switch(ctx context.Context, image string) error {
 	done := make(chan error, 1)
 	go func() {
 		args := []string{"switch", "--retain", image}
-		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, "CmdBootc", args...)
+		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
 		if exitCode != 0 {
 			done <- fmt.Errorf("stage image: %s", stderr)
 			return
