@@ -97,7 +97,7 @@ var _ = Describe("FleetSelector", func() {
 			}
 		})
 
-		It("Fleet deleted no overlap", func() {
+		It("Fleet deleted with no overlap should remove device owners", func() {
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key": "value"})
 			err := logic.FleetSelectorUpdatedNoOverlapping(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -106,17 +106,25 @@ var _ = Describe("FleetSelector", func() {
 			Expect(device.Metadata.Owner).To(BeNil())
 		})
 
-		It("Fleet selector removed no overlap", func() {
+		It("Nil fleet selector should match all devices", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet", nil, nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key": "value"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nillabels", util.StrToPtr("Fleet/fleet"), nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "emptylabels", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device1", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key1": "value1"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device2", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key2": "value2"})
 			err := logic.FleetSelectorUpdatedNoOverlapping(ctx)
 			Expect(err).ToNot(HaveOccurred())
-			device, err := deviceStore.Get(ctx, orgId, "device")
+
+			listParams := store.ListParams{Limit: 0}
+			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(device.Metadata.Owner).To(BeNil())
+			Expect(len(devices.Items)).To(Equal(4))
+			for _, device := range devices.Items {
+				Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
+			}
 		})
 
-		It("Empty fleet selector matches all", func() {
+		It("Empty fleet selector should match all devices", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet", &map[string]string{}, nil)
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nillabels", util.StrToPtr("Fleet/fleet"), nil, nil)
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "emptylabels", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{})
@@ -131,6 +139,36 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(4))
 			for _, device := range devices.Items {
 				Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
+			}
+		})
+
+		It("Deleting a nil fleet selector should remove device owners", func() {
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet", nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device1", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key1": "value1"})
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "device2", util.StrToPtr("Fleet/fleet"), nil, &map[string]string{"key2": "value2"})
+			err := logic.FleetSelectorUpdatedNoOverlapping(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			listParams := store.ListParams{Limit: 0}
+			devices, err := deviceStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(2))
+			for _, device := range devices.Items {
+				Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
+			}
+
+			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+			err = fleetStore.Delete(ctx, orgId, callback, "fleet")
+			Expect(err).ToNot(HaveOccurred())
+
+			err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			devices, err = deviceStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(2))
+			for _, device := range devices.Items {
+				Expect(device.Metadata.Owner).To(BeNil())
 			}
 		})
 
