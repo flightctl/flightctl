@@ -1,0 +1,58 @@
+---
+name: 'Setup environment'
+description: 'Setup CI environment for testing'
+inputs:
+  setup_podman4:
+    description: 'Setup podman4 from OpenSUSE repos'
+    required: false
+    default: ''
+  setup_kvm:
+    description: 'Setup kvm in the VM'
+    required: false
+    default: ''
+runs:
+  using: "composite"
+  steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+
+      - name: Enable KVM group perms
+        shell: bash
+        if: inputs.setup_kvm != ''
+        run: |
+          echo "::group::Setting up KVM and virtualization tools"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update
+          sudo apt-get install -y libvirt-clients libvirt-daemon-system libvirt-daemon virtinst bridge-utils qemu qemu-system-x86 qemu-kvm
+          sudo usermod -a -G kvm,libvirt $USER
+          echo "::endgroup::"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          echo "::group::Installing general dependencies"
+          sudo apt-get update -y # fix broken repo cache
+          sudo apt install -y make golang-1.20 python3-pip
+          go install gotest.tools/gotestsum@latest
+          go get -u github.com/proglottis/gpgme
+          echo "::endgroup::"
+
+      - name: Install podman 4
+        if: inputs.setup_podman4 != ''
+        shell: bash
+        run: |
+          echo "::group::Upgrade Podman to version 4"
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL "https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_$(lsb_release -rs)/Release.key" \
+            | gpg --dearmor \
+            | sudo tee /etc/apt/keyrings/devel_kubic_libcontainers_unstable.gpg > /dev/null
+          echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/devel_kubic_libcontainers_unstable.gpg]\
+              https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_$(lsb_release -rs)/ /" \
+            | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:unstable.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get -qq -y install podman
+          pip3 install podman-compose
+          echo "::endgroup::"

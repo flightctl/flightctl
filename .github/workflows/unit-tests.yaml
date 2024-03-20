@@ -16,18 +16,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v5
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update -y # fix broken repo cache
-          sudo apt install -y make golang-1.20 python3-pip
-          go install gotest.tools/gotestsum@latest
-          go get -u github.com/proglottis/gpgme
-
-      - name: Deploy DB with helm and kind
-        run: make deploy-db-helm
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_podman4: yes
 
       - name: Running Unit tests
-        run: make run-unit-test
+        run: make unit-test
