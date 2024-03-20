@@ -42,6 +42,10 @@ var _ = Describe("Calling osimages Sync", func() {
 		controller = device.NewOSImageController(execMock, statusManager, log, "")
 	})
 
+	AfterEach(func() {
+		ctrl.Finish()
+	})
+
 	Context("When the desired spec has no OS defined", func() {
 		It("should return with no action", func() {
 			desired := v1alpha1.RenderedDeviceSpec{}
