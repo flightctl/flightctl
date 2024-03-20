@@ -73,7 +73,7 @@ func TestManager(t *testing.T) {
 
 			// ensure rendered spec
 			if tt.ensureRendered {
-				_, err := EnsureCurrentRenderedSpec(ctx, log, "", writer, reader, "test", currentSpecFilePath)
+				_, err := EnsureCurrentRenderedSpec(ctx, log, "", writer, reader, currentSpecFilePath)
 				require.NoError(err)
 			}
 
@@ -94,7 +94,7 @@ func TestManager(t *testing.T) {
 				return
 			}
 			if tt.wantErr != nil {
-				require.ErrorAs(err, &tt.wantErr)
+				require.ErrorIs(err, tt.wantErr)
 				return
 			}
 			require.NoError(err)

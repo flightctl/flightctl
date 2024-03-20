@@ -68,12 +68,12 @@ func NewManager(
 
 // WriteCurrentRendered writes the rendered device spec to disk
 func (s *Manager) WriteCurrentRendered(rendered *v1alpha1.RenderedDeviceSpec) error {
-	return writeRenderedSpecToFile(s.deviceWriter, rendered, s.currentRenderedFilePath)
+	return WriteRenderedSpecToFile(s.deviceWriter, rendered, s.currentRenderedFilePath)
 }
 
 // GetRendered returns the current and desired rendered device specs.
 func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec, v1alpha1.RenderedDeviceSpec, bool, error) {
-	current, err := s.getCurrentRenderedSpec()
+	current, err := ReadRenderedSpecFromFile(s.deviceReader, s.currentRenderedFilePath)
 	if err != nil {
 		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, err
 	}
@@ -83,25 +83,6 @@ func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec,
 		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("get rendered spec: %w", err)
 	}
 	return current, desired, skipSync, nil
-}
-
-func (m *Manager) getCurrentRenderedSpec() (v1alpha1.RenderedDeviceSpec, error) {
-	var current v1alpha1.RenderedDeviceSpec
-	renderedBytes, err := m.deviceReader.ReadFile(m.currentRenderedFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// if the file does not exist, this means it has been removed/corrupted
-			return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("%w: current: %w", ErrMissingRenderedSpec, err)
-		}
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read device specification from '%s': %w", m.currentRenderedFilePath, err)
-	}
-
-	// read bytes from file
-	if err := json.Unmarshal(renderedBytes, &current); err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("unmarshal device specification: %w", err)
-	}
-
-	return current, nil
 }
 
 // getDesiredRenderedSpec returns the desired rendered device spec from the management API or from disk if the API is unavailable.
@@ -118,7 +99,7 @@ func (m *Manager) getDesiredRenderedSpec(ctx context.Context, owner, templateVer
 	} else {
 		// write to disk
 		m.log.Infof("%swriting desired rendered spec to disk", m.logPrefix)
-		if err := writeRenderedSpecToFile(m.deviceWriter, &desired, m.desiredRenderedFilePath); err != nil {
+		if err := WriteRenderedSpecToFile(m.deviceWriter, &desired, m.desiredRenderedFilePath); err != nil {
 			return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("write rendered spec to disk: %w", err)
 		}
 		return desired, false, nil
@@ -180,15 +161,13 @@ func EnsureCurrentRenderedSpec(
 	logPrefix string,
 	writer *fileio.Writer,
 	reader *fileio.Reader,
-	deviceName,
 	filePath string,
 ) (v1alpha1.RenderedDeviceSpec, error) {
-	var current v1alpha1.RenderedDeviceSpec
-	renderedBytes, err := os.ReadFile(filePath)
+	current, err := ReadRenderedSpecFromFile(reader, filePath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, ErrMissingRenderedSpec) {
 			log.Infof("%scurrent rendered spec file does not exist, initializing as empty", logPrefix)
-			if err := writeRenderedSpecToFile(writer, &v1alpha1.RenderedDeviceSpec{}, filePath); err != nil {
+			if err := WriteRenderedSpecToFile(writer, &v1alpha1.RenderedDeviceSpec{}, filePath); err != nil {
 				return v1alpha1.RenderedDeviceSpec{}, err
 			}
 			log.Infof("%swrote initial current rendered spec to disk", logPrefix)
@@ -197,10 +176,7 @@ func EnsureCurrentRenderedSpec(
 		}
 		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read device specification from '%s': %w", filePath, err)
 	}
-	// read bytes from file
-	if err := json.Unmarshal(renderedBytes, &current); err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("unmarshal device specification: %w", err)
-	}
+
 	return current, nil
 }
 
@@ -212,7 +188,7 @@ func EnsureDesiredRenderedSpec(
 	writer *fileio.Writer,
 	reader *fileio.Reader,
 	managementClient *client.Management,
-	deviceName,
+	deviceName string,
 	filePath string,
 	backoff wait.Backoff,
 ) (v1alpha1.RenderedDeviceSpec, error) {
@@ -248,7 +224,7 @@ func EnsureDesiredRenderedSpec(
 				rendered = &v1alpha1.RenderedDeviceSpec{}
 			}
 
-			if err := writeRenderedSpecToFile(writer, rendered, filePath); err != nil {
+			if err := WriteRenderedSpecToFile(writer, rendered, filePath); err != nil {
 				return v1alpha1.RenderedDeviceSpec{}, err
 			}
 			log.Infof("%swrote initial rendered spec to disk", logPrefix)
@@ -266,7 +242,29 @@ func EnsureDesiredRenderedSpec(
 	return desired, nil
 }
 
-func writeRenderedSpecToFile(writer *fileio.Writer, rendered *v1alpha1.RenderedDeviceSpec, filePath string) error {
+func ReadRenderedSpecFromFile(
+	reader *fileio.Reader,
+	filePath string,
+) (v1alpha1.RenderedDeviceSpec, error) {
+	var current v1alpha1.RenderedDeviceSpec
+	renderedBytes, err := reader.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// if the file does not exist, this means it has been removed/corrupted
+			return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("%w: current: %w", ErrMissingRenderedSpec, err)
+		}
+		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read device specification from '%s': %w", filePath, err)
+	}
+
+	// read bytes from file
+	if err := json.Unmarshal(renderedBytes, &current); err != nil {
+		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("unmarshal device specification: %w", err)
+	}
+
+	return current, nil
+}
+
+func WriteRenderedSpecToFile(writer *fileio.Writer, rendered *v1alpha1.RenderedDeviceSpec, filePath string) error {
 	renderedBytes, err := json.Marshal(rendered)
 	if err != nil {
 		return err

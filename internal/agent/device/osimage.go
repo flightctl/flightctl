@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	RebootingReason       = "Rebooting"
-	OsImageDegradedReason = "OSImageControllerDegraded"
+	RebootingReason           = "Rebooting"
+	OsImageDegradedReason     = "OSImageControllerDegraded"
+	BootedWithUnexpectedImage = "BootedWithUnexpectedImage"
 )
 
 type OSImageController struct {
@@ -25,13 +26,13 @@ type OSImageController struct {
 }
 
 func NewOSImageController(
-	executor executer.Executer,
+	executer executer.Executer,
 	statusManager status.Manager,
 	log *logrus.Logger,
 	logPrefix string,
 ) *OSImageController {
 	return &OSImageController{
-		bootc:         container.NewBootcCmd(executor),
+		bootc:         container.NewBootcCmd(executer),
 		statusManager: statusManager,
 		log:           log,
 		logPrefix:     logPrefix,

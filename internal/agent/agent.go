@@ -131,6 +131,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	bootstrap := device.NewBootstrap(
 		deviceName,
+		executer,
 		deviceWriter,
 		deviceReader,
 		csr,
