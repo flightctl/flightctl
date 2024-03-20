@@ -18,13 +18,13 @@ var _ Manager = (*StatusManager)(nil)
 func NewManager(
 	deviceName string,
 	tpm *tpm.TPM,
-	executor executer.Executer,
+	executer executer.Executer,
 	log *logrus.Logger,
 	logPrefix string,
 ) *StatusManager {
 	exporters := []Exporter{
-		newSystemD(executor),
-		newContainer(executor),
+		newSystemD(executer),
+		newContainer(executer),
 		newSystemInfo(tpm),
 	}
 	return &StatusManager{

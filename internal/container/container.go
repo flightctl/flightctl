@@ -154,3 +154,7 @@ func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSp
 	// If the booted image equals the spec image, the OS image is reconciled
 	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
 }
+
+func GetImage(host *BootcHost) string {
+	return host.Status.Booted.Image.Image.Image
+}
