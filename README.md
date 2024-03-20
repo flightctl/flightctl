@@ -56,6 +56,8 @@ hack/Containerfile.local and a qcow2 image is derived in output/qcow2/disk.qcow2
 this only works on a Linux host.
 
 ```
+# will create the cluster, and the agent config files in bin/agent which will be embedded in the image
+make deploy
 make agent-vm agent-vm-console # user/password is redhat/redhat
 ```
 

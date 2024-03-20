@@ -1,0 +1,42 @@
+name: "E2E testing"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
+  e2e:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_podman4: yes
+          setup_kvm: yes
+
+      - name: Create kind cluster
+        run: make cluster
+
+      - name: Deploy the flightctl server
+        run: make deploy
+
+      - name: Make rpm, disk image, and run agent vm
+        run: |
+          export VMWAIT=1
+          faketty () {
+            script -qefc "$(printf "%q " "$@")" /dev/null
+          }
+          faketty make agent-vm
+
+      - name: Check
+        run: sudo virsh list

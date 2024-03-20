@@ -4,7 +4,7 @@ VMCPUS ?= 1
 VMDISK = /var/lib/libvirt/images/$(VMNAME).qcow2
 VMWAIT ?= 0
 
-bin/output/disk.qcow2: hack/Containerfile.local rpm
+bin/output/qcow2/disk.qcow2: hack/Containerfile.local bin/.rpm
 	sudo podman build -f hack/Containerfile.local -t localhost/local-flightctl-agent:latest .
 	mkdir -p bin/output
 	sudo podman run --rm \
@@ -18,23 +18,24 @@ bin/output/disk.qcow2: hack/Containerfile.local rpm
 					--type qcow2 \
 					--local localhost/local-flightctl-agent:latest
 
-agent-image: bin/output/disk.qcow2
-	@echo "Agent image built at bin/output/disk.qcow2"
+agent-image: bin/output/qcow2/disk.qcow2
+	@echo "Agent image built at bin/output/qcow2/disk.qcow2"
 
 .PHONY: agent-image
 
 agent-vm: bin/output/qcow2/disk.qcow2
 	@echo "Booting Agent VM from $(VMDISK)"
 	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
-	sudo chown qemu:qemu $(VMDISK)
+	sudo chown qemu:qemu $(VMDISK) 2>/dev/null  || true
+	sudo chown libvirt:libvirt $(VMDISK) 2>/dev/null || true
 	sudo virt-install --name $(VMNAME) \
 					  --vcpus $(VMCPUS) \
 					  --memory $(VMRAM) \
 					  --import --disk $(VMDISK),format=qcow2 \
 					  --os-variant fedora-eln  \
-					  --console pty,target_type=serial  \
+					  --autoconsole text \
 					  --wait $(VMWAIT) \
-					  --transient
+					  --transient || true
 
 agent-vm-console:
 	sudo virsh console $(VMNAME)
