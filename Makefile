@@ -57,14 +57,14 @@ flightctl-server-container: bin/.flightctl-server-container
 bin:
 	mkdir -p bin
 
-rpm:
-	which packit || (echo "Installing packit" && sudo dnf install -y packit)
-	rm $(shell uname -m)/flightctl-*.rpm || true
-	rm bin/rpm/* || true
-	mkdir -p bin/rpm
-	packit build locally
-	mv $(shell uname -m)/flightctl-*.rpm bin/rpm
+# only trigger the rpm build when not built before or changes happened to the codebase
+bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl-agent.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
+	./hack/build_rpms.sh
+	touch bin/.rpm
 
+rpm: bin/.rpm
+
+.PHONY: rpm
 
 # cross-building for deb pkg
 bin/amd64:
