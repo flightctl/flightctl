@@ -44,8 +44,8 @@ func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 
 	err := c.ensureImage(ctx, desired)
 	if err != nil {
-		if err := c.statusManager.UpdateConditionError(ctx, OsImageDegradedReason, err); err != nil {
-			klog.Errorf("Failed to update condition: %v", err)
+		if updateErr := c.statusManager.UpdateConditionError(ctx, OsImageDegradedReason, err); updateErr != nil {
+			klog.Errorf("Failed to update condition: %v", updateErr)
 		}
 		return err
 	}
