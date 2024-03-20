@@ -1,4 +1,4 @@
-package container
+package image
 
 import (
 	"encoding/json"
@@ -22,15 +22,15 @@ func TestBootcHost(t *testing.T) {
 	// transport
 	require.Equal("registry", status.Spec.Image.Transport)
 	// booted
-	require.Equal("quay.io/flightctl/flightctl-agent-fedora", status.Status.Booted.Image.Image.Image)
+	require.Equal("quay.io/flightctl/flightctl-agent-fedora", status.Status.Booted.Details.Spec.Image)
 	// rollback image
-	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Status.Rollback.Image.Image.Image)
+	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Status.Rollback.Details.Spec.Image)
 	// staged image
-	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Status.Staged.Image.Image.Image)
+	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Status.Staged.Details.Spec.Image)
 	// version
-	require.Equal("stream9.20240224.0", status.Status.Staged.Image.Version)
+	require.Equal("stream9.20240224.0", status.Status.Staged.Details.Version)
 	// timestamp
-	require.Equal("", status.Status.Staged.Image.Timestamp)
+	require.Equal("", status.Status.Staged.Details.Timestamp)
 	// ostree checksum
 	require.Equal("f627c830e921afe918402486d5fe8a7ffaf3bd8c0d21311cba28facc9b17b9e2", status.Status.Staged.Ostree.Checksum)
 	// pinned

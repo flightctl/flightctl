@@ -26,6 +26,7 @@ func NewManager(
 		newSystemD(executor),
 		newContainer(executor),
 		newSystemInfo(tpm),
+		newBootc(executor),
 	}
 	return &StatusManager{
 		deviceName: deviceName,

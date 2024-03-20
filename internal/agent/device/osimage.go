@@ -6,7 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/image"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/sirupsen/logrus"
 	"k8s.io/klog/v2"
@@ -18,7 +18,7 @@ const (
 )
 
 type OSImageController struct {
-	bootc         *container.BootcCmd
+	bootc         *image.BootcCmd
 	statusManager status.Manager
 	log           *logrus.Logger
 	logPrefix     string
@@ -31,7 +31,7 @@ func NewOSImageController(
 	logPrefix string,
 ) *OSImageController {
 	return &OSImageController{
-		bootc:         container.NewBootcCmd(executor),
+		bootc:         image.NewBootcCmd(executor),
 		statusManager: statusManager,
 		log:           log,
 		logPrefix:     logPrefix,
@@ -65,7 +65,7 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
-	if container.IsOsImageReconciled(host, desired) {
+	if image.IsOsImageReconciled(host, desired) {
 		klog.V(4).Infof("Host is reconciled to os image %s", desired.Os.Image)
 		return nil
 	}

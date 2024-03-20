@@ -175,6 +175,9 @@ type DeviceStatus struct {
 	// SystemdUnits Current state of systemd units on the device.
 	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
 	UpdatedAt    *string                    `json:"updatedAt,omitempty"`
+
+	// Versions The versions of various components on the device.
+	Versions *DeviceVersions `json:"versions,omitempty"`
 }
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
@@ -205,6 +208,21 @@ type DeviceSystemdUnitStatus struct {
 
 	// Name The name of the systemd unit.
 	Name interface{} `json:"name"`
+}
+
+// DeviceVersions The versions of various components on the device.
+type DeviceVersions struct {
+	// Bootc The version of bootc.
+	Bootc *string `json:"bootc,omitempty"`
+
+	// OsBooted The booted version of the operating system.
+	OsBooted string `json:"osBooted"`
+
+	// OsRollback The rollback version of the operating system.
+	OsRollback *string `json:"osRollback,omitempty"`
+
+	// OsStaged The staged version of the operating system.
+	OsStaged *string `json:"osStaged,omitempty"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
@@ -600,7 +618,7 @@ type TemplateVersionStatus_Config_Item struct {
 
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {
-	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
@@ -624,7 +642,7 @@ type GetRenderedDeviceSpecParams struct {
 
 // ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.
 type ListEnrollmentRequestsParams struct {
-	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
@@ -636,7 +654,7 @@ type ListEnrollmentRequestsParams struct {
 
 // ListFleetsParams defines parameters for ListFleets.
 type ListFleetsParams struct {
-	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
@@ -651,7 +669,7 @@ type ListFleetsParams struct {
 
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
-	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
@@ -681,7 +699,7 @@ type DeleteTemplateVersionsParams struct {
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
 type ListTemplateVersionsParams struct {
-	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.

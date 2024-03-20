@@ -1,8 +1,9 @@
-package container
+package image
 
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -48,7 +49,7 @@ type Status struct {
 }
 
 type ImageStatus struct {
-	Image        ImageDetails  `json:"image"`
+	Details      ImageDetails  `json:"image"`
 	CachedUpdate *bool         `json:"cachedUpdate"`
 	Incompatible bool          `json:"incompatible"`
 	Pinned       bool          `json:"pinned"`
@@ -56,7 +57,7 @@ type ImageStatus struct {
 }
 
 type ImageDetails struct {
-	Image       ImageSpec `json:"image"`
+	Spec        ImageSpec `json:"image"`
 	Version     string    `json:"version"`
 	Timestamp   string    `json:"timestamp"`
 	ImageDigest string    `json:"imageDigest"`
@@ -143,14 +144,34 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 	return nil
 }
 
+func (b *BootcHost) BootedImage() string {
+	return b.Status.Booted.Details.Spec.Image
+}
+
+func (b *BootcHost) StagedImage() *string {
+	return &b.Status.Staged.Details.Spec.Image
+}
+
+func (b *BootcHost) RollbackImage() *string {
+	return &b.Status.Rollback.Details.Spec.Image
+}
+
 // IsOsImageDirty returns true if the booted image does not equal the spec image.
 func IsOsImageDirty(host *BootcHost) bool {
 	// If the booted image does not equal the spec image, the OS image is not reconciled
-	return host.Status.Booted.Image.Image.Image != host.Spec.Image.Image
+	return host.Status.Booted.Details.Spec.Image != host.Spec.Image.Image
 }
 
 // IsOsImageReconciled returns true if the booted image equals the spec image.
 func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
 	// If the booted image equals the spec image, the OS image is reconciled
-	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
+	return host.Status.Booted.Details.Spec.Image == desiredSpec.Os.Image
+}
+
+func CheckBootcManaged() error {
+	_, err := exec.LookPath(CmdBootc)
+	if err != nil {
+		return fmt.Errorf("bootc not found in PATH: %w", err)
+	}
+	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/image"
 	"github.com/sirupsen/logrus"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -83,6 +84,10 @@ func NewBootstrap(
 
 func (b *Bootstrap) Initialize(ctx context.Context) error {
 	b.log.Infof("%sbootstrapping device", b.logPrefix)
+	if err := image.CheckBootcManaged(); err != nil {
+		return err
+	}
+
 	if err := b.ensureEnrollment(ctx); err != nil {
 		return err
 	}
