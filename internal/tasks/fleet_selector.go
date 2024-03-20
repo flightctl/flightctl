@@ -117,11 +117,6 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 		return err
 	}
 
-	// nil selector matches no devices
-	if fleet.Spec.Selector == nil {
-		return f.removeOwnerFromDevicesOwnedByFleet(ctx)
-	}
-
 	// Disown any devices that the fleet owned but no longer match its selector
 	err = f.removeOwnerFromOrphanedDevices(ctx, fleet)
 	if err != nil {
@@ -130,7 +125,7 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 
 	// List the devices that now match the fleet's selector
 	listParams := store.ListParams{
-		Labels: fleet.Spec.Selector.MatchLabels,
+		Labels: getMatchLabelsSafe(fleet),
 		Limit:  ItemsPerPage,
 	}
 	errors := 0
@@ -225,7 +220,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 	}
 
 	newOwnerFleet := *fleet.Metadata.Name
-	if currentOwningFleet != nil && !util.LabelsMatchLabelSelector(*device.Metadata.Labels, currentOwningFleet.Spec.Selector.MatchLabels) {
+	if currentOwningFleet != nil && !util.LabelsMatchLabelSelector(*device.Metadata.Labels, getMatchLabelsSafe(currentOwningFleet)) {
 		return false, f.updateDeviceOwner(ctx, device, newOwnerFleet)
 	}
 
@@ -251,7 +246,7 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx conte
 func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.Context, fleet *api.Fleet) error {
 	// Remove the owner from devices that don't match the label selector but still have this owner
 	listParams := store.ListParams{
-		Labels:       fleet.Spec.Selector.MatchLabels,
+		Labels:       getMatchLabelsSafe(fleet),
 		InvertLabels: util.BoolToPtr(true),
 		Owner:        util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name),
 		Limit:        ItemsPerPage,
@@ -456,7 +451,7 @@ func (f FleetSelectorMatchingLogic) findDeviceOwnerAmongAllFleets(ctx context.Co
 
 	for fleetIndex := range fleets.Items {
 		fleet := &fleets.Items[fleetIndex]
-		if util.LabelsMatchLabelSelector(*device.Metadata.Labels, fleet.Spec.Selector.MatchLabels) {
+		if util.LabelsMatchLabelSelector(*device.Metadata.Labels, getMatchLabelsSafe(fleet)) {
 			matchingFleets = append(matchingFleets, *fleet.Metadata.Name)
 		}
 	}
@@ -669,4 +664,11 @@ func CreateOverlappingAnnotationValue(matchingFleets []string) string {
 	} else {
 		return ""
 	}
+}
+
+func getMatchLabelsSafe(fleet *api.Fleet) map[string]string {
+	if fleet.Spec.Selector != nil {
+		return fleet.Spec.Selector.MatchLabels
+	}
+	return map[string]string{}
 }
