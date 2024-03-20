@@ -115,8 +115,14 @@ run-unit-test:
 
 unit-test: deploy-db run-unit-test kill-db
 
+view-coverage: $(REPORTS)/coverage.out
+	go tool cover -html=$(REPORTS)/coverage.out
+
 $(REPORTS):
 	-mkdir -p $(REPORTS)
+
+$(REPORTS)/coverage.out:
+	unit-test
 
 .PHONY: tools flightctl-server-container
 tools: $(GOBIN)/golangci-lint
