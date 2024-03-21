@@ -117,6 +117,11 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 		return err
 	}
 
+	// empty selector matches no devices
+	if len(getMatchLabelsSafe(fleet)) == 0 {
+		return f.removeOwnerFromDevicesOwnedByFleet(ctx)
+	}
+
 	// Disown any devices that the fleet owned but no longer match its selector
 	err = f.removeOwnerFromOrphanedDevices(ctx, fleet)
 	if err != nil {
@@ -601,9 +606,9 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 		newOwnerRef = nil
 		fieldsToNil = append(fieldsToNil, "owner")
 	}
-	device.Metadata.Owner = newOwnerRef
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
+	device.Metadata.Owner = newOwnerRef
 	_, _, err := f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.taskManager.DeviceUpdatedCallback)
 	return err
 }

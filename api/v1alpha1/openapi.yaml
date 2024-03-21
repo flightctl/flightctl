@@ -2284,7 +2284,7 @@ components:
             type: string
       required:
         - matchLabels
-      description: A map of key,value pairs that are ANDed. An empty label selector matches everything. A null label selector matches nothing.
+      description: A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
     Status:
       type: object
       properties:
