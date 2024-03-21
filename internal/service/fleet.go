@@ -238,7 +238,7 @@ func validateDiscriminators(fleet *api.Fleet) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("configType must be one of %s", strings.Join(discriminators, ","))
+			return fmt.Errorf("configType must be one of %s", strings.Join(discriminators, ", "))
 		}
 	}
 	return nil

@@ -2342,6 +2342,7 @@ components:
       - 'ResourceParsed'       # ResourceSync
       - 'Synced'               # ResourceSync
       - 'OverlappingSelectors' # Fleet
+      - 'Valid'                # Fleet
       - 'Ready'                # Device
       - 'DiskPressure'         # Device
       - 'MemoryPressure'       # Device
@@ -2358,6 +2359,7 @@ components:
       - ResourceSyncResourceParsed
       - ResourceSyncSynced
       - FleetOverlappingSelectors
+      - FleetValid
       - DeviceReady
       - DeviceDiskPressure
       - DeviceMemoryPressure

@@ -29,6 +29,7 @@ const (
 	DeviceReady                ConditionType = "Ready"
 	EnrollmentRequestApproved  ConditionType = "Approved"
 	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
+	FleetValid                 ConditionType = "Valid"
 	RepositoryAccessible       ConditionType = "Accessible"
 	ResourceSyncAccessible     ConditionType = "Accessible"
 	ResourceSyncResourceParsed ConditionType = "ResourceParsed"
