@@ -76,9 +76,11 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 
 // WriteFile writes the provided data to the file at the path with the provided permissions
 func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	// TODO: rethink how we are persisting files
-	// convert to ign file so we can use the atomic writer we can do this more directly in future
-	return w.WriteIgnitionFiles(NewIgnFileBytes(name, data, perm))
+	uid, gid, err := getUserIdentity()
+	if err != nil {
+		return err
+	}
+	return writeFileAtomically(w.rootDir+name, data, defaultDirectoryPermissions, perm, uid, gid)
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
@@ -119,19 +121,7 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 func getFileOwnership(file ign3types.File, testMode bool) (int, int, error) {
 	if testMode {
 		// use local user
-		currentUser, err := user.Current()
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed retrieving current user: %w", err)
-		}
-		gid, err := strconv.Atoi(currentUser.Gid)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed converting GID to int: %w", err)
-		}
-		uid, err := strconv.Atoi(currentUser.Uid)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed converting UID to int: %w", err)
-		}
-		return uid, gid, nil
+		return getUserIdentity()
 	}
 
 	uid, gid := 0, 0 // default to root
@@ -152,6 +142,22 @@ func getFileOwnership(file ign3types.File, testMode bool) (int, int, error) {
 		if err != nil {
 			return uid, gid, err
 		}
+	}
+	return uid, gid, nil
+}
+
+func getUserIdentity() (int, int, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed retrieving current user: %w", err)
+	}
+	gid, err := strconv.Atoi(currentUser.Gid)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed converting GID to int: %w", err)
+	}
+	uid, err := strconv.Atoi(currentUser.Uid)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed converting UID to int: %w", err)
 	}
 	return uid, gid, nil
 }
