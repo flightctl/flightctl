@@ -319,7 +319,7 @@ type FleetList struct {
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
-	// Selector A map of key,value pairs that are ANDed. An empty label selector matches everything. A null label selector matches nothing.
+	// Selector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
 	Selector *LabelSelector `json:"selector,omitempty"`
 	Template struct {
 		// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
@@ -371,7 +371,7 @@ type KubernetesSecretProviderSpec struct {
 	} `json:"secretRef"`
 }
 
-// LabelSelector A map of key,value pairs that are ANDed. An empty label selector matches everything. A null label selector matches nothing.
+// LabelSelector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
 type LabelSelector struct {
 	MatchLabels map[string]string `json:"matchLabels"`
 }

@@ -196,6 +196,10 @@ func CreateRandomJitterDuration(max int64, duration time.Duration) time.Duration
 }
 
 func LabelsMatchLabelSelector(labels map[string]string, labelSelector map[string]string) bool {
+	// Empty label selector matches nothing (we do not want the kubernetes behavior here)
+	if len(labelSelector) == 0 {
+		return false
+	}
 	for selectorKey, selectorVal := range labelSelector {
 		labelVal, ok := labels[selectorKey]
 		if !ok {
