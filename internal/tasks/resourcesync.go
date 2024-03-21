@@ -17,7 +17,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-billy/v5"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -82,7 +81,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	}
 
 	owner := util.SetResourceOwner(model.ResourceSyncKind, rs.Name)
-	fleets, err := r.parseFleets(resources, rs.OrgID, owner)
+	fleets, err := r.parseFleets(resources, owner)
 	if err != nil {
 		err := fmt.Errorf("resourcesync/%s: error: %w", rs.Name, err)
 		log.Errorf("%e", err)
@@ -268,7 +267,7 @@ func (r *ResourceSync) extractResourcesFromFile(mfs billy.Filesystem, path strin
 
 }
 
-func (r ResourceSync) parseFleets(resources []genericResourceMap, orgId uuid.UUID, owner *string) ([]*api.Fleet, error) {
+func (r ResourceSync) parseFleets(resources []genericResourceMap, owner *string) ([]*api.Fleet, error) {
 	fleets := make([]*api.Fleet, 0)
 	names := make(map[string]string)
 	for _, resource := range resources {
