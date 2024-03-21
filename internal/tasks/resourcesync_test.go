@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-billy/v5"
-	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -27,7 +26,6 @@ var repo model.Repository = model.Repository{
 var _ = Describe("ResourceSync", Ordered, func() {
 	var (
 		log          *logrus.Logger
-		orgId        uuid.UUID
 		cfg          *config.Config
 		stores       store.Store
 		dbName       string
@@ -66,7 +64,6 @@ var _ = Describe("ResourceSync", Ordered, func() {
 	})
 
 	BeforeEach(func() {
-		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
 		taskManager = Init(log, stores)
@@ -126,7 +123,7 @@ var _ = Describe("ResourceSync", Ordered, func() {
 			genericResources, err := resourceSync.extractResourcesFromFile(memfs, "/examples/fleet.yaml")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(1))
-			fleets, err := resourceSync.parseFleets(genericResources, orgId, owner)
+			fleets, err := resourceSync.parseFleets(genericResources, owner)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets)).To(Equal(1))
 			fleet := fleets[0]
@@ -136,13 +133,13 @@ var _ = Describe("ResourceSync", Ordered, func() {
 
 			// change the kind and parse
 			genericResources[0]["kind"] = "NotValid"
-			_, err = resourceSync.parseFleets(genericResources, orgId, owner)
+			_, err = resourceSync.parseFleets(genericResources, owner)
 			Expect(err).To(HaveOccurred())
 
 			genericResources, err = resourceSync.extractResourcesFromDir(memfs, "/fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(genericResources)).To(Equal(2))
-			fleets, err = resourceSync.parseFleets(genericResources, orgId, owner)
+			fleets, err = resourceSync.parseFleets(genericResources, owner)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets)).To(Equal(2))
 			Expect(fleets[0].Metadata.Owner).ToNot(BeNil())
