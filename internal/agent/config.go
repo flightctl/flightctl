@@ -9,16 +9,17 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/yaml"
 )
 
 const (
 	// DefaultSpecFetchInterval is the default interval between two reads of the remote device spec
-	DefaultSpecFetchInterval = time.Second * 60
+	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
-	DefaultStatusUpdateInterval = time.Second * 60
+	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
 	// DefaultConfigDir is the default directory where the device's configuration is stored
 	DefaultConfigDir = "/etc/flightctl"
 	// DefaultConfigFile is the default path to the agent's configuration file
@@ -45,33 +46,33 @@ const (
 
 type Config struct {
 	// Key is the path to the agent's private key
-	Key string `yaml:"key"`
+	Key string `json:"key"`
 	// Cacert is the path to the CA certificate
-	Cacert string `yaml:"ca-cert"`
+	Cacert string `json:"ca-cert"`
 	// GenerateCert is the path to the cert file which is generated as the result of enrollment
-	GeneratedCert string `yaml:"generated-cert"`
+	GeneratedCert string `json:"generated-cert"`
 	// DataDir is the directory where the device's data is stored
-	DataDir string `yaml:"data-dir"`
+	DataDir string `json:"data-dir"`
 	// ConfigDir is the directory where the device's configuration is stored
-	ConfigDir string `yaml:"config-dir"`
+	ConfigDir string `json:"config-dir"`
 	// EnrollmentCertFile is the path to the enrollment certificate
-	EnrollmentCertFile string `yaml:"enrollment-cert-file"`
+	EnrollmentCertFile string `json:"enrollment-cert-file"`
 	// EnrollmentKeyFile is the path to the enrollment key
-	EnrollmentKeyFile string `yaml:"enrollment-key-file"`
+	EnrollmentKeyFile string `json:"enrollment-key-file"`
 	// ManagementEndpoint is the address of the device management server
-	ManagementEndpoint string `yaml:"management-endpoint,omitempty"`
+	ManagementEndpoint string `json:"management-endpoint,omitempty"`
 	// EnrollmentEndpoint is the address of the device enrollment server
-	EnrollmentEndpoint string `yaml:"enrollment-endpoint,omitempty"`
+	EnrollmentEndpoint string `json:"enrollment-endpoint,omitempty"`
 	// EnrollmentUIEndpoint is the address of the device enrollment UI
-	EnrollmentUIEndpoint string `yaml:"enrollment-ui-endpoint,omitempty"`
+	EnrollmentUIEndpoint string `json:"enrollment-ui-endpoint,omitempty"`
 	// TPMPath is the path to the TPM device
-	TPMPath string `yaml:"tpm-path,omitempty"`
+	TPMPath string `json:"tpm-path,omitempty"`
 	// SpecFetchInterval is the interval between two reads of the remote device spec
-	SpecFetchInterval time.Duration `yaml:"spec-fetch-interval,omitempty"`
+	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
-	StatusUpdateInterval time.Duration `yaml:"status-update-interval,omitempty"`
+	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
 	// LogPrefix is the log prefix used for testing
-	LogPrefix string `yaml:"log-prefix,omitempty"`
+	LogPrefix string `json:"log-prefix,omitempty"`
 
 	// testRootDir is the root directory of the test agent
 	testRootDir string

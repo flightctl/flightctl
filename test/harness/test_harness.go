@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
@@ -88,8 +89,8 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		}
 	}()
 
-	fetchSpecInterval := 1 * time.Second
-	statusUpdateInterval := 2 * time.Second
+	fetchSpecInterval := util.Duration(1 * time.Second)
+	statusUpdateInterval := util.Duration(2 * time.Second)
 
 	os.Setenv(agent.TestRootDirEnvKey, testDirPath)
 	cfg := agent.NewDefault()

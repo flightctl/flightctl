@@ -15,6 +15,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -24,8 +25,8 @@ func main() {
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
-	specFetchInterval := flag.Duration("spec-fetch-interval", agent.DefaultSpecFetchInterval, "Duration between two reads of the remote device spec")
-	statusUpdateInterval := flag.Duration("status-update-interval", agent.DefaultStatusUpdateInterval, "Duration between two status updates")
+	specFetchInterval := flag.Duration("spec-fetch-interval", time.Duration(agent.DefaultSpecFetchInterval), "Duration between two reads of the remote device spec")
+	statusUpdateInterval := flag.Duration("status-update-interval", time.Duration(agent.DefaultStatusUpdateInterval), "Duration between two status updates")
 	tpmPath := flag.String("tpm", "", "Path to TPM device")
 	flag.Parse()
 
@@ -63,8 +64,8 @@ func main() {
 			EnrollmentCertFile:   filepath.Join(agentDir, agent.EnrollmentCertFile),
 			EnrollmentKeyFile:    filepath.Join(agentDir, agent.EnrollmentKeyFile),
 			TPMPath:              *tpmPath,
-			SpecFetchInterval:    *specFetchInterval,
-			StatusUpdateInterval: *statusUpdateInterval,
+			SpecFetchInterval:    util.Duration(*specFetchInterval),
+			StatusUpdateInterval: util.Duration(*statusUpdateInterval),
 		}
 		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
 		if err := cfg.Validate(); err != nil {
