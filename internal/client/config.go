@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -65,6 +66,74 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
+}
+
+func (c *Config) Equal(c2 *Config) bool {
+	if c == c2 {
+		return true
+	}
+	if c == nil || c2 == nil {
+		return false
+	}
+	return c.Service.Equal(&c2.Service) && c.AuthInfo.Equal(&c2.AuthInfo)
+}
+
+func (s *Service) Equal(s2 *Service) bool {
+	if s == s2 {
+		return true
+	}
+	if s == nil || s2 == nil {
+		return false
+	}
+	return s.Server == s2.Server && s.TLSServerName == s2.TLSServerName &&
+		s.CertificateAuthority == s2.CertificateAuthority &&
+		bytes.Equal(s.CertificateAuthorityData, s2.CertificateAuthorityData)
+}
+
+func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
+	if a == a2 {
+		return true
+	}
+	if a == nil || a2 == nil {
+		return false
+	}
+	return a.ClientCertificate == a2.ClientCertificate && a.ClientKey == a2.ClientKey &&
+		bytes.Equal(a.ClientCertificateData, a2.ClientCertificateData) &&
+		bytes.Equal(a.ClientKeyData, a2.ClientKeyData)
+}
+
+func (c *Config) DeepCopy() *Config {
+	if c == nil {
+		return nil
+	}
+	return &Config{
+		Service:  *c.Service.DeepCopy(),
+		AuthInfo: *c.AuthInfo.DeepCopy(),
+	}
+}
+
+func (s *Service) DeepCopy() *Service {
+	if s == nil {
+		return nil
+	}
+	s2 := *s
+	s2.CertificateAuthorityData = bytes.Clone(s.CertificateAuthorityData)
+	return &s2
+}
+
+func (a *AuthInfo) DeepCopy() *AuthInfo {
+	if a == nil {
+		return nil
+	}
+	a2 := *a
+	a2.ClientCertificateData = bytes.Clone(a.ClientCertificateData)
+	a2.ClientKeyData = bytes.Clone(a.ClientKeyData)
+	return &a2
+}
+
+func (c *Config) HasCredentials() bool {
+	return (len(c.AuthInfo.ClientCertificate) > 0 || len(c.AuthInfo.ClientCertificateData) > 0) &&
+		(len(c.AuthInfo.ClientKey) > 0 || len(c.AuthInfo.ClientKeyData) > 0)
 }
 
 func NewDefault() *Config {
