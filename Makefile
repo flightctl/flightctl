@@ -8,10 +8,15 @@ VERBOSE ?= false
 REPORTS ?= $(ROOT_DIR)/reports
 
 GO_TEST_FORMAT = pkgname
-GO_UNITTEST_FLAGS = -count=1 -race -coverprofile=$(REPORTS)/coverage.out $(GO_BUILD_FLAGS) ./...
+GO_TESTING_FLAGS= -count=1 -race -coverprofile=$(REPORTS)/coverage.out $(GO_BUILD_FLAGS)
+GO_UNITTEST_DIRS = ./internal/...
+GO_INTEGRATIONTEST_DIRS = ./test/integration/...
+GO_UNITTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)
+GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_INTEGRATIONTEST_DIRS)
 ifeq ($(VERBOSE), true)
 	GO_TEST_FORMAT=standard-verbose
 	GO_UNITTEST_FLAGS += -v
+	GO_INTEGRATIONTEST_FLAGS += -v
 endif
 
 GO_TEST_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
@@ -101,6 +106,10 @@ clean: clean-agent-vm
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
 
+_integration_test: $(REPORTS)
+	gotestsum $(GO_TEST_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
+	$(MAKE) _post_unit_test
+
 _unit_test: $(REPORTS)
 	gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
 	$(MAKE) _post_unit_test
@@ -113,7 +122,12 @@ _post_unit_test: $(REPORTS)
 run-unit-test:
 	SKIP_UT_DB=1 $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./...))"
 
+run-integration-test:
+	SKIP_UT_DB=1 $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./...))"
+
 unit-test: deploy-db run-unit-test kill-db
+
+integration-test: deploy-db run-integration-test kill-db
 
 view-coverage: $(REPORTS)/coverage.out
 	go tool cover -html=$(REPORTS)/coverage.out
