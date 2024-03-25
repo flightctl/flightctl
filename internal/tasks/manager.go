@@ -37,20 +37,22 @@ type TaskManager struct {
 
 const (
 	// Task to roll out a fleet's template to its devices upon update
-	ChannelFleetTemplateRollout = "fleet-template-rollout"
+	ChannelFleetRollout = "fleet-rollout"
 	// Task to set devices' owners
-	ChannelFleetSelectorMatching = "fleet-selector-matching"
+	ChannelFleetSelectorMatch = "fleet-selector-match"
 	// Task to populate a template version
-	ChannelTemplateVersion = "template-version"
+	ChannelTemplateVersionPopulate = "template-version-populate"
+	// Task to validate a fleet template
+	ChannelFleetValidate = "fleet-template-validate"
 
 	ChannelSize = 20
 
-	FleetRolloutOpUpdate         = "update"
-	FleetSelectorOpUpdate        = "update"
-	FleetSelectorOpUpdateOverlap = "update-overlap"
-	FleetSelectorOpDeleteAll     = "delete-all"
-	TemplateVersionOpCreated     = "create"
-	TemplateVersionOpFleetUpdate = "fleet-update"
+	FleetRolloutOpUpdate              = "update"
+	FleetSelectorMatchOpUpdate        = "update"
+	FleetSelectorMatchOpUpdateOverlap = "update-overlap"
+	FleetSelectorMatchOpDeleteAll     = "delete-all"
+	TemplateVersionPopulateOpCreated  = "create"
+	FleetValidateOpUpdate             = "update"
 )
 
 func Init(log logrus.FieldLogger, store store.Store) TaskManager {
@@ -58,9 +60,10 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 	ctxWithCancel, cancelFunc := context.WithCancel(ctx)
 
 	channels := make(map[string](chan ResourceReference))
-	channels[ChannelFleetTemplateRollout] = make(chan ResourceReference, ChannelSize)
-	channels[ChannelFleetSelectorMatching] = make(chan ResourceReference, ChannelSize)
-	channels[ChannelTemplateVersion] = make(chan ResourceReference, ChannelSize)
+	channels[ChannelFleetRollout] = make(chan ResourceReference, ChannelSize)
+	channels[ChannelFleetSelectorMatch] = make(chan ResourceReference, ChannelSize)
+	channels[ChannelTemplateVersionPopulate] = make(chan ResourceReference, ChannelSize)
+	channels[ChannelFleetValidate] = make(chan ResourceReference, ChannelSize)
 
 	reqid.OverridePrefix("tasks")
 
@@ -83,7 +86,8 @@ func (t TaskManager) Start() {
 
 	go FleetRollouts(t)
 	go FleetSelectorMatching(t)
-	go TemplateVersionCreated(t)
+	go TemplateVersionPopulate(t)
+	go FleetValidate(t)
 
 	resourceSync := NewResourceSync(t)
 	resourceSyncThread := thread.New(
@@ -143,23 +147,23 @@ func (t TaskManager) FleetUpdatedCallback(before *model.Fleet, after *model.Flee
 	ref := ResourceReference{OrgID: fleet.OrgID, Kind: model.FleetKind, Name: fleet.Name}
 	if templateUpdated {
 		// If the template was updated, start rolling out the new spec
-		t.SubmitTask(ChannelTemplateVersion, ref, TemplateVersionOpFleetUpdate)
+		t.SubmitTask(ChannelFleetValidate, ref, FleetValidateOpUpdate)
 	}
 	if selectorUpdated {
-		op := FleetSelectorOpUpdate
+		op := FleetSelectorMatchOpUpdate
 		if fleet.Status != nil && fleet.Status.Data.Conditions != nil && api.IsStatusConditionTrue(*fleet.Status.Data.Conditions, api.FleetOverlappingSelectors) {
-			op = FleetSelectorOpUpdateOverlap
+			op = FleetSelectorMatchOpUpdateOverlap
 		}
-		t.SubmitTask(ChannelFleetSelectorMatching, ref, op)
+		t.SubmitTask(ChannelFleetSelectorMatch, ref, op)
 	}
 }
 
 func (t TaskManager) AllFleetsDeletedCallback(orgId uuid.UUID) {
-	t.SubmitTask(ChannelFleetSelectorMatching, ResourceReference{OrgID: orgId, Kind: model.FleetKind}, FleetSelectorOpDeleteAll)
+	t.SubmitTask(ChannelFleetSelectorMatch, ResourceReference{OrgID: orgId, Kind: model.FleetKind}, FleetSelectorMatchOpDeleteAll)
 }
 
 func (t TaskManager) AllDevicesDeletedCallback(orgId uuid.UUID) {
-	t.SubmitTask(ChannelFleetSelectorMatching, ResourceReference{OrgID: orgId, Kind: model.DeviceKind}, FleetSelectorOpDeleteAll)
+	t.SubmitTask(ChannelFleetSelectorMatch, ResourceReference{OrgID: orgId, Kind: model.DeviceKind}, FleetSelectorMatchOpDeleteAll)
 }
 
 func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.Device) {
@@ -192,15 +196,15 @@ func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.De
 	ref := ResourceReference{OrgID: device.OrgID, Kind: model.DeviceKind, Name: device.Name}
 	if ownerUpdated {
 		// If the device's owner was updated, check if we need to update its spec according to its new fleet
-		t.SubmitTask(ChannelFleetTemplateRollout, ref, FleetRolloutOpUpdate)
+		t.SubmitTask(ChannelFleetRollout, ref, FleetRolloutOpUpdate)
 	}
 	if labelsUpdated {
 		// If the label selector was updated, check the devices matching the new one
-		op := FleetSelectorOpUpdate
+		op := FleetSelectorMatchOpUpdate
 		if len(GetOverlappingAnnotationValue(device.ToApiResource().Metadata.Annotations)) != 0 {
-			op = FleetSelectorOpUpdateOverlap
+			op = FleetSelectorMatchOpUpdateOverlap
 		}
-		t.SubmitTask(ChannelFleetSelectorMatching, ref, op)
+		t.SubmitTask(ChannelFleetSelectorMatch, ref, op)
 	}
 }
 
@@ -215,7 +219,7 @@ func (t TaskManager) TemplateVersionCreatedCallback(templateVersion *model.Templ
 		Name:  templateVersion.Name,
 		Owner: *templateVersion.Owner,
 	}
-	t.SubmitTask(ChannelTemplateVersion, resourceRef, TemplateVersionOpCreated)
+	t.SubmitTask(ChannelTemplateVersionPopulate, resourceRef, TemplateVersionPopulateOpCreated)
 }
 
 func (t TaskManager) TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion) {
@@ -229,5 +233,5 @@ func (t TaskManager) TemplateVersionValidatedCallback(templateVersion *model.Tem
 		Kind:  model.FleetKind,
 		Name:  fleetName,
 	}
-	t.SubmitTask(ChannelFleetTemplateRollout, resourceRef, FleetRolloutOpUpdate)
+	t.SubmitTask(ChannelFleetRollout, resourceRef, FleetRolloutOpUpdate)
 }
