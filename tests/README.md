@@ -32,6 +32,15 @@ Unit tests can be run locally with:
  ```bash
 make unit-test # or run-unit-test if you have a DB server ready
 ```
+### Mocking
+
+Sometimes we need to mock interfaces to make unit testing possible in
+isolation. For that we use the `mockgen` tool from `go.uber.org/mock`
+
+If you want to generate mocks for a package, you can add the reference to
+`/hack/mock.list.txt` and run `make generate` to generate the mocks.
+
+Find more information about using mockgen [here](https://pkg.go.dev/go.uber.org/mock#readme-building-mocks)
 
 ## API Testing
 
