@@ -21,7 +21,7 @@ func FleetRollouts(taskManager TaskManager) {
 		case <-taskManager.ctx.Done():
 			taskManager.log.Info("Received ctx.Done(), stopping")
 			return
-		case resourceRef := <-taskManager.channels[ChannelFleetTemplateRollout]:
+		case resourceRef := <-taskManager.channels[ChannelFleetRollout]:
 			requestID := reqid.NextRequestID()
 			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
 			log := log.WithReqIDFromCtx(ctx, taskManager.log)

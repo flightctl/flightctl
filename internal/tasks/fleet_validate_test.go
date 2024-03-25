@@ -17,7 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var _ = Describe("FleetSelector", func() {
+var _ = Describe("FleetValidate", func() {
 	var (
 		log              *logrus.Logger
 		ctx              context.Context
@@ -26,7 +26,7 @@ var _ = Describe("FleetSelector", func() {
 		cfg              *config.Config
 		dbName           string
 		taskManager      tasks.TaskManager
-		logic            tasks.TemplateVersionLogic
+		logic            tasks.FleetValidateLogic
 		fleet            *api.Fleet
 		repository       *api.Repository
 		goodGitConfig    *api.GitConfigProviderSpec
@@ -44,7 +44,7 @@ var _ = Describe("FleetSelector", func() {
 		taskManager = tasks.Init(log, storeInst)
 		resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet"}
 
-		logic = tasks.NewTemplateVersionLogic(taskManager, log, storeInst, resourceRef)
+		logic = tasks.NewFleetValidateLogic(taskManager, log, storeInst, resourceRef)
 
 		repository = &api.Repository{
 			Metadata: api.ObjectMeta{
@@ -124,7 +124,7 @@ var _ = Describe("FleetSelector", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersion(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -160,7 +160,7 @@ var _ = Describe("FleetSelector", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersion(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -196,7 +196,7 @@ var _ = Describe("FleetSelector", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersion(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
