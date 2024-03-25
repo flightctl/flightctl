@@ -10,7 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/test/harness"
+	harness "github.com/flightctl/flightctl/test/harness/mocked"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
