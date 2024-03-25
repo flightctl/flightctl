@@ -18,7 +18,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/oapi-codegen/nethttp-middleware v1.0.1
-	github.com/oapi-codegen/runtime v1.0.0
+	github.com/oapi-codegen/runtime v1.1.1
 	github.com/onsi/ginkgo/v2 v2.16.0
 	github.com/onsi/gomega v1.32.0
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
