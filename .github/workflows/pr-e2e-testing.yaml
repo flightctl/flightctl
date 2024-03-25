@@ -24,19 +24,32 @@ jobs:
           setup_podman4: yes
           setup_kvm: yes
 
+      - name: Fix swtpm in qemu/libvirt (broken apparmor profile and swtpm permissions)
+        run: |
+          sudo apparmor_status
+          sudo aa-complain /usr/bin/swtpm
+          sudo apparmor_parser -r /etc/apparmor.d/usr.bin.swtpm
+          #sudo mkdir -p /var/lib/swtpm-localca
+          #sudo chmod a+rwx /var/lib/swtpm-localca
+
+          mkdir -p bin/output/qcow2
+          dd if=/dev/zero of=bin/output/qcow2/disk.qcow2 bs=8M count=10
+          make run-e2e-test VERBOSE=true || true
+          cat /home/runner/.cache/libvirt/qemu/log/e2e-test-vm-swtpm.log
+          cat /var/log/syslog
+          false
+          
+
       - name: Create kind cluster
         run: make cluster
 
       - name: Deploy the flightctl server
         run: make deploy
 
-      - name: Make rpm, disk image, and run agent vm
+      - name: Make rpm, and agent images
         run: |
-          export VMWAIT=1
-          faketty () {
-            script -qefc "$(printf "%q " "$@")" /dev/null
-          }
-          faketty make agent-vm
+          make agent-image
 
-      - name: Check
-        run: sudo virsh list
+      - name: Run E2E Tests
+        run: make run-e2e-test VERBOSE=true
+          
