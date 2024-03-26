@@ -53,14 +53,18 @@ build: bin
 	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
 
 # rebuild container only on source changes
-bin/.flightctl-server-container: bin Containerfile go.mod go.sum $(shell find ./ -name "*.go" -not -path "./packaging/*")
-	podman build -f Containerfile -t flightctl-server:latest
+bin/.flightctl-server-container: bin bin/go-cache Containerfile go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
+	podman build -f Containerfile -v $(shell pwd)/bin/go-cache:/opt/app-root/src/go -t flightctl-server:latest
 	touch bin/.flightctl-server-container
 
 flightctl-server-container: bin/.flightctl-server-container
 
 bin:
 	mkdir -p bin
+
+# used for caching go container builds download
+bin/go-cache:
+	mkdir -p bin/go-cache
 
 # only trigger the rpm build when not built before or changes happened to the codebase
 bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl-agent.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
