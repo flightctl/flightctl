@@ -30,7 +30,8 @@ func createRepositories(numRepositories int, ctx context.Context, storeInst stor
 			},
 		}
 
-		_, err := storeInst.Repository().Create(ctx, orgId, &resource)
+		callback := store.RepositoryStoreCallback(func(*model.Repository) {})
+		_, err := storeInst.Repository().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			log.Fatalf("creating repository: %v", err)
 		}
@@ -46,6 +47,8 @@ var _ = Describe("RepositoryStore create", func() {
 		cfg             *config.Config
 		dbName          string
 		numRepositories int
+		callbackCalled  bool
+		callback        store.RepositoryStoreCallback
 	)
 
 	BeforeEach(func() {
@@ -54,6 +57,8 @@ var _ = Describe("RepositoryStore create", func() {
 		log = flightlog.InitLogs()
 		numRepositories = 3
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		callbackCalled = false
+		callback = store.RepositoryStoreCallback(func(*model.Repository) { callbackCalled = true })
 
 		createRepositories(3, ctx, storeInst, orgId)
 	})
@@ -83,27 +88,33 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("Delete repository success", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1")
+			err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
 		})
 
 		It("Delete repository success when not found", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "nonexistent")
+			err := storeInst.Repository().Delete(ctx, orgId, "nonexistent", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeFalse())
 		})
 
 		It("Delete all repositories in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			err := storeInst.Repository().DeleteAll(ctx, otherOrgId)
+			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(uuid.UUID) { callbackCalled = true })
+			err := storeInst.Repository().DeleteAll(ctx, otherOrgId, deleteAllCallback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
 
 			listParams := store.ListParams{Limit: 1000}
 			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(numRepositories))
 
-			err = storeInst.Repository().DeleteAll(ctx, orgId)
+			callbackCalled = false
+			err = storeInst.Repository().DeleteAll(ctx, orgId, deleteAllCallback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
 
 			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
@@ -172,8 +183,9 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
@@ -191,8 +203,9 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(false))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))

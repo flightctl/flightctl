@@ -8,6 +8,7 @@ import (
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -28,12 +29,22 @@ func FleetValidate(taskManager TaskManager) {
 			log := log.WithReqIDFromCtx(ctx, taskManager.log)
 			logic := NewFleetValidateLogic(taskManager, log, taskManager.store, resourceRef)
 
-			if resourceRef.Op == FleetValidateOpUpdate {
-				err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
+			switch {
+			case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == model.FleetKind:
+				fleet, err := taskManager.store.Fleet().Get(ctx, resourceRef.OrgID, resourceRef.Name)
+				if err != nil {
+					log.Errorf("fetching fleet while validating: %v", err)
+					continue
+				}
+				err = logic.CreateNewTemplateVersionIfFleetValid(ctx, fleet)
 				if err != nil {
 					log.Errorf("failed validating fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 				}
-			} else {
+			case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == model.RepositoryKind:
+				logic.ValidateFleetsReferencingRepository(ctx)
+			case resourceRef.Op == FleetValidateOpDeleteAll && resourceRef.Kind == model.RepositoryKind:
+				logic.ValidateFleetsReferencingAnyRepository(ctx)
+			default:
 				log.Errorf("TemplateVersionPopulate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 			}
 		}
@@ -51,20 +62,15 @@ func NewFleetValidateLogic(taskManager TaskManager, log logrus.FieldLogger, stor
 	return FleetValidateLogic{taskManager: taskManager, log: log, store: store, resourceRef: resourceRef}
 }
 
-func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
-	fleet, err := t.store.Fleet().Get(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
-	if err != nil {
-		return fmt.Errorf("fetching fleet: %w", err)
-	}
-
-	err = t.validateFleetTemplate(ctx, fleet)
+func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context, fleet *api.Fleet) error {
+	err := t.validateFleetTemplate(ctx, fleet)
 	if err != nil {
 		return fmt.Errorf("validating fleet: %w", err)
 	}
 
 	templateVersion := api.TemplateVersion{
 		Metadata: api.ObjectMeta{Name: util.TimeStampStringPtr()},
-		Spec:     api.TemplateVersionSpec{Fleet: t.resourceRef.Name},
+		Spec:     api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
 	}
 
 	_, err = t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.taskManager.TemplateVersionCreatedCallback)
@@ -80,7 +86,7 @@ func (t *FleetValidateLogic) validateFleetTemplate(ctx context.Context, fleet *a
 	for i := range *fleet.Spec.Template.Spec.Config {
 		configItem := (*fleet.Spec.Template.Spec.Config)[i]
 		name, err := t.validateConfigItem(ctx, &configItem)
-		t.log.Debugf("Validated config %s from fleet %s/%s: %v", name, t.resourceRef.OrgID, t.resourceRef.Name, err)
+		t.log.Debugf("Validated config %s from fleet %s/%s: %v", name, t.resourceRef.OrgID, *fleet.Metadata.Name, err)
 		if err != nil {
 			invalidConfigs = append(invalidConfigs, name)
 		}
@@ -102,10 +108,9 @@ func (t *FleetValidateLogic) validateFleetTemplate(ctx context.Context, fleet *a
 	if fleet.Status.Conditions == nil {
 		fleet.Status.Conditions = &[]api.Condition{}
 	}
-	api.SetStatusCondition(fleet.Status.Conditions, condition)
-	err := t.store.Fleet().UpdateConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, *fleet.Status.Conditions)
+	err := t.store.Fleet().UpdateConditions(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name, []api.Condition{condition})
 	if err != nil {
-		t.log.Warnf("failed setting condition on fleet %s/%s: %v", t.resourceRef.OrgID, t.resourceRef.Name, err)
+		t.log.Warnf("failed setting condition on fleet %s/%s: %v", t.resourceRef.OrgID, *fleet.Metadata.Name, err)
 	}
 
 	return retErr
@@ -175,4 +180,95 @@ func (t *FleetValidateLogic) validateInlineConfig(inlineSpec *api.InlineConfigPr
 	}
 
 	return nil
+}
+
+func (t *FleetValidateLogic) ValidateFleetsReferencingRepository(ctx context.Context) {
+	fleets, err := t.store.Fleet().List(ctx, t.resourceRef.OrgID, store.ListParams{})
+	if err != nil {
+		t.log.Errorf("fetching fleets: %v", err)
+		return
+	}
+
+	for i := range fleets.Items {
+		fleet := fleets.Items[i]
+		hasReference, err := t.doesFleetReferenceRepo(&fleet, t.resourceRef.Name)
+		if err != nil {
+			t.log.Errorf("failed checking if fleet %s/%s references repo %s: %v", t.resourceRef.OrgID, *fleet.Metadata.Name, t.resourceRef.Name, err)
+			continue
+		}
+
+		if hasReference {
+			err = t.CreateNewTemplateVersionIfFleetValid(ctx, &fleet)
+			if err != nil {
+				t.log.Errorf("failed validating fleet %s/%s that references repo %s: %v", t.resourceRef.OrgID, *fleet.Metadata.Name, t.resourceRef.Name, err)
+				continue
+			}
+		}
+	}
+}
+
+func (t *FleetValidateLogic) doesFleetReferenceRepo(fleet *api.Fleet, repoName string) (bool, error) {
+	for _, configItem := range *fleet.Spec.Template.Spec.Config {
+		disc, err := configItem.Discriminator()
+		if err != nil {
+			return false, fmt.Errorf("failed getting discriminator: %w", err)
+		}
+
+		if disc != string(api.TemplateDiscriminatorGitConfig) {
+			continue
+		}
+
+		gitSpec, err := configItem.AsGitConfigProviderSpec()
+		if err != nil {
+			return false, fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
+		}
+
+		if gitSpec.GitRef.Repository == repoName {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (t *FleetValidateLogic) ValidateFleetsReferencingAnyRepository(ctx context.Context) {
+	fleets, err := t.store.Fleet().List(ctx, t.resourceRef.OrgID, store.ListParams{})
+	if err != nil {
+		t.log.Errorf("fetching fleets: %v", err)
+		return
+	}
+
+	for i := range fleets.Items {
+		fleet := fleets.Items[i]
+		hasReference, err := t.doesFleetReferenceAnyRepo(&fleet)
+		if err != nil {
+			t.log.Errorf("failed checking if fleet %s/%s references repo %s: %v", t.resourceRef.OrgID, *fleet.Metadata.Name, t.resourceRef.Name, err)
+			continue
+		}
+
+		if hasReference {
+			err = t.CreateNewTemplateVersionIfFleetValid(ctx, &fleet)
+			if err != nil {
+				t.log.Errorf("failed validating fleet %s/%s that references repo %s: %v", t.resourceRef.OrgID, *fleet.Metadata.Name, t.resourceRef.Name, err)
+				continue
+			}
+		}
+	}
+}
+
+func (t *FleetValidateLogic) doesFleetReferenceAnyRepo(fleet *api.Fleet) (bool, error) {
+	for _, configItem := range *fleet.Spec.Template.Spec.Config {
+		disc, err := configItem.Discriminator()
+		if err != nil {
+			return false, fmt.Errorf("failed getting discriminator: %w", err)
+		}
+
+		if disc != string(api.TemplateDiscriminatorGitConfig) {
+			continue
+		}
+
+		return true, nil
+	}
+
+	return false, nil
 }
