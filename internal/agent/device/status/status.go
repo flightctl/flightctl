@@ -163,7 +163,7 @@ func (m *StatusManager) UpdateConditionError(ctx context.Context, reason string,
 
 	if SetDegradedConditionByError(status.Conditions, reason, serr) {
 		// log condition change
-		m.log.Infof("Set degraded condition by error: %v", err)
+		m.log.Infof("%sSet degraded condition by error: %v", m.logPrefix, serr)
 	}
 
 	return m.Update(ctx, status)
