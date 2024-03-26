@@ -53,6 +53,7 @@ const (
 	FleetSelectorMatchOpDeleteAll     = "delete-all"
 	TemplateVersionPopulateOpCreated  = "create"
 	FleetValidateOpUpdate             = "update"
+	FleetValidateOpDeleteAll          = "delete-all"
 )
 
 func Init(log logrus.FieldLogger, store store.Store) TaskManager {
@@ -156,6 +157,19 @@ func (t TaskManager) FleetUpdatedCallback(before *model.Fleet, after *model.Flee
 		}
 		t.SubmitTask(ChannelFleetSelectorMatch, ref, op)
 	}
+}
+
+func (t TaskManager) RepositoryUpdatedCallback(repository *model.Repository) {
+	resourceRef := ResourceReference{
+		OrgID: repository.OrgID,
+		Kind:  model.RepositoryKind,
+		Name:  repository.Name,
+	}
+	t.SubmitTask(ChannelFleetValidate, resourceRef, FleetValidateOpUpdate)
+}
+
+func (t TaskManager) AllRepositoriesDeletedCallback(orgId uuid.UUID) {
+	t.SubmitTask(ChannelFleetValidate, ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}, FleetValidateOpDeleteAll)
 }
 
 func (t TaskManager) AllFleetsDeletedCallback(orgId uuid.UUID) {

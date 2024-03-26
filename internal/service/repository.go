@@ -22,7 +22,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
-	result, err := h.store.Repository().Create(ctx, orgId, request.Body)
+	result, err := h.store.Repository().Create(ctx, orgId, request.Body, h.taskManager.RepositoryUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateRepository201JSONResponse(*result), nil
@@ -77,7 +77,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.DeleteRepositoriesRequestObject) (server.DeleteRepositoriesResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().DeleteAll(ctx, orgId)
+	err := h.store.Repository().DeleteAll(ctx, orgId, h.taskManager.AllRepositoriesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteRepositories200JSONResponse{}, nil
@@ -115,7 +115,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
-	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body)
+	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.RepositoryUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -138,7 +138,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.DeleteRepositoryRequestObject) (server.DeleteRepositoryResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().Delete(ctx, orgId, request.Name)
+	err := h.store.Repository().Delete(ctx, orgId, request.Name, h.taskManager.RepositoryUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteRepository200JSONResponse{}, nil
