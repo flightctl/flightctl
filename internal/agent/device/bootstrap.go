@@ -196,7 +196,7 @@ func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
 	}
 	managementClient := client.NewManagement(managementHTTPClient)
 
-	_, err = spec.EnsureDesiredRenderedSpec(ctx, b.log, b.logPrefix, b.deviceWriter, b.deviceReader, managementClient, b.desiredRenderedFile, b.deviceName, b.backoff)
+	_, err = spec.EnsureDesiredRenderedSpec(ctx, b.log, b.logPrefix, b.deviceWriter, b.deviceReader, managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
 	if err != nil {
 		return fmt.Errorf("ensure desired rendered spec: %w", err)
 	}
