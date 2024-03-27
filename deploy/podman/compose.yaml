@@ -3,7 +3,7 @@ version: '4.4'
 services:
   flightctl-db:
     container_name: flightctl-db
-    image: ${PGSQL_IMAGE:-quay.io/centos7/postgresql-12-centos7:latest}
+    image: ${PGSQL_IMAGE:-quay.io/sclorg/postgresql-12-c8s:latest}
     environment:
       - POSTGRESQL_DATABASE=flightctl
       - POSTGRESQL_USER=demouser
@@ -21,7 +21,7 @@ services:
 
   flightctl-auth-db:
     container_name: flightctl-auth-db
-    image: ${PGSQL_IMAGE:-quay.io/centos7/postgresql-12-centos7:latest}
+    image: ${PGSQL_IMAGE:-quay.io/sclorg/postgresql-12-c8s:latest}
     environment:
       - POSTGRESQL_DATABASE=keycloak
       - POSTGRESQL_USER=keycloak
