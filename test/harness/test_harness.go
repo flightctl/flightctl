@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/sirupsen/logrus"
 )
 
 type TestHarness struct {
@@ -55,6 +56,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 
 	serverCfg := *config.NewDefault()
 	serverLog := log.InitLogs()
+	serverLog.SetLevel(logrus.DebugLevel)
 
 	// create store
 	store, dbName, err := testutil.NewTestStore(serverCfg, serverLog)
