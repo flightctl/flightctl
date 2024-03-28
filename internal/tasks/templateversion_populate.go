@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
-	"strings"
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
@@ -24,33 +23,30 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func TemplateVersionCreated(taskManager TaskManager) {
+func TemplateVersionPopulate(taskManager TaskManager) {
 	for {
 		select {
 		case <-taskManager.ctx.Done():
 			taskManager.log.Info("Received ctx.Done(), stopping")
 			return
-		case resourceRef := <-taskManager.channels[ChannelTemplateVersion]:
+		case resourceRef := <-taskManager.channels[ChannelTemplateVersionPopulate]:
 			requestID := reqid.NextRequestID()
 			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
 			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := NewTemplateVersionLogic(taskManager, log, taskManager.store, resourceRef)
-			if resourceRef.Op == TemplateVersionOpCreated {
+			logic := NewTemplateVersionPopulateLogic(taskManager, log, taskManager.store, resourceRef)
+			if resourceRef.Op == TemplateVersionPopulateOpCreated {
 				err := logic.SyncFleetTemplateToTemplateVersion(ctx)
 				if err != nil {
-					log.Errorf("failed creating template version for fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+					log.Errorf("failed populating template version %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 				}
-			} else if resourceRef.Op == TemplateVersionOpFleetUpdate {
-				err := logic.CreateNewTemplateVersion(ctx)
-				if err != nil {
-					log.Errorf("failed syncing template to template version %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				}
+			} else {
+				log.Errorf("TemplateVersionPopulate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 			}
 		}
 	}
 }
 
-type TemplateVersionLogic struct {
+type TemplateVersionPopulateLogic struct {
 	taskManager      TaskManager
 	log              logrus.FieldLogger
 	store            store.Store
@@ -61,114 +57,11 @@ type TemplateVersionLogic struct {
 	renderedConfig   *config_latest_types.Config
 }
 
-func NewTemplateVersionLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) TemplateVersionLogic {
-	return TemplateVersionLogic{taskManager: taskManager, log: log, store: store, resourceRef: resourceRef}
+func NewTemplateVersionPopulateLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) TemplateVersionPopulateLogic {
+	return TemplateVersionPopulateLogic{taskManager: taskManager, log: log, store: store, resourceRef: resourceRef}
 }
 
-func (t *TemplateVersionLogic) CreateNewTemplateVersion(ctx context.Context) error {
-	fleet, err := t.store.Fleet().Get(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
-	if err != nil {
-		return fmt.Errorf("fetching fleet: %w", err)
-	}
-	t.fleet = fleet
-
-	err = t.validateFleetTemplate(ctx, fleet)
-	if err != nil {
-		return fmt.Errorf("validating fleet: %w", err)
-	}
-
-	templateVersion := api.TemplateVersion{
-		Metadata: api.ObjectMeta{Name: util.TimeStampStringPtr()},
-		Spec:     api.TemplateVersionSpec{Fleet: t.resourceRef.Name},
-	}
-
-	_, err = t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.taskManager.TemplateVersionCreatedCallback)
-	return err
-}
-
-func (t *TemplateVersionLogic) validateFleetTemplate(ctx context.Context, fleet *api.Fleet) error {
-	if fleet.Spec.Template.Spec.Config == nil {
-		return nil
-	}
-
-	invalidConfigs := []string{}
-	for i := range *t.fleet.Spec.Template.Spec.Config {
-		configItem := (*t.fleet.Spec.Template.Spec.Config)[i]
-		name, err := t.validateConfigItem(ctx, &configItem)
-		t.log.Debugf("Validated config %s from fleet %s/%s: %v", name, t.resourceRef.OrgID, t.resourceRef.Name, err)
-		if err != nil {
-			invalidConfigs = append(invalidConfigs, name)
-		}
-	}
-
-	condition := api.Condition{Type: api.FleetValid}
-	var retErr error
-	if len(invalidConfigs) == 0 {
-		condition.Status = api.ConditionStatusTrue
-		condition.Reason = util.StrToPtr("Valid")
-		retErr = nil
-	} else {
-		condition.Status = api.ConditionStatusFalse
-		condition.Reason = util.StrToPtr("Invalid")
-		condition.Message = util.StrToPtr(fmt.Sprintf("Fleet has %d invalid configurations: %s", len(invalidConfigs), strings.Join(invalidConfigs, ", ")))
-		retErr = fmt.Errorf("found %d invalid configurations: %s", len(invalidConfigs), strings.Join(invalidConfigs, ", "))
-	}
-
-	if fleet.Status.Conditions == nil {
-		fleet.Status.Conditions = &[]api.Condition{}
-	}
-	api.SetStatusCondition(fleet.Status.Conditions, condition)
-	err := t.store.Fleet().UpdateConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, *fleet.Status.Conditions)
-	if err != nil {
-		t.log.Warnf("failed setting condition on fleet %s/%s: %v", t.resourceRef.OrgID, t.resourceRef.Name, err)
-	}
-
-	return retErr
-}
-
-func (t *TemplateVersionLogic) validateConfigItem(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) (string, error) {
-	unknownName := "<unknown>"
-
-	disc, err := configItem.Discriminator()
-	if err != nil {
-		return unknownName, fmt.Errorf("failed getting discriminator: %w", err)
-	}
-
-	switch disc {
-	case string(api.TemplateDiscriminatorGitConfig):
-		gitSpec, err := configItem.AsGitConfigProviderSpec()
-		if err != nil {
-			return unknownName, fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
-		}
-		_, err = t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
-		if err != nil {
-			return gitSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-		}
-		return gitSpec.Name, nil
-
-	case string(api.TemplateDiscriminatorKubernetesSec):
-		k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
-		if err != nil {
-			return unknownName, fmt.Errorf("failed getting config item as AsKubernetesSecretProviderSpec: %w", err)
-		}
-		return k8sSpec.Name, fmt.Errorf("service does not yet support kubernetes config")
-
-	case string(api.TemplateDiscriminatorInlineConfig):
-		inlineSpec, err := configItem.AsInlineConfigProviderSpec()
-		if err != nil {
-			return unknownName, fmt.Errorf("failed getting config item %s as InlineConfigProviderSpec: %w", inlineSpec.Name, err)
-		}
-
-		emptyIgnitionConfig, _, _ := config_latest.ParseCompatibleVersion([]byte("{\"ignition\": {\"version\": \"3.4.0\"}}"))
-		t.renderedConfig = &emptyIgnitionConfig
-		return inlineSpec.Name, t.handleInlineConfig(&inlineSpec)
-
-	default:
-		return unknownName, fmt.Errorf("unsupported discriminator %s", disc)
-	}
-}
-
-func (t *TemplateVersionLogic) SyncFleetTemplateToTemplateVersion(ctx context.Context) error {
+func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx context.Context) error {
 	t.log.Infof("Syncing template of %s to template version %s/%s", t.resourceRef.Owner, t.resourceRef.OrgID, t.resourceRef.Name)
 	err := t.getFleetAndTemplateVersion(ctx)
 	if t.templateVersion == nil {
@@ -198,7 +91,7 @@ func (t *TemplateVersionLogic) SyncFleetTemplateToTemplateVersion(ctx context.Co
 	return t.setStatus(ctx, nil)
 }
 
-func (t *TemplateVersionLogic) getFleetAndTemplateVersion(ctx context.Context) error {
+func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Context) error {
 	ownerType, fleetName, err := util.GetResourceOwner(&t.resourceRef.Owner)
 	if err != nil {
 		return err
@@ -222,7 +115,7 @@ func (t *TemplateVersionLogic) getFleetAndTemplateVersion(ctx context.Context) e
 	return nil
 }
 
-func (t *TemplateVersionLogic) handleConfigItem(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) error {
 	disc, err := configItem.Discriminator()
 	if err != nil {
 		return fmt.Errorf("failed getting discriminator: %w", err)
@@ -246,7 +139,7 @@ func (t *TemplateVersionLogic) handleConfigItem(ctx context.Context, configItem 
 }
 
 // Translate branch or tag into hash
-func (t *TemplateVersionLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) error {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
@@ -283,11 +176,11 @@ func (t *TemplateVersionLogic) handleGitConfig(ctx context.Context, configItem *
 }
 
 // TODO: implement
-func (t *TemplateVersionLogic) handleK8sConfig(configItem *api.DeviceSpecification_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpecification_Config_Item) error {
 	return fmt.Errorf("service does not yet support kubernetes config")
 }
 
-func (t *TemplateVersionLogic) handleInlineConfig(inlineSpec *api.InlineConfigProviderSpec) error {
+func (t *TemplateVersionPopulateLogic) handleInlineConfig(inlineSpec *api.InlineConfigProviderSpec) error {
 	// Add this inline config into the unrendered config
 	newConfig := &api.TemplateVersionStatus_Config_Item{}
 	err := newConfig.FromInlineConfigProviderSpec(*inlineSpec)
@@ -317,7 +210,7 @@ func (t *TemplateVersionLogic) handleInlineConfig(inlineSpec *api.InlineConfigPr
 	return nil
 }
 
-func (t *TemplateVersionLogic) getIgnitionFromFileSystem(mfs billy.Filesystem, path string) (*config_latest_types.Config, error) {
+func (t *TemplateVersionPopulateLogic) getIgnitionFromFileSystem(mfs billy.Filesystem, path string) (*config_latest_types.Config, error) {
 	fileInfo, err := mfs.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed accessing path %s: %w", path, err)
@@ -343,7 +236,7 @@ func (t *TemplateVersionLogic) getIgnitionFromFileSystem(mfs billy.Filesystem, p
 	return &ignitionConfig, nil
 }
 
-func (t *TemplateVersionLogic) addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix string, fileInfos []fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
+func (t *TemplateVersionPopulateLogic) addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix string, fileInfos []fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
 	for _, fileInfo := range fileInfos {
 		if fileInfo.IsDir() {
 			subdirFiles, err := mfs.ReadDir(filepath.Join(fullPrefix, fileInfo.Name()))
@@ -365,7 +258,7 @@ func (t *TemplateVersionLogic) addGitDirToIgnitionConfig(mfs billy.Filesystem, f
 	return nil
 }
 
-func (t *TemplateVersionLogic) addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, fileInfo fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
+func (t *TemplateVersionPopulateLogic) addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, fileInfo fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
 	openFile, err := mfs.Open(fullPath)
 	if err != nil {
 		return err
@@ -381,7 +274,7 @@ func (t *TemplateVersionLogic) addGitFileToIgnitionConfig(mfs billy.Filesystem, 
 	return nil
 }
 
-func (t *TemplateVersionLogic) setFileInIgnition(ignitionConfig *config_latest_types.Config, filePath string, fileBytes []byte, mode int, overwrite bool) {
+func (t *TemplateVersionPopulateLogic) setFileInIgnition(ignitionConfig *config_latest_types.Config, filePath string, fileBytes []byte, mode int, overwrite bool) {
 	fileContents := "data:text/plain;charset=utf-8;base64," + base64.StdEncoding.EncodeToString(fileBytes)
 	rootUser := "root"
 	file := config_latest_types.File{
@@ -402,7 +295,7 @@ func (t *TemplateVersionLogic) setFileInIgnition(ignitionConfig *config_latest_t
 	ignitionConfig.Storage.Files = append(ignitionConfig.Storage.Files, file)
 }
 
-func (t *TemplateVersionLogic) setStatus(ctx context.Context, err error) error {
+func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, err error) error {
 	t.templateVersion.Status = &api.TemplateVersionStatus{}
 	if err != nil {
 		t.log.Errorf("failed syncing template to template version: %v", err)

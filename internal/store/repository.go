@@ -15,14 +15,14 @@ import (
 )
 
 type Repository interface {
-	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, error)
+	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
 	ListIgnoreOrg() ([]model.Repository, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	DeleteAll(ctx context.Context, orgId uuid.UUID, callback RepositoryStoreAllDeletedCallback) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
 	GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error
 	UpdateStatusIgnoreOrg(repository *model.Repository) error
 	InitialMigration() error
 }
@@ -31,6 +31,9 @@ type RepositoryStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
 }
+
+type RepositoryStoreCallback func(*model.Repository)
+type RepositoryStoreAllDeletedCallback func(uuid.UUID)
 
 // Make sure we conform to Repository interface
 var _ Repository = (*RepositoryStore)(nil)
@@ -43,7 +46,7 @@ func (s *RepositoryStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.Repository{})
 }
 
-func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
+func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
@@ -52,6 +55,9 @@ func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource 
 	result := s.db.Create(repository)
 
 	apiRepository := repository.ToApiResource()
+	if result.Error == nil {
+		callback(repository)
+	}
 	return &apiRepository, flterrors.ErrorFromGormError(result.Error)
 }
 
@@ -108,9 +114,12 @@ func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 	return repositories, nil
 }
 
-func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
+func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback RepositoryStoreAllDeletedCallback) error {
 	condition := model.Repository{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+	if result.Error == nil {
+		callback(orgId)
+	}
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
@@ -134,7 +143,7 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	return &repository, nil
 }
 
-func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, bool, error) {
+func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error) {
 	if resource == nil {
 		return nil, false, flterrors.ErrResourceIsNil
 	}
@@ -162,6 +171,9 @@ func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedRepository)
 
 	updatedResource := updatedRepository.ToApiResource()
+	if result.Error == nil {
+		callback(repository)
+	}
 	return &updatedResource, created, flterrors.ErrorFromGormError(result.Error)
 }
 
@@ -175,13 +187,28 @@ func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) erro
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
-func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	condition := model.Repository{
-		Resource: model.Resource{OrgID: orgId, Name: name},
-	}
-	result := s.db.Unscoped().Delete(&condition)
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error {
+	var existingRecord model.Repository
+	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord = model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := innerTx.First(&existingRecord)
+		if result.Error != nil {
+			return flterrors.ErrorFromGormError(result.Error)
+		}
+
+		if err := innerTx.Unscoped().Delete(&existingRecord).Error; err != nil {
+			return flterrors.ErrorFromGormError(err)
+		}
 		return nil
+	})
+
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil
+		}
+		return err
 	}
-	return flterrors.ErrorFromGormError(result.Error)
+
+	callback(&existingRecord)
+	return nil
 }

@@ -43,7 +43,7 @@ func FleetSelectorMatching(taskManager TaskManager) {
 		case <-taskManager.ctx.Done():
 			taskManager.log.Info("Received ctx.Done(), stopping")
 			return
-		case resourceRef := <-taskManager.channels[ChannelFleetSelectorMatching]:
+		case resourceRef := <-taskManager.channels[ChannelFleetSelectorMatch]:
 			requestID := reqid.NextRequestID()
 			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
 			log := log.WithReqIDFromCtx(ctx, taskManager.log)
@@ -58,17 +58,17 @@ func FleetSelectorMatching(taskManager TaskManager) {
 			var err error
 
 			switch {
-			case resourceRef.Op == FleetSelectorOpUpdate && resourceRef.Kind == model.FleetKind:
+			case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.FleetKind:
 				err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
-			case resourceRef.Op == FleetSelectorOpUpdateOverlap && resourceRef.Kind == model.FleetKind:
+			case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.FleetKind:
 				err = logic.HandleOrgwideUpdate(ctx)
-			case resourceRef.Op == FleetSelectorOpDeleteAll && resourceRef.Kind == model.FleetKind:
+			case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.FleetKind:
 				err = logic.HandleDeleteAllFleets(ctx)
-			case resourceRef.Op == FleetSelectorOpUpdate && resourceRef.Kind == model.DeviceKind:
+			case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.DeviceKind:
 				err = logic.CompareFleetsAndSetDeviceOwner(ctx)
-			case resourceRef.Op == FleetSelectorOpUpdateOverlap && resourceRef.Kind == model.DeviceKind:
+			case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.DeviceKind:
 				err = logic.HandleOrgwideUpdate(ctx)
-			case resourceRef.Op == FleetSelectorOpDeleteAll && resourceRef.Kind == model.DeviceKind:
+			case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.DeviceKind:
 				err = logic.HandleDeleteAllDevices(ctx)
 			default:
 				err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)

@@ -64,7 +64,9 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	fleet.Generation = util.Int64ToPtr(1)
 	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
 	result := s.db.Create(fleet)
-	callback(nil, fleet)
+	if result.Error == nil {
+		callback(nil, fleet)
+	}
 	return resource, flterrors.ErrorFromGormError(result.Error)
 }
 
