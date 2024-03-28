@@ -89,7 +89,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}()
 
 	fetchSpecInterval := 1 * time.Second
-	statusUpdateInterval := 1 * time.Second
+	statusUpdateInterval := 2 * time.Second
 
 	cfg := agent.NewDefault()
 	// TODO: remove the cert/key modifications from default, and start storing
