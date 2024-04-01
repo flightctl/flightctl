@@ -147,6 +147,7 @@ func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
 		// TODO: this is a bit of a hack
 		return true, ErrNoContent
 	}
+
 	if resp != nil {
 		*rendered = *resp
 		return true, nil
