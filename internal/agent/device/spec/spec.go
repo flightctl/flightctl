@@ -20,6 +20,8 @@ const (
 	CurrentFile = "current-spec.json"
 	// name of the file which stores the desired device spec
 	DesiredFile = "desired-spec.json"
+	// passing an empty string to the management API will return the latest rendered spec
+	EmptyTemplateVersion = ""
 )
 
 var (
@@ -78,7 +80,7 @@ func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec,
 		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, err
 	}
 
-	desired, skipSync, err := s.getDesiredRenderedSpec(ctx, current.Owner, current.TemplateVersion)
+	desired, skipSync, err := s.getDesiredRenderedSpec(ctx, current.Owner, EmptyTemplateVersion)
 	if err != nil {
 		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("get rendered spec: %w", err)
 	}
