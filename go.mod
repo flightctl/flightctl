@@ -12,7 +12,7 @@ require (
 	github.com/go-openapi/swag v0.23.0
 	github.com/google/cadvisor v0.49.0
 	github.com/google/go-tpm v0.9.0
-	github.com/google/go-tpm-tools v0.4.3
+	github.com/google/go-tpm-tools v0.4.4
 	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
