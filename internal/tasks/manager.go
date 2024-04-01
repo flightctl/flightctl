@@ -78,7 +78,7 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 func (t TaskManager) Start() {
 	repoTester := repotester.NewRepoTester(t.log, t.store)
 	repoTesterThread := thread.New(
-		t.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepositories)
+		t.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalSecond(2), repoTester.TestRepositories)
 	repoTesterThread.Start()
 
 	go FleetRollouts(t)
@@ -87,7 +87,7 @@ func (t TaskManager) Start() {
 
 	resourceSync := NewResourceSync(t)
 	resourceSyncThread := thread.New(
-		t.log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalMinute(2), resourceSync.Poll)
+		t.log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalSecond(2), resourceSync.Poll)
 	resourceSyncThread.Start()
 
 	t.threads[0] = repoTesterThread
@@ -204,8 +204,8 @@ func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.De
 	}
 }
 
-func threadIntervalMinute(min float64) time.Duration {
-	return time.Duration(min * float64(time.Minute))
+func threadIntervalSecond(min float64) time.Duration {
+	return time.Duration(min * float64(time.Second))
 }
 
 func (t TaskManager) TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion) {
