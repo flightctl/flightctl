@@ -195,7 +195,6 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	}
 }
 
-
 // GetRenderedDeviceSpec returns the rendered device spec for the given device
 // name. If the expectation is to receive the latest rendered spec the last
 // known template version param should be nil.
