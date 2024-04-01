@@ -76,8 +76,8 @@ github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da h1:oI5xCqsCo564l
 github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da/go.mod h1:cIg4eruTrX1D+g88fzRXU5OdNfaM+9IcxsU14FzY7Hc=
 github.com/golang/protobuf v1.5.3 h1:KhyjKVUg7Usr/dYsdSqoFveMYd5ko72D+zANwlG1mmg=
 github.com/golang/protobuf v1.5.3/go.mod h1:XVQd3VNwM+JqD3oG2Ue2ip4fOMUkwXdXDdiuN0vRsmY=
-github.com/google/cadvisor v0.49.0 h1:1PYeiORXmcFYi609M4Qvq5IzcvcVaWgYxDt78uH8jYA=
-github.com/google/cadvisor v0.49.0/go.mod h1:s6Fqwb2KiWG6leCegVhw4KW40tf9f7m+SF1aXiE8Wsk=
+github.com/google/cadvisor v0.49.1 h1:9M++63nWvdq6Oci6wUDuAfQNTZpuz1ZObln0Bhs9xN0=
+github.com/google/cadvisor v0.49.1/go.mod h1:s6Fqwb2KiWG6leCegVhw4KW40tf9f7m+SF1aXiE8Wsk=
 github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
