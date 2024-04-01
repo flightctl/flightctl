@@ -86,6 +86,8 @@ func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, device
 // and the response code. If the server returns a 200, the rendered device spec
 // is returned. If the server returns a 204, the rendered device spec is nil,
 // and the response code is returned which should be evaluated but the caller.
+// If the caller is only interested in the most recent rendered device spec, do not
+// pass a params argument for the last known templateVersion.
 func (m *Management) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
 	start := time.Now()
 	resp, err := m.client.GetRenderedDeviceSpecWithResponse(ctx, name, params, rcb...)
