@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/sirupsen/logrus"
-	"k8s.io/klog/v2"
 )
 
 var _ Manager = (*StatusManager)(nil)
@@ -82,7 +81,7 @@ func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.De
 	for _, exporter := range m.exporters {
 		err := exporter.Export(ctx, &deviceStatus)
 		if err != nil {
-			klog.Errorf("failed getting status from exporter: %v", err)
+			m.log.Errorf("failed getting status from exporter: %v", err)
 			continue
 		}
 	}

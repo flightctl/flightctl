@@ -3,7 +3,6 @@ package util
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -183,16 +182,6 @@ func GetResourceOwner(owner *string) (string, string, error) {
 	}
 
 	return parts[0], parts[1], nil
-}
-
-// CreateRandomJitterDuration creates a random jitter duration in the range [0, max) * duration
-// max must be greater than 0
-func CreateRandomJitterDuration(max int64, duration time.Duration) time.Duration {
-	// Generate a random number in the range [0, max)
-	// #nosec G404
-	n := rand.Int63n(max)
-	jitteredDuration := duration * time.Duration(n)
-	return jitteredDuration
 }
 
 func LabelsMatchLabelSelector(labels map[string]string, labelSelector map[string]string) bool {
