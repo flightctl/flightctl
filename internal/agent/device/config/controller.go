@@ -6,7 +6,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/sirupsen/logrus"
-	"k8s.io/klog/v2"
 )
 
 // Config controller is responsible for ensuring the device configuration is reconciled
@@ -31,15 +30,11 @@ func NewController(
 }
 
 func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
-	klog.V(4).Infof("%s syncing device configuration", c.logPrefix)
-	defer klog.V(4).Infof("%s finished syncing device configuration", c.logPrefix)
+	c.log.Debugf("%s syncing device configuration", c.logPrefix)
+	defer c.log.Debugf("%s finished syncing device configuration", c.logPrefix)
 
-	return c.ensureConfig(desired)
-}
-
-func (c *Controller) ensureConfig(desired *v1alpha1.RenderedDeviceSpec) error {
 	if desired.Config == nil {
-		klog.V(4).Infof("%s device config is nil", c.logPrefix)
+		c.log.Debugf("%s device config is nil", c.logPrefix)
 		return nil
 	}
 

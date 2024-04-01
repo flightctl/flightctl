@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/sirupsen/logrus"
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -40,13 +39,13 @@ func NewOSImageController(
 }
 
 func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	klog.V(4).Infof("%s syncing device image", c.logPrefix)
-	defer klog.V(4).Infof("%s finished syncing device image", c.logPrefix)
+	c.log.Debugf("%s syncing device image", c.logPrefix)
+	defer c.log.Debugf("%s finished syncing device image", c.logPrefix)
 
 	err := c.ensureImage(ctx, desired)
 	if err != nil {
 		if updateErr := c.statusManager.UpdateConditionError(ctx, OsImageDegradedReason, err); updateErr != nil {
-			klog.Errorf("Failed to update condition: %v", updateErr)
+			c.log.Errorf("Failed to update condition: %v", updateErr)
 		}
 		return err
 	}
@@ -56,7 +55,7 @@ func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 
 func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
 	if desired.Os == nil {
-		klog.V(4).Infof("%s device os image is nil", c.logPrefix)
+		c.log.Debugf("%s device os image is nil", c.logPrefix)
 		return nil
 	}
 
@@ -67,7 +66,7 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 
 	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
 	if container.IsOsImageReconciled(host, desired) {
-		klog.V(4).Infof("Host is reconciled to os image %s", desired.Os.Image)
+		c.log.Debugf("Host is reconciled to os image %s", desired.Os.Image)
 		return nil
 	}
 
