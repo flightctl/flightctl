@@ -98,7 +98,7 @@ func (m *Manager) getDesiredRenderedSpec(ctx context.Context, owner, templateVer
 		m.log.Warningf("%sFailed to get rendered device spec after retry: %v", m.logPrefix, err)
 	} else {
 		// write to disk
-		m.log.Infof("%swriting desired rendered spec to disk", m.logPrefix)
+		m.log.Infof("%swriting desired rendered spec to disk with template version: %s", m.logPrefix, desired.TemplateVersion)
 		if err := WriteRenderedSpecToFile(m.deviceWriter, &desired, m.desiredRenderedFilePath); err != nil {
 			return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("write rendered spec to disk: %w", err)
 		}
@@ -270,9 +270,7 @@ func WriteRenderedSpecToFile(writer *fileio.Writer, rendered *v1alpha1.RenderedD
 	if err != nil {
 		return err
 	}
-	if err := writer.WriteIgnitionFiles(
-		fileio.NewIgnFileBytes(filePath, renderedBytes, fileio.DefaultFilePermissions),
-	); err != nil {
+	if err := writer.WriteFile(filePath, renderedBytes, fileio.DefaultFilePermissions); err != nil {
 		return fmt.Errorf("write default device spec file %q: %w", filePath, err)
 	}
 	return nil
