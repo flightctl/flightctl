@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -32,6 +33,12 @@ func main() {
 		log.Fatalf("reading configuration: %v", err)
 	}
 	log.Printf("Using config: %s", cfg)
+
+	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
+	if err != nil {
+		logLvl = logrus.InfoLevel
+	}
+	log.SetLevel(logLvl)
 
 	ca, _, err := crypto.EnsureCA(certFile(signerCertName), keyFile(signerCertName), "", signerCertName, caCertValidityDays)
 	if err != nil {
