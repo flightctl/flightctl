@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,6 +36,7 @@ func TestParseConfigFile(t *testing.T) {
 	// ensure defaults
 	require.Equal(DefaultConfigDir, cfg.ConfigDir)
 	require.Equal(DefaultDataDir, cfg.DataDir)
+	require.Equal(logrus.InfoLevel.String(), cfg.LogLevel)
 }
 
 func TestParseConfigFile_NoFile(t *testing.T) {

@@ -37,6 +37,7 @@ type svcConfig struct {
 	SrvCertFile string   `json:"srvCertFile,omitempty"`
 	SrvKeyFile  string   `json:"srvKeyFile,omitempty"`
 	AltNames    []string `json:"altNames,omitempty"`
+	LogLevel    string   `json:"logLevel,omitempty"`
 }
 
 func ConfigDir() string {
@@ -69,6 +70,7 @@ func NewDefault() *Config {
 			Address:   ":3333",
 			CertStore: CertificateDir(),
 			BaseUrl:   "https://localhost:3333",
+			LogLevel:  "info",
 		},
 	}
 	return c

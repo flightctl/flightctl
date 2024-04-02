@@ -47,6 +47,12 @@ func NewAgentCommand() *agentCmd {
 		a.log.Fatalf("Error validating config: %v", err)
 	}
 
+	logLvl, err := logrus.ParseLevel(a.config.LogLevel)
+	if err != nil {
+		logLvl = logrus.InfoLevel
+	}
+	a.log.SetLevel(logLvl)
+
 	return a
 }
 
