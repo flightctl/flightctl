@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 )
@@ -74,6 +75,10 @@ type Config struct {
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
 	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
 
+	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
+	// "info", "debug" or "trace", any other will be treated as "info"
+	LogLevel string `yaml:"log-level,omitempty"`
+
 	reader *fileio.Reader
 }
 
@@ -92,6 +97,7 @@ func NewDefault() *Config {
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
 		reader:               fileio.NewReader(),
+		LogLevel:             logrus.InfoLevel.String(),
 	}
 }
 
