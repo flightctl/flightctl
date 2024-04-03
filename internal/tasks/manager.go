@@ -181,8 +181,8 @@ func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.De
 	} else if after == nil {
 		// Deleted device
 		device = before
-		labelsUpdated = false // Nothing to roll out
-		ownerUpdated = true
+		labelsUpdated = true
+		ownerUpdated = false // Nothing to roll out
 	} else {
 		device = after
 		labelsUpdated = !reflect.DeepEqual(before.Labels, after.Labels)
