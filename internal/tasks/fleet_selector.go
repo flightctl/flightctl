@@ -300,6 +300,9 @@ func (f FleetSelectorMatchingLogic) CompareFleetsAndSetDeviceOwner(ctx context.C
 
 	device, err := f.devStore.Get(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
 	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil
+		}
 		return fmt.Errorf("failed to get device: %w", err)
 	}
 
