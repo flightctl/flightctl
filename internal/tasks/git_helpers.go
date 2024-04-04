@@ -10,6 +10,9 @@ import (
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 )
 
+// a function to clone a git repo, for mockable unit testing
+type cloneGitRepoFunc func(repo *model.Repository, revision *string, depth *int) (billy.Filesystem, string, error)
+
 func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
 	storage := gitmemory.NewStorage()
 	mfs := memfs.New()

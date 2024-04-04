@@ -2,228 +2,280 @@ package tasks
 
 import (
 	"fmt"
-	"io"
+	"os"
+	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-billy/v5"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
+	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/stretchr/testify/require"
 )
 
-var repo model.Repository = model.Repository{
-	Spec: &model.JSONField[api.RepositorySpec]{
-		Data: api.RepositorySpec{
-			Repo: util.StrToPtr("https://github.com/flightctl/flightctl"),
-		},
-	},
+func TestIsValidFile_invalid(t *testing.T) {
+	require := require.New(t)
+
+	require.False(isValidFile("something"))
+	require.False(isValidFile("something.pdf"))
 }
-var _ = Describe("ResourceSync", Ordered, func() {
-	var (
-		log          *logrus.Logger
-		cfg          *config.Config
-		stores       store.Store
-		dbName       string
-		resourceSync *ResourceSync
-		//hash         string
-		memfs       billy.Filesystem
-		taskManager TaskManager
-	)
 
-	BeforeAll(func() {
-		// Clone the repo
-		fs, _, err := CloneGitRepo(&repo, nil, util.IntToPtr(1))
-		Expect(err).ToNot(HaveOccurred())
-		memfs = fs
+func TestIsValidFile_valid(t *testing.T) {
+	require := require.New(t)
 
-		err = fs.MkdirAll("/fleets", 0666)
-		Expect(err).ToNot(HaveOccurred())
+	for _, ext := range validFileExtensions {
+		require.True(isValidFile(fmt.Sprintf("file.%s", ext)))
+	}
+}
 
-		fleet1, err := fs.Open("/examples/fleet.yaml")
-		Expect(err).ToNot(HaveOccurred())
-		defer fleet1.Close()
-		fleet2, err := fs.Open("/examples/fleet-b.yaml")
-		Expect(err).ToNot(HaveOccurred())
-		defer fleet2.Close()
-		f1, err := fs.Create("/fleets/f1.yaml")
-		Expect(err).ToNot(HaveOccurred())
-		defer f1.Close()
-		f2, err := fs.Create("/fleets/f2.yaml")
-		Expect(err).ToNot(HaveOccurred())
-		defer f2.Close()
+func TestFleetDelta(t *testing.T) {
+	require := require.New(t)
 
-		_, err = io.Copy(f1, fleet1)
-		Expect(err).ToNot(HaveOccurred())
-		_, err = io.Copy(f2, fleet2)
-		Expect(err).ToNot(HaveOccurred())
-	})
+	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	ownedFleets := []api.Fleet{
+		{
+			Metadata: api.ObjectMeta{
+				Name:  util.StrToPtr("fleet-1"),
+				Owner: owner,
+			},
+		},
+		{
+			Metadata: api.ObjectMeta{
+				Name:  util.StrToPtr("fleet-2"),
+				Owner: owner,
+			},
+		},
+	}
+	newFleets := []*api.Fleet{
+		&ownedFleets[1],
+	}
 
-	BeforeEach(func() {
-		log = flightlog.InitLogs()
-		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
-		taskManager = Init(log, stores)
-		resourceSync = NewResourceSync(taskManager)
-	})
+	delta := fleetsDelta(ownedFleets, newFleets)
+	require.Len(delta, 1)
+	require.Equal(delta[0], "fleet-1")
 
-	AfterEach(func() {
-		store.DeleteTestDB(cfg, stores, dbName)
-	})
+}
+func TestParseAndValidate_already_in_sync(t *testing.T) {
+	require := require.New(t)
+	rs := testResourceSync()
+	repo := testRepo()
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-	Context("ResourceSync tests", func() {
-		It("parseAndValidate", func() {
-			rs := model.ResourceSync{
-				Resource: model.Resource{
-					Generation: util.Int64ToPtr(1),
-					Name:       *util.StrToPtr("rs"),
-				},
-				Spec: &model.JSONField[api.ResourceSyncSpec]{
-					Data: api.ResourceSyncSpec{
-						Repository: util.StrToPtr("demoRepo"),
-						Path:       util.StrToPtr("/examples"),
-					},
-				},
-			}
-			_, err := resourceSync.parseAndValidateResources(&rs, &repo)
-			// Have unsupported resources in folder
-			Expect(err).To(HaveOccurred())
+	// Patch the status so we are already in sync
+	rs.Status.Data.ObservedCommit = &gitRepoCommit
+	rs.Status.Data.ObservedGeneration = util.Int64ToPtr(1)
 
-			rs.Spec.Data.Path = util.StrToPtr("/examples/fleet.yaml")
-			resources, err := resourceSync.parseAndValidateResources(&rs, &repo)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(resources)).To(Equal(1))
-			Expect(resources[0]["kind"]).To(Equal(model.FleetKind))
-		})
-		It("Parse generic resources", func() {
-			genericResources, err := resourceSync.extractResourcesFromFile(memfs, "/examples/fleet.yaml")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(genericResources)).To(Equal(1))
-			Expect(genericResources[0]["kind"]).To(Equal(model.FleetKind))
+	// Already in sync with hash
+	rm, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
+	require.NoError(err)
+	require.Nil(rm)
+}
 
-			genericResources, err = resourceSync.extractResourcesFromDir(memfs, "/fleets")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(genericResources)).To(Equal(2))
-			Expect(genericResources[0]["kind"]).To(Equal(model.FleetKind))
+func TestParseAndValidate_no_files(t *testing.T) {
+	require := require.New(t)
+	rs := testResourceSync()
+	repo := testRepo()
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-			// Dir contains fleets and other resources
-			_, err = resourceSync.extractResourcesFromDir(memfs, "/examples/")
-			Expect(err).To(HaveOccurred())
+	// Empty folder
+	_, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
+	require.Error(err)
+}
 
-			// File is not a fleet
-			_, err = resourceSync.extractResourcesFromFile(memfs, "/examples/device.yaml")
-			Expect(err).To(HaveOccurred())
-		})
-		It("parse fleet", func() {
-			owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+func TestParseAndValidate_unsupportedFiles(t *testing.T) {
+	require := require.New(t)
+	rs := testResourceSync()
+	repo := testRepo()
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-			genericResources, err := resourceSync.extractResourcesFromFile(memfs, "/examples/fleet.yaml")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(genericResources)).To(Equal(1))
-			fleets, err := resourceSync.parseFleets(genericResources, owner)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(fleets)).To(Equal(1))
-			fleet := fleets[0]
-			Expect(fleet.Kind).To(Equal(model.FleetKind))
-			Expect(*fleet.Metadata.Name).To(Equal("default"))
-			Expect(fleet.Spec.Selector.MatchLabels["fleet"]).To(Equal("default"))
+	_, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
+	require.Error(err)
+}
 
-			// change the kind and parse
-			genericResources[0]["kind"] = "NotValid"
-			_, err = resourceSync.parseFleets(genericResources, owner)
-			Expect(err).To(HaveOccurred())
+func TestParseAndValidate_singleFile(t *testing.T) {
+	require := require.New(t)
+	rs := testResourceSync()
+	repo := testRepo()
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-			genericResources, err = resourceSync.extractResourcesFromDir(memfs, "/fleets")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(genericResources)).To(Equal(2))
-			fleets, err = resourceSync.parseFleets(genericResources, owner)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(fleets)).To(Equal(2))
-			Expect(fleets[0].Metadata.Owner).ToNot(BeNil())
-			Expect(*fleets[0].Metadata.Owner).To(Equal(*owner))
-		})
+	rs.Spec.Data.Path = util.StrToPtr("/examples/fleet.yaml")
+	resources, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
+	require.NoError(err)
+	require.Len(resources, 1)
+	require.Equal(resources[0]["kind"], model.FleetKind)
+}
 
-		It("delta calc", func() {
-			owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
-			ownedFleets := []api.Fleet{
-				{
-					Metadata: api.ObjectMeta{
-						Name:  util.StrToPtr("fleet-1"),
-						Owner: owner,
-					},
-				},
-				{
-					Metadata: api.ObjectMeta{
-						Name:  util.StrToPtr("fleet-2"),
-						Owner: owner,
-					},
-				},
-			}
-			newFleets := []*api.Fleet{
-				&ownedFleets[1],
-			}
+func TestExtractResourceFromFile(t *testing.T) {
+	require := require.New(t)
 
-			delta := resourceSync.fleetsDelta(ownedFleets, newFleets)
-			Expect(len(delta)).To(Equal(1))
-			Expect(delta[0]).To(Equal("fleet-1"))
-		})
-		It("Should run sync", func() {
-			rs := model.ResourceSync{
-				Resource: model.Resource{
-					Generation: util.Int64ToPtr(1),
-				},
-				Spec: &model.JSONField[api.ResourceSyncSpec]{
-					Data: api.ResourceSyncSpec{
-						Repository: util.StrToPtr("demoRepo"),
-						Path:       util.StrToPtr("/examples"),
-					},
-				},
-			}
+	memfs := memfs.New()
+	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
 
-			// no status - should run sync
-			willRunSync := shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeTrue())
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-			rs.Status = &model.JSONField[api.ResourceSyncStatus]{
-				Data: api.ResourceSyncStatus{
-					ObservedCommit:     util.StrToPtr("old"),
-					ObservedGeneration: util.Int64ToPtr(1),
-				},
-			}
-			// hash changed - should run
-			willRunSync = shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeTrue())
+	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
+	require.NoError(err)
+	require.Len(genericResources, 1)
+	require.Equal(genericResources[0]["kind"], model.FleetKind)
+}
 
-			// Observed generation not up do date - should run sync
-			rs.Status.Data.ObservedCommit = util.StrToPtr("hash")
-			rs.Status.Data.ObservedGeneration = util.Int64ToPtr(0)
-			willRunSync = shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeTrue())
+func TestExtractResourceFromDir(t *testing.T) {
+	require := require.New(t)
 
-			// Generation and commit fine, but no sync condition
-			rs.Status.Data.ObservedGeneration = util.Int64ToPtr(1)
-			willRunSync = shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeTrue())
+	memfs := memfs.New()
+	require.NoError(memfs.MkdirAll("/fleets", 0666))
+	writeCopy(memfs, "../../examples/fleet.yaml", "/fleets/fleet.yaml")
+	writeCopy(memfs, "../../examples/fleet-b.yaml", "/fleets/fleet-b.yaml")
 
-			// Sync condition false - should run sync
-			addSyncedCondition(&rs, fmt.Errorf("Some error"))
-			willRunSync = shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeTrue())
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-			// No need to run. all up to date
-			addSyncedCondition(&rs, nil)
-			willRunSync = shouldRunSync("hash", rs)
-			Expect(willRunSync).To(BeFalse())
-		})
-		It("File validation", func() {
-			Expect(isValidFile("something")).To(BeFalse())
-			Expect(isValidFile("something.pdf")).To(BeFalse())
-			for _, ext := range fileExtensions {
-				Expect(isValidFile(fmt.Sprintf("file.%s", ext))).To(BeTrue())
-			}
-		})
-	})
-})
+	genericResources, err := rsTask.extractResourcesFromDir(memfs, "/fleets/")
+	require.NoError(err)
+	require.Len(genericResources, 2)
+	require.Equal(genericResources[0]["kind"], model.FleetKind)
+	require.Equal(genericResources[1]["kind"], model.FleetKind)
+
+}
+
+func TestExtractResourceFromFile_incompatible(t *testing.T) {
+	require := require.New(t)
+
+	memfs := memfs.New()
+	writeCopy(memfs, "../../examples/device.yaml", "/device.yaml")
+
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+
+	_, err := rsTask.extractResourcesFromFile(memfs, "/device.yaml")
+	require.Error(err)
+}
+
+func TestParseFleet(t *testing.T) {
+	require := require.New(t)
+
+	memfs := memfs.New()
+	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
+
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+
+	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
+	require.NoError(err)
+	require.Len(genericResources, 1)
+
+	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	fleets, err := rsTask.parseFleets(genericResources, owner)
+	require.NoError(err)
+	require.Len(fleets, 1)
+	require.Equal(fleets[0].Kind, model.FleetKind)
+	require.Equal(*fleets[0].Metadata.Name, "default")
+	require.Equal(fleets[0].Spec.Selector.MatchLabels["fleet"], "default")
+	require.NotNil(fleets[0].Metadata.Owner)
+	require.Equal(*fleets[0].Metadata.Owner, *owner)
+}
+
+func TestParseFleet_invalid(t *testing.T) {
+	require := require.New(t)
+
+	memfs := memfs.New()
+	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
+
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+
+	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
+	require.NoError(err)
+	require.Len(genericResources, 1)
+	genericResources[0]["kind"] = "NotValid"
+
+	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	_, err = rsTask.parseFleets(genericResources, owner)
+	require.Error(err)
+}
+
+func TestParseFleet_multiple(t *testing.T) {
+	require := require.New(t)
+
+	memfs := memfs.New()
+	require.NoError(memfs.MkdirAll("/fleets", 0666))
+	writeCopy(memfs, "../../examples/fleet.yaml", "/fleets/fleet.yaml")
+	writeCopy(memfs, "../../examples/fleet-b.yaml", "/fleets/fleet-b.yaml")
+
+	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+
+	genericResources, err := rsTask.extractResourcesFromDir(memfs, "/fleets")
+	require.NoError(err)
+	require.Len(genericResources, 2)
+
+	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	fleets, err := rsTask.parseFleets(genericResources, owner)
+	require.NoError(err)
+	require.Len(fleets, 2)
+
+}
+
+func testResourceSync() model.ResourceSync {
+	return model.ResourceSync{
+		Resource: model.Resource{
+			Generation: util.Int64ToPtr(1),
+			Name:       *util.StrToPtr("rs"),
+		},
+		Spec: &model.JSONField[api.ResourceSyncSpec]{
+			Data: api.ResourceSyncSpec{
+				Repository: util.StrToPtr("demoRepo"),
+				Path:       util.StrToPtr("/examples"),
+			},
+		},
+		Status: &model.JSONField[api.ResourceSyncStatus]{
+			Data: api.ResourceSyncStatus{
+				Conditions: &[]api.Condition{},
+			},
+		},
+	}
+}
+
+func testRepo() model.Repository {
+	return model.Repository{
+		Spec: &model.JSONField[api.RepositorySpec]{
+			Data: api.RepositorySpec{
+				// This is contacting a GIT repo, we should either mock it, or move it to E2E eventually
+				// where we setup a local test git repo we could control (i.e. https://github.com/rockstorm101/git-server-docker)
+				Repo: util.StrToPtr("https://github.com/flightctl/flightctl"),
+			},
+		},
+	}
+}
+
+var gitRepoCommit = "abcdef012"
+
+func testCloneEmptyGitRepo(_ *model.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
+	memfs := memfs.New()
+
+	return memfs, gitRepoCommit, nil
+}
+
+func testCloneUnsupportedGitRepo(_ *model.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
+	memfs := memfs.New()
+	_ = memfs.MkdirAll("/examples", 0666)
+
+	writeCopy(memfs, "../../examples/fleet.yaml", "/examples/fleet.yaml")
+	writeCopy(memfs, "../../examples/enrollmentrequest.yaml", "/examples/enrollmentrequest.yaml")
+
+	return memfs, gitRepoCommit, nil
+}
+
+func writeCopy(fs billy.Filesystem, localPath, path string) {
+	f, err := fs.Create(path)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = f.Write(data)
+	if err != nil {
+		panic(err)
+	}
+}

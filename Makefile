@@ -5,21 +5,6 @@ ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_L
 TIMEOUT ?= 30m
 
 VERBOSE ?= false
-REPORTS ?= $(ROOT_DIR)/reports
-
-GO_TEST_FORMAT = pkgname
-GO_TESTING_FLAGS= -count=1 -race -coverprofile=$(REPORTS)/coverage.out $(GO_BUILD_FLAGS)
-GO_UNITTEST_DIRS = ./internal/...
-GO_INTEGRATIONTEST_DIRS = ./test/integration/...
-GO_UNITTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)
-GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_INTEGRATIONTEST_DIRS)
-ifeq ($(VERBOSE), true)
-	GO_TEST_FORMAT=standard-verbose
-	GO_UNITTEST_FLAGS += -v
-	GO_INTEGRATIONTEST_FLAGS += -v
-endif
-
-GO_TEST_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
 
 .EXPORT_ALL_VARIABLES:
 
@@ -31,9 +16,11 @@ help:
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
 	@echo "    build:           run all builds"
+	@echo "    integration-test: run integration tests"
 	@echo "    unit-test:       run unit tests"
+	@echo "    test:            run all tests"
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
-	@echo "    deploy-db:       deploy only the database as a pod in kind"
+	@echo "    deploy-db:       deploy only the database as a container, for testing"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
@@ -110,38 +97,6 @@ clean: clean-agent-vm
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
 
-_integration_test: $(REPORTS)
-	gotestsum $(GO_TEST_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
-	$(MAKE) _post_unit_test
-
-_unit_test: $(REPORTS)
-	gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _post_unit_test && /bin/false)
-	$(MAKE) _post_unit_test
-
-_post_unit_test: $(REPORTS)
-	@for name in `find '$(ROOT_DIR)' -name 'junit*.xml' -type f -not -path '$(REPORTS)/*'`; do \
-		mv -f $$name $(REPORTS)/junit_unit_$$(basename $$(dirname $$name)).xml; \
-	done
-
-run-unit-test:
-	SKIP_UT_DB=1 $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./...))"
-
-run-integration-test:
-	SKIP_UT_DB=1 $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./...))"
-
-unit-test: deploy-db run-unit-test kill-db
-
-integration-test: deploy-db run-integration-test kill-db
-
-view-coverage: $(REPORTS)/coverage.out
-	go tool cover -html=$(REPORTS)/coverage.out
-
-$(REPORTS):
-	-mkdir -p $(REPORTS)
-
-$(REPORTS)/coverage.out:
-	unit-test
-
 .PHONY: tools flightctl-server-container
 tools: $(GOBIN)/golangci-lint
 
@@ -151,3 +106,4 @@ $(GOBIN)/golangci-lint:
 # include the deployment targets
 include deploy/deploy.mk
 include deploy/agent-vm.mk
+include test/test.mk
