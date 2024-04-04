@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks/repotester"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -22,10 +23,10 @@ func TestStore(t *testing.T) {
 	RunSpecs(t, "RepoTester Suite")
 }
 
-type UnitTestRepoTester struct {
+type MockRepoTester struct {
 }
 
-func (r *UnitTestRepoTester) testAccess(repository *model.Repository) error {
+func (r *MockRepoTester) TestAccess(repository *model.Repository) error {
 	if repository.Labels[0] == "status=OK" {
 		return nil
 	}
@@ -50,13 +51,13 @@ func createRepository(ctx context.Context, repostore store.Repository, orgId uui
 
 var _ = Describe("RepoTester", func() {
 	var (
-		log        *logrus.Logger
-		ctx        context.Context
-		orgId      uuid.UUID
-		stores     store.Store
-		cfg        *config.Config
-		dbName     string
-		repotester *RepoTester
+		log       *logrus.Logger
+		ctx       context.Context
+		orgId     uuid.UUID
+		stores    store.Store
+		cfg       *config.Config
+		dbName    string
+		repotestr *repotester.RepoTester
 	)
 
 	BeforeEach(func() {
@@ -64,38 +65,40 @@ var _ = Describe("RepoTester", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
-		repotester = NewRepoTester(log, stores)
-		repotester.typeSpecificRepoTester = &UnitTestRepoTester{}
+		repotestr = repotester.NewRepoTester(log, stores)
+		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
 	})
 
 	AfterEach(func() {
 		store.DeleteTestDB(cfg, stores, dbName)
 	})
 
-	Context("RepoTester", func() {
-		It("Set conditions", func() {
-			err := createRepository(ctx, repotester.repoStore, orgId, "nil-to-ok", &map[string]string{"status": "OK"})
+	Context("Conditions", func() {
+		It("should work when setting", func() {
+			err := createRepository(ctx, stores.Repository(), orgId, "nil-to-ok", &map[string]string{"status": "OK"})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = createRepository(ctx, repotester.repoStore, orgId, "ok-to-ok", &map[string]string{"status": "OK"})
+			err = createRepository(ctx, stores.Repository(), orgId, "ok-to-ok", &map[string]string{"status": "OK"})
 			Expect(err).ToNot(HaveOccurred())
 			repo, err := stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
+
 			repoModel := model.NewRepositoryFromApiResource(repo)
-			err = repotester.setAccessCondition(log, *repoModel, nil)
+			err = repotestr.SetAccessCondition(*repoModel, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = createRepository(ctx, repotester.repoStore, orgId, "ok-to-err", &map[string]string{"status": "fail"})
+			err = createRepository(ctx, stores.Repository(), orgId, "ok-to-err", &map[string]string{"status": "fail"})
 			Expect(err).ToNot(HaveOccurred())
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
+
 			repoModel = model.NewRepositoryFromApiResource(repo)
-			err = repotester.setAccessCondition(log, *repoModel, nil)
+			err = repotestr.SetAccessCondition(*repoModel, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			repotester.TestRepositories()
+			repotestr.TestRepositories()
 
-			repo, err = repotester.repoStore.Get(ctx, orgId, "nil-to-ok")
+			repo, err = stores.Repository().Get(ctx, orgId, "nil-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
@@ -104,7 +107,7 @@ var _ = Describe("RepoTester", func() {
 			Expect(cond.Status).To(Equal(api.ConditionStatusTrue))
 			Expect(cond.LastTransitionTime).ToNot(BeNil())
 
-			repo, err = repotester.repoStore.Get(ctx, orgId, "ok-to-ok")
+			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
@@ -113,7 +116,7 @@ var _ = Describe("RepoTester", func() {
 			Expect(cond.Status).To(Equal(api.ConditionStatusTrue))
 			Expect(cond.LastTransitionTime).ToNot(BeNil())
 
-			repo, err = repotester.repoStore.Get(ctx, orgId, "ok-to-err")
+			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(len(*(repo.Status.Conditions))).To(Equal(1))

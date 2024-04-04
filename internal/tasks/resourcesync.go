@@ -29,7 +29,7 @@ type ResourceSync struct {
 
 type genericResourceMap map[string]interface{}
 
-var fileExtensions = []string{"json", "yaml", "yml"}
+var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{model.FleetKind}
 
 func NewResourceSync(taskManager TaskManager) *ResourceSync {
@@ -66,11 +66,11 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	repo, err := r.store.Repository().GetInternal(ctx, rs.OrgID, *reponame)
 	if err != nil {
 		// Failed to fetch Repository resource
-		addRepoNotFoundCondition(rs, err)
+		rs.AddRepoNotFoundCondition(err)
 		return err
 	}
-	addRepoNotFoundCondition(rs, nil)
-	resources, err := r.parseAndValidateResources(rs, repo)
+	rs.AddRepoNotFoundCondition(nil)
+	resources, err := r.parseAndValidateResources(rs, repo, CloneGitRepo)
 	if err != nil {
 		log.Errorf("resourcesync/%s: parsing failed. error: %s", rs.Name, err.Error())
 		return err
@@ -85,10 +85,10 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	if err != nil {
 		err := fmt.Errorf("resourcesync/%s: error: %w", rs.Name, err)
 		log.Errorf("%e", err)
-		addResourceParsedCondition(rs, err)
+		rs.AddResourceParsedCondition(err)
 		return err
 	}
-	addResourceParsedCondition(rs, nil)
+	rs.AddResourceParsedCondition(nil)
 
 	fleetsPreOwned := make([]api.Fleet, 0)
 
@@ -114,7 +114,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		listParams.Continue = cont
 	}
 
-	fleetsToRemove := r.fleetsDelta(fleetsPreOwned, fleets)
+	fleetsToRemove := fleetsDelta(fleetsPreOwned, fleets)
 
 	r.log.Infof("resourcesync/%s: applying #%d fleets ", rs.Name, len(fleets))
 	err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, r.taskManager.FleetUpdatedCallback, fleets...)
@@ -130,7 +130,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		}
 
 	}
-	addSyncedCondition(rs, err)
+	rs.AddSyncedCondition(err)
 	if err != nil {
 		log.Errorf("resourcesync/%s: failed to apply resource. error: %s", rs.Name, err.Error())
 		return err
@@ -141,7 +141,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 }
 
 // Returns a list of names that are no longer present
-func (r *ResourceSync) fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
+func fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
 	dfleets := make([]string, 0)
 	for _, ownedFleet := range owned {
 		found := false
@@ -160,34 +160,34 @@ func (r *ResourceSync) fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []s
 	return dfleets
 }
 
-func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *model.Repository) ([]genericResourceMap, error) {
+func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *model.Repository, gitCloneRepo cloneGitRepoFunc) ([]genericResourceMap, error) {
 	path := *rs.Spec.Data.Path
 	revision := rs.Spec.Data.TargetRevision
-	mfs, hash, err := CloneGitRepo(repo, revision, util.IntToPtr(1))
+	mfs, hash, err := gitCloneRepo(repo, revision, util.IntToPtr(1))
 	if err != nil {
 		// Cant fetch git repo
-		addRepoAccessCondition(rs, err)
+		rs.AddRepoAccessCondition(err)
 		return nil, err
 	}
-	addRepoAccessCondition(rs, nil)
+	rs.AddRepoAccessCondition(nil)
 
-	if !shouldRunSync(hash, *rs) {
+	if !rs.NeedsSyncToHash(hash) {
 		// nothing to update
 		r.log.Infof("resourcesync/%s: No new commits or path. skipping", rs.Name)
 		return nil, nil
 	}
-	addSyncedCondition(rs, fmt.Errorf("out of sync"))
+	rs.AddSyncedCondition(fmt.Errorf("out of sync"))
 
 	rs.Status.Data.ObservedCommit = util.StrToPtr(hash)
 
 	// Open files
 	fileInfo, err := mfs.Stat(path)
 	if err != nil {
-		// Cant fetch git repo
-		addPathAccessCondition(rs, err)
+		// Can't access path
+		rs.AddPathAccessCondition(err)
 		return nil, err
 	}
-	addPathAccessCondition(rs, nil)
+	rs.AddPathAccessCondition(nil)
 	var resources []genericResourceMap
 	if fileInfo.IsDir() {
 		resources, err = r.extractResourcesFromDir(mfs, path)
@@ -196,11 +196,11 @@ func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *m
 	}
 	if err != nil {
 		// Failed to parse resources
-		addResourceParsedCondition(rs, err)
+		rs.AddResourceParsedCondition(err)
 		return nil, err
 
 	}
-	addResourceParsedCondition(rs, nil)
+	rs.AddResourceParsedCondition(nil)
 	return resources, nil
 }
 
@@ -314,71 +314,16 @@ func (r *ResourceSync) updateResourceSyncStatus(rs *model.ResourceSync) {
 	}
 }
 
-func shouldRunSync(hash string, rs model.ResourceSync) bool {
-	if rs.Status == nil || rs.Status.Data.Conditions == nil {
-		return true
-	}
-
-	if api.IsStatusConditionFalse(*rs.Status.Data.Conditions, api.ResourceSyncSynced) {
-		return true
-	}
-
-	var observedGen int64 = 0
-	if rs.Status.Data.ObservedGeneration != nil {
-		observedGen = *rs.Status.Data.ObservedGeneration
-	}
-	var prevHash string = util.DefaultIfNil(rs.Status.Data.ObservedCommit, "")
-	return hash != prevHash || observedGen != *rs.Generation
-}
-
 func isValidFile(filename string) bool {
 	ext := ""
 	splits := strings.Split(filename, ".")
 	if len(splits) > 0 {
 		ext = splits[len(splits)-1]
 	}
-	for _, validExt := range fileExtensions {
+	for _, validExt := range validFileExtensions {
 		if ext == validExt {
 			return true
 		}
 	}
 	return false
-}
-
-func ensureConditionsNotNil(resSync *model.ResourceSync) {
-	if resSync.Status == nil {
-		resSync.Status = &model.JSONField[api.ResourceSyncStatus]{
-			Data: api.ResourceSyncStatus{
-				Conditions: &[]api.Condition{},
-			},
-		}
-	}
-	if resSync.Status.Data.Conditions == nil {
-		resSync.Status.Data.Conditions = &[]api.Condition{}
-	}
-}
-
-func addRepoNotFoundCondition(resSync *model.ResourceSync, err error) {
-	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncAccessible, "accessible", "repository resource not found", err)
-}
-
-func addRepoAccessCondition(resSync *model.ResourceSync, err error) {
-	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncAccessible, "accessible", "failed to clone repository", err)
-}
-
-func addPathAccessCondition(resSync *model.ResourceSync, err error) {
-	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncAccessible, "accessible", "path not found in repository", err)
-}
-
-func addResourceParsedCondition(resSync *model.ResourceSync, err error) {
-	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncResourceParsed, "Success", "Fail", err)
-}
-
-func addSyncedCondition(resSync *model.ResourceSync, err error) {
-	ensureConditionsNotNil(resSync)
-	api.SetStatusConditionByError(resSync.Status.Data.Conditions, api.ResourceSyncSynced, "Success", "Fail", err)
 }
