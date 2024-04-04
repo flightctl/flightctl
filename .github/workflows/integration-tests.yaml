@@ -23,7 +23,7 @@ jobs:
           setup_podman4: yes
 
       - name: Running Integration tests
-        run: make integration-test
+        run: make integration-test VERBOSE=true
 
 
 

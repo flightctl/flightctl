@@ -23,14 +23,14 @@ type API interface {
 type RepoTester struct {
 	log                    logrus.FieldLogger
 	repoStore              store.Repository
-	typeSpecificRepoTester TypeSpecificRepoTester
+	TypeSpecificRepoTester TypeSpecificRepoTester
 }
 
 func NewRepoTester(log logrus.FieldLogger, store store.Store) *RepoTester {
 	return &RepoTester{
 		log:                    log,
 		repoStore:              store.Repository(),
-		typeSpecificRepoTester: &GitRepoTester{},
+		TypeSpecificRepoTester: &GitRepoTester{},
 	}
 }
 
@@ -50,9 +50,9 @@ func (r *RepoTester) TestRepositories() {
 
 	for i := range repositories {
 		repository := repositories[i]
-		accessErr := r.typeSpecificRepoTester.testAccess(&repository)
+		accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
 
-		err := r.setAccessCondition(log, repository, accessErr)
+		err := r.SetAccessCondition(repository, accessErr)
 		if err != nil {
 			log.Errorf("Failed to update repository status for %s: %v", repository.Name, err)
 		}
@@ -60,13 +60,13 @@ func (r *RepoTester) TestRepositories() {
 }
 
 type TypeSpecificRepoTester interface {
-	testAccess(repository *model.Repository) error
+	TestAccess(repository *model.Repository) error
 }
 
 type GitRepoTester struct {
 }
 
-func (r *GitRepoTester) testAccess(repository *model.Repository) error {
+func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
 	remote := git.NewRemote(memory.NewStorage(), &config.RemoteConfig{
 		Name:  repository.Name,
 		URLs:  []string{*repository.Spec.Data.Repo},
@@ -85,7 +85,7 @@ func (r *GitRepoTester) testAccess(repository *model.Repository) error {
 	return err
 }
 
-func (r *RepoTester) setAccessCondition(log logrus.FieldLogger, repository model.Repository, err error) error {
+func (r *RepoTester) SetAccessCondition(repository model.Repository, err error) error {
 	if repository.Status == nil {
 		repository.Status = model.MakeJSONField(api.RepositoryStatus{Conditions: &[]api.Condition{}})
 	}
