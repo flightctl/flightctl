@@ -1,7 +1,7 @@
 flightctl:
   db:
     namespace: flightctl-internal
-    image: quay.io/cloudservices/postgresql-rds:12-9ee2984
+    image: quay.io/sclorg/postgresql-12-c8s:latest
     imagePullPolicy: Always
     password: adminpass
     masterPassword: adminpass
