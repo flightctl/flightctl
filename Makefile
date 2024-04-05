@@ -54,7 +54,7 @@ build: bin
 
 # rebuild container only on source changes
 bin/.flightctl-server-container: bin bin/go-cache Containerfile go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
-	podman build -f Containerfile -v $(shell pwd)/bin/go-cache:/opt/app-root/src/go -t flightctl-server:latest
+	podman build -f Containerfile -v $(shell pwd)/bin/go-cache:/opt/app-root/src/go:Z -t flightctl-server:latest
 	touch bin/.flightctl-server-container
 
 flightctl-server-container: bin/.flightctl-server-container
