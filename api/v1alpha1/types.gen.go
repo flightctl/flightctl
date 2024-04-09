@@ -508,13 +508,13 @@ type ResourceSyncSpec struct {
 	// the directory should contain only resource definitions with no
 	// subdirectories. Each file should contain the definition of one or
 	// more resources.
-	Path *string `json:"path,omitempty"`
+	Path string `json:"path"`
 
 	// Repository The name of the repository resource to use as the sync source
-	Repository *string `json:"repository,omitempty"`
+	Repository string `json:"repository"`
 
 	// TargetRevision The desired revision in the repository
-	TargetRevision *string `json:"targetRevision,omitempty"`
+	TargetRevision string `json:"targetRevision"`
 }
 
 // ResourceSyncStatus ResourceSyncStatus represents information about the status of a resourcesync

@@ -314,8 +314,8 @@ func printResourceSyncsTable(w *tabwriter.Writer, response *apiclient.ListResour
 	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH")
 
 	for _, f := range response.JSON200.Items {
-		reponame := *f.Spec.Repository
-		path := *f.Spec.Path
+		reponame := f.Spec.Repository
+		path := f.Spec.Path
 		fmt.Fprintf(w, "%s\t%s\t%s\n", *f.Metadata.Name, reponame, path)
 	}
 }

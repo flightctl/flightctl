@@ -28,8 +28,8 @@ func createResourceSyncs(numResourceSyncs int, ctx context.Context, storeInst st
 				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
 			},
 			Spec: api.ResourceSyncSpec{
-				Repository: util.StrToPtr("myrepo"),
-				Path:       util.StrToPtr("my/path"),
+				Repository: "myrepo",
+				Path:       "my/path",
 			},
 		}
 
@@ -74,8 +74,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Labels: &map[string]string{"key": "rs1"},
 				},
 				Spec: api.ResourceSyncSpec{
-					Repository: util.StrToPtr("myrepo"),
-					Path:       util.StrToPtr("my/path"),
+					Repository: "myrepo",
+					Path:       "my/path",
 				},
 			}
 			resp, err := storeInst.ResourceSync().Create(context.Background(), orgId, &rs)
@@ -248,8 +248,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Name: util.StrToPtr("newresourcename"),
 				},
 				Spec: api.ResourceSyncSpec{
-					Repository: util.StrToPtr("myrepo"),
-					Path:       util.StrToPtr("my/path"),
+					Repository: "myrepo",
+					Path:       "my/path",
 				},
 				Status: nil,
 			}
@@ -258,8 +258,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPI))
 			Expect(rs.Kind).To(Equal(model.ResourceSyncKind))
-			Expect(*rs.Spec.Repository).To(Equal("myrepo"))
-			Expect(*rs.Spec.Path).To(Equal("my/path"))
+			Expect(rs.Spec.Repository).To(Equal("myrepo"))
+			Expect(rs.Spec.Path).To(Equal("my/path"))
 			Expect(rs.Status.Conditions).To(BeNil())
 		})
 
@@ -269,8 +269,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Name: util.StrToPtr("myresourcesync-1"),
 				},
 				Spec: api.ResourceSyncSpec{
-					Repository: util.StrToPtr("myotherrepo"),
-					Path:       util.StrToPtr("my/other/path"),
+					Repository: "myotherrepo",
+					Path:       "my/other/path",
 				},
 				Status: nil,
 			}
@@ -279,8 +279,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(created).To(Equal(false))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPI))
 			Expect(rs.Kind).To(Equal(model.ResourceSyncKind))
-			Expect(*rs.Spec.Repository).To(Equal("myotherrepo"))
-			Expect(*rs.Spec.Path).To(Equal("my/other/path"))
+			Expect(rs.Spec.Repository).To(Equal("myotherrepo"))
+			Expect(rs.Spec.Path).To(Equal("my/other/path"))
 			Expect(rs.Status.Conditions).To(BeNil())
 		})
 	})
