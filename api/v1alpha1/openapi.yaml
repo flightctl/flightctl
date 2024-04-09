@@ -2004,6 +2004,10 @@ components:
             the directory should contain only resource definitions with no
             subdirectories. Each file should contain the definition of one or
             more resources.
+      required: 
+      - repository
+      - targetRevision
+      - path
     ResourceSyncStatus:
       type: object
       properties:

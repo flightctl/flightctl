@@ -63,7 +63,7 @@ func (r *ResourceSync) Poll() {
 func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *model.ResourceSync) error {
 	defer r.updateResourceSyncStatus(rs)
 	reponame := rs.Spec.Data.Repository
-	repo, err := r.store.Repository().GetInternal(ctx, rs.OrgID, *reponame)
+	repo, err := r.store.Repository().GetInternal(ctx, rs.OrgID, reponame)
 	if err != nil {
 		// Failed to fetch Repository resource
 		rs.AddRepoNotFoundCondition(err)
@@ -161,9 +161,9 @@ func fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
 }
 
 func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *model.Repository, gitCloneRepo cloneGitRepoFunc) ([]genericResourceMap, error) {
-	path := *rs.Spec.Data.Path
+	path := rs.Spec.Data.Path
 	revision := rs.Spec.Data.TargetRevision
-	mfs, hash, err := gitCloneRepo(repo, revision, util.IntToPtr(1))
+	mfs, hash, err := gitCloneRepo(repo, &revision, util.IntToPtr(1))
 	if err != nil {
 		// Cant fetch git repo
 		rs.AddRepoAccessCondition(err)

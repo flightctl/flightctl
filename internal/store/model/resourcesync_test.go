@@ -67,8 +67,8 @@ func getTestRS(obsHash *string, obsGen *int64) ResourceSync {
 		},
 		Spec: &JSONField[api.ResourceSyncSpec]{
 			Data: api.ResourceSyncSpec{
-				Repository: util.StrToPtr("demoRepo"),
-				Path:       util.StrToPtr("/examples"),
+				Repository: "demoRepo",
+				Path:       "/examples",
 			},
 		},
 	}
