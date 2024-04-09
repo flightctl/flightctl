@@ -5,3 +5,4 @@ metadata:
 spec:
   repository: defaultRepo
   path: /examples/fleet.yaml
+  targetRevision: main

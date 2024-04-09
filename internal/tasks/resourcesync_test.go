@@ -99,7 +99,7 @@ func TestParseAndValidate_singleFile(t *testing.T) {
 	repo := testRepo()
 	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-	rs.Spec.Data.Path = util.StrToPtr("/examples/fleet.yaml")
+	rs.Spec.Data.Path = "/examples/fleet.yaml"
 	resources, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.NoError(err)
 	require.Len(resources, 1)
@@ -220,8 +220,8 @@ func testResourceSync() model.ResourceSync {
 		},
 		Spec: &model.JSONField[api.ResourceSyncSpec]{
 			Data: api.ResourceSyncSpec{
-				Repository: util.StrToPtr("demoRepo"),
-				Path:       util.StrToPtr("/examples"),
+				Repository: "demoRepo",
+				Path:       "/examples",
 			},
 		},
 		Status: &model.JSONField[api.ResourceSyncStatus]{
