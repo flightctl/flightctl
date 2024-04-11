@@ -9,7 +9,6 @@ GO_E2E_DIRS 			= ./test/e2e/...
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
 GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_INTEGRATIONTEST_DIRS) -coverprofile=$(REPORTS)/integration-coverage.out
-GO_E2E_FLAGS 			 = $(GO_TESTING_FLAGS) $(GO_E2E_DIRS) -coverprofile=$(REPORTS)/integration-coverage.out
 
 ifeq ($(VERBOSE), true)
 	GO_TEST_FORMAT=standard-verbose
@@ -19,7 +18,6 @@ endif
 
 GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
 GO_TEST_INTEGRATION_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_integration_test.xml $(GOTEST_PUBLISH_FLAGS)
-GO_TEST_E2E_FLAGS := 		 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_e2e_test.xml $(GOTEST_PUBLISH_FLAGS)
 
 _integration_test: $(REPORTS)
 	gotestsum $(GO_TEST_E2E_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
@@ -27,8 +25,7 @@ _integration_test: $(REPORTS)
 
 _e2e_test: $(REPORTS)
 	sudo chown $(shell whoami):$(shell whoami) -R bin/output
-	gotestsum $(GO_TEST_E2E_FLAGS) -- $(GO_E2E_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
-	$(MAKE) _collect_junit
+	ginkgo run --timeout 30m --race -vv --junit-report $(REPORTS)/junit_e2e_test.xml --github-output $(GO_E2E_DIRS)
 
 _unit_test: $(REPORTS)
 	gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)

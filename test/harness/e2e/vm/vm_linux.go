@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -91,9 +93,16 @@ func (v *VMInLibvirt) Run() error {
 	}
 
 	v.consoleOutput = &bytes.Buffer{}
+	v.consoleOutput.Grow(256 * 1024) // grow the buffer to 256kB
+
 	// VM seems to freeze if we request a console and we don't keep reading from it
 	go func() {
 		defer ginkgo.GinkgoRecover()
+		debugConsole := os.Getenv("DEBUG_VM_CONSOLE") == "1"
+		if debugConsole {
+			fmt.Println("DEBUG_VM_CONSOLE is enabled")
+		}
+
 		var buffer [256]byte
 		for {
 			n, err := v.consoleStream.Recv(buffer[:])
@@ -103,6 +112,10 @@ func (v *VMInLibvirt) Run() error {
 			v.consoleMutex.Lock()
 			v.consoleOutput.Write(buffer[:n])
 			v.consoleMutex.Unlock()
+
+			if debugConsole {
+				fmt.Print(string(buffer[:n]))
+			}
 		}
 	}()
 	return nil
@@ -110,15 +123,32 @@ func (v *VMInLibvirt) Run() error {
 }
 
 // read console output from the VM
-func (v *VMInLibvirt) ReadConsole() string {
+func (v *VMInLibvirt) readConsole() string {
+	// under some situations we will try to get output from the console
+	// but the VM had failed to start.
+	if v.consoleOutput == nil {
+		return ""
+	}
 	v.consoleMutex.Lock()
 	defer v.consoleMutex.Unlock()
-	return v.consoleOutput.String()
+	rdbuf := make([]byte, 1024)
+	str := ""
+
+	for v.consoleOutput.Len() > 0 {
+		n, err := v.consoleOutput.Read(rdbuf)
+		if err != io.EOF && err != nil {
+			logrus.Errorf("Error reading console output: %v", err)
+			return str
+		}
+		str = str + string(rdbuf[:n])
+	}
+
+	return str
 }
 
 // cummulatively read console output from the VM
 func (v *VMInLibvirt) GetConsoleOutput() string {
-	v.consoleOutputString += v.ReadConsole()
+	v.consoleOutputString += v.readConsole()
 	return v.consoleOutputString
 }
 
@@ -298,4 +328,18 @@ func (v *VMInLibvirt) IsRunning() (exists bool, err error) {
 	} else {
 		return false, nil
 	}
+}
+
+func (v *VMInLibvirt) RunAndWaitForSSH() error {
+	err := v.Run()
+	if err != nil {
+		return fmt.Errorf("failed to run VM: %w", err)
+	}
+
+	err = v.WaitForSSHToBeReady()
+	if err != nil {
+		return fmt.Errorf("waiting for SSH: %w", err)
+	}
+
+	return nil
 }

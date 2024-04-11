@@ -10,14 +10,22 @@
     <acpi></acpi>
     <apic></apic>
   </features>
-  <cpu mode="host-model"/>
+  <cpu mode='custom' check='none'>
+    <!-- this oddly specific CPU model is used because it works well with github CI and locally,
+         it limits the feature set exposure of the CPU, avoiding a kernel crash at boot when
+         secureboot is enabled -->
+    <model>Opteron_G4</model>
+  </cpu>
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
-  <os>
+  <os firmware='efi'>
     <type machine='q35'>hvm</type>
     <boot dev='hd'/>
-
+    <firmware>
+      <feature enabled='yes' name='secure-boot'/>
+      <feature enabled='yes' name='enrolled-keys'/>
+   </firmware>
   </os>
   <devices>
     <serial type='pty'>
@@ -26,7 +34,7 @@
       </target>
       <alias name='serial0'/>
     </serial>
-    <console type='pty' tty='/dev/pts/2'>
+    <console type='pty'>
       <target type='serial' port='0'/>
       <alias name='serial0'/>
     </console>

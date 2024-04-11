@@ -14,4 +14,5 @@ enrollment-endpoint: https://${IP}:3333
 enrollment-ui-endpoint: https://${IP}:8080
 spec-fetch-interval: 0m10s
 status-update-interval: 0m10s
+tpm-path: /dev/tpmrm0
 EOF

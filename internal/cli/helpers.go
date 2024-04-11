@@ -2,10 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"k8s.io/client-go/util/homedir"
+	"github.com/flightctl/flightctl/internal/client"
 )
 
 const (
@@ -30,7 +29,7 @@ var (
 )
 
 func init() {
-	defaultClientConfigFile = filepath.Join(homedir.HomeDir(), ".flightctl", "client.yaml")
+	defaultClientConfigFile = client.DefaultFlightctlClientConfigPath()
 }
 
 func parseAndValidateKindName(arg string) (string, string, error) {
