@@ -38,10 +38,10 @@ type TestVMInterface interface {
 	Delete() error
 	IsRunning() (bool, error)
 	WaitForSSHToBeReady() error
+	RunAndWaitForSSH() error
 	SSHCommand(inputArgs []string) *exec.Cmd
 	RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
 	Exists() (bool, error)
-	ReadConsole() string
 	GetConsoleOutput() string
 }
 
@@ -121,15 +121,5 @@ func StartAndWaitForSSH(params TestVM) (vm TestVMInterface, err error) {
 		return nil, fmt.Errorf("failed to create new VM: %w", err)
 	}
 
-	err = vm.Run()
-	if err != nil {
-		return nil, fmt.Errorf("failed to run VM: %w", err)
-	}
-
-	err = vm.WaitForSSHToBeReady()
-	if err != nil {
-		return nil, fmt.Errorf("waiting for SSH: %w", err)
-	}
-
-	return vm, nil
+	return vm, vm.RunAndWaitForSSH()
 }

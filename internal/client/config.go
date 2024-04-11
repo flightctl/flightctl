@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/middleware"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	certutil "k8s.io/client-go/util/cert"
+	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/yaml"
 )
 
@@ -91,6 +92,11 @@ func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+}
+
+// DefaultFlightctlClientConfigPath returns the default path to the FlightCtl client config file.
+func DefaultFlightctlClientConfigPath() string {
+	return filepath.Join(homedir.HomeDir(), ".flightctl", "client.yaml")
 }
 
 // NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
