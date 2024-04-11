@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -14,10 +15,10 @@ import (
 
 const (
 	podmanCommand          = "/usr/bin/podman"
-	podmanCommandTimeout   = 2 * time.Minute
+	podmanCommandTimeout   = 10 * time.Second
 	podmanContainerRunning = "running"
 	crioCommand            = "/usr/bin/crictl"
-	crioCommandTimeout     = 2 * time.Minute
+	crioCommandTimeout     = 10 * time.Second
 	crioContainerRunning   = "running"
 )
 
@@ -174,14 +175,18 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 }
 
 func (c *Container) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	err := c.PodmanExport(ctx, status)
-	if err != nil {
-		return fmt.Errorf("failed exporting podman status: %w", err)
+	if _, err := exec.LookPath("podman"); err == nil {
+		err := c.PodmanExport(ctx, status)
+		if err != nil {
+			return fmt.Errorf("failed exporting podman status: %w", err)
+		}
 	}
 
-	err = c.CrioExport(ctx, status)
-	if err != nil {
-		return fmt.Errorf("failed exporting crio status: %w", err)
+	if _, err := exec.LookPath("crictl"); err == nil {
+		err := c.CrioExport(ctx, status)
+		if err != nil {
+			return fmt.Errorf("failed exporting crio status: %w", err)
+		}
 	}
 
 	return nil
