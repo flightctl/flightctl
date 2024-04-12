@@ -16,9 +16,11 @@ const (
 	podmanCommand          = "/usr/bin/podman"
 	podmanCommandTimeout   = 10 * time.Second
 	podmanContainerRunning = "running"
+	PodmanEngine           = "podman"
 	crioCommand            = "/usr/bin/crictl"
 	crioCommandTimeout     = 10 * time.Second
 	crioContainerRunning   = "CONTAINER_RUNNING"
+	CrioEngine             = "crio"
 )
 
 var _ Exporter = (*Container)(nil)
@@ -90,6 +92,7 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 		deviceContainerStatus[i].Status = c.State
 		deviceContainerStatus[i].Image = c.Image
 		deviceContainerStatus[i].Id = c.Id
+		deviceContainerStatus[i].Engine = PodmanEngine
 
 		if c.State != podmanContainerRunning {
 			notRunning++
@@ -145,6 +148,7 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 		deviceContainerStatus[i].Status = c.State
 		deviceContainerStatus[i].Image = c.Image
 		deviceContainerStatus[i].Id = c.Id
+		deviceContainerStatus[i].Engine = CrioEngine
 
 		if c.State != crioContainerRunning {
 			notRunning++

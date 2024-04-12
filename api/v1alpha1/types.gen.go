@@ -73,6 +73,9 @@ type ConditionType string
 
 // ContainerStatus defines model for ContainerStatus.
 type ContainerStatus struct {
+	// Engine Engine running the container (e.g., podman, crio, etc).
+	Engine string `json:"engine"`
+
 	// Id ID of the container.
 	Id string `json:"id"`
 

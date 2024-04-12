@@ -1844,6 +1844,7 @@ components:
         - image
         - name
         - status
+        - engine
       type: object
       properties:
         name:
@@ -1858,6 +1859,9 @@ components:
         image:
           type: string
           description: Image of the container.
+        engine:
+          type: string
+          description: Engine running the container (e.g., podman, crio, etc).
     DeviceSystemdUnitStatus:
       required:
         - name
@@ -1990,7 +1994,7 @@ components:
     ResourceSyncSpec:
       type: object
       properties:
-        repository: 
+        repository:
           type: string
           description: |
             The name of the repository resource to use as the sync source
@@ -2004,7 +2008,7 @@ components:
             the directory should contain only resource definitions with no
             subdirectories. Each file should contain the definition of one or
             more resources.
-      required: 
+      required:
       - repository
       - targetRevision
       - path
