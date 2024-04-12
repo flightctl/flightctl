@@ -82,6 +82,21 @@ func (mr *MockExecuterMockRecorder) ExecuteWithContext(ctx, command any, args ..
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithContext", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithContext), varargs...)
 }
 
+// LookPath mocks base method.
+func (m *MockExecuter) LookPath(file string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LookPath", file)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LookPath indicates an expected call of LookPath.
+func (mr *MockExecuterMockRecorder) LookPath(file any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookPath", reflect.TypeOf((*MockExecuter)(nil).LookPath), file)
+}
+
 // TempFile mocks base method.
 func (m *MockExecuter) TempFile(dir, pattern string) (*os.File, error) {
 	m.ctrl.T.Helper()
