@@ -11,6 +11,7 @@ type Executer interface {
 	Execute(command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int)
 	TempFile(dir, pattern string) (f *os.File, err error)
+	LookPath(file string) (string, error)
 }
 
 type CommonExecuter struct{}
@@ -35,6 +36,10 @@ func (e *CommonExecuter) execute(cmd *exec.Cmd) (stdout string, stderr string, e
 	cmd.Stderr = &stderrBytes
 	err := cmd.Run()
 	return stdoutBytes.String(), getErrorStr(err, &stderrBytes), getExitCode(err)
+}
+
+func (e *CommonExecuter) LookPath(file string) (string, error) {
+	return exec.LookPath(file)
 }
 
 func getExitCode(err error) int {
