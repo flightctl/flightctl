@@ -27,24 +27,12 @@ jobs:
       - name: Check commit message
         run: hack/check-commits.sh
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
 
-      - name: Install dependencies
-        run: |
-          sudo apt install -y make
-          go install gotest.tools/gotestsum@latest
-          go install go.uber.org/mock/mockgen@v0.4.0
-
-      - name: Check that generated files have been updated
+      - name: Check that generated files have been updated and that go.mod is tidy
         run: |
           make generate
-          git diff --exit-code
-
-      - name: Check that go.mod is tidy
-        run: |
           go mod tidy -v
           git diff --exit-code
 

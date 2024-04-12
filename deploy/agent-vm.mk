@@ -20,13 +20,13 @@ bin/output/qcow2/disk.qcow2: hack/Containerfile.local bin/.rpm
 
 agent-image: bin/output/qcow2/disk.qcow2
 	@echo "Agent image built at bin/output/qcow2/disk.qcow2"
+	sudo chmod a+rw $(VMDISK) 2>/dev/null || true
 
 .PHONY: agent-image
 
 agent-vm: bin/output/qcow2/disk.qcow2
 	@echo "Booting Agent VM from $(VMDISK)"
 	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
-	sudo chown qemu:qemu $(VMDISK) 2>/dev/null  || true
 	sudo chown libvirt:libvirt $(VMDISK) 2>/dev/null || true
 	sudo virt-install --name $(VMNAME) \
 					  --vcpus $(VMCPUS) \
