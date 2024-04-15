@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/coreos/ignition/v2 v2.18.0
-	github.com/getkin/kin-openapi v0.123.0
+	github.com/getkin/kin-openapi v0.124.0
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-chi/chi/v5 v5.0.12
 	github.com/go-git/go-billy/v5 v5.5.0
