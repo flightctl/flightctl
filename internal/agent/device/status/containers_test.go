@@ -182,7 +182,6 @@ var _ = Describe("containers exporter", func() {
 	Context("containers controller", func() {
 		It("list podman containers", func() {
 			container.matchPatterns = []string{"myfirstname", "agreatname"}
-			// use mock lookpath to return false on crictl
 			execMock.EXPECT().LookPath("crictl").Return("", fmt.Errorf("not found"))
 			execMock.EXPECT().LookPath("podman").Return("/usr/bin/podman", nil)
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json", "--filter", "name=myfirstname", "--filter", "name=agreatname").Return(podmanListResult, "", 0)
@@ -236,6 +235,52 @@ var _ = Describe("containers exporter", func() {
 			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
 			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
 			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
+		})
+
+		It("list both podman and crio containers", func() {
+			container.matchPatterns = []string{"myfirstname", "alpine"}
+			execMock.EXPECT().LookPath("podman").Return("/usr/bin/podman", nil)
+			execMock.EXPECT().LookPath("crictl").Return("/usr/bin/crictl", nil)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json", "--filter", "name=myfirstname", "--filter", "name=alpine").Return(podmanListResult, "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/crictl", "ps", "-a", "--output", "json", "--name", "myfirstname", "--name", "alpine").Return(crioListResult, "", 0)
+			err := container.Export(context.TODO(), &deviceStatus)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(len(*deviceStatus.Containers)).To(Equal(4))
+
+			// Container 1 (podman)
+			Expect((*deviceStatus.Containers)[0].Id).To(Equal("id1"))
+			Expect((*deviceStatus.Containers)[0].Image).To(Equal("quay.io/image1:latest"))
+			Expect((*deviceStatus.Containers)[0].Name).To(Equal("myfirstname"))
+			Expect((*deviceStatus.Containers)[0].Status).To(Equal("running"))
+			Expect((*deviceStatus.Containers)[0].Engine).To(Equal("podman"))
+
+			// Container 2 (podman)
+			Expect((*deviceStatus.Containers)[1].Id).To(Equal("id2"))
+			Expect((*deviceStatus.Containers)[1].Image).To(Equal("quay.io/image2:latest"))
+			Expect((*deviceStatus.Containers)[1].Name).To(Equal("agreatname"))
+			Expect((*deviceStatus.Containers)[1].Status).To(Equal("paused"))
+			Expect((*deviceStatus.Containers)[1].Engine).To(Equal("podman"))
+
+			// Container 3 (crio)
+			Expect((*deviceStatus.Containers)[2].Id).To(Equal("id1"))
+			Expect((*deviceStatus.Containers)[2].Image).To(Equal("docker.io/library/alpine@sha256:c4a262d530f57d1b7b68b52ba8383c2e55fd1a0cb5b4f46b11eed7a2c4e143da"))
+			Expect((*deviceStatus.Containers)[2].Name).To(Equal("alpine"))
+			Expect((*deviceStatus.Containers)[2].Status).To(Equal("CONTAINER_RUNNING"))
+			Expect((*deviceStatus.Containers)[2].Engine).To(Equal("crio"))
+
+			// Container 4 (crio)
+			Expect((*deviceStatus.Containers)[3].Id).To(Equal("id2"))
+			Expect((*deviceStatus.Containers)[3].Image).To(Equal("docker.io/library/busybox@sha256:4be429a5fbb2e71ae7958bfa558bc637cf3a61baf40a708cb8fff532b39e52d0"))
+			Expect((*deviceStatus.Containers)[3].Name).To(Equal("busybox"))
+			Expect((*deviceStatus.Containers)[3].Status).To(Equal("CONTAINER_EXITED"))
+			Expect((*deviceStatus.Containers)[3].Engine).To(Equal("crio"))
+
+			Expect(*deviceStatus.Conditions).To(HaveLen(1))
+			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
+			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
+			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
+			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("2 containers not running"))
 		})
 	})
 })
