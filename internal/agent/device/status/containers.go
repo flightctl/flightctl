@@ -30,11 +30,13 @@ type Container struct {
 	exec          executer.Executer
 	mu            sync.Mutex
 	matchPatterns []string
+	notRunning    int
 }
 
 func newContainer(exec executer.Executer) *Container {
 	return &Container{
-		exec: exec,
+		exec:       exec,
+		notRunning: 0,
 	}
 }
 
@@ -81,7 +83,7 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 		return fmt.Errorf("failed unmarshalling podman containers: %s", err)
 	}
 
-	notRunning := 0
+	notRunning := c.notRunning
 	runningCondition := v1alpha1.Condition{
 		Type: v1alpha1.DeviceContainersRunning,
 	}
@@ -113,6 +115,7 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 	}
 	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
 	status.Containers = &deviceContainerStatus
+	c.notRunning = notRunning
 
 	return nil
 }
@@ -137,7 +140,7 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 		return fmt.Errorf("failed unmarshalling crio containers: %s", err)
 	}
 
-	notRunning := 0
+	notRunning := c.notRunning
 	runningCondition := v1alpha1.Condition{
 		Type: v1alpha1.DeviceContainersRunning,
 	}
@@ -174,6 +177,7 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 	} else {
 		*status.Containers = append(*status.Containers, deviceContainerStatus...)
 	}
+	c.notRunning = notRunning
 
 	return nil
 }
