@@ -1,6 +1,15 @@
 FROM registry.access.redhat.com/ubi9/go-toolset:1.20 as build
 WORKDIR /app
-COPY ./ .
+COPY ./api api
+COPY ./cmd cmd
+COPY ./deploy deploy
+COPY ./hack hack
+COPY ./internal internal
+COPY ./go.* .
+COPY ./pkg pkg
+COPY ./test test
+COPY ./Makefile .
+
 USER 0
 RUN make build
 
