@@ -2,12 +2,17 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/client"
+)
+
+var (
+	ErrEmptyResponse = errors.New("empty response")
 )
 
 func NewManagement(
