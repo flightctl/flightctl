@@ -14,21 +14,44 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 )
 
+const (
+	appName = "flightctl"
+)
+
+func defaultConfigFilePath() string {
+	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName, "agent.yaml")
+}
+
+func defaultDataDir() string {
+	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName, "data")
+}
+
 func main() {
 	log := flightlog.InitLogs()
-	managementEndpoint := flag.String("management-endpoint", "https://localhost:3333", "device server URL")
-	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
-	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
+	configFile := flag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
+	dataDir := flag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
-	specFetchInterval := flag.Duration("spec-fetch-interval", time.Duration(agent.DefaultSpecFetchInterval), "Duration between two reads of the remote device spec")
-	statusUpdateInterval := flag.Duration("status-update-interval", time.Duration(agent.DefaultStatusUpdateInterval), "Duration between two status updates")
-	tpmPath := flag.String("tpm", "", "Path to TPM device")
+	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+		fmt.Println("This program starts a devicesimulator with the specified configuration. Below are the available flags:")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
+
+	agentConfigTemplate := agent.NewDefault()
+	agentConfigTemplate.ConfigDir = filepath.Dir(*configFile)
+	if err := agentConfigTemplate.ParseConfigFile(*configFile); err != nil {
+		log.Fatalf("Error parsing config: %v", err)
+	}
+	if err := agentConfigTemplate.Validate(); err != nil {
+		log.Fatalf("Error validating config: %v", err)
+	}
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
@@ -45,35 +68,43 @@ func main() {
 	agents := make([]*agent.Agent, *numDevices)
 	for i := 0; i < *numDevices; i++ {
 		agentName := fmt.Sprintf("device-%04d", i)
-		agentDir := filepath.Join(*certDir, agentName)
+		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
+		agentDir := filepath.Join(*dataDir, agentName)
 		for _, filename := range []string{"ca.crt", "client-enrollment.crt", "client-enrollment.key"} {
-			if err := copyFile(filepath.Join(*certDir, filename), filepath.Join(agentDir, filename)); err != nil {
+			if err := copyFile(filepath.Join(certDir, filename), filepath.Join(agentDir, filename)); err != nil {
 				log.Fatalf("copying %s: %v", filename, err)
 			}
 		}
-		enrollmentUIEndpoint := ""
 
-		cfg := agent.Config{
-			ManagementEndpoint:   *managementEndpoint,
-			EnrollmentEndpoint:   *managementEndpoint,
-			EnrollmentUIEndpoint: enrollmentUIEndpoint,
-			DataDir:              agentDir,
-			Key:                  filepath.Join(agentDir, agent.KeyFile),
-			Cacert:               filepath.Join(agentDir, agent.CacertFile),
-			GeneratedCert:        filepath.Join(agentDir, agent.GeneratedCertFile),
-			EnrollmentCertFile:   filepath.Join(agentDir, agent.EnrollmentCertFile),
-			EnrollmentKeyFile:    filepath.Join(agentDir, agent.EnrollmentKeyFile),
-			TPMPath:              *tpmPath,
-			SpecFetchInterval:    util.Duration(*specFetchInterval),
-			StatusUpdateInterval: util.Duration(*statusUpdateInterval),
+		cfg := agent.NewDefault()
+		cfg.ConfigDir = agentConfigTemplate.ConfigDir
+		cfg.DataDir = agentDir
+		cfg.EnrollmentService = agentConfigTemplate.EnrollmentService
+		cfg.ManagementService = agent.ManagementService{
+			Config: client.Config{
+				Service: agentConfigTemplate.ManagementService.Config.Service,
+				AuthInfo: client.AuthInfo{
+					ClientCertificate:     filepath.Join(agentDir, agent.GeneratedCertFile),
+					ClientCertificateData: []byte{},
+					ClientKey:             filepath.Join(agentDir, agent.KeyFile),
+					ClientKeyData:         []byte{},
+				},
+			},
 		}
+		cfg.SpecFetchInterval = agentConfigTemplate.SpecFetchInterval
+		cfg.StatusUpdateInterval = agentConfigTemplate.StatusUpdateInterval
+		cfg.TPMPath = ""
+		cfg.LogPrefix = agentName
 		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
+		if err := cfg.Complete(); err != nil {
+			log.Fatalf("agent config %d: %v", i, err)
+		}
 		if err := cfg.Validate(); err != nil {
 			log.Fatalf("agent config %d: %v", i, err)
 		}
 
 		log := flightlog.NewPrefixLogger(agentName)
-		agents[i] = agent.New(log, &cfg)
+		agents[i] = agent.New(log, cfg)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,7 +125,7 @@ func main() {
 			defer wg.Done()
 
 			// stagger the start of each agent
-			time.Sleep(time.Duration(rand.Float64() * float64(*statusUpdateInterval))) //nolint:gosec
+			time.Sleep(time.Duration(rand.Float64() * float64(agentConfigTemplate.StatusUpdateInterval))) //nolint:gosec
 
 			activeAgents.Inc()
 			err := agents[i].Run(ctx)

@@ -73,13 +73,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	desiredSpecFilePath := filepath.Join(a.config.DataDir, spec.DesiredFile)
 
 	// ensure the agent key exists if not create it.
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReader.PathFor(a.config.Key))
+	if !a.config.ManagementService.Config.HasCredentials() {
+		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, DefaultCertsDirName, GeneratedCertFile)
+		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, DefaultCertsDirName, KeyFile)
+	}
+	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReader.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
 	if err != nil {
 		return err
 	}
 
 	// create enrollment client
-	enrollmentClient, err := newEnrollmentClient(deviceReader, a.config)
+	enrollmentClient, err := newEnrollmentClient(a.config)
 	if err != nil {
 		return err
 	}
@@ -136,11 +140,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		statusManager,
 		enrollmentClient,
-		a.config.ManagementEndpoint,
-		a.config.EnrollmentUIEndpoint,
-		a.config.Cacert,
-		a.config.Key,
-		a.config.GeneratedCert,
+		a.config.EnrollmentService.EnrollmentUIEndpoint,
+		&a.config.ManagementService.Config,
 		backoff,
 		currentSpecFilePath,
 		desiredSpecFilePath,
@@ -153,7 +154,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create the management client
-	managementClient, err := newManagementClient(deviceReader, a.config)
+	managementClient, err := newManagementClient(a.config)
 	if err != nil {
 		return err
 	}
@@ -201,19 +202,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(reader *fileio.Reader, cfg *Config) (*client.Enrollment, error) {
-	httpClient, err := client.NewWithResponses(cfg.EnrollmentEndpoint,
-		reader.PathFor(cfg.Cacert),
-		reader.PathFor(cfg.EnrollmentCertFile),
-		reader.PathFor(cfg.EnrollmentKeyFile))
+func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
+	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err
 	}
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newManagementClient(reader *fileio.Reader, cfg *Config) (*client.Management, error) {
-	httpClient, err := client.NewWithResponses(cfg.ManagementEndpoint, reader.PathFor(cfg.Cacert), reader.PathFor(cfg.GeneratedCert), reader.PathFor(cfg.Key))
+func newManagementClient(cfg *Config) (*client.Management, error) {
+	httpClient, err := client.NewFromConfig(&cfg.ManagementService.Config)
 	if err != nil {
 		return nil, err
 	}
