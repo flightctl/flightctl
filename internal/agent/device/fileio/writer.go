@@ -67,7 +67,7 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 		// if err := createOrigFile(file.Path, file.Path); err != nil {
 		// 	return err
 		// }
-		if err := writeFileAtomically(w.rootDir+file.Path, decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
+		if err := writeFileAtomically(filepath.Join(w.rootDir, file.Path), decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
 			return err
 		}
 	}
@@ -80,7 +80,7 @@ func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomically(w.rootDir+name, data, defaultDirectoryPermissions, perm, uid, gid)
+	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
