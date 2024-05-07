@@ -20,13 +20,13 @@ import (
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/sirupsen/logrus"
+	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // New creates a new agent.
-func New(log *logrus.Logger, config *Config) *Agent {
+func New(log *log.PrefixLogger, config *Config) *Agent {
 	return &Agent{
 		config: config,
 		log:    log,
@@ -35,11 +35,11 @@ func New(log *logrus.Logger, config *Config) *Agent {
 
 type Agent struct {
 	config *Config
-	log    *logrus.Logger
+	log    *log.PrefixLogger
 }
 
 func (a *Agent) GetLogPrefix() string {
-	return a.config.LogPrefix
+	return a.log.Prefix()
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -118,7 +118,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		tpmChannel,
 		executer,
 		a.log,
-		a.config.LogPrefix,
 	)
 
 	// TODO: this needs tuned
@@ -146,7 +145,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		currentSpecFilePath,
 		desiredSpecFilePath,
 		a.log,
-		a.config.LogPrefix,
 	)
 
 	// bootstrap
@@ -172,14 +170,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		managementClient,
 		backoff,
 		a.log,
-		a.config.LogPrefix,
 	)
 
 	// create config controller
 	configController := config.NewController(
 		deviceWriter,
 		a.log,
-		a.config.LogPrefix,
 	)
 
 	// create os image controller
@@ -187,7 +183,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		statusManager,
 		a.log,
-		a.config.LogPrefix,
 	)
 
 	// create agent
@@ -201,7 +196,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		configController,
 		osImageController,
 		a.log,
-		a.config.LogPrefix,
 	)
 
 	return agent.Run(ctx)

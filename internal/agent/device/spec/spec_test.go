@@ -65,7 +65,7 @@ func TestManager(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			log := log.InitLogs()
+			log := log.NewPrefixLogger("")
 			writer := fileio.NewWriter()
 			writer.SetRootdir(tmpDir)
 			reader := fileio.NewReader()
@@ -73,7 +73,7 @@ func TestManager(t *testing.T) {
 
 			// ensure rendered spec
 			if tt.ensureRendered {
-				_, err := EnsureCurrentRenderedSpec(ctx, log, "", writer, reader, currentSpecFilePath)
+				_, err := EnsureCurrentRenderedSpec(ctx, log, writer, reader, currentSpecFilePath)
 				require.NoError(err)
 			}
 
@@ -86,7 +86,6 @@ func TestManager(t *testing.T) {
 				managementClient,
 				backoff,
 				log,
-				"",
 			)
 			current, desired, skipSync, err := manager.GetRendered(ctx)
 			if tt.wantSkipSync {

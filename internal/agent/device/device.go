@@ -9,8 +9,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/lthibault/jitterbug"
-	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/api/equality"
 )
 
@@ -26,8 +26,7 @@ type Agent struct {
 	fetchSpecInterval   time.Duration
 	fetchStatusInterval time.Duration
 
-	log       *logrus.Logger
-	logPrefix string
+	log *log.PrefixLogger
 }
 
 // NewAgent creates a new device agent.
@@ -40,8 +39,7 @@ func NewAgent(
 	fetchStatusInterval time.Duration,
 	configController *config.Controller,
 	osImageController *OSImageController,
-	log *logrus.Logger,
-	logPrefix string,
+	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{
 		name:                name,
@@ -53,7 +51,6 @@ func NewAgent(
 		configController:    configController,
 		osImageController:   osImageController,
 		log:                 log,
-		logPrefix:           logPrefix,
 	}
 }
 
@@ -70,19 +67,19 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-fetchSpecTicker.C:
-			a.log.Debugf("%sfetching device spec", a.logPrefix)
+			a.log.Debug("Fetching device spec")
 			if err := a.syncDevice(ctx); err != nil {
 				// TODO handle status updates
-				a.log.Errorf("%sfailed to ensure device: %v", a.logPrefix, err)
+				a.log.Errorf("Failed to ensure device: %v", err)
 			}
 		case <-fetchStatusTicker.C:
-			a.log.Debugf("%sfetching device status", a.logPrefix)
+			a.log.Debug("Fetching device status")
 			status, err := a.statusManager.Get(ctx)
 			if err != nil {
-				a.log.Errorf("%s failed to get device status: %v", a.logPrefix, err)
+				a.log.Errorf("Failed to get device status: %v", err)
 			}
 			if err := a.statusManager.Update(ctx, status); err != nil {
-				a.log.Errorf("%s failed to update device status: %v", a.logPrefix, err)
+				a.log.Errorf("Failed to update device status: %v", err)
 			}
 
 		}
@@ -97,7 +94,7 @@ func (a *Agent) syncDevice(ctx context.Context) error {
 	}
 
 	if equality.Semantic.DeepEqual(current, desired) || skipSync {
-		a.log.Debugf("%sskipping device reconciliation", a.logPrefix)
+		a.log.Debug("Skipping device reconciliation")
 		return nil
 	}
 

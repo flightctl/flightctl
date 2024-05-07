@@ -14,7 +14,6 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
 
@@ -29,17 +28,17 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctrl          *gomock.Controller
 		execMock      *executer.MockExecuter
 		statusManager *status.MockManager
-		log           *logrus.Logger
+		log           *flightlog.PrefixLogger
 		controller    *device.OSImageController
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		log = flightlog.InitLogs()
+		log = flightlog.NewPrefixLogger("")
 		ctrl = gomock.NewController(GinkgoT())
 		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
-		controller = device.NewOSImageController(execMock, statusManager, log, "")
+		controller = device.NewOSImageController(execMock, statusManager, log)
 	})
 
 	AfterEach(func() {
