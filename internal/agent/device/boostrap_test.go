@@ -19,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/flightctl/flightctl/pkg/log"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -84,7 +83,7 @@ func TestEnsureEnrollment(t *testing.T) {
 			statusManager := status.NewMockManager(ctrl)
 			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}, nil).Times(1)
 
-			log := log.InitLogs()
+			log := flightlog.InitLogs()
 
 			backoff := wait.Backoff{
 				Cap:      100 * time.Millisecond,
@@ -215,7 +214,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		It("should return with no action", func() {
 			err := writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
 			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			err = bootstrap.Initialize(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
@@ -224,7 +223,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		It("should return with no action", func() {
 			err := writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
 			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			err = bootstrap.Initialize(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
@@ -235,7 +234,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 			err = writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
 			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			err = bootstrap.Initialize(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
@@ -244,7 +243,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		It("should return with no action", func() {
 			err := writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
 			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			err = bootstrap.Initialize(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
@@ -253,7 +252,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		It("should return with no action", func() {
 			err := writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
 			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			err = bootstrap.Initialize(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
@@ -278,7 +277,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
 
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			err = bootstrap.Initialize(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Current should equal desired
@@ -311,7 +310,7 @@ var _ = Describe("Calling osimages Sync", func() {
 
 			statusManager.EXPECT().UpdateConditionError(gomock.Any(), BootedWithUnexpectedImage, fmt.Errorf("booted image image, expected newimage"))
 
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			err = bootstrap.Initialize(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})

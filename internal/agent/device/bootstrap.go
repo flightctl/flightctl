@@ -97,8 +97,30 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.ensureCurrentRenderedSpecUpToDate(ctx); err != nil {
-		return err
+	// During the initial bootstrap it is expected that the current and desired
+	// spec does not exist yet. These assumptions are validated later.
+	currentSpec, err := spec.ReadRenderedSpecFromFile(b.deviceReader, b.currentRenderedFile)
+	if err != nil {
+		if errors.Is(err, spec.ErrMissingRenderedSpec) {
+			b.log.Infof("%s%v", b.logPrefix, err)
+		} else {
+			return fmt.Errorf("getting current rendered spec: %w", err)
+		}
+	}
+
+	desiredSpec, err := spec.ReadRenderedSpecFromFile(b.deviceReader, b.desiredRenderedFile)
+	if err != nil {
+		if errors.Is(err, spec.ErrMissingRenderedSpec) {
+			b.log.Infof("%s%v", b.logPrefix, err)
+		} else {
+			return fmt.Errorf("getting desired rendered spec: %w", err)
+		}
+	}
+
+	if isOsImageInTransition(&currentSpec, &desiredSpec) {
+		if err := b.ensureOsImage(ctx, desiredSpec); err != nil {
+			return err
+		}
 	}
 
 	if err := b.ensureRenderedSpec(ctx); err != nil {
@@ -120,30 +142,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error {
-	currentSpec, err := spec.ReadRenderedSpecFromFile(b.deviceReader, b.currentRenderedFile)
-	if err != nil {
-		// During the initial bootstrap it is expected that the spec does not exist yet.  This assumption is validated later.
-		if errors.Is(err, spec.ErrMissingRenderedSpec) {
-			return nil
-		}
-		return fmt.Errorf("getting current rendered spec: %w", err)
-	}
-
-	desiredSpec, err := spec.ReadRenderedSpecFromFile(b.deviceReader, b.desiredRenderedFile)
-	if err != nil {
-		// During the initial bootstrap it is expected that the spec does not exist yet.  This assumption is validated later.
-		if errors.Is(err, spec.ErrMissingRenderedSpec) {
-			return nil
-		}
-		return fmt.Errorf("getting desired rendered spec: %w", err)
-	}
-
-	if !isOsImageInTransition(&currentSpec, &desiredSpec) {
-		// We didn't change the OS image, so nothing to do here
-		return nil
-	}
-
+func (b *Bootstrap) ensureOsImage(ctx context.Context, desiredSpec v1alpha1.RenderedDeviceSpec) error {
 	bootcCmd := container.NewBootcCmd(b.executer)
 	bootcHost, err := bootcCmd.Status(ctx)
 	if err != nil {
@@ -163,7 +162,6 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 		if err != nil {
 			b.log.Warnf("%sfailed setting error condition: %v", b.logPrefix, err)
 		}
-		return nil
 	}
 
 	return nil
@@ -182,21 +180,7 @@ func isOsImageInTransition(current *v1alpha1.RenderedDeviceSpec, desired *v1alph
 }
 
 func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
-	if err := b.deviceReader.CheckPathExists(b.managementGeneratedCertFile); err != nil {
-		return fmt.Errorf("generated cert: %q: %w", b.managementGeneratedCertFile, err)
-	}
-
-	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(b.managementEndpoint,
-		b.deviceReader.PathFor(b.caFile),
-		b.deviceReader.PathFor(b.managementGeneratedCertFile),
-		b.deviceReader.PathFor(b.keyFile))
-	if err != nil {
-		return fmt.Errorf("create management client: %w", err)
-	}
-	managementClient := client.NewManagement(managementHTTPClient)
-
-	_, err = spec.EnsureDesiredRenderedSpec(ctx, b.log, b.logPrefix, b.deviceWriter, b.deviceReader, managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
+	_, err := spec.EnsureDesiredRenderedSpec(ctx, b.log, b.logPrefix, b.deviceWriter, b.deviceReader, b.managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
 	if err != nil {
 		return fmt.Errorf("ensure desired rendered spec: %w", err)
 	}
