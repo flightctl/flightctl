@@ -150,7 +150,7 @@ func (h *TestHarness) StopAgent() {
 }
 
 func (h *TestHarness) StartAgent() {
-	agentLog := log.InitLogs()
+	agentLog := log.NewPrefixLogger("")
 	agentInstance := agent.New(agentLog, h.agentConfig)
 
 	ctx, cancel := context.WithCancel(context.Background())

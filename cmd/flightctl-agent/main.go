@@ -8,7 +8,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -19,14 +18,14 @@ func main() {
 }
 
 type agentCmd struct {
-	log        *logrus.Logger
+	log        *log.PrefixLogger
 	config     *agent.Config
 	configFile string
 }
 
 func NewAgentCommand() *agentCmd {
 	a := &agentCmd{
-		log:    log.InitLogs(),
+		log:    log.NewPrefixLogger(""),
 		config: agent.NewDefault(),
 	}
 
@@ -47,11 +46,7 @@ func NewAgentCommand() *agentCmd {
 		a.log.Fatalf("Error validating config: %v", err)
 	}
 
-	logLvl, err := logrus.ParseLevel(a.config.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	a.log.SetLevel(logLvl)
+	a.log.SetLevel(a.config.LogLevel)
 
 	return a
 }

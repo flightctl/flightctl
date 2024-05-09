@@ -15,11 +15,11 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/pkg/log"
+	flightlog "github.com/flightctl/flightctl/pkg/log"
 )
 
 func main() {
-	log := log.InitLogs()
+	log := flightlog.InitLogs()
 	managementEndpoint := flag.String("management-endpoint", "https://localhost:3333", "device server URL")
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	certDir := flag.String("certs", config.CertificateDir(), "absolute path to the certificate dir")
@@ -71,6 +71,7 @@ func main() {
 			log.Fatalf("agent config %d: %v", i, err)
 		}
 
+		log := flightlog.NewPrefixLogger(agentName)
 		agents[i] = agent.New(log, &cfg)
 	}
 
