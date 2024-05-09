@@ -8,7 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/sirupsen/logrus"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
@@ -20,27 +20,24 @@ const (
 type OSImageController struct {
 	bootc         *container.BootcCmd
 	statusManager status.Manager
-	log           *logrus.Logger
-	logPrefix     string
+	log           *log.PrefixLogger
 }
 
 func NewOSImageController(
 	executer executer.Executer,
 	statusManager status.Manager,
-	log *logrus.Logger,
-	logPrefix string,
+	log *log.PrefixLogger,
 ) *OSImageController {
 	return &OSImageController{
 		bootc:         container.NewBootcCmd(executer),
 		statusManager: statusManager,
 		log:           log,
-		logPrefix:     logPrefix,
 	}
 }
 
 func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	c.log.Debugf("%s syncing device image", c.logPrefix)
-	defer c.log.Debugf("%s finished syncing device image", c.logPrefix)
+	c.log.Debug("Syncing device image")
+	defer c.log.Debug("Finished syncing device image")
 
 	err := c.ensureImage(ctx, desired)
 	if err != nil {
@@ -55,7 +52,7 @@ func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 
 func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
 	if desired.Os == nil {
-		c.log.Debugf("%s device os image is nil", c.logPrefix)
+		c.log.Debugf("Device os image is nil")
 		return nil
 	}
 

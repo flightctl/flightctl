@@ -10,7 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/client"
-	"github.com/sirupsen/logrus"
+	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -36,9 +36,8 @@ type Manager struct {
 	deviceReader            *fileio.Reader
 	managementClient        *client.Management
 
-	log       *logrus.Logger
-	logPrefix string
-	backoff   wait.Backoff
+	log     *log.PrefixLogger
+	backoff wait.Backoff
 }
 
 // NewManager creates a new device spec manager.
@@ -50,8 +49,7 @@ func NewManager(
 	deviceReader *fileio.Reader,
 	managementClient *client.Management,
 	backoff wait.Backoff,
-	log *logrus.Logger,
-	logPrefix string,
+	log *log.PrefixLogger,
 ) *Manager {
 	return &Manager{
 		deviceName:              deviceName,
@@ -61,7 +59,6 @@ func NewManager(
 		desiredRenderedFilePath: desiredRenderedFilePath,
 		managementClient:        managementClient,
 		log:                     log,
-		logPrefix:               logPrefix,
 		backoff:                 backoff,
 	}
 }
@@ -95,10 +92,10 @@ func (m *Manager) getDesiredRenderedSpec(ctx context.Context, owner, templateVer
 		if errors.Is(err, ErrNoContent) {
 			return v1alpha1.RenderedDeviceSpec{}, true, nil
 		}
-		m.log.Warningf("%sFailed to get rendered device spec after retry: %v", m.logPrefix, err)
+		m.log.Warnf("Failed to get rendered device spec after retry: %v", err)
 	} else {
 		// write to disk
-		m.log.Infof("%swriting desired rendered spec to disk with template version: %s", m.logPrefix, desired.TemplateVersion)
+		m.log.Infof("Writing desired rendered spec to disk with template version: %s", desired.TemplateVersion)
 		if err := WriteRenderedSpecToFile(m.deviceWriter, &desired, m.desiredRenderedFilePath); err != nil {
 			return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("write rendered spec to disk: %w", err)
 		}
@@ -106,7 +103,7 @@ func (m *Manager) getDesiredRenderedSpec(ctx context.Context, owner, templateVer
 	}
 
 	// fall back to latest from disk
-	m.log.Infof("%sfalling back to latest rendered spec from disk", m.logPrefix)
+	m.log.Info("Falling back to latest rendered spec from disk")
 
 	renderedBytes, err := os.ReadFile(m.desiredRenderedFilePath)
 	if err != nil {
@@ -158,8 +155,7 @@ func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
 // EnsureCurrentRenderedSpec ensures the current rendered spec exists on disk or is initialized as empty.
 func EnsureCurrentRenderedSpec(
 	ctx context.Context,
-	log *logrus.Logger,
-	logPrefix string,
+	log *log.PrefixLogger,
 	writer *fileio.Writer,
 	reader *fileio.Reader,
 	filePath string,
@@ -167,11 +163,11 @@ func EnsureCurrentRenderedSpec(
 	current, err := ReadRenderedSpecFromFile(reader, filePath)
 	if err != nil {
 		if errors.Is(err, ErrMissingRenderedSpec) {
-			log.Infof("%scurrent rendered spec file does not exist, initializing as empty", logPrefix)
+			log.Info("Current rendered spec file does not exist, initializing as empty")
 			if err := WriteRenderedSpecToFile(writer, &v1alpha1.RenderedDeviceSpec{}, filePath); err != nil {
 				return v1alpha1.RenderedDeviceSpec{}, err
 			}
-			log.Infof("%swrote initial current rendered spec to disk", logPrefix)
+			log.Info("Wrote initial current rendered spec to disk")
 
 			return v1alpha1.RenderedDeviceSpec{}, nil
 		}
@@ -184,8 +180,7 @@ func EnsureCurrentRenderedSpec(
 // EnsureDesiredRenderedSpec ensures the desired rendered spec exists on disk or is initialized from the management API.
 func EnsureDesiredRenderedSpec(
 	ctx context.Context,
-	log *logrus.Logger,
-	logPrefix string,
+	log *log.PrefixLogger,
 	writer *fileio.Writer,
 	reader *fileio.Reader,
 	managementClient *client.Management,
@@ -197,24 +192,24 @@ func EnsureDesiredRenderedSpec(
 	renderedBytes, err := reader.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Infof("%sdesired rendered spec file does not exist, fetching from management API", logPrefix)
+			log.Info("Desired rendered spec file does not exist, fetching from management API")
 			var rendered *v1alpha1.RenderedDeviceSpec
 			// retry on failure
 			err := wait.ExponentialBackoffWithContext(ctx, backoff, func() (bool, error) {
 				var statusCode int
-				log.Infof("%s attempting to fetch desired spec from management API", logPrefix)
+				log.Info("Attempting to fetch desired spec from management API")
 				rendered, statusCode, err = managementClient.GetRenderedDeviceSpec(ctx, deviceName, &v1alpha1.GetRenderedDeviceSpecParams{})
 				if err != nil && statusCode != http.StatusConflict {
 					return false, err
 				}
 				if statusCode != http.StatusOK {
-					log.Warningf("%s received %d from management API", logPrefix, statusCode)
+					log.Warnf("Received %d from management API", statusCode)
 				}
 
 				return true, nil
 			})
 			if err != nil {
-				log.Errorf("%sFailed to get desired spec after retry: %v", logPrefix, err)
+				log.Errorf("Failed to get desired spec after retry: %v", err)
 				// this could mean the management API is not available, or the internet connection is down.
 				// we really can't make progress here without the desired rendered spec. this should fail the service
 				// and require a restart.
@@ -228,7 +223,7 @@ func EnsureDesiredRenderedSpec(
 			if err := WriteRenderedSpecToFile(writer, rendered, filePath); err != nil {
 				return v1alpha1.RenderedDeviceSpec{}, err
 			}
-			log.Infof("%swrote initial rendered spec to disk", logPrefix)
+			log.Info("Wrote initial rendered spec to disk")
 
 			return *rendered, nil
 		}

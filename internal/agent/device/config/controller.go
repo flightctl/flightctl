@@ -5,36 +5,33 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/sirupsen/logrus"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
 	deviceWriter *fileio.Writer
-	log          *logrus.Logger
-	logPrefix    string
+	log          *log.PrefixLogger
 }
 
 // NewController creates a new config controller.
 func NewController(
 	deviceWriter *fileio.Writer,
-	log *logrus.Logger,
-	logPrefix string,
+	log *log.PrefixLogger,
 ) *Controller {
 	return &Controller{
 		deviceWriter: deviceWriter,
 		log:          log,
-		logPrefix:    logPrefix,
 	}
 }
 
 func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
-	c.log.Debugf("%s syncing device configuration", c.logPrefix)
-	defer c.log.Debugf("%s finished syncing device configuration", c.logPrefix)
+	c.log.Debug("Syncing device configuration")
+	defer c.log.Debug("Finished syncing device configuration")
 
 	if desired.Config == nil {
-		c.log.Debugf("%s device config is nil", c.logPrefix)
+		c.log.Debug("Device config is nil")
 		return nil
 	}
 

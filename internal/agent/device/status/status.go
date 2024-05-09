@@ -8,7 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/sirupsen/logrus"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 var _ Manager = (*StatusManager)(nil)
@@ -18,8 +18,7 @@ func NewManager(
 	deviceName string,
 	tpm *tpm.TPM,
 	executer executer.Executer,
-	log *logrus.Logger,
-	logPrefix string,
+	log *log.PrefixLogger,
 ) *StatusManager {
 	exporters := []Exporter{
 		newSystemD(executer),
@@ -31,7 +30,6 @@ func NewManager(
 		exporters:  exporters,
 		conditions: DefaultConditions(),
 		log:        log,
-		logPrefix:  logPrefix,
 	}
 }
 
@@ -40,8 +38,7 @@ type StatusManager struct {
 	deviceName       string
 	managementClient *client.Management
 	exporters        []Exporter
-	log              *logrus.Logger
-	logPrefix        string
+	log              *log.PrefixLogger
 	conditions       *[]v1alpha1.Condition
 }
 
@@ -140,7 +137,7 @@ func (m *StatusManager) UpdateCondition(
 
 	if SetProgressingCondition(status.Conditions, conditionType, conditionStatus, reason, message) {
 		// log condition change
-		m.log.Infof("%sSet progressing condition: %s", m.logPrefix, reason)
+		m.log.Infof("Set progressing condition: %s", reason)
 	}
 
 	return m.Update(ctx, status)
@@ -162,7 +159,7 @@ func (m *StatusManager) UpdateConditionError(ctx context.Context, reason string,
 
 	if SetDegradedConditionByError(status.Conditions, reason, serr) {
 		// log condition change
-		m.log.Infof("%sSet degraded condition by error: %v", m.logPrefix, serr)
+		m.log.Infof("Set degraded condition by error: %v", serr)
 	}
 
 	return m.Update(ctx, status)

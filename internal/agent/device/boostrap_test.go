@@ -19,12 +19,10 @@ import (
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/flightctl/flightctl/pkg/log"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -84,7 +82,7 @@ func TestEnsureEnrollment(t *testing.T) {
 			statusManager := status.NewMockManager(ctrl)
 			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}, nil).Times(1)
 
-			log := log.InitLogs()
+			log := flightlog.NewPrefixLogger("")
 
 			backoff := wait.Backoff{
 				Cap:      100 * time.Millisecond,
@@ -115,7 +113,6 @@ func TestEnsureEnrollment(t *testing.T) {
 				currentSpecFilePath,
 				desiredSpecFilePath,
 				log,
-				"",
 			)
 			err = b.ensureEnrollment(context.Background())
 			if tt.wantErr {
@@ -133,7 +130,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctrl                *gomock.Controller
 		execMock            *executer.MockExecuter
 		statusManager       *status.MockManager
-		log                 *logrus.Logger
+		log                 *flightlog.PrefixLogger
 		tmpDir              string
 		currentSpecFilePath string
 		desiredSpecFilePath string
@@ -146,7 +143,7 @@ var _ = Describe("Calling osimages Sync", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		log = flightlog.InitLogs()
+		log = flightlog.NewPrefixLogger("")
 		ctrl = gomock.NewController(GinkgoT())
 		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
@@ -203,7 +200,6 @@ var _ = Describe("Calling osimages Sync", func() {
 			currentSpecFilePath,
 			desiredSpecFilePath,
 			log,
-			"",
 		)
 	})
 
