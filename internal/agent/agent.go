@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/bootimage"
 	"github.com/flightctl/flightctl/internal/client"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -120,6 +121,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	bootImageClient, err := bootimage.NewClient(executer, a.log)
+	if err != nil {
+		return fmt.Errorf("creating boot image client: %w", err)
+	}
+
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      3 * time.Minute,
@@ -135,6 +141,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReader,
 		csr,
 		statusManager,
+		bootImageClient,
 		enrollmentClient,
 		a.config.ManagementEndpoint,
 		a.config.EnrollmentUIEndpoint,
@@ -182,6 +189,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osImageController := device.NewOSImageController(
 		executer,
 		statusManager,
+		bootImageClient,
 		a.log,
 	)
 

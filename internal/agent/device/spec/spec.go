@@ -270,3 +270,16 @@ func WriteRenderedSpecToFile(writer *fileio.Writer, rendered *v1alpha1.RenderedD
 	}
 	return nil
 }
+
+// OsImageInTransition returns true if the current spec image is different from the desired spec image.
+func OsImageInTransition(current *v1alpha1.RenderedDeviceSpec, desired *v1alpha1.RenderedDeviceSpec) bool {
+	currentImage := ""
+	if current.Os != nil {
+		currentImage = current.Os.Image
+	}
+	desiredImage := ""
+	if desired.Os != nil {
+		desiredImage = desired.Os.Image
+	}
+	return currentImage != desiredImage
+}

@@ -88,6 +88,36 @@ var _ = Describe("VM Agent behavior", func() {
 			// verify that the measurements are the same as the ones we saw in the enrollment request
 			Expect(device.JSON200.Status.SystemInfo.Measurements).To(Equal(enrollmentRequest.Spec.DeviceStatus.SystemInfo.Measurements))
 		})
+
+		It("", func() {
+			// Get the enrollment Request ID from the console output
+			enrollmentID := harness.GetEnrollmentIDFromConsole()
+			logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
+
+			// Wait for the device to create the enrollment request, and check the TPM details
+			enrollmentRequest := harness.WaitForEnrollmentRequest(enrollmentID)
+			Expect(enrollmentRequest.Spec).ToNot(BeNil())
+			Expect(enrollmentRequest.Spec.DeviceStatus).ToNot(BeNil())
+			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo).ToNot(BeNil())
+			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo.Measurements).ToNot(BeNil())
+			verifyPCRRegistersNotEmpty(enrollmentRequest.Spec.DeviceStatus.SystemInfo.Measurements)
+
+			// Approve the enrollment and wait for the device details to be populated by the agent
+			harness.ApproveEnrollment(enrollmentID, testutil.TestEnrollmentApproval())
+			logrus.Infof("Waiting for device %s to report status so we can check TPM PCRs again", enrollmentID)
+
+			// wait for the device to pickup enrollment and report measurements on device status
+			Eventually(getDeviceWithStatusSystemInfo, TIMEOUT, POLLING).WithArguments(
+				harness, enrollmentID).ShouldNot(BeNil())
+
+			device := getDeviceWithStatusSystemInfo(harness, enrollmentID)
+
+			// make sure that the PCR registers aren't empty
+			verifyPCRRegistersNotEmpty(device.JSON200.Status.SystemInfo.Measurements)
+
+			// verify that the measurements are the same as the ones we saw in the enrollment request
+			Expect(device.JSON200.Status.SystemInfo.Measurements).To(Equal(enrollmentRequest.Spec.DeviceStatus.SystemInfo.Measurements))
+		})
 	})
 
 })

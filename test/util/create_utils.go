@@ -6,6 +6,7 @@ import (
 	"log"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/bootimage"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -107,4 +108,16 @@ func CreateTestTemplateVersions(numTemplateVersions int, ctx context.Context, tv
 		}
 	}
 	return nil
+}
+
+func CreateTestImageManagerBootedStatus(image string) *bootimage.HostStatus {
+	return &bootimage.HostStatus{
+		Booted: bootimage.BootEntry{
+			Image: bootimage.ImageStatus{
+				Image: bootimage.ImageReference{
+					Image: image,
+				},
+			},
+		},
+	}
 }

@@ -15,8 +15,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/bootimage"
 	"github.com/flightctl/flightctl/internal/client"
-	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -82,6 +83,7 @@ func TestEnsureEnrollment(t *testing.T) {
 			statusManager := status.NewMockManager(ctrl)
 			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}, nil).Times(1)
 
+			imageManager := bootimage.NewMockManager(ctrl)
 			log := flightlog.NewPrefixLogger("")
 
 			backoff := wait.Backoff{
@@ -103,6 +105,7 @@ func TestEnsureEnrollment(t *testing.T) {
 				reader,
 				[]byte("test-csr"), // TODO: use real csr
 				statusManager,
+				imageManager,
 				enrollmentClient,
 				mockManagementServer.URL,
 				"",
@@ -130,6 +133,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctrl                *gomock.Controller
 		execMock            *executer.MockExecuter
 		statusManager       *status.MockManager
+		imageManager        *bootimage.MockManager
 		log                 *flightlog.PrefixLogger
 		tmpDir              string
 		currentSpecFilePath string
@@ -137,8 +141,6 @@ var _ = Describe("Calling osimages Sync", func() {
 		writer              *fileio.Writer
 		bootstrap           *Bootstrap
 		defaultRenderedData []byte
-		bootcHost           container.BootcHost
-		//imageController *device.OSImageController
 	)
 
 	BeforeEach(func() {
@@ -147,7 +149,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
-		//imageController = device.NewOSImageController(execMock, statusManager, log, "")
+		imageManager = bootimage.NewMockManager(ctrl)
 
 		// initialize storage
 		tmpDir = GinkgoT().TempDir()
@@ -171,17 +173,9 @@ var _ = Describe("Calling osimages Sync", func() {
 		defaultRenderedData, err = json.Marshal(renderedConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		bootcHost = container.BootcHost{
-			Status: container.Status{
-				Booted: container.ImageStatus{
-					Image: container.ImageDetails{
-						Image: container.ImageSpec{
-							Image: "newimage",
-						},
-					},
-				},
-			},
-		}
+		// create certs
+		serverCfg := config.NewDefault()
+		serverCfg.Service.CertStore = tmpDir
 
 		bootstrap = NewBootstrap(
 			"device",
@@ -190,6 +184,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			reader,
 			[]byte(""),
 			statusManager,
+			imageManager,
 			nil,
 			"",
 			"",
@@ -231,6 +226,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 			err = writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
 			Expect(err).ToNot(HaveOccurred())
+			imageManager.EXPECT().IsDisabled().Return(false)
 			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -254,6 +250,20 @@ var _ = Describe("Calling osimages Sync", func() {
 		})
 	})
 
+	Context("When image manager is disabled", func() {
+		It("should not call any image manager methods", func() {
+			err := writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
+			Expect(err).ToNot(HaveOccurred())
+			err = writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
+			Expect(err).ToNot(HaveOccurred())
+
+			imageManager.EXPECT().IsDisabled().Return(true)
+
+			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
+			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+
 	Context("When the OS changed and was reconciled", func() {
 		It("should write desired spec to file", func() {
 			desiredConfig := v1alpha1.RenderedDeviceSpec{
@@ -270,9 +280,8 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// New image was booted
-			hostJson, err := json.Marshal(bootcHost)
-			Expect(err).ToNot(HaveOccurred())
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
+			imageManager.EXPECT().IsDisabled().Return(false)
+			imageManager.EXPECT().Status(gomock.Any()).Return(testutil.CreateTestImageManagerBootedStatus("newimage"), nil)
 
 			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -300,11 +309,8 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Old image was booted
-			bootcHost.Status.Booted.Image.Image.Image = "image"
-			hostJson, err := json.Marshal(bootcHost)
-			Expect(err).ToNot(HaveOccurred())
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-
+			imageManager.EXPECT().IsDisabled().Return(false)
+			imageManager.EXPECT().Status(gomock.Any()).Return(testutil.CreateTestImageManagerBootedStatus("image"), nil)
 			statusManager.EXPECT().UpdateConditionError(gomock.Any(), BootedWithUnexpectedImage, fmt.Errorf("booted image image, expected newimage"))
 
 			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
