@@ -1,0 +1,10 @@
+# Use the upstream image as the base image
+FROM quay.io/flightctl/flightctl-agent-fedora:bootstrap
+
+RUN useradd -ms /bin/bash redhat && \
+    echo "redhat:redhat" | chpasswd && \
+    echo "redhat ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+## Add your flightctl configuration and certificates
+ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/
+ADD bin/agent/etc/flightctl/certs/* /etc/flightctl/certs/

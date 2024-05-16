@@ -191,7 +191,7 @@ func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1al
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
+func GetEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
 	listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
 	Expect(err).ToNot(HaveOccurred())
 

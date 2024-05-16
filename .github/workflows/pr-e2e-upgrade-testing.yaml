@@ -1,0 +1,51 @@
+name: "E2E upgrade testing"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
+  e2e:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_podman4: yes
+          setup_kvm: yes
+
+      - name: Fix swtpm in qemu/libvirt (broken apparmor profile and swtpm permissions)
+        run: |
+          sudo apparmor_status
+          sudo aa-complain /usr/bin/swtpm
+          sudo apparmor_parser -r /etc/apparmor.d/usr.bin.swtpm
+          sudo mkdir -p /var/lib/swtpm-localca
+          sudo chmod a+rwx /var/lib/swtpm-localca
+          
+
+      - name: Create kind cluster
+        run: make cluster
+
+      - name: Deploy the flightctl server
+        run: make deploy
+
+      - name: Make base rpm, and agent upgrade to images
+        run: |
+          make agent-upgrade-image
+
+      - name: Make sure the images are owned by the runner user
+        run: |
+          sudo chown -R runner:runner bin/output|| true
+
+      - name: Run E2E Upgrade Tests
+        run:  make run-e2e-upgrade-test VERBOSE=true DEBUG_VM_CONSOLE=1

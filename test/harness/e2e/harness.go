@@ -75,6 +75,39 @@ func (h *Harness) Cleanup() {
 	h.ctxCancel()
 }
 
+func (h *Harness) UpdateOsImageTo(id, image string) {
+	device := h.GetDevice(id)
+
+	if device.Spec.Os == nil {
+		device.Spec.Os = &v1alpha1.DeviceOSSpec{
+			Image: image,
+		}
+	} else {
+		device.Spec.Os.Image = image
+	}
+
+	resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, id, *device)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(resp.JSON200).NotTo(BeNil())
+}
+
+func (h *Harness) GetDevice(id string) *v1alpha1.Device {
+	resp, err := h.Client.ReadDeviceWithResponse(h.Context, id)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(resp.JSON200).ToNot(BeNil())
+
+	return resp.JSON200
+}
+
+func (h *Harness) UpdateDevice(id string) *v1alpha1.Device {
+	resp, err := h.Client.ReadDeviceWithResponse(h.Context, id)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(resp.JSON200).ToNot(BeNil())
+
+	return resp.JSON200
+}
+
+
 func (h *Harness) GetEnrollmentIDFromConsole() string {
 	// wait for the enrollment ID on the console
 	Eventually(h.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("/enroll/"))
