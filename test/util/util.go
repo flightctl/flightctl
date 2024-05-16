@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -140,5 +141,18 @@ func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
 		Region:   util.StrToPtr("region"),
+	}
+}
+
+// TestTempEnv sets the environment variable key to value and returns a function that will reset the environment variable to its original value.
+func TestTempEnv(key, value string) func() {
+	originalValue, hadOriginalValue := os.LookupEnv(key)
+	os.Setenv(key, value)
+	return func() {
+		if hadOriginalValue {
+			os.Setenv(key, originalValue)
+		} else {
+			os.Unsetenv(key)
+		}
 	}
 }
