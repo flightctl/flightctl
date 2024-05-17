@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"time"
@@ -38,6 +39,8 @@ const (
 	EnrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file
 	EnrollmentKeyFile = "client-enrollment.key"
+	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
+	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
 
 type Config struct {
@@ -83,7 +86,7 @@ type Config struct {
 }
 
 func NewDefault() *Config {
-	return &Config{
+	c := &Config{
 		ManagementEndpoint:   DefaultManagementEndpoint,
 		EnrollmentEndpoint:   DefaultManagementEndpoint,
 		EnrollmentUIEndpoint: DefaultManagementEndpoint,
@@ -99,14 +102,14 @@ func NewDefault() *Config {
 		reader:               fileio.NewReader(),
 		LogLevel:             logrus.InfoLevel.String(),
 	}
-}
 
-func (cfg *Config) SetTestRootDir(rootDir string) {
-	klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
-	if cfg.reader != nil {
-		cfg.reader.SetRootdir(rootDir)
+	if value := os.Getenv(TestRootDirEnvKey); value != "" {
+		klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
+		c.testRootDir = filepath.Clean(value)
+		c.reader.SetRootdir(c.testRootDir)
 	}
-	cfg.testRootDir = rootDir
+
+	return c
 }
 
 func (cfg *Config) GetTestRootDir() string {

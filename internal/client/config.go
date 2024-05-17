@@ -20,10 +20,18 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
+	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
+)
+
 // Config holds the information needed to connect to a FlightCtl API server
 type Config struct {
 	Service  Service  `json:"service"`
 	AuthInfo AuthInfo `json:"authentication"`
+
+	// TestRootDir is the root directory for test files.
+	testRootDir string `json:"-"`
 }
 
 // Service contains information how to connect to and authenticate the FlightCtl API server.
@@ -54,6 +62,16 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
+}
+
+func NewDefault() *Config {
+	c := &Config{}
+
+	if value := os.Getenv(TestRootDirEnvKey); value != "" {
+		c.testRootDir = filepath.Clean(value)
+	}
+
+	return c
 }
 
 // NewFromConfig returns a new FlightCtl API client from the given config.
@@ -105,8 +123,8 @@ func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %v", err)
 	}
-	var config Config
-	if err := yaml.Unmarshal(contents, &config); err != nil {
+	config := NewDefault()
+	if err := yaml.Unmarshal(contents, config); err != nil {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
 	if err := config.Validate(); err != nil {
@@ -115,7 +133,7 @@ func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 	if err := config.Flatten(); err != nil {
 		return nil, err
 	}
-	return NewFromConfig(&config)
+	return NewFromConfig(config)
 }
 
 // WriteConfig writes a client config file using the given parameters.
@@ -152,15 +170,15 @@ func WriteConfig(filename string, server string, tlsServerName string, ca *crypt
 
 func (c *Config) Validate() error {
 	validationErrors := make([]error, 0)
-	validationErrors = append(validationErrors, validateService(c.Service)...)
-	validationErrors = append(validationErrors, validateAuthInfo(c.AuthInfo)...)
+	validationErrors = append(validationErrors, validateService(c.Service, c.testRootDir)...)
+	validationErrors = append(validationErrors, validateAuthInfo(c.AuthInfo, c.testRootDir)...)
 	if len(validationErrors) > 0 {
 		return fmt.Errorf("invalid configuration: %v", utilerrors.NewAggregate(validationErrors).Error())
 	}
 	return nil
 }
 
-func validateService(service Service) []error {
+func validateService(service Service, testRootDir string) []error {
 	validationErrors := make([]error, 0)
 	// Make sure the server is specified and well-formed
 	if len(service.Server) == 0 {
@@ -179,7 +197,7 @@ func validateService(service Service) []error {
 		validationErrors = append(validationErrors, fmt.Errorf("certificate-authority-data and certificate-authority are both specified. certificate-authority-data will override"))
 	}
 	if len(service.CertificateAuthority) != 0 {
-		clientCertCA, err := os.Open(service.CertificateAuthority)
+		clientCertCA, err := os.Open(filepath.Join(testRootDir, service.CertificateAuthority))
 		if err != nil {
 			validationErrors = append(validationErrors, fmt.Errorf("unable to read certificate-authority %v due to %w", service.CertificateAuthority, err))
 		} else {
@@ -189,7 +207,7 @@ func validateService(service Service) []error {
 	return validationErrors
 }
 
-func validateAuthInfo(authInfo AuthInfo) []error {
+func validateAuthInfo(authInfo AuthInfo, testRootDir string) []error {
 	validationErrors := make([]error, 0)
 	if len(authInfo.ClientCertificate) != 0 || len(authInfo.ClientCertificateData) != 0 {
 		// Make sure cert data and file aren't both specified
@@ -206,7 +224,7 @@ func validateAuthInfo(authInfo AuthInfo) []error {
 		}
 
 		if len(authInfo.ClientCertificate) != 0 {
-			clientCertFile, err := os.Open(authInfo.ClientCertificate)
+			clientCertFile, err := os.Open(filepath.Join(testRootDir, authInfo.ClientCertificate))
 			if err != nil {
 				validationErrors = append(validationErrors, fmt.Errorf("unable to read client-cert %v due to %w", authInfo.ClientCertificate, err))
 			} else {
@@ -214,7 +232,7 @@ func validateAuthInfo(authInfo AuthInfo) []error {
 			}
 		}
 		if len(authInfo.ClientKey) != 0 {
-			clientKeyFile, err := os.Open(authInfo.ClientKey)
+			clientKeyFile, err := os.Open(filepath.Join(testRootDir, authInfo.ClientKey))
 			if err != nil {
 				validationErrors = append(validationErrors, fmt.Errorf("unable to read client-key %v due to %w", authInfo.ClientKey, err))
 			} else {
@@ -227,19 +245,19 @@ func validateAuthInfo(authInfo AuthInfo) []error {
 
 // Reads the contents of all referenced files and embeds them in the config.
 func (c *Config) Flatten() error {
-	if err := flatten(&c.Service.CertificateAuthority, &c.Service.CertificateAuthorityData, ""); err != nil {
+	if err := flatten(&c.Service.CertificateAuthority, &c.Service.CertificateAuthorityData, "", c.testRootDir); err != nil {
 		return err
 	}
-	if err := flatten(&c.AuthInfo.ClientCertificate, &c.AuthInfo.ClientCertificateData, ""); err != nil {
+	if err := flatten(&c.AuthInfo.ClientCertificate, &c.AuthInfo.ClientCertificateData, "", c.testRootDir); err != nil {
 		return err
 	}
-	if err := flatten(&c.AuthInfo.ClientKey, &c.AuthInfo.ClientKeyData, ""); err != nil {
+	if err := flatten(&c.AuthInfo.ClientKey, &c.AuthInfo.ClientKeyData, "", c.testRootDir); err != nil {
 		return err
 	}
 	return nil
 }
 
-func flatten(path *string, contents *[]byte, baseDir string) error {
+func flatten(path *string, contents *[]byte, baseDir string, testRootDir string) error {
 	if len(*path) != 0 {
 		if len(*contents) > 0 {
 			return errors.New("cannot have values for both path and contents")
@@ -247,7 +265,7 @@ func flatten(path *string, contents *[]byte, baseDir string) error {
 
 		var err error
 		absPath := resolvePath(*path, baseDir)
-		*contents, err = os.ReadFile(absPath)
+		*contents, err = os.ReadFile(filepath.Join(testRootDir, absPath))
 		if err != nil {
 			return err
 		}

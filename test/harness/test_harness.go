@@ -91,6 +91,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	fetchSpecInterval := 1 * time.Second
 	statusUpdateInterval := 2 * time.Second
 
+	os.Setenv(agent.TestRootDirEnvKey, testDirPath)
 	cfg := agent.NewDefault()
 	// TODO: remove the cert/key modifications from default, and start storing
 	// the test harness files for those in the testDir/etc/flightctl/certs path
@@ -102,7 +103,6 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	cfg.ManagementEndpoint = "https://" + serverCfg.Service.Address
 	cfg.SpecFetchInterval = fetchSpecInterval
 	cfg.StatusUpdateInterval = statusUpdateInterval
-	cfg.SetTestRootDir(testDirPath)
 
 	// create client to talk to the server
 	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.Config, clientCerts)
@@ -134,6 +134,8 @@ func (h *TestHarness) Cleanup() {
 	h.cancelCtx()
 	// stop the server
 	h.serverListener.Close()
+	// unset env var for the test dir path
+	os.Unsetenv(agent.TestRootDirEnvKey)
 }
 
 func (h *TestHarness) AgentDownloadedCertificate() bool {
