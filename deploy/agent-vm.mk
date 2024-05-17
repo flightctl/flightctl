@@ -28,6 +28,7 @@ agent-image: bin/output/qcow2/disk.qcow2
 # This target is used to build the base image for the agent upgrade
 agent-upgrade-image:
 	# start local registry
+	sudo mkdir -p /var/lib/registry
 	sudo podman run -d --name local-registry -p 5000:5000 -v /var/lib/registry:/var/lib/registry registry:2
 	# build base agent image
 	sudo podman build -f hack/Containerfile.upgrade -t localhost/local-flightctl-agent:upgrade .
