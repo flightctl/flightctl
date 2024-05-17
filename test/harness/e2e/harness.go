@@ -107,7 +107,6 @@ func (h *Harness) UpdateDevice(id string) *v1alpha1.Device {
 	return resp.JSON200
 }
 
-
 func (h *Harness) GetEnrollmentIDFromConsole() string {
 	// wait for the enrollment ID on the console
 	Eventually(h.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("/enroll/"))

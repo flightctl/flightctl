@@ -60,7 +60,7 @@
   </devices>
   <qemu:commandline>
     <qemu:arg value='-netdev'/>
-    <qemu:arg value='user,id=n0,hostfwd=tcp::{{.Port}}-:22'/>
+    <qemu:arg value='user,id=n0,hostfwd=tcp::{{.Port}}-:22,hostfwd=tcp::5000-:5000'/>
     <qemu:arg value='-device' />
     <qemu:arg value='virtio-net-pci,netdev=n0,bus=pcie.0,addr=0x10' />
     {{.SMBios}}

@@ -23,7 +23,7 @@ func TestAgent(t *testing.T) {
 
 var _ = Describe("VM Agent behavior", func() {
 	var (
-		harness *e2e.Harness
+		harness      *e2e.Harness
 		enrollmentID string
 	)
 
@@ -92,10 +92,14 @@ var _ = Describe("VM Agent behavior", func() {
 
 		It("should be able to upgrade from latest localhost/local-flightctl-agent:latest", func() {
 			fmt.Printf("Upgrading device %s to localhost/local-flightctl-agent:latest\n", enrollmentID)
-			harness.UpdateOsImageTo(enrollmentID, "localhost/local-flightctl-agent:latest")
-			Eventually(harness.VM.GetConsoleOutput, "5m", POLLING).Should(ContainSubstring("rebooting into new image"))
-			// stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
-
+			// Eventually(harness.VM.GetConsoleOutput, "10m", POLLING).Should(ContainSubstring("rebooting into new image"))
+			stdout, err := harness.VM.RunSSH([]string{"cat", "/proc/sys/kernel/random/boot_id"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			orgBootID := strings.TrimSpace(stdout.String())
+			// upgrade the device spec should rollout the new template and reboot the device.
+			harness.UpdateOsImageTo(enrollmentID, "localhost:5000/local-flightctl-agent:latest")
+			// wait for the device to reboot
+			Eventually(getBootId, "10m", "5s").WithArguments(harness).ShouldNot(Equal(orgBootID))
 		})
 	})
 
@@ -131,4 +135,12 @@ func getDeviceWithStatusSystemInfo(harness *e2e.Harness, enrollmentID string) *c
 		return nil
 	}
 	return device
+}
+
+func getBootId(harness *e2e.Harness) string {
+	stdout, err := harness.VM.RunSSH([]string{"cat", "/proc/sys/kernel/random/boot_id"}, nil)
+	Expect(err).ToNot(HaveOccurred())
+	bootID := strings.TrimSpace(stdout.String())
+	fmt.Printf("Current boot ID: %s\n", bootID)
+	return bootID
 }

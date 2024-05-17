@@ -1,9 +1,14 @@
 # Use the upstream image as the base image
-FROM quay.io/flightctl/flightctl-agent-fedora:bootstrap
+FROM quay.io/flightctl/flightctl-agent-centos:bootstrap
 
 RUN useradd -ms /bin/bash redhat && \
     echo "redhat:redhat" | chpasswd && \
     echo "redhat ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# ensure VM will trust the local registry
+RUN mkdir -p /etc/containers && \
+    echo "[registries.insecure]\nregistries = ['localhost:5000']" >> /etc/containers/registries.conf
+
 
 ## Add your flightctl configuration and certificates
 ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/
