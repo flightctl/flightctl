@@ -49,13 +49,8 @@ jobs:
       - name: Run E2E Upgrade Tests
         run:  make run-e2e-upgrade-test VERBOSE=true DEBUG_VM_CONSOLE=1
       
-      - name: Collect logs
-        run: |
-          mkdir -p logs
-          sudo journalctl -u flightctl-agent.service > logs/flightctl-agent.log
-          sudo journalctl -u flightctl-server.service > logs/flightctl-server.log
-      
       - name: Upload logs as artifact
+        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: flightctl-logs
