@@ -2,7 +2,10 @@ package agent_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/api/client"
@@ -25,6 +28,7 @@ var _ = Describe("VM Agent behavior", func() {
 	var (
 		harness      *e2e.Harness
 		enrollmentID string
+		testCounter  = uint32(0)
 	)
 
 	BeforeEach(func() {
@@ -39,6 +43,24 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	AfterEach(func() {
+		// save logs
+		counter := atomic.AddUint32(&testCounter, 1)
+		os.Mkdir("logs", 0755)
+
+		// agent
+		stdout, err := harness.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-agent.service"}, nil)
+		Expect(err).ToNot(HaveOccurred())
+		filename := filepath.Join("logs", fmt.Sprintf("test-%d-flightctl-agent.log", counter))
+		err = os.WriteFile(filename, stdout.Bytes(), 0644)
+		Expect(err).ToNot(HaveOccurred())
+
+		// server
+		stdout, err = harness.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-server.service"}, nil)
+		Expect(err).ToNot(HaveOccurred())
+		filename = filepath.Join("logs", fmt.Sprintf("test-%d-flightctl-agent.log", counter))
+		err = os.WriteFile(filename, stdout.Bytes(), 0644)
+		Expect(err).ToNot(HaveOccurred())
+
 		harness.Cleanup()
 	})
 
