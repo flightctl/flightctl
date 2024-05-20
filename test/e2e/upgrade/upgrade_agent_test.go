@@ -45,19 +45,19 @@ var _ = Describe("VM Agent behavior", func() {
 	AfterEach(func() {
 		// save logs
 		counter := atomic.AddUint32(&testCounter, 1)
-		os.Mkdir("logs", 0755)
+		os.Mkdir("/tmp/flightctl-logs/", 0755)
 
 		// agent
 		stdout, err := harness.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-agent.service"}, nil)
 		Expect(err).ToNot(HaveOccurred())
-		filename := filepath.Join("logs", fmt.Sprintf("test-%d-flightctl-agent.log", counter))
+		filename := filepath.Join("/tmp/flightctl-logs/", fmt.Sprintf("test-%d-flightctl-agent.log", counter))
 		err = os.WriteFile(filename, stdout.Bytes(), 0644)
 		Expect(err).ToNot(HaveOccurred())
 
 		// server
 		stdout, err = harness.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-server.service"}, nil)
 		Expect(err).ToNot(HaveOccurred())
-		filename = filepath.Join("logs", fmt.Sprintf("test-%d-flightctl-agent.log", counter))
+		filename = filepath.Join("/tmp/flightctl-logs/", fmt.Sprintf("test-%d-flightctl-agent.log", counter))
 		err = os.WriteFile(filename, stdout.Bytes(), 0644)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -120,7 +120,7 @@ var _ = Describe("VM Agent behavior", func() {
 			// upgrade the device spec should rollout the new template and reboot the device.
 			harness.UpdateOsImageTo(enrollmentID, "localhost:5000/local-flightctl-agent:latest")
 			// wait for the device to reboot
-			Eventually(getBootId, "5m", "5s").WithArguments(harness).ShouldNot(Equal(orgBootID))
+			Eventually(getBootId, "2m", "5s").WithArguments(harness).ShouldNot(Equal(orgBootID))
 		})
 	})
 

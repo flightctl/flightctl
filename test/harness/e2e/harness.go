@@ -85,7 +85,7 @@ func (h *Harness) UpdateOsImageTo(id, image string) {
 	} else {
 		device.Spec.Os.Image = image
 	}
-	logrus.Infof("Updated device to %+v", device)
+	logrus.Infof("Updated device to %#v", device)
 
 	resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, id, *device)
 	Expect(err).ToNot(HaveOccurred())

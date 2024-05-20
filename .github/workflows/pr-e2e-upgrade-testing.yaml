@@ -54,4 +54,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: flightctl-logs
-          path: logs/
+          path: /tmp/flightctl-logs/
