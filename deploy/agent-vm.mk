@@ -32,9 +32,9 @@ agent-upgrade-image:
 	sudo podman container run --replace -dt -p 5000:5000 --name registry --volume registry:/var/lib/registry:Z docker.io/library/registry:2
 	# build base agent image
 	sudo podman build -f hack/Containerfile.upgrade -t localhost/local-flightctl-agent:upgrade .
+	$(MAKE) agent-image IMAGE=localhost/local-flightctl-agent:upgrade
 	# build image to upgrade to push to local registry
 	sudo podman build -f hack/Containerfile.local -t localhost:5000/local-flightctl-agent:latest .
-	$(MAKE) agent-image IMAGE=localhost/local-flightctl-agent:upgrade
 	sudo podman push localhost:5000/local-flightctl-agent:latest --tls-verify=false
 	@echo "Base upgrade base agent image built at bin/output/qcow2/disk.qcow2"
 	sudo chmod a+rw $(VMDISK) 2>/dev/null || true
