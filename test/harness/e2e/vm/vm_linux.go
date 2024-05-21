@@ -31,7 +31,7 @@ type VMInLibvirt struct {
 }
 
 func getLibvirtUri() string {
-	return string(libvirt.QEMUSession)
+	return  "qemu:///session"
 }
 
 func NewVM(params TestVM) (*VMInLibvirt, error) {
@@ -50,9 +50,10 @@ func NewVM(params TestVM) (*VMInLibvirt, error) {
 	return vm, nil
 }
 
-func (v *VMInLibvirt) Run() (err error) {
+func (v *VMInLibvirt) Run() (error) {
 
 	logrus.Infof("Creating VM %s", v.TestVM.VMName)
+	logrus.Infof("libvirt URI: %s", v.libvirtUri)
 
 	uri, err := url.Parse(v.libvirtUri)
 	if err != nil {
@@ -63,6 +64,7 @@ func (v *VMInLibvirt) Run() (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
+
 	defer func (){
 		if err := v.libvirt.Disconnect(); err != nil {
 			logrus.Errorf("Error disconnecting: %v", err)
@@ -93,6 +95,7 @@ func (v *VMInLibvirt) Run() (err error) {
 	v.consoleOutput = &bytes.Buffer{}
 
 	if debugConsole := os.Getenv("DEBUG_VM_CONSOLE"); debugConsole == "1" {
+		logrus.Infof("Streaming console output for VM %s", v.TestVM.VMName)
 		go streamConsole(v.libvirt, v.domain, "", v.consoleOutput)
 	}
 
