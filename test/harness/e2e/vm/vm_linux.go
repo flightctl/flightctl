@@ -3,6 +3,7 @@ package vm
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,21 +13,20 @@ import (
 	"text/template"
 	"time"
 
-	libvirt "github.com/digitalocean/go-libvirt"
-	"github.com/digitalocean/go-libvirt/socket"
-	"github.com/digitalocean/go-libvirt/socket/dialers"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
+	"libvirt.org/go/libvirt"
 )
 
 //go:embed domain-template.xml
 var domainTemplate string
 
 type VMInLibvirt struct {
-	domain              libvirt.Domain
-	libvirt             *libvirt.Libvirt
+	domain              *libvirt.Domain
 	libvirtUri          string
 	consoleOutput       *bytes.Buffer
 	consoleMutex        sync.Mutex
+	consoleStream       *libvirt.Stream
 	consoleOutputString string
 	TestVM
 }
@@ -53,16 +53,11 @@ func NewVM(params TestVM) (vm *VMInLibvirt, err error) {
 func (v *VMInLibvirt) Run() error {
 
 	logrus.Infof("Creating VM %s", v.TestVM.VMName)
-	opts := []dialers.LocalOption{
-		dialers.WithSocket(v.libvirtUri),
+	conn, err := libvirt.NewConnect(v.libvirtUri)
+	if err != nil {
+		return err
 	}
-	dialer := dialers.NewLocal(opts...)
-
-	v.libvirt = libvirt.NewWithDialer(socket.Dialer(dialer))
-	if err := v.libvirt.Connect(); err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
-	}
-	defer v.libvirt.Disconnect()
+	defer conn.Close()
 
 	domainXML, err := v.parseDomainTemplate()
 	if err != nil {
@@ -71,12 +66,13 @@ func (v *VMInLibvirt) Run() error {
 
 	logrus.Debugf("domainXML:\n%s\n\n", domainXML)
 
-	v.domain, err = v.libvirt.DomainDefineXML(domainXML)
+	v.domain, err = conn.DomainDefineXMLFlags(domainXML, libvirt.DOMAIN_DEFINE_VALIDATE)
 	if err != nil {
 		return fmt.Errorf("unable to define virtual machine domain: %w", err)
 	}
 
-	if err := v.libvirt.DomainCreate(v.domain); err != nil {
+	err = v.domain.Create()
+	if err != nil {
 		return fmt.Errorf("unable to start virtual machine domain: %w", err)
 	}
 
@@ -85,17 +81,45 @@ func (v *VMInLibvirt) Run() error {
 		return fmt.Errorf("unable to wait for VM to be running: %w", err)
 	}
 
-	v.consoleOutput = &bytes.Buffer{}
-
-	if debugConsole := os.Getenv("DEBUG_VM_CONSOLE"); debugConsole == "1" {
-		go streamConsole(v.libvirt, v.domain, "", v.consoleOutput)
+	v.consoleStream, err = conn.NewStream(0)
+	if err != nil {
+		return fmt.Errorf("unable to create new stream: %w", err)
 	}
 
-	return nil
-}
+	err = v.domain.OpenConsole("", v.consoleStream, libvirt.DOMAIN_CONSOLE_FORCE)
 
-func streamConsole(l *libvirt.Libvirt, domain libvirt.Domain, alias string, stream io.Writer) error {
-	return l.DomainOpenConsole(domain, libvirt.OptString{alias}, stream, uint32(libvirt.DomainConsoleForce))
+	if err != nil {
+		return fmt.Errorf("unable to open console: %w", err)
+	}
+
+	v.consoleOutput = &bytes.Buffer{}
+	v.consoleOutput.Grow(256 * 1024) // grow the buffer to 256kB
+
+	// VM seems to freeze if we request a console and we don't keep reading from it
+	go func() {
+		defer ginkgo.GinkgoRecover()
+		debugConsole := os.Getenv("DEBUG_VM_CONSOLE") == "1"
+		if debugConsole {
+			fmt.Println("DEBUG_VM_CONSOLE is enabled")
+		}
+
+		var buffer [256]byte
+		for {
+			n, err := v.consoleStream.Recv(buffer[:])
+			if err != nil {
+				return
+			}
+			v.consoleMutex.Lock()
+			v.consoleOutput.Write(buffer[:n])
+			v.consoleMutex.Unlock()
+
+			if debugConsole {
+				fmt.Print(string(buffer[:n]))
+			}
+		}
+	}()
+	return nil
+
 }
 
 // read console output from the VM
@@ -182,12 +206,13 @@ func (v *VMInLibvirt) waitForVMToBeRunning() error {
 	elapsed := 0 * time.Second
 
 	for elapsed < timeout {
-		state, _, err := v.libvirt.DomainGetState(v.domain, 0)
+		state, _, err := v.domain.GetState()
+
 		if err != nil {
 			return fmt.Errorf("unable to get VM state: %w", err)
 		}
 
-		if libvirt.DomainState(state) == libvirt.DomainRunning {
+		if state == libvirt.DOMAIN_RUNNING {
 			return nil
 		}
 
@@ -204,10 +229,19 @@ func (v *VMInLibvirt) Delete() (err error) {
 		return fmt.Errorf("unable to load existing libvirt domain: %w", err)
 	}
 
-	if v.Exists() {
-		err := v.libvirt.DomainShutdownFlags(v.domain, libvirt.DomainShutdownDefault)
+	domainExists, err := v.Exists()
+	if err != nil {
+		return fmt.Errorf("unable to check if VM exists: %w", err)
+	}
+
+	if domainExists {
+		err = v.domain.UndefineFlags(libvirt.DOMAIN_UNDEFINE_NVRAM)
+		if errors.As(err, &libvirt.Error{Code: libvirt.ERR_INVALID_ARG}) {
+			err = v.domain.Undefine()
+		}
+
 		if err != nil {
-			return fmt.Errorf("unable to shutdown VM: %w", err)
+			return fmt.Errorf("unable to undefine VM: %w", err)
 		}
 		logrus.Infof("Deleted VM: %s", v.TestVM.VMName)
 	}
@@ -222,8 +256,13 @@ func (v *VMInLibvirt) Shutdown() (err error) {
 	}
 
 	//check if domain is running and shut it down
-	if v.IsRunning() {
-		err := v.libvirt.DomainShutdown(v.domain)
+	isRunning, err := v.IsRunning()
+	if err != nil {
+		return fmt.Errorf("unable to check if VM is running: %w", err)
+	}
+
+	if isRunning {
+		err := v.domain.Destroy()
 		if err != nil {
 			return fmt.Errorf("unable to destroy VM: %w", err)
 		}
@@ -247,22 +286,47 @@ func (v *VMInLibvirt) ForceDelete() (err error) {
 	return
 }
 
-func (v *VMInLibvirt) Exists() bool {
-	_, err := v.libvirt.DomainLookupByName(v.TestVM.VMName)
-	return err == nil
-}
-
-func (v *VMInLibvirt) IsRunning() bool {
-	state, _, err := v.libvirt.DomainGetState(v.domain, 0)
+func (v *VMInLibvirt) Exists() (bool, error) {
+	conn, err := libvirt.NewConnect(v.libvirtUri)
 	if err != nil {
-		logrus.Errorf("unable to get VM state: %v", err)
-		return false
+		return false, err
+	}
+	defer conn.Close()
+
+	var flags libvirt.ConnectListAllDomainsFlags
+	domains, err := conn.ListAllDomains(flags)
+	if err != nil {
+		return false, err
+
+	}
+	for _, domain := range domains {
+		name, err := domain.GetName()
+		if err != nil {
+			return false, err
+		}
+
+		if name == v.TestVM.VMName {
+			return true, nil
+		}
 	}
 
-	if libvirt.DomainState(state) == libvirt.DomainRunning {
-		return true
+	return false, nil
+}
+
+func (v *VMInLibvirt) IsRunning() (exists bool, err error) {
+	if err != nil {
+		return false, fmt.Errorf("unable to load existing libvirt domain: %w", err)
+	}
+
+	state, _, err := v.domain.GetState()
+	if err != nil {
+		return false, fmt.Errorf("unable to get VM state: %w", err)
+	}
+
+	if state == libvirt.DOMAIN_RUNNING {
+		return true, nil
 	} else {
-		return false
+		return false, nil
 	}
 }
 
