@@ -36,12 +36,12 @@ type TestVMInterface interface {
 	ForceDelete() error
 	Shutdown() error
 	Delete() error
-	IsRunning() bool
+	IsRunning() (bool, error)
 	WaitForSSHToBeReady() error
 	RunAndWaitForSSH() error
 	SSHCommand(inputArgs []string) *exec.Cmd
 	RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
-	Exists() bool
+	Exists() (bool, error)
 	GetConsoleOutput() string
 }
 
