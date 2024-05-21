@@ -83,8 +83,8 @@ var _ = Describe("FleetRollout", func() {
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
-				Expect(dev.Spec.TemplateVersion).ToNot(BeNil())
-				Expect(*dev.Spec.TemplateVersion).To(Equal("1.0.0"))
+				Expect(dev.Metadata.Annotations).ToNot(BeNil())
+				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
 			}
 
 			// Second update
@@ -98,7 +98,8 @@ var _ = Describe("FleetRollout", func() {
 			for i := 1; i <= numDevices; i++ {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
-				Expect(*dev.Spec.TemplateVersion).To(Equal("1.0.1"))
+				Expect(dev.Metadata.Annotations).ToNot(BeNil())
+				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.1"))
 			}
 		})
 
@@ -121,8 +122,8 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(dev.Spec.TemplateVersion).ToNot(BeNil())
-			Expect(*dev.Spec.TemplateVersion).To(Equal("1.0.0"))
+			Expect(dev.Metadata.Annotations).ToNot(BeNil())
+			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
 		})
 	})
 })

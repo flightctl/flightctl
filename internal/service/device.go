@@ -19,10 +19,6 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 		return server.CreateDevice400JSONResponse{Message: "metadata.name not specified"}, nil
 	}
 
-	if request.Body.Spec.TemplateVersion != nil {
-		return server.CreateDevice400JSONResponse{Message: "spec.templateVersion may not be specified"}, nil
-	}
-
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
@@ -134,8 +130,6 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceDevice404JSONResponse{}, nil
-	case flterrors.ErrUpdatingTemplateVerionNotAllowed:
-		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
 		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
 	default:

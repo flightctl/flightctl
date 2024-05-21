@@ -183,9 +183,6 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 			}
 		} else {
 			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, device.Spec.Data)
-			if fromAPI && util.DefaultIfNil(existingRecord.Spec.Data.TemplateVersion, "") != util.DefaultIfNil(device.Spec.Data.TemplateVersion, "") {
-				return flterrors.ErrUpdatingTemplateVerionNotAllowed
-			}
 
 			// Update the generation if the spec was updated
 			if !sameSpec {
@@ -318,16 +315,23 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 			return flterrors.ErrResourceOwnerIsNil
 		}
 
-		if device.Spec.Data.TemplateVersion == nil {
+		currentTemplateVersion := ""
+		annotations := util.LabelArrayToMap(device.Annotations)
+		v, ok := annotations[model.DeviceAnnotationTemplateVersion]
+		if ok {
+			currentTemplateVersion = v
+		}
+
+		if currentTemplateVersion == "" {
 			return flterrors.ErrTemplateVersionIsNil
 		}
 
-		if knownOwner != nil && knownTemplateVersion != nil && *device.Owner == *knownOwner && *device.Spec.Data.TemplateVersion == *knownTemplateVersion {
+		if knownOwner != nil && knownTemplateVersion != nil && *device.Owner == *knownOwner && currentTemplateVersion == *knownTemplateVersion {
 			return nil
 		}
 
 		templateVersion = &model.TemplateVersion{
-			ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: device.Owner, Name: *device.Spec.Data.TemplateVersion},
+			ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: device.Owner, Name: currentTemplateVersion},
 		}
 		result = s.db.First(templateVersion)
 		if result.Error != nil {

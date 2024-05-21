@@ -15,9 +15,8 @@ var (
 	ErrDuplicateName                       = errors.New("a resource with this name already exists")
 
 	// devices
-	ErrTemplateVersionIsNil             = errors.New("spec.templateVersion not set")
-	ErrUpdatingTemplateVerionNotAllowed = errors.New("updating spec.data.templateVersion not allowed")
-	ErrInvalidTemplateVersion           = errors.New("device's templateVersion is not valid")
+	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
+	ErrInvalidTemplateVersion = errors.New("device's templateVersion is not valid")
 )
 
 func ErrorFromGormError(err error) error {
