@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,8 +14,6 @@ import (
 	"time"
 
 	libvirt "github.com/digitalocean/go-libvirt"
-	"github.com/digitalocean/go-libvirt/socket"
-	"github.com/digitalocean/go-libvirt/socket/dialers"
 	"github.com/sirupsen/logrus"
 )
 
@@ -32,7 +31,7 @@ type VMInLibvirt struct {
 }
 
 func getLibvirtUri() string {
-	return "qemu:///session"
+	return string(libvirt.QEMUSystem)
 }
 
 func NewVM(params TestVM) (vm *VMInLibvirt, err error) {
@@ -50,19 +49,24 @@ func NewVM(params TestVM) (vm *VMInLibvirt, err error) {
 	return vm, nil
 }
 
-func (v *VMInLibvirt) Run() error {
+func (v *VMInLibvirt) Run() (err error) {
 
 	logrus.Infof("Creating VM %s", v.TestVM.VMName)
-	opts := []dialers.LocalOption{
-		dialers.WithSocket(v.libvirtUri),
-	}
-	dialer := dialers.NewLocal(opts...)
 
-	v.libvirt = libvirt.NewWithDialer(socket.Dialer(dialer))
-	if err := v.libvirt.Connect(); err != nil {
+	uri, err := url.Parse(v.libvirtUri)
+	if err != nil {
+		return fmt.Errorf("unable to parse libvirt URI: %w", err)
+	}
+
+	v.libvirt, err = libvirt.ConnectToURI(uri);
+	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
-	defer v.libvirt.Disconnect()
+	defer func (){
+		if err := v.libvirt.Disconnect(); err != nil {
+			logrus.Errorf("Error disconnecting: %v", err)
+		}
+	}()
 
 	domainXML, err := v.parseDomainTemplate()
 	if err != nil {
