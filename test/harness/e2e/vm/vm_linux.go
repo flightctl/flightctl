@@ -31,18 +31,19 @@ type VMInLibvirt struct {
 }
 
 func getLibvirtUri() string {
-	return string(libvirt.QEMUSystem)
+	return string(libvirt.QEMUSession)
 }
 
-func NewVM(params TestVM) (vm *VMInLibvirt, err error) {
+func NewVM(params TestVM) (*VMInLibvirt, error) {
 
 	if params.LibvirtUri == "" {
 		params.LibvirtUri = getLibvirtUri()
 	}
 
-	vm = &VMInLibvirt{
+	vm := &VMInLibvirt{
 		libvirtUri: params.LibvirtUri,
-		TestVM:     params}
+		TestVM:     params,
+	}
 
 	vm.pidFile = filepath.Join(params.TestDir, params.VMName+".pid")
 
