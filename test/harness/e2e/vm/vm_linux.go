@@ -60,6 +60,9 @@ func (v *VMInLibvirt) Run() (error) {
 		return fmt.Errorf("unable to parse libvirt URI: %w", err)
 	}
 
+	 testURL := libvirt.RemoteURI(uri)
+	 logrus.Infof("Connecting to libvirt with URI: %s", testURL)
+
 	v.libvirt, err = libvirt.ConnectToURI(uri);
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
@@ -87,8 +90,7 @@ func (v *VMInLibvirt) Run() (error) {
 		return fmt.Errorf("unable to start virtual machine domain: %w", err)
 	}
 
-	err = v.waitForVMToBeRunning()
-	if err != nil {
+	if err := v.waitForVMToBeRunning(); err != nil {
 		return fmt.Errorf("unable to wait for VM to be running: %w", err)
 	}
 
@@ -207,52 +209,40 @@ func (v *VMInLibvirt) waitForVMToBeRunning() error {
 }
 
 // Delete the VM definition
-func (v *VMInLibvirt) Delete() (err error) {
-	if err != nil {
-		return fmt.Errorf("unable to load existing libvirt domain: %w", err)
-	}
-
+func (v *VMInLibvirt) Delete() error {
 	if v.Exists() {
-		err := v.libvirt.DomainShutdownFlags(v.domain, libvirt.DomainShutdownDefault)
-		if err != nil {
+		if err := v.libvirt.DomainShutdownFlags(v.domain, libvirt.DomainShutdownDefault);err != nil {
 			return fmt.Errorf("unable to shutdown VM: %w", err)
 		}
 		logrus.Infof("Deleted VM: %s", v.TestVM.VMName)
 	}
 
-	return
+	return nil
 }
 
 // Shutdown the VM
-func (v *VMInLibvirt) Shutdown() (err error) {
-	if err != nil {
-		return fmt.Errorf("unable to load existing libvirt domain: %w", err)
-	}
-
+func (v *VMInLibvirt) Shutdown() error {
 	//check if domain is running and shut it down
 	if v.IsRunning() {
-		err := v.libvirt.DomainShutdown(v.domain)
-		if err != nil {
+		if err := v.libvirt.DomainShutdown(v.domain); err != nil {
 			return fmt.Errorf("unable to destroy VM: %w", err)
 		}
 	}
 
-	return
+	return nil
 }
 
 // ForceDelete stops and removes the VM
-func (v *VMInLibvirt) ForceDelete() (err error) {
-	err = v.Shutdown()
-	if err != nil {
+func (v *VMInLibvirt) ForceDelete() error {
+	if err := v.Shutdown(); err != nil {
 		return fmt.Errorf("unable to shutdown VM: %w", err)
 	}
 
-	err = v.Delete()
-	if err != nil {
+	if err := v.Delete(); err != nil {
 		return fmt.Errorf("unable to remove VM: %w", err)
 	}
 
-	return
+	return nil
 }
 
 func (v *VMInLibvirt) Exists() bool {
@@ -275,13 +265,11 @@ func (v *VMInLibvirt) IsRunning() bool {
 }
 
 func (v *VMInLibvirt) RunAndWaitForSSH() error {
-	err := v.Run()
-	if err != nil {
+	if err := v.Run(); err != nil {
 		return fmt.Errorf("failed to run VM: %w", err)
 	}
 
-	err = v.WaitForSSHToBeReady()
-	if err != nil {
+	if err := v.WaitForSSHToBeReady(); err != nil {
 		return fmt.Errorf("waiting for SSH: %w", err)
 	}
 
