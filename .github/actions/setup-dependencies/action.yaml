@@ -29,6 +29,7 @@ runs:
                                   virtinst bridge-utils qemu qemu-system-x86 qemu-kvm \
                                   swtpm apparmor-utils
           sudo usermod -a -G kvm,libvirt,swtpm $USER
+          sudo chmod o+rw /var/run/libvirt/libvirt-sock
           echo "::endgroup::"
 
       - name: Install dependencies
