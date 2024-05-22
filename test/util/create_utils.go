@@ -101,7 +101,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 
 	tv.Status = &api.TemplateVersionStatus{}
 	tv.Status.Os = &api.DeviceOSSpec{Image: osImage}
-	err = tvStore.UpdateStatusAndConfig(ctx, orgId, tv, &valid, util.StrToPtr("rendered config"), callback)
+	err = tvStore.UpdateStatus(ctx, orgId, tv, &valid, callback)
 	return err
 }
 
