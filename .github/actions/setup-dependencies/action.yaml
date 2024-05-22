@@ -30,6 +30,8 @@ runs:
                                   swtpm apparmor-utils
           sudo usermod -a -G kvm,libvirt,swtpm $USER
           sudo chmod o+rw /var/run/libvirt/libvirt-sock
+          echo 'security_driver = "none"' | sudo tee -a /etc/libvirt/qemu.conf > /dev/null
+          sudo systemctl restart libvirtd
           echo "::endgroup::"
 
       - name: Install dependencies
