@@ -355,10 +355,10 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	renderedConfig := api.RenderedDeviceSpec{
 		Owner:           deviceOwner,
 		TemplateVersion: templateVersion.Name,
-		Config:          templateVersion.RenderedConfig,
 		Containers:      templateVersion.Status.Data.Containers,
 		Os:              templateVersion.Status.Data.Os,
 		Systemd:         templateVersion.Status.Data.Systemd,
+		// Config:       templateVersion.RenderedConfig,
 	}
 
 	return &renderedConfig, nil
