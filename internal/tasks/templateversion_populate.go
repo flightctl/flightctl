@@ -115,7 +115,7 @@ func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Co
 	return nil
 }
 
-func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Item) error {
 	disc, err := configItem.Discriminator()
 	if err != nil {
 		return fmt.Errorf("failed getting discriminator: %w", err)
@@ -139,7 +139,7 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 }
 
 // Translate branch or tag into hash
-func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item) error {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
@@ -176,7 +176,7 @@ func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, conf
 }
 
 // TODO: implement
-func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpecification_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpec_Config_Item) error {
 	return fmt.Errorf("service does not yet support kubernetes config")
 }
 

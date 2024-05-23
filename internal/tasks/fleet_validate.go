@@ -116,7 +116,7 @@ func (t *FleetValidateLogic) validateFleetTemplate(ctx context.Context, fleet *a
 	return retErr
 }
 
-func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem *api.DeviceSpecification_Config_Item) (string, error) {
+func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Item) (string, error) {
 	unknownName := "<unknown>"
 
 	disc, err := configItem.Discriminator()

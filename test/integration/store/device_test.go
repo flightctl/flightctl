@@ -162,13 +162,13 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("CreateOrUpdateDevice create mode", func() {
-			templateVersion := "tv"
+			imageName := "tv"
 			device := api.Device{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
 				},
 				Spec: &api.DeviceSpec{
-					TemplateVersion: &templateVersion,
+					Os: &api.DeviceOSSpec{Image: imageName},
 				},
 				Status: nil,
 			}
@@ -177,22 +177,8 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
-			Expect(*dev.Spec.TemplateVersion).To(Equal(templateVersion))
+			Expect(dev.Spec.Os.Image).To(Equal(imageName))
 			Expect(dev.Status.Conditions).To(BeNil())
-		})
-
-		It("CreateOrUpdateDevice update mode templateVersion", func() {
-			device := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("mydevice-1"),
-				},
-				Spec: &api.DeviceSpec{
-					TemplateVersion: util.StrToPtr("tv"),
-				},
-			}
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
-			Expect(err).To(HaveOccurred())
-			Expect(err).Should(MatchError(flterrors.ErrUpdatingTemplateVerionNotAllowed))
 		})
 
 		It("CreateOrUpdateDevice update mode", func() {
@@ -222,7 +208,7 @@ var _ = Describe("DeviceStore create", func() {
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = util.StrToPtr("newowner")
-			dev.Spec.TemplateVersion = util.StrToPtr("tv")
+			dev.Spec.Os.Image = "oldos"
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
@@ -234,7 +220,6 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("UpdateDeviceStatus", func() {
-			templateVersion := "tv"
 			// Random Condition to make sure Conditions do get stored
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
@@ -248,7 +233,7 @@ var _ = Describe("DeviceStore create", func() {
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
-					TemplateVersion: &templateVersion,
+					Os: &api.DeviceOSSpec{Image: "newos"},
 				},
 				Status: &api.DeviceStatus{
 					Conditions: &[]api.Condition{condition},
@@ -260,12 +245,12 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
-			Expect(dev.Spec.TemplateVersion).To(BeNil())
+			Expect(dev.Spec.Os.Image).To(Equal("os"))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
 			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 
-		It("UpdateTemplateVersionAndOwner", func() {
+		It("UpdateOwner", func() {
 			called := false
 			callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {
 				called = true
@@ -275,7 +260,6 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			dev.Metadata.Owner = util.StrToPtr("newowner")
-			dev.Spec.TemplateVersion = util.StrToPtr("tv")
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
@@ -284,12 +268,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.Metadata.Owner).ToNot(BeNil())
 			Expect(*dev.Metadata.Owner).To(Equal("newowner"))
-			Expect(dev.Spec.TemplateVersion).ToNot(BeNil())
-			Expect(*dev.Spec.TemplateVersion).To(Equal("tv"))
 
 			called = false
 			dev.Metadata.Owner = nil
-			dev.Spec.TemplateVersion = nil
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
@@ -297,7 +278,6 @@ var _ = Describe("DeviceStore create", func() {
 			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.Metadata.Owner).To(BeNil())
-			Expect(dev.Spec.TemplateVersion).To(BeNil())
 		})
 
 		It("UpdateDeviceAnnotations", func() {

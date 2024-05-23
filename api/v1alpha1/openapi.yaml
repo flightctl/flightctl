@@ -1779,15 +1779,6 @@ components:
           description: 'ostree image name or URL.'
       required:
         - image
-    DeviceSpec:
-      allOf:
-        - $ref: '#/components/schemas/DeviceSpecification'
-        - type: object
-          properties:
-            templateVersion:
-              type: string
-              description: The TemplateVersion representing the target state for this device.
-      description: DeviceSpec is a description of a device's target state.
     DeviceStatus:
       type: object
       properties:
@@ -2105,7 +2096,7 @@ components:
             metadata:
               $ref: '#/components/schemas/ObjectMeta'
             spec:
-              $ref: '#/components/schemas/DeviceSpecification'
+              $ref: '#/components/schemas/DeviceSpec'
           required:
             - spec
       required:
@@ -2139,7 +2130,7 @@ components:
       required:
         - owner
         - templateVersion
-    DeviceSpecification:
+    DeviceSpec:
       type: object
       properties:
         os:
@@ -2212,7 +2203,7 @@ components:
         - fleet
     TemplateVersionStatus:
       allOf:
-        - $ref: '#/components/schemas/DeviceSpecification'
+        - $ref: '#/components/schemas/DeviceSpec'
         - type: object
           properties:
             updatedAt:
