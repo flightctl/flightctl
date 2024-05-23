@@ -112,6 +112,7 @@ func (t TaskManager) Stop() {
 }
 
 func (t TaskManager) SubmitTask(taskName string, resource ResourceReference, op string) {
+	t.log.Infof("Submitting task %s for resource %s %s/%s with op %s", taskName, resource.Kind, resource.OrgID, resource.Name, op)
 	resource.Op = op
 	t.channels[taskName] <- resource
 }
