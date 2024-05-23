@@ -155,6 +155,9 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 	device := model.NewDeviceFromApiResource(resource)
 	device.OrgID = orgId
 
+	// Use the dedicated API to update annotations
+	device.Annotations = nil
+
 	created := false
 	var existingRecord *model.Device
 
@@ -220,9 +223,6 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 		return nil, false, err
 	}
 
-	if existingRecord != nil {
-		existingRecord.Owner = nil // Match the incoming device
-	}
 	callback(existingRecord, device)
 
 	updatedResource := device.ToApiResource()
