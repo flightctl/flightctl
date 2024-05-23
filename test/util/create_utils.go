@@ -20,11 +20,17 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 			Owner:  owner,
 		},
 		Spec: &api.DeviceSpec{
-			TemplateVersion: tv,
 			Os: &api.DeviceOSSpec{
 				Image: "os",
 			},
 		},
+	}
+
+	if tv != nil {
+		annotations := map[string]string{
+			model.DeviceAnnotationTemplateVersion: *tv,
+		}
+		resource.Metadata.Annotations = &annotations
 	}
 
 	callback := store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {})

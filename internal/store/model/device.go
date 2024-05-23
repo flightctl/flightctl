@@ -13,7 +13,8 @@ var (
 	DeviceKind     = "Device"
 	DeviceListKind = "DeviceList"
 
-	DeviceAnnotationMultipleOwners = "MultipleOwners"
+	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	DeviceAnnotationMultipleOwners  = "fleet-controller/multipleOwners"
 )
 
 type Device struct {

@@ -158,14 +158,24 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 }
 
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *api.Device, templateVersion *api.TemplateVersion) error {
-	if device.Spec.TemplateVersion != nil && *device.Spec.TemplateVersion == *templateVersion.Metadata.Name {
+	currentVersion := ""
+	if device.Metadata.Annotations != nil {
+		v, ok := (*device.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]
+		if ok {
+			currentVersion = v
+		}
+	}
+
+	if currentVersion == *templateVersion.Metadata.Name {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
 		return nil
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
 
-	device.Spec.TemplateVersion = templateVersion.Metadata.Name
-	_, _, err := f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.taskManager.DeviceUpdatedCallback)
+	annotations := map[string]string{
+		model.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
+	}
+	err := f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
 	return err
 }
