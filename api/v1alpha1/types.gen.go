@@ -28,6 +28,7 @@ const (
 	DevicePIDPressure          ConditionType = "PIDPressure"
 	DeviceProgressing          ConditionType = "Progressing"
 	DeviceReady                ConditionType = "Ready"
+	DeviceSpecValid            ConditionType = "SpecValid"
 	DeviceSystemdUnitsRunning  ConditionType = "SystemdUnitsRunning"
 	EnrollmentRequestApproved  ConditionType = "Approved"
 	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
@@ -394,12 +395,11 @@ type RenderedDeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
-	Owner   string        `json:"owner"`
-	Systemd *struct {
+	Os              *DeviceOSSpec `json:"os,omitempty"`
+	RenderedVersion string        `json:"renderedVersion"`
+	Systemd         *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
-	TemplateVersion string `json:"templateVersion"`
 }
 
 // Repository Repository represents a git repository
@@ -598,11 +598,8 @@ type ListDevicesParams struct {
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
 type GetRenderedDeviceSpecParams struct {
-	// KnownOwner The last known owner
-	KnownOwner *string `form:"knownOwner,omitempty" json:"knownOwner,omitempty"`
-
-	// KnownTemplateVersion The last known template version
-	KnownTemplateVersion *string `form:"knownTemplateVersion,omitempty" json:"knownTemplateVersion,omitempty"`
+	// KnownRenderedVersion The last known renderedVersion
+	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
 // ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.

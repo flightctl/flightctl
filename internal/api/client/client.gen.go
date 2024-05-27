@@ -1241,7 +1241,7 @@ func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRend
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/devices/%s/specification", pathParam0)
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/rendered", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1254,25 +1254,9 @@ func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRend
 	if params != nil {
 		queryValues := queryURL.Query()
 
-		if params.KnownOwner != nil {
+		if params.KnownRenderedVersion != nil {
 
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "knownOwner", runtime.ParamLocationQuery, *params.KnownOwner); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.KnownTemplateVersion != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "knownTemplateVersion", runtime.ParamLocationQuery, *params.KnownTemplateVersion); err != nil {
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "knownRenderedVersion", runtime.ParamLocationQuery, *params.KnownRenderedVersion); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err

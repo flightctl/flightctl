@@ -98,11 +98,9 @@ func TestManager(t *testing.T) {
 			}
 			require.NoError(err)
 			// eval current
-			require.Equal("", current.Owner)
-			require.Equal("", current.TemplateVersion)
+			require.Equal("", current.RenderedVersion)
 			// eval desired
-			require.Equal("mockOwner", desired.Owner)
-			require.Equal("mockTemplateVersion", desired.TemplateVersion)
+			require.Equal("mockRenderedVersion", desired.RenderedVersion)
 		})
 	}
 
@@ -111,11 +109,9 @@ func TestManager(t *testing.T) {
 func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mockTemplateVersion := "mockTemplateVersion"
-		mockOwner := "mockOwner"
+		mockRenderedVersion := "mockRenderedVersion"
 		resp := v1alpha1.RenderedDeviceSpec{
-			Owner:           mockOwner,
-			TemplateVersion: mockTemplateVersion,
+			RenderedVersion: mockRenderedVersion,
 			Config:          util.StrToPtr("ignitionConfig"),
 		}
 

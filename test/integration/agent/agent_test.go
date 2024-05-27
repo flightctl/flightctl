@@ -116,7 +116,6 @@ var _ = Describe("Device Agent behavior", func() {
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
-				Skip("Fix test once functionality works")
 				resp, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resp.HTTPResponse.StatusCode).To(Equal(http.StatusCreated))
