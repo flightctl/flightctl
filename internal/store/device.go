@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -27,7 +28,9 @@ type Device interface {
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownOwner, knownTemplateVersion *string) (*api.RenderedDeviceSpec, error)
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error
+	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string) (*api.RenderedDeviceSpec, error)
+	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	InitialMigration() error
 }
 
@@ -301,65 +304,89 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	})
 }
 
-func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownOwner, knownTemplateVersion *string) (*api.RenderedDeviceSpec, error) {
-	var deviceOwner string
-	var templateVersion *model.TemplateVersion
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		device := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(device)
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error {
+	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
 			return flterrors.ErrorFromGormError(result.Error)
 		}
+		existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 
-		if device.Owner == nil {
-			return flterrors.ErrResourceOwnerIsNil
-		}
-
-		currentTemplateVersion := ""
-		annotations := util.LabelArrayToMap(device.Annotations)
-		v, ok := annotations[model.DeviceAnnotationTemplateVersion]
+		var currentRenderedVersion int64 = 0
+		renderedVersionString, ok := existingAnnotations[model.DeviceAnnotationRenderedVersion]
 		if ok {
-			currentTemplateVersion = v
+			currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+			if err != nil {
+				return err
+			}
 		}
 
-		if currentTemplateVersion == "" {
-			return flterrors.ErrTemplateVersionIsNil
-		}
+		currentRenderedVersion++
+		existingAnnotations[model.DeviceAnnotationRenderedVersion] = strconv.FormatInt(currentRenderedVersion, 10)
+		annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
-		if knownOwner != nil && knownTemplateVersion != nil && *device.Owner == *knownOwner && currentTemplateVersion == *knownTemplateVersion {
-			return nil
-		}
+		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
+			"annotations":     pq.StringArray(annotationsArray),
+			"rendered_config": &rendered,
+		})
 
-		templateVersion = &model.TemplateVersion{
-			ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: device.Owner, Name: currentTemplateVersion},
-		}
-		result = s.db.First(templateVersion)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-		return nil
+		return flterrors.ErrorFromGormError(result.Error)
 	})
+}
 
-	if err != nil {
-		return nil, err
+func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string) (*api.RenderedDeviceSpec, error) {
+	device := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.db.First(&device)
+	if result.Error != nil {
+		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 
-	if templateVersion == nil {
+	annotations := util.LabelArrayToMap(device.Annotations)
+	renderedVersion, ok := annotations[model.DeviceAnnotationRenderedVersion]
+	if !ok {
+		return nil, flterrors.ErrNoRenderedVersion
+	}
+
+	if knownRenderedVersion != nil && renderedVersion == *knownRenderedVersion {
 		return nil, nil
 	}
 
-	if templateVersion.Valid == nil || !*templateVersion.Valid {
-		return nil, flterrors.ErrInvalidTemplateVersion
-	}
-
 	renderedConfig := api.RenderedDeviceSpec{
-		Owner:           deviceOwner,
-		TemplateVersion: templateVersion.Name,
-		Containers:      templateVersion.Status.Data.Containers,
-		Os:              templateVersion.Status.Data.Os,
-		Systemd:         templateVersion.Status.Data.Systemd,
-		// Config:       templateVersion.RenderedConfig,
+		RenderedVersion: renderedVersion,
+		Config:          device.RenderedConfig,
+		Containers:      device.Spec.Data.Containers,
+		Os:              device.Spec.Data.Os,
+		Systemd:         device.Spec.Data.Systemd,
 	}
 
 	return &renderedConfig, nil
+}
+
+func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := innerTx.First(&existingRecord)
+		if result.Error != nil {
+			return flterrors.ErrorFromGormError(result.Error)
+		}
+
+		if existingRecord.ServiceConditions == nil {
+			existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
+		}
+		if existingRecord.ServiceConditions.Data.Conditions == nil {
+			existingRecord.ServiceConditions.Data.Conditions = &[]api.Condition{}
+		}
+
+		for _, condition := range conditions {
+			api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
+		}
+
+		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
+			"service_conditions": existingRecord.ServiceConditions,
+		})
+		return flterrors.ErrorFromGormError(result.Error)
+	})
 }

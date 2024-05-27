@@ -193,7 +193,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownOwner, request.Params.KnownTemplateVersion)
+	result, err := h.store.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion)
 	switch err {
 	case nil:
 		if result == nil {

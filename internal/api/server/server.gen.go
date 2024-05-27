@@ -36,7 +36,7 @@ type ServerInterface interface {
 	// (PUT /api/v1/devices/{name})
 	ReplaceDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{name}/specification)
+	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams)
 
 	// (GET /api/v1/devices/{name}/status)
@@ -182,7 +182,7 @@ func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, nam
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{name}/specification)
+// (GET /api/v1/devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
@@ -554,19 +554,11 @@ func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params GetRenderedDeviceSpecParams
 
-	// ------------- Optional query parameter "knownOwner" -------------
+	// ------------- Optional query parameter "knownRenderedVersion" -------------
 
-	err = runtime.BindQueryParameter("form", true, false, "knownOwner", r.URL.Query(), &params.KnownOwner)
+	err = runtime.BindQueryParameter("form", true, false, "knownRenderedVersion", r.URL.Query(), &params.KnownRenderedVersion)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "knownOwner", Err: err})
-		return
-	}
-
-	// ------------- Optional query parameter "knownTemplateVersion" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "knownTemplateVersion", r.URL.Query(), &params.KnownTemplateVersion)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "knownTemplateVersion", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "knownRenderedVersion", Err: err})
 		return
 	}
 
@@ -1676,7 +1668,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/api/v1/devices/{name}", wrapper.ReplaceDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/specification", wrapper.GetRenderedDeviceSpec)
+		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDeviceSpec)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReadDeviceStatus)
@@ -3484,7 +3476,7 @@ type StrictServerInterface interface {
 	// (PUT /api/v1/devices/{name})
 	ReplaceDevice(ctx context.Context, request ReplaceDeviceRequestObject) (ReplaceDeviceResponseObject, error)
 
-	// (GET /api/v1/devices/{name}/specification)
+	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDeviceSpec(ctx context.Context, request GetRenderedDeviceSpecRequestObject) (GetRenderedDeviceSpecResponseObject, error)
 
 	// (GET /api/v1/devices/{name}/status)

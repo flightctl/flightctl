@@ -12,8 +12,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var owner string
-var templateVersion string
+var resourceVersion string
 
 func NewCmdDebug() *cobra.Command {
 	cmd := &cobra.Command{
@@ -35,34 +34,28 @@ func NewCmdDevSpec() *cobra.Command {
 		Short: "devspec devname",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var knownOwner *string
-			if cmd.Flags().Lookup("owner").Changed {
-				knownOwner = &owner
-			}
-			var knownTV *string
-			if cmd.Flags().Lookup("templateVersion").Changed {
-				knownTV = &templateVersion
+			var knownRV *string
+			if cmd.Flags().Lookup("resourceVersion").Changed {
+				knownRV = &resourceVersion
 			}
 
-			return RunGetDevSpec(cmd.Context(), args[0], knownOwner, knownTV)
+			return RunGetDevSpec(cmd.Context(), args[0], knownRV)
 		},
 		SilenceUsage: true,
 	}
 
-	cmd.Flags().StringVar(&owner, "owner", "", "device owner")
-	cmd.Flags().StringVar(&templateVersion, "templateVersion", "", "device templateVersion")
+	cmd.Flags().StringVar(&resourceVersion, "resourceVersion", "", "device resourceVersion")
 	return cmd
 }
 
-func RunGetDevSpec(ctx context.Context, deviceName string, knownOwner, knownTV *string) error {
+func RunGetDevSpec(ctx context.Context, deviceName string, knownRV *string) error {
 	c, err := client.NewFromConfigFile(defaultClientConfigFile)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
 	params := api.GetRenderedDeviceSpecParams{
-		KnownOwner:           knownOwner,
-		KnownTemplateVersion: knownTV,
+		KnownRenderedVersion: knownRV,
 	}
 	resp, err := c.GetRenderedDeviceSpecWithResponse(ctx, deviceName, &params)
 	if err != nil {

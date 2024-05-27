@@ -725,7 +725,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/devices/{name}/specification:
+  /api/v1/devices/{name}/rendered:
     get:
       tags:
         - device
@@ -738,15 +738,9 @@ paths:
           required: true
           schema:
             type: string
-        - name: knownOwner
+        - name: knownRenderedVersion
           in: query
-          description: The last known owner
-          required: false
-          schema:
-            type: string
-        - name: knownTemplateVersion
-          in: query
-          description: The last known template version
+          description: The last known renderedVersion
           required: false
           schema:
             type: string
@@ -2105,9 +2099,7 @@ components:
     RenderedDeviceSpec:
       type: object
       properties:
-        owner:
-          type: string
-        templateVersion:
+        renderedVersion:
           type: string
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
@@ -2128,8 +2120,7 @@ components:
               items:
                 type: string
       required:
-        - owner
-        - templateVersion
+        - renderedVersion
     DeviceSpec:
       type: object
       properties:
@@ -2353,6 +2344,7 @@ components:
       - 'Degraded'             # Device
       - 'SystemdUnitsRunning'  # Device
       - 'ContainersRunning'    # Device
+      - 'SpecValid'            # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
@@ -2372,6 +2364,7 @@ components:
       - DeviceDegraded
       - DeviceSystemdUnitsRunning
       - DeviceContainersRunning
+      - DeviceSpecValid
       - TemplateVersionValid
     ConditionStatus:
       type: string
