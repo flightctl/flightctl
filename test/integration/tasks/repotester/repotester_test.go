@@ -34,18 +34,23 @@ func (r *MockRepoTester) TestAccess(repository *model.Repository) error {
 }
 
 func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
+	spec := api.RepositorySpec{}
+	err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+		Repo: "myrepourl",
+	})
+	if err != nil {
+		return err
+	}
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
 			Name:   util.StrToPtr(name),
 			Labels: labels,
 		},
-		Spec: api.RepositorySpec{
-			Repo: util.StrToPtr("myrepourl"),
-		},
+		Spec: spec,
 	}
 
 	callback := store.RepositoryStoreCallback(func(*model.Repository) {})
-	_, err := repostore.Create(ctx, orgId, &resource, callback)
+	_, err = repostore.Create(ctx, orgId, &resource, callback)
 	return err
 }
 

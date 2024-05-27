@@ -10,11 +10,11 @@ import (
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks/repotester"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	gitplumbing "github.com/go-git/go-git/v5/plumbing"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 )
 
@@ -24,18 +24,21 @@ type cloneGitRepoFunc func(repo *model.Repository, revision *string, depth *int)
 func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
 	storage := gitmemory.NewStorage()
 	mfs := memfs.New()
+	repoURL, err := repo.Spec.Data.GetRepoURL()
+	if err != nil {
+		return nil, "", err
+	}
 	opts := &git.CloneOptions{
-		URL: *repo.Spec.Data.Repo,
+		URL: repoURL,
 	}
 	if depth != nil {
 		opts.Depth = *depth
 	}
-	if repo.Spec.Data.Username != nil && repo.Spec.Data.Password != nil {
-		opts.Auth = &githttp.BasicAuth{
-			Username: *repo.Spec.Data.Username,
-			Password: *repo.Spec.Data.Password,
-		}
+	auth, err := repotester.GetAuth(repo)
+	if err != nil {
+		return nil, "", err
 	}
+	opts.Auth = auth
 	if revision != nil {
 		opts.ReferenceName = gitplumbing.ReferenceName(*revision)
 	}

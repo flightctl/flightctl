@@ -53,12 +53,15 @@ func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource 
 	repository := model.NewRepositoryFromApiResource(resource)
 	repository.OrgID = orgId
 	result := s.db.Create(repository)
-
-	apiRepository := repository.ToApiResource()
+	apiRepository, toApiErr := repository.ToApiResource()
 	if result.Error == nil {
 		callback(repository)
 	}
-	return &apiRepository, flterrors.ErrorFromGormError(result.Error)
+	err := flterrors.ErrorFromGormError(result.Error)
+	if err == nil {
+		err = toApiErr
+	}
+	return &apiRepository, err
 }
 
 func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
@@ -98,8 +101,12 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 		numRemaining = &numRemainingVal
 	}
 
-	apiRepositoryList := repositories.ToApiResource(nextContinue, numRemaining)
-	return &apiRepositoryList, flterrors.ErrorFromGormError(result.Error)
+	apiRepositoryList, toApiErr := repositories.ToApiResource(nextContinue, numRemaining)
+	err := flterrors.ErrorFromGormError(result.Error)
+	if err == nil {
+		err = toApiErr
+	}
+	return &apiRepositoryList, err
 }
 
 // A method to get all Repositories with secrets, regardless of ownership. Used internally by the RepoTester.
@@ -128,8 +135,8 @@ func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 	if err != nil {
 		return nil, err
 	}
-	apiRepository := repository.ToApiResource()
-	return &apiRepository, nil
+	apiRepository, err := repository.ToApiResource()
+	return &apiRepository, err
 }
 
 func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error) {
@@ -170,11 +177,15 @@ func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 	where := model.Repository{Resource: model.Resource{OrgID: repository.OrgID, Name: repository.Name}}
 	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedRepository)
 
-	updatedResource := updatedRepository.ToApiResource()
+	updatedResource, toApiErr := updatedRepository.ToApiResource()
 	if result.Error == nil {
 		callback(repository)
 	}
-	return &updatedResource, created, flterrors.ErrorFromGormError(result.Error)
+	err := flterrors.ErrorFromGormError(result.Error)
+	if err == nil {
+		err = toApiErr
+	}
+	return &updatedResource, created, err
 }
 
 func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) error {
