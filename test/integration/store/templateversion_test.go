@@ -6,7 +6,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -103,7 +102,7 @@ var _ = Describe("TemplateVersion", func() {
 			}
 		})
 
-		It("Delete all templateVersions in org", func() {
+		It("Delete all templateVersions of fleet", func() {
 			numResources := 5
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, orgId, "myfleet")
@@ -114,7 +113,7 @@ var _ = Describe("TemplateVersion", func() {
 			err = testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.TemplateVersion().DeleteAll(ctx, otherOrgId, util.StrToPtr("Fleet/myfleet"))
+			err = storeInst.TemplateVersion().DeleteAll(ctx, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -122,13 +121,6 @@ var _ = Describe("TemplateVersion", func() {
 			Expect(len(templateVersions.Items)).To(Equal(numResources))
 
 			templateVersions, err = storeInst.TemplateVersion().List(ctx, otherOrgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(templateVersions.Items)).To(Equal(0))
-
-			err = storeInst.TemplateVersion().DeleteAll(ctx, orgId, nil)
-			Expect(err).ToNot(HaveOccurred())
-
-			templateVersions, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(templateVersions.Items)).To(Equal(0))
 		})

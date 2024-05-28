@@ -22,7 +22,7 @@ func TemplateVersionFromReader(r io.Reader) (*api.TemplateVersion, error) {
 	return &templateVersion, err
 }
 
-// (GET /api/v1/templateVersions)
+// (GET /api/v1/api/v1/fleets/{fleet}/templateVersions)
 func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request server.ListTemplateVersionsRequestObject) (server.ListTemplateVersionsResponseObject, error) {
 	orgId := store.NullOrgId
 	labelSelector := ""
@@ -44,7 +44,6 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		Labels:   labelMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
-		Owner:    request.Params.Owner,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -62,11 +61,11 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	}
 }
 
-// (DELETE /api/v1/templateVersions)
+// (DELETE /api/v1/api/v1/fleets/{fleet}/templateVersions)
 func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request server.DeleteTemplateVersionsRequestObject) (server.DeleteTemplateVersionsResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.TemplateVersion().DeleteAll(ctx, orgId, request.Params.Owner)
+	err := h.store.TemplateVersion().DeleteAll(ctx, orgId, request.Fleet)
 	switch err {
 	case nil:
 		return server.DeleteTemplateVersions200JSONResponse{}, nil
