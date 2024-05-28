@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"reflect"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -208,6 +210,60 @@ func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request serv
 		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrInvalidTemplateVersion:
 		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
+	default:
+		return nil, err
+	}
+}
+
+// (PATCH /api/v1/devices/{name})
+func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDeviceRequestObject) (server.PatchDeviceResponseObject, error) {
+	orgId := store.NullOrgId
+
+	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil:
+			return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNameIsNil:
+			return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.PatchDevice404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+
+	newObj := &api.Device{}
+	err = ApplyJSONPatch(currentObj, newObj, *request.Body, "/api/v1/devices/"+request.Name)
+	if err != nil {
+		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
+	}
+
+	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
+		return server.PatchDevice400JSONResponse{Message: "metadata.name is immutable"}, nil
+	}
+	if currentObj.ApiVersion != newObj.ApiVersion {
+		return server.PatchDevice400JSONResponse{Message: "apiVersion is immutable"}, nil
+	}
+	if currentObj.Kind != newObj.Kind {
+		return server.PatchDevice400JSONResponse{Message: "kind is immutable"}, nil
+	}
+	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
+		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
+	}
+
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	result, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, newObj, nil, true, h.taskManager.DeviceUpdatedCallback)
+
+	switch err {
+	case nil:
+		return server.PatchDevice200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil:
+		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNameIsNil:
+		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.PatchDevice404JSONResponse{}, nil
 	default:
 		return nil, err
 	}
