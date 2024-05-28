@@ -24,7 +24,9 @@
     <boot dev='hd'/>
     <firmware>
       <feature enabled='yes' name='secure-boot'/>
-      <feature enabled='yes' name='enrolled-keys'/>
+      <!-- we enable secureboot to make sure that attestation is happening, but don't enroll the keys to avoid
+	   issues booting vms in fedora -->
+      <feature enabled='no' name='enrolled-keys'/>
    </firmware>
   </os>
   <devices>
