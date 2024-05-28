@@ -40,6 +40,13 @@ const (
 	TemplateVersionValid       ConditionType = "Valid"
 )
 
+// Defines values for PatchRequestOp.
+const (
+	Add     PatchRequestOp = "add"
+	Remove  PatchRequestOp = "remove"
+	Replace PatchRequestOp = "replace"
+)
+
 // Defines values for TemplateDiscriminators.
 const (
 	TemplateDiscriminatorGitConfig     TemplateDiscriminators = "GitConfigProviderSpec"
@@ -446,6 +453,21 @@ type ObjectMeta struct {
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
 }
 
+// PatchRequest defines model for PatchRequest.
+type PatchRequest = []struct {
+	// Op The operation to perform.
+	Op PatchRequestOp `json:"op"`
+
+	// Path A JSON Pointer path.
+	Path string `json:"path"`
+
+	// Value The value to add or replace.
+	Value *interface{} `json:"value,omitempty"`
+}
+
+// PatchRequestOp The operation to perform.
+type PatchRequestOp string
+
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
 	Config     *string `json:"config,omitempty"`
@@ -718,6 +740,9 @@ type ListResourceSyncParams struct {
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
+// PatchDeviceApplicationJSONPatchPlusJSONRequestBody defines body for PatchDevice for application/json-patch+json ContentType.
+type PatchDeviceApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceDeviceJSONRequestBody defines body for ReplaceDevice for application/json ContentType.
 type ReplaceDeviceJSONRequestBody = Device
 
@@ -739,6 +764,9 @@ type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest
 // CreateFleetJSONRequestBody defines body for CreateFleet for application/json ContentType.
 type CreateFleetJSONRequestBody = Fleet
 
+// PatchFleetApplicationJSONPatchPlusJSONRequestBody defines body for PatchFleet for application/json-patch+json ContentType.
+type PatchFleetApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceFleetJSONRequestBody defines body for ReplaceFleet for application/json ContentType.
 type ReplaceFleetJSONRequestBody = Fleet
 
@@ -748,11 +776,17 @@ type ReplaceFleetStatusJSONRequestBody = Fleet
 // CreateRepositoryJSONRequestBody defines body for CreateRepository for application/json ContentType.
 type CreateRepositoryJSONRequestBody = Repository
 
+// PatchRepositoryApplicationJSONPatchPlusJSONRequestBody defines body for PatchRepository for application/json-patch+json ContentType.
+type PatchRepositoryApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceRepositoryJSONRequestBody defines body for ReplaceRepository for application/json ContentType.
 type ReplaceRepositoryJSONRequestBody = Repository
 
 // CreateResourceSyncJSONRequestBody defines body for CreateResourceSync for application/json ContentType.
 type CreateResourceSyncJSONRequestBody = ResourceSync
+
+// PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody defines body for PatchResourceSync for application/json-patch+json ContentType.
+type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync

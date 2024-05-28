@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -242,4 +243,58 @@ func validateDiscriminators(fleet *api.Fleet) error {
 		}
 	}
 	return nil
+}
+
+// (PATCH /api/v1/fleets/{name})
+func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFleetRequestObject) (server.PatchFleetResponseObject, error) {
+	orgId := store.NullOrgId
+
+	currentObj, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil:
+			return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNameIsNil:
+			return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.PatchFleet404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+
+	newObj := &api.Fleet{}
+	err = ApplyJSONPatch(currentObj, newObj, *request.Body, "/api/v1/fleets/"+request.Name)
+	if err != nil {
+		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+	}
+
+	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
+		return server.PatchFleet400JSONResponse{Message: "metadata.name is immutable"}, nil
+	}
+	if currentObj.ApiVersion != newObj.ApiVersion {
+		return server.PatchFleet400JSONResponse{Message: "apiVersion is immutable"}, nil
+	}
+	if currentObj.Kind != newObj.Kind {
+		return server.PatchFleet400JSONResponse{Message: "kind is immutable"}, nil
+	}
+	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
+		return server.PatchFleet400JSONResponse{Message: "status is immutable"}, nil
+	}
+
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, h.taskManager.FleetUpdatedCallback)
+
+	switch err {
+	case nil:
+		return server.PatchFleet200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil:
+		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNameIsNil:
+		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.PatchFleet404JSONResponse{}, nil
+	default:
+		return nil, err
+	}
 }
