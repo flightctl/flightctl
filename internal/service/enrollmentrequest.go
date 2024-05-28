@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -28,7 +27,7 @@ func validateAndCompleteEnrollmentRequest(enrollmentRequest *api.EnrollmentReque
 	return nil
 }
 
-func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
+func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApproval) error {
 	csrPEM := enrollmentRequest.Spec.Csr
 	csr, err := crypto.ParseCSR([]byte(csrPEM))
 	if err != nil {
