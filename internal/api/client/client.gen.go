@@ -243,11 +243,6 @@ type ClientInterface interface {
 
 	// ListTemplateVersions request
 	ListTemplateVersions(ctx context.Context, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateTemplateVersionWithBody request with any body
-	CreateTemplateVersionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateTemplateVersion(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -912,30 +907,6 @@ func (c *Client) DeleteTemplateVersions(ctx context.Context, params *DeleteTempl
 
 func (c *Client) ListTemplateVersions(ctx context.Context, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListTemplateVersionsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateTemplateVersionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateTemplateVersionRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateTemplateVersion(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateTemplateVersionRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2867,46 +2838,6 @@ func NewListTemplateVersionsRequest(server string, params *ListTemplateVersionsP
 	return req, nil
 }
 
-// NewCreateTemplateVersionRequest calls the generic CreateTemplateVersion builder with application/json body
-func NewCreateTemplateVersionRequest(server string, body CreateTemplateVersionJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateTemplateVersionRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateTemplateVersionRequestWithBody generates requests for CreateTemplateVersion with any type of body
-func NewCreateTemplateVersionRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/templateversions")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -3103,11 +3034,6 @@ type ClientWithResponsesInterface interface {
 
 	// ListTemplateVersionsWithResponse request
 	ListTemplateVersionsWithResponse(ctx context.Context, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error)
-
-	// CreateTemplateVersionWithBodyWithResponse request with any body
-	CreateTemplateVersionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error)
-
-	CreateTemplateVersionWithResponse(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error)
 }
 
 type DeleteDevicesResponse struct {
@@ -4134,31 +4060,6 @@ func (r ListTemplateVersionsResponse) StatusCode() int {
 	return 0
 }
 
-type CreateTemplateVersionResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *TemplateVersion
-	JSON400      *Error
-	JSON401      *Error
-	JSON409      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateTemplateVersionResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateTemplateVersionResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 // DeleteDevicesWithResponse request returning *DeleteDevicesResponse
 func (c *ClientWithResponses) DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error) {
 	rsp, err := c.DeleteDevices(ctx, reqEditors...)
@@ -4647,23 +4548,6 @@ func (c *ClientWithResponses) ListTemplateVersionsWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseListTemplateVersionsResponse(rsp)
-}
-
-// CreateTemplateVersionWithBodyWithResponse request with arbitrary body returning *CreateTemplateVersionResponse
-func (c *ClientWithResponses) CreateTemplateVersionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error) {
-	rsp, err := c.CreateTemplateVersionWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateTemplateVersionResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateTemplateVersionWithResponse(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error) {
-	rsp, err := c.CreateTemplateVersion(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateTemplateVersionResponse(rsp)
 }
 
 // ParseDeleteDevicesResponse parses an HTTP response from a DeleteDevicesWithResponse call
@@ -6452,53 +6336,6 @@ func ParseListTemplateVersionsResponse(rsp *http.Response) (*ListTemplateVersion
 			return nil, err
 		}
 		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateTemplateVersionResponse parses an HTTP response from a CreateTemplateVersionWithResponse call
-func ParseCreateTemplateVersionResponse(rsp *http.Response) (*CreateTemplateVersionResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateTemplateVersionResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest TemplateVersion
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
 
 	}
 

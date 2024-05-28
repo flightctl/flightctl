@@ -22,34 +22,6 @@ func TemplateVersionFromReader(r io.Reader) (*api.TemplateVersion, error) {
 	return &templateVersion, err
 }
 
-// (POST /api/v1/templateVersions)
-func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, request server.CreateTemplateVersionRequestObject) (server.CreateTemplateVersionResponseObject, error) {
-	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.CreateTemplateVersion400JSONResponse{Message: "metadata.name not specified"}, nil
-	}
-
-	// don't set fields that are managed by the service
-	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-
-	result, err := h.store.TemplateVersion().Create(ctx, orgId, request.Body, h.taskManager.TemplateVersionCreatedCallback)
-
-	switch err {
-	case nil:
-		return server.CreateTemplateVersion201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.CreateTemplateVersion400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.CreateTemplateVersion400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
-		return server.CreateTemplateVersion409JSONResponse{Message: err.Error()}, nil
-
-	default:
-		return nil, err
-	}
-}
-
 // (GET /api/v1/templateVersions)
 func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request server.ListTemplateVersionsRequestObject) (server.ListTemplateVersionsResponseObject, error) {
 	orgId := store.NullOrgId
