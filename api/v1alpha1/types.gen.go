@@ -629,6 +629,18 @@ type ListFleetsParams struct {
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
+// ListTemplateVersionsParams defines parameters for ListTemplateVersions.
+type ListTemplateVersionsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -651,27 +663,6 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// DeleteTemplateVersionsParams defines parameters for DeleteTemplateVersions.
-type DeleteTemplateVersionsParams struct {
-	// Owner The owner of the templateversions.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
-}
-
-// ListTemplateVersionsParams defines parameters for ListTemplateVersions.
-type ListTemplateVersionsParams struct {
-	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
-	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
-
-	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
-	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
-
-	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
-	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Owner The owner of the templateversions.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.

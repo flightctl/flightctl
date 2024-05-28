@@ -1398,22 +1398,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/templateversions:
-    description: |
-      A TemplateVersion logically belongs to a Fleet, and so it might be natural to have
-      this API be /api/v1/fleets/{fleet}/templateversions. This would, however, restrict
-      the usage:
-      - It would not allow the creation of a TemplateVersion by applying a YAML alone,
-        because the extra fleet argument would need to be passed as well.
-      - It would not allow listing or deleting TemplateVersions from multiple fleets in
-        a single API call. For example, listing all TemplateVersions with a given label
-        regardless of Fleet.
+  /api/v1/fleets/{fleet}/templateversions:
     get:
       tags:
         - templateversion
       description: list template versions
       operationId: listTemplateVersions
       parameters:
+        - name: fleet
+          in: path
+          description: The owner of the template versions.
+          required: true
+          schema:
+            type: string
         - name: continue
           in: query
           description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -1432,12 +1429,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: owner
-          in: query
-          description: The owner of the templateversions.
-          required: false
-          schema:
-            type: string
       responses:
         "200":
           description: OK
@@ -1463,10 +1454,10 @@ paths:
       description: delete a collection of template versions
       operationId: deleteTemplateVersions
       parameters:
-        - name: owner
-          in: query
-          description: The owner of the templateversions.
-          required: false
+        - name: fleet
+          in: path
+          description: The owner of the template versions.
+          required: true
           schema:
             type: string
       responses:
@@ -1491,13 +1482,13 @@ paths:
       parameters:
         - name: fleet
           in: path
-          description: The owner of the templateversions.
+          description: The owner of the template version.
           required: true
           schema:
             type: string
         - name: name
           in: path
-          description: Name of the template version
+          description: Name of the template version.
           required: true
           schema:
             type: string
@@ -1528,13 +1519,13 @@ paths:
       parameters:
         - name: fleet
           in: path
-          description: The owner of the templateversions.
+          description: The owner of the template version.
           required: true
           schema:
             type: string
         - name: name
           in: path
-          description: name of the template version
+          description: name of the template version.
           required: true
           schema:
             type: string

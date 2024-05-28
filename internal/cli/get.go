@@ -80,21 +80,15 @@ func (o *GetOptions) Validate(args []string) error {
 		return fmt.Errorf("cannot specify label selector when fetching a single resource")
 	}
 	if len(o.Owner) > 0 {
-		if kind != DeviceKind && kind != FleetKind && kind != TemplateVersionKind {
-			return fmt.Errorf("owner can only be specified when fetching devices, fleets, and templateversions")
+		if kind != DeviceKind && kind != FleetKind {
+			return fmt.Errorf("owner can only be specified when fetching devices and fleets")
 		}
 		if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 {
 			return fmt.Errorf("cannot specify owner together with a device or fleet name")
 		}
 	}
-	if kind == TemplateVersionKind && len(name) > 0 {
-		if len(o.FleetName) == 0 {
-			return fmt.Errorf("fleetname must be specified when fetching a specific templatevesion")
-		}
-	} else {
-		if len(o.FleetName) > 0 {
-			return fmt.Errorf("fleetname must only be specified when fetching a specific templatevesion")
-		}
+	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
+		return fmt.Errorf("fleetname must be specified when fetching templatevesions")
 	}
 	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
 		return fmt.Errorf("rendered must only be specified when fetching a specific device")
@@ -156,12 +150,11 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		response, err = c.ReadTemplateVersionWithResponse(ctx, o.FleetName, name)
 	case kind == TemplateVersionKind && len(name) == 0:
 		params := api.ListTemplateVersionsParams{
-			Owner:         util.StrToPtrWithNilDefault(o.Owner),
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListTemplateVersionsWithResponse(ctx, &params)
+		response, err = c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params)
 	case kind == RepositoryKind && len(name) > 0:
 		response, err = c.ReadRepositoryWithResponse(ctx, name)
 	case kind == RepositoryKind && len(name) == 0:
