@@ -716,9 +716,6 @@ type CreateResourceSyncJSONRequestBody = ResourceSync
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
-// CreateTemplateVersionJSONRequestBody defines body for CreateTemplateVersion for application/json ContentType.
-type CreateTemplateVersionJSONRequestBody = TemplateVersion
-
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
 	var body GitConfigProviderSpec

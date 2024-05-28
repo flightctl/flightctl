@@ -143,9 +143,6 @@ type ServerInterface interface {
 
 	// (GET /api/v1/templateversions)
 	ListTemplateVersions(w http.ResponseWriter, r *http.Request, params ListTemplateVersionsParams)
-
-	// (POST /api/v1/templateversions)
-	CreateTemplateVersion(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -359,11 +356,6 @@ func (_ Unimplemented) DeleteTemplateVersions(w http.ResponseWriter, r *http.Req
 
 // (GET /api/v1/templateversions)
 func (_ Unimplemented) ListTemplateVersions(w http.ResponseWriter, r *http.Request, params ListTemplateVersionsParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (POST /api/v1/templateversions)
-func (_ Unimplemented) CreateTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1521,21 +1513,6 @@ func (siw *ServerInterfaceWrapper) ListTemplateVersions(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// CreateTemplateVersion operation middleware
-func (siw *ServerInterfaceWrapper) CreateTemplateVersion(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateTemplateVersion(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1774,9 +1751,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/templateversions", wrapper.ListTemplateVersions)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/templateversions", wrapper.CreateTemplateVersion)
 	})
 
 	return r
@@ -3411,50 +3385,6 @@ func (response ListTemplateVersions401JSONResponse) VisitListTemplateVersionsRes
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateTemplateVersionRequestObject struct {
-	Body *CreateTemplateVersionJSONRequestBody
-}
-
-type CreateTemplateVersionResponseObject interface {
-	VisitCreateTemplateVersionResponse(w http.ResponseWriter) error
-}
-
-type CreateTemplateVersion201JSONResponse TemplateVersion
-
-func (response CreateTemplateVersion201JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateTemplateVersion400JSONResponse Error
-
-func (response CreateTemplateVersion400JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateTemplateVersion401JSONResponse Error
-
-func (response CreateTemplateVersion401JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateTemplateVersion409JSONResponse Error
-
-func (response CreateTemplateVersion409JSONResponse) VisitCreateTemplateVersionResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -3583,9 +3513,6 @@ type StrictServerInterface interface {
 
 	// (GET /api/v1/templateversions)
 	ListTemplateVersions(ctx context.Context, request ListTemplateVersionsRequestObject) (ListTemplateVersionsResponseObject, error)
-
-	// (POST /api/v1/templateversions)
-	CreateTemplateVersion(ctx context.Context, request CreateTemplateVersionRequestObject) (CreateTemplateVersionResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHttpHandlerFunc
@@ -4783,37 +4710,6 @@ func (sh *strictHandler) ListTemplateVersions(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListTemplateVersionsResponseObject); ok {
 		if err := validResponse.VisitListTemplateVersionsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateTemplateVersion operation middleware
-func (sh *strictHandler) CreateTemplateVersion(w http.ResponseWriter, r *http.Request) {
-	var request CreateTemplateVersionRequestObject
-
-	var body CreateTemplateVersionJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateTemplateVersion(ctx, request.(CreateTemplateVersionRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateTemplateVersion")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateTemplateVersionResponseObject); ok {
-		if err := validResponse.VisitCreateTemplateVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
