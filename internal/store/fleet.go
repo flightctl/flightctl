@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -30,6 +31,7 @@ type Fleet interface {
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
 	ListIgnoreOrg() ([]model.Fleet, error)
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	InitialMigration() error
 }
 
@@ -62,6 +64,7 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 	}
 	fleet.Generation = util.Int64ToPtr(1)
+	fleet.Annotations = nil
 	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
 	result := s.db.Create(fleet)
 	if result.Error == nil {
@@ -164,6 +167,9 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 	}
 	fleet := model.NewFleetFromApiResource(resource)
 	fleet.OrgID = orgId
+
+	// Use the dedicated API to update annotations
+	fleet.Annotations = nil
 
 	var existingRecord *model.Fleet
 
@@ -390,4 +396,26 @@ func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name
 	})
 
 	return err
+}
+
+func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
+	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := innerTx.First(&existingRecord)
+		if result.Error != nil {
+			return flterrors.ErrorFromGormError(result.Error)
+		}
+		existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+		existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
+
+		for _, deleteKey := range deleteKeys {
+			delete(existingAnnotations, deleteKey)
+		}
+		annotationsArray := util.LabelMapToArray(&existingAnnotations)
+
+		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
+			"annotations": pq.StringArray(annotationsArray),
+		})
+		return flterrors.ErrorFromGormError(result.Error)
+	})
 }
