@@ -10,6 +10,16 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ApplicationState.
+const (
+	ApplicationStateCrashed      ApplicationState = "Crashed"
+	ApplicationStateInitializing ApplicationState = "Initializing"
+	ApplicationStateRunning      ApplicationState = "Running"
+	ApplicationStateStarting     ApplicationState = "Starting"
+	ApplicationStateStopped      ApplicationState = "Stopped"
+	ApplicationStateUnknown      ApplicationState = "Unknown"
+)
+
 // Defines values for ConditionStatus.
 const (
 	ConditionStatusFalse   ConditionStatus = "False"
@@ -19,24 +29,28 @@ const (
 
 // Defines values for ConditionType.
 const (
-	DeviceAvailable            ConditionType = "Available"
-	DeviceCPUPressure          ConditionType = "CPUPressure"
-	DeviceContainersRunning    ConditionType = "ContainersRunning"
-	DeviceDegraded             ConditionType = "Degraded"
-	DeviceDiskPressure         ConditionType = "DiskPressure"
-	DeviceMemoryPressure       ConditionType = "MemoryPressure"
-	DevicePIDPressure          ConditionType = "PIDPressure"
-	DeviceProgressing          ConditionType = "Progressing"
-	DeviceReady                ConditionType = "Ready"
-	DeviceSystemdUnitsRunning  ConditionType = "SystemdUnitsRunning"
-	EnrollmentRequestApproved  ConditionType = "Approved"
-	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
-	FleetValid                 ConditionType = "Valid"
-	RepositoryAccessible       ConditionType = "Accessible"
-	ResourceSyncAccessible     ConditionType = "Accessible"
-	ResourceSyncResourceParsed ConditionType = "ResourceParsed"
-	ResourceSyncSynced         ConditionType = "Synced"
-	TemplateVersionValid       ConditionType = "Valid"
+	ApplicationsCondition       ConditionType = "Applications"
+	DeviceAvailable             ConditionType = "Available"
+	DeviceCPUPressure           ConditionType = "CPUPressure"
+	DeviceCondition             ConditionType = "Device"
+	DeviceContainersRunning     ConditionType = "ContainersRunning"
+	DeviceDegraded              ConditionType = "Degraded"
+	DeviceDiskHealth            ConditionType = "DiskHealth"
+	DeviceDiskPressure          ConditionType = "DiskPressure"
+	DeviceMemoryPressure        ConditionType = "MemoryPressure"
+	DevicePIDPressure           ConditionType = "PIDPressure"
+	DeviceProgressing           ConditionType = "Progressing"
+	DeviceReady                 ConditionType = "Ready"
+	DeviceSystemdUnitsRunning   ConditionType = "SystemdUnitsRunning"
+	EnrollmentRequestApproved   ConditionType = "Approved"
+	FleetOverlappingSelectors   ConditionType = "OverlappingSelectors"
+	FleetValid                  ConditionType = "Valid"
+	RepositoryAccessible        ConditionType = "Accessible"
+	ResourceSyncAccessible      ConditionType = "Accessible"
+	ResourceSyncResourceParsed  ConditionType = "ResourceParsed"
+	ResourceSyncSynced          ConditionType = "Synced"
+	SystemIntegrityVerification ConditionType = "IntegrityVerification"
+	TemplateVersionValid        ConditionType = "Valid"
 )
 
 // Defines values for TemplateDiscriminators.
@@ -45,6 +59,19 @@ const (
 	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
+
+// ApplicationState defines model for ApplicationState.
+type ApplicationState string
+
+// ApplicationStatus defines model for ApplicationStatus.
+type ApplicationStatus struct {
+	// Name Name of the application.
+	Name *string `json:"name,omitempty"`
+
+	// Restarts Number of restarts of the application.
+	Restarts *int              `json:"restarts,omitempty"`
+	State    *ApplicationState `json:"state,omitempty"`
+}
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
@@ -146,11 +173,17 @@ type DeviceSpec_Config_Item struct {
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
 type DeviceStatus struct {
+	// Applications Current state of applications on the device.
+	Applications *[]ApplicationStatus `json:"applications,omitempty"`
+
 	// Conditions Current state of the device.
 	Conditions *[]Condition `json:"conditions,omitempty"`
 
 	// Containers Statuses of containers in the device.
 	Containers *[]ContainerStatus `json:"containers,omitempty"`
+
+	// Fingerprint Fingerprint is a unique identifier for the device.
+	Fingerprint *string `json:"fingerprint,omitempty"`
 
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 	SystemInfo *DeviceSystemInfo `json:"systemInfo,omitempty"`

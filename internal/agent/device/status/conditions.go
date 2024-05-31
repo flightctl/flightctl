@@ -13,19 +13,44 @@ var (
 func DefaultConditions() *[]v1alpha1.Condition {
 	return &[]v1alpha1.Condition{
 		{
-			Type:   v1alpha1.DeviceProgressing,
-			Status: v1alpha1.ConditionStatusTrue,
+			Type:   v1alpha1.ApplicationsCondition,
+			Status: v1alpha1.ConditionStatusUnknown,
 			Reason: &DeviceConditionBootstrapReason,
 		},
 		{
-			Type:   v1alpha1.DeviceAvailable,
-			Status: v1alpha1.ConditionStatusFalse,
+			Type:   v1alpha1.DeviceCondition,
+			Status: v1alpha1.ConditionStatusUnknown,
 			Reason: &DeviceConditionBootstrapReason,
 		},
 		{
-			Type:   v1alpha1.DeviceDegraded,
-			Status: v1alpha1.ConditionStatusFalse,
-			Reason: &DeviceConditionExpectedReason,
+			Type:   v1alpha1.DeviceCPUPressure,
+			Status: v1alpha1.ConditionStatusUnknown,
+			Reason: &DeviceConditionBootstrapReason,
+		},
+		{
+			Type:   v1alpha1.DeviceMemoryPressure,
+			Status: v1alpha1.ConditionStatusUnknown,
+			Reason: &DeviceConditionBootstrapReason,
+		},
+		{
+			Type:   v1alpha1.DeviceDiskPressure,
+			Status: v1alpha1.ConditionStatusUnknown,
+			Reason: &DeviceConditionBootstrapReason,
+		},
+		{
+			Type:   v1alpha1.DeviceDiskHealth,
+			Status: v1alpha1.ConditionStatusUnknown,
+			Reason: &DeviceConditionBootstrapReason,
+		},
+		{
+			Type:   v1alpha1.SystemIntegrityVerification,
+			Status: v1alpha1.ConditionStatusUnknown,
+			Reason: &DeviceConditionBootstrapReason,
+		},
+		{
+			Type:   v1alpha1.DeviceSystemdUnitsRunning,
+			Status: v1alpha1.ConditionStatusUnknown,
+			Reason: &DeviceConditionBootstrapReason,
 		},
 	}
 

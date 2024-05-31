@@ -20,14 +20,16 @@ func NewManager(
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
+	appManager := newAppManager()
 	exporters := []Exporter{
-		newSystemD(executer),
-		newContainer(executer),
+		newSystemD(executer, appManager),
+		newContainer(executer, appManager),
 		newSystemInfo(tpm),
 	}
 	return &StatusManager{
 		deviceName: deviceName,
 		exporters:  exporters,
+		appManager: newAppManager(),
 		conditions: DefaultConditions(),
 		log:        log,
 	}
@@ -38,6 +40,7 @@ type StatusManager struct {
 	deviceName       string
 	managementClient *client.Management
 	exporters        []Exporter
+	appManager       *AppManager
 	log              *log.PrefixLogger
 	conditions       *[]v1alpha1.Condition
 }
@@ -83,8 +86,31 @@ func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.De
 		}
 	}
 
-	// add conditions
 	deviceStatus.Conditions = m.conditions
+	deviceStatus.Fingerprint = &m.deviceName
+
+	// TODO: this is a naive implementation, we should use a time based LRU cache
+	// TODO: wip not complete
+
+	// Flow
+	// 1. Get all applications from the device status
+	// 2. Get all applications from the app manager
+	// 3. If an application is not in the device status, add it
+	// 4. If an application is in the device status, update its state
+	// 5. If an application is in the device status but not in the app manager, mark it as stopped
+	// 6. Return the updated device status
+
+	previous := make(map[string]struct{})
+	for _, app := range *deviceStatus.Applications {
+		previous[*app.Name] = struct{}{}
+	}
+
+	for name, app := range m.appManager.apps {
+		if _, ok := previous[name]; !ok {
+			// new app
+			*deviceStatus.Applications = append(*deviceStatus.Applications, app)
+		}
+	}
 
 	return &deviceStatus, nil
 }
@@ -169,4 +195,20 @@ func (m *StatusManager) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
 	for _, exporter := range m.exporters {
 		exporter.SetProperties(spec)
 	}
+}
+
+// AppManager is responsible for managing and collecting the status of applications on a device.
+type AppManager struct {
+	apps map[string]v1alpha1.ApplicationStatus
+}
+
+// newAppManager creates a new AppManager.
+func newAppManager() *AppManager {
+	return &AppManager{
+		apps: make(map[string]v1alpha1.ApplicationStatus),
+	}
+}
+
+func (a *AppManager) ExportStatus(name string, status v1alpha1.ApplicationStatus) {
+	a.apps[name] = status
 }

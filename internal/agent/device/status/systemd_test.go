@@ -1,5 +1,7 @@
 package status
 
+// TODO: fix tests
+
 import (
 	"context"
 
@@ -31,17 +33,16 @@ const systemdUnitListResult = `
 
 var _ = Describe("containers controller", func() {
 	var (
-		systemD      *SystemD
-		ctrl         *gomock.Controller
-		execMock     *executer.MockExecuter
-		deviceStatus v1alpha1.DeviceStatus
+		systemD  *SystemD
+		ctrl     *gomock.Controller
+		execMock *executer.MockExecuter
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
-		deviceStatus = v1alpha1.DeviceStatus{Conditions: &[]v1alpha1.Condition{}}
+		appManager := newAppManager()
 		execMock = executer.NewMockExecuter(ctrl)
-		systemD = newSystemD(execMock)
+		systemD = newSystemD(execMock, appManager)
 		systemD.matchPatterns = []string{"crio.service", "microshift.service"}
 	})
 

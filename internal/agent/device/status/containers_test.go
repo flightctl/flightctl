@@ -12,6 +12,8 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// TODO: fix tests
+
 func TestController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Controller Suite")

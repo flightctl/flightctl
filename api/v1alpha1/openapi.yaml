@@ -1801,6 +1801,14 @@ components:
           description: 'Current state of systemd units on the device.'
           items:
             $ref: '#/components/schemas/DeviceSystemdUnitStatus'
+        fingerprint:
+          type: string
+          description: 'Fingerprint is a unique identifier for the device.'
+        applications:
+          type: array
+          description: 'Current state of applications on the device.'
+          items:
+            $ref: '#/components/schemas/ApplicationStatus'
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
     DeviceSystemInfo:
       required:
@@ -2298,6 +2306,34 @@ components:
           type: string
           description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
       description: Status is a return value for calls that don't return other objects.
+    ApplicationStatus:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the application.
+        restarts:
+          type: integer
+          description: Number of restarts of the application.
+        state:
+          $ref: '#/components/schemas/ApplicationState'
+          description: State of the application.
+    ApplicationState:
+      type: string
+      enum:
+      - 'Initializing'
+      - 'Starting'
+      - 'Running'
+      - 'Crashed'
+      - 'Stopped'
+      - 'Unknown'
+      x-enum-varnames:
+      - 'ApplicationStateInitializing'
+      - 'ApplicationStateStarting'
+      - 'ApplicationStateRunning'
+      - 'ApplicationStateCrashed'
+      - 'ApplicationStateStopped'
+      - 'ApplicationStateUnknown'
     Error:
       required:
         - message
@@ -2344,6 +2380,7 @@ components:
       - 'OverlappingSelectors' # Fleet
       - 'Valid'                # Fleet
       - 'Ready'                # Device
+      - 'DiskHealth'           # Device
       - 'DiskPressure'         # Device
       - 'MemoryPressure'       # Device
       - 'PIDPressure'          # Device
@@ -2354,6 +2391,9 @@ components:
       - 'SystemdUnitsRunning'  # Device
       - 'ContainersRunning'    # Device
       - 'Valid'                # TemplateVersion
+      - 'Applications'         # Device
+      - 'Device'               # Device
+      - 'IntegrityVerification'  # System
       x-enum-varnames:
       - EnrollmentRequestApproved
       - RepositoryAccessible
@@ -2363,6 +2403,7 @@ components:
       - FleetOverlappingSelectors
       - FleetValid
       - DeviceReady
+      - DeviceDiskHealth
       - DeviceDiskPressure
       - DeviceMemoryPressure
       - DevicePIDPressure
@@ -2373,6 +2414,9 @@ components:
       - DeviceSystemdUnitsRunning
       - DeviceContainersRunning
       - TemplateVersionValid
+      - ApplicationsCondition
+      - DeviceCondition
+      - SystemIntegrityVerification
     ConditionStatus:
       type: string
       enum:
