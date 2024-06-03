@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: e2e-container-registry
+  name: e2e-container-registry
+  namespace: {{ .Values.registry.namespace }}
+spec:
+  type: NodePort
+  ports:
+    - name: "registry"
+      port: 5000
+      targetPort: 5000
+      nodePort: {{ .Values.registry.nodePort }}
+  selector:
+    flightctl.service: e2e-container-registry
