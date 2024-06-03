@@ -12,6 +12,8 @@ var (
 	FleetAPI      = "v1alpha1"
 	FleetKind     = "Fleet"
 	FleetListKind = "FleetList"
+
+	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
 )
 
 type Fleet struct {
@@ -42,10 +44,11 @@ func NewFleetFromApiResource(resource *api.Fleet) *Fleet {
 	}
 	return &Fleet{
 		Resource: Resource{
-			Name:       *resource.Metadata.Name,
-			Labels:     util.LabelMapToArray(resource.Metadata.Labels),
-			Generation: resource.Metadata.Generation,
-			Owner:      resource.Metadata.Owner,
+			Name:        *resource.Metadata.Name,
+			Labels:      util.LabelMapToArray(resource.Metadata.Labels),
+			Generation:  resource.Metadata.Generation,
+			Owner:       resource.Metadata.Owner,
+			Annotations: util.LabelMapToArray(resource.Metadata.Annotations),
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
@@ -63,6 +66,7 @@ func (f *Fleet) ToApiResource() api.Fleet {
 	}
 
 	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
+	metadataAnnotations := util.LabelArrayToMap(f.Resource.Annotations)
 
 	return api.Fleet{
 		ApiVersion: FleetAPI,
@@ -73,6 +77,7 @@ func (f *Fleet) ToApiResource() api.Fleet {
 			Labels:            &metadataLabels,
 			Generation:        f.Generation,
 			Owner:             f.Owner,
+			Annotations:       &metadataAnnotations,
 		},
 		Spec:   f.Spec.Data,
 		Status: &status,

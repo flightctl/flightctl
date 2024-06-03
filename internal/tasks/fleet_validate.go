@@ -73,8 +73,20 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		Spec:     api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
 	}
 
-	_, err = t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.taskManager.TemplateVersionCreatedCallback)
-	return err
+	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.taskManager.TemplateVersionCreatedCallback)
+	if err != nil {
+		return fmt.Errorf("creating templateVersion for valid fleet: %w", err)
+	}
+
+	annotations := map[string]string{
+		model.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
+	}
+	err = t.store.Fleet().UpdateAnnotations(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name, annotations, nil)
+	if err != nil {
+		return fmt.Errorf("setting fleet annotation with newly-created templateVersion: %w", err)
+	}
+
+	return nil
 }
 
 func (t *FleetValidateLogic) validateFleetTemplate(ctx context.Context, fleet *api.Fleet) error {
