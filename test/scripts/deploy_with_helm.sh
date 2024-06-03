@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-set -x
+set -x -e
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 METHOD=install
 ONLY_DB=
 NO_AUTH=
-IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
 
 # Use external getopt for long options
 options=$(getopt -o adh --long only-db,no-auth,help -n "$0" -- "$@")
@@ -30,6 +30,7 @@ fi
 # inside the helm charts is not recommended.
 kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || true
 kubectl create namespace flightctl-internal --context kind-kind 2>/dev/null || true
+kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || true
 
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
@@ -91,3 +92,14 @@ if [ -z "$ONLY_DB" ]; then
 
   chmod og-rwx ~/.flightctl/certs/*.key
 fi
+
+
+# deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
+helm ${METHOD} --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
+                        ./deploy/helm/e2e-extras/ --kube-context kind-kind 
+
+sudo tee /etc/containers/registries.conf.d/flightctl-e2e.conf <<EOF
+[[registry]]
+location = "${IP}:5000"
+insecure = true
+EOF
