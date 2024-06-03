@@ -9,9 +9,13 @@ kubeadmConfigPatches:
 nodes:
 - role: control-plane
   extraPortMappings:
-  - containerPort: 3333
+  - containerPort: 3333 # flightctl API
     hostPort: 3333
     protocol: TCP
-  - containerPort: 5432
+  - containerPort: 5432 # postgresql DB
     hostPort: 5432
     protocol: TCP
+  - containerPort: 5000 # local registry for E2E testing
+    hostPort: 5000
+    protocol: TCP
+  
