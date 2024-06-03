@@ -1,0 +1,32 @@
+apiVersion: v1alpha1
+kind: Device
+metadata:
+  name: f68dfb5f5d2cdbb9339363b7f19f3ce269d75650bdc80004f1e04293a8ef9c4f
+  labels:
+    fleet: none
+spec:
+  os:
+    image: quay.io/redhat/rhde:9.2
+  config:
+    - name: base
+      configType: GitConfigProviderSpec
+      gitRef:
+        repository: defaultRepo
+        targetRevision: main
+        path: /basic-nginx-demo/configuration
+    - name: motd-update
+      configType: InlineConfigProviderSpec
+      inline:
+        ignition:
+          version: 3.4.0
+        storage:
+          files:
+            - contents:
+                source: >-
+                  data:,This%20system%20is%20managed%20by%20flightctl.%0A
+              mode: 422
+              overwrite: true
+              path: "/etc/motd"
+  systemd:
+    matchPatterns:
+      - chronyd.service

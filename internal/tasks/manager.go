@@ -44,6 +44,8 @@ const (
 	ChannelTemplateVersionPopulate = "template-version-populate"
 	// Task to validate a fleet template
 	ChannelFleetValidate = "fleet-template-validate"
+	// Task to render the device spec
+	ChannelDeviceRender = "device-render"
 
 	ChannelSize = 20
 
@@ -54,6 +56,7 @@ const (
 	TemplateVersionPopulateOpCreated  = "create"
 	FleetValidateOpUpdate             = "update"
 	FleetValidateOpDeleteAll          = "delete-all"
+	DeviceRenderOpUpdate              = "update"
 )
 
 func Init(log logrus.FieldLogger, store store.Store) TaskManager {
@@ -65,6 +68,7 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 	channels[ChannelFleetSelectorMatch] = make(chan ResourceReference, ChannelSize)
 	channels[ChannelTemplateVersionPopulate] = make(chan ResourceReference, ChannelSize)
 	channels[ChannelFleetValidate] = make(chan ResourceReference, ChannelSize)
+	channels[ChannelDeviceRender] = make(chan ResourceReference, ChannelSize)
 
 	reqid.OverridePrefix("tasks")
 
@@ -89,6 +93,7 @@ func (t TaskManager) Start() {
 	go FleetSelectorMatching(t)
 	go TemplateVersionPopulate(t)
 	go FleetValidate(t)
+	go DeviceRender(t)
 
 	resourceSync := NewResourceSync(t)
 	resourceSyncThread := thread.New(
@@ -112,6 +117,7 @@ func (t TaskManager) Stop() {
 }
 
 func (t TaskManager) SubmitTask(taskName string, resource ResourceReference, op string) {
+	t.log.Infof("Submitting task %s for resource %s %s/%s with op %s", taskName, resource.Kind, resource.OrgID, resource.Name, op)
 	resource.Op = op
 	t.channels[taskName] <- resource
 }
@@ -183,6 +189,7 @@ func (t TaskManager) AllDevicesDeletedCallback(orgId uuid.UUID) {
 func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.Device) {
 	var labelsUpdated bool
 	var ownerUpdated bool
+	var specUpdated bool
 	var device *model.Device
 
 	if before == nil && after == nil {
@@ -196,15 +203,18 @@ func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.De
 			labelsUpdated = true
 		}
 		ownerUpdated = false
+		specUpdated = true
 	} else if after == nil {
 		// Deleted device
 		device = before
 		labelsUpdated = true
 		ownerUpdated = false // Nothing to roll out
+		specUpdated = false  // Nothing to render
 	} else {
 		device = after
 		labelsUpdated = !reflect.DeepEqual(before.Labels, after.Labels)
 		ownerUpdated = util.DefaultIfNil(before.Owner, "") != util.DefaultIfNil(after.Owner, "")
+		specUpdated = !reflect.DeepEqual(before.Spec, after.Spec)
 	}
 
 	ref := ResourceReference{OrgID: device.OrgID, Kind: model.DeviceKind, Name: device.Name}
@@ -219,6 +229,9 @@ func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.De
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.SubmitTask(ChannelFleetSelectorMatch, ref, op)
+	}
+	if specUpdated {
+		t.SubmitTask(ChannelDeviceRender, ref, DeviceRenderOpUpdate)
 	}
 }
 

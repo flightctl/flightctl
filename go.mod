@@ -115,6 +115,7 @@ require (
 )
 
 replace (
+	dario.cat/mergo => github.com/imdario/mergo v1.0.0
 	github.com/google/gnostic => github.com/google/gnostic v0.5.7-v3refs
 	k8s.io/api => k8s.io/api v0.26.4
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.26.4

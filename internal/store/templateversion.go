@@ -18,10 +18,10 @@ import (
 type TemplateVersion interface {
 	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
+	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet string) error
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
-	UpdateStatusAndConfig(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, config *string, callback TemplateVersionStoreCallback) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error
 	GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
 	InitialMigration() error
 }
@@ -140,13 +140,10 @@ func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UU
 	return &apiResource, nil
 }
 
-func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, owner *string) error {
+func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, fleet string) error {
+	owner := util.SetResourceOwner(model.FleetKind, fleet)
 	condition := model.TemplateVersion{}
-	if owner != nil {
-		result := s.db.Unscoped().Where("org_id = ? AND owner = ?", orgId, *owner).Delete(&condition)
-		return flterrors.ErrorFromGormError(result.Error)
-	}
-	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+	result := s.db.Unscoped().Where("org_id = ? AND owner = ?", orgId, *owner).Delete(&condition)
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
@@ -175,7 +172,7 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
-func (s *TemplateVersionStore) UpdateStatusAndConfig(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, config *string, callback TemplateVersionStoreCallback) error {
+func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error {
 	if resource == nil {
 		return flterrors.ErrResourceIsNil
 	}
@@ -193,9 +190,7 @@ func (s *TemplateVersionStore) UpdateStatusAndConfig(ctx context.Context, orgId 
 	if valid != nil {
 		updates["valid"] = valid
 	}
-	if config != nil {
-		updates["rendered_config"] = *config
-	}
+
 	result := s.db.Model(&templateVersion).Updates(updates)
 	if result.Error != nil {
 		return flterrors.ErrorFromGormError(result.Error)

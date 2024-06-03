@@ -308,33 +308,39 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("GetRendered", func() {
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "fleet", nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, storeInst.TemplateVersion(), orgId, "fleet", "tv", "os", true)
-			Expect(err).ToNot(HaveOccurred())
-			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev", util.SetResourceOwner(model.FleetKind, "fleet"), util.StrToPtr("tv"), nil)
+			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev", nil, nil, nil)
 
-			// Not passing owner and templateversion
-			renderedConfig, err := devStore.GetRendered(ctx, orgId, "dev", nil, nil)
+			// No rendered version
+			_, err := devStore.GetRendered(ctx, orgId, "dev", nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrNoRenderedVersion))
+
+			// Set first rendered config
+			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the first config")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*renderedConfig.Config).To(Equal("rendered config"))
+
+			// Getting first rendered config
+			renderedConfig, err := devStore.GetRendered(ctx, orgId, "dev", nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*renderedConfig.Config).To(Equal("this is the first config"))
 			Expect(renderedConfig.Os.Image).To(Equal("os"))
+			Expect(renderedConfig.RenderedVersion).To(Equal("1"))
 
-			// Passing wrong owner
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("Fleet/otherfleet"), util.StrToPtr("tv"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(*renderedConfig.Config).To(Equal("rendered config"))
-			Expect(renderedConfig.Os.Image).To(Equal("os"))
-
-			// Passing wrong tv
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("Fleet/fleet"), util.StrToPtr("othertv"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(*renderedConfig.Config).To(Equal("rendered config"))
-			Expect(renderedConfig.Os.Image).To(Equal("os"))
-
-			// Passing current owner and tv
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("Fleet/fleet"), util.StrToPtr("tv"))
+			// Passing correct renderedVersion
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(renderedConfig).To(BeNil())
+
+			// Set second rendered config
+			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the second config")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Passing previous renderedVersion
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*renderedConfig.Config).To(Equal("this is the second config"))
+			Expect(renderedConfig.Os.Image).To(Equal("os"))
+			Expect(renderedConfig.RenderedVersion).To(Equal("2"))
 		})
 	})
 })

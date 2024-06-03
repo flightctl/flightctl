@@ -17,6 +17,7 @@ var (
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
 	ErrInvalidTemplateVersion = errors.New("device's templateVersion is not valid")
+	ErrNoRenderedVersion      = errors.New("no rendered version for device")
 )
 
 func ErrorFromGormError(err error) error {

@@ -2,15 +2,9 @@ package tasks
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
-	"io/fs"
-	"path/filepath"
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
-	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -18,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-git/go-billy/v5"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 )
@@ -47,14 +40,13 @@ func TemplateVersionPopulate(taskManager TaskManager) {
 }
 
 type TemplateVersionPopulateLogic struct {
-	taskManager      TaskManager
-	log              logrus.FieldLogger
-	store            store.Store
-	resourceRef      ResourceReference
-	templateVersion  *api.TemplateVersion
-	fleet            *api.Fleet
-	unrenderedConfig []api.TemplateVersionStatus_Config_Item
-	renderedConfig   *config_latest_types.Config
+	taskManager     TaskManager
+	log             logrus.FieldLogger
+	store           store.Store
+	resourceRef     ResourceReference
+	templateVersion *api.TemplateVersion
+	fleet           *api.Fleet
+	frozenConfig    []api.TemplateVersionStatus_Config_Item
 }
 
 func NewTemplateVersionPopulateLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) TemplateVersionPopulateLogic {
@@ -76,9 +68,7 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 	}
 
 	if t.fleet.Spec.Template.Spec.Config != nil {
-		t.unrenderedConfig = []api.TemplateVersionStatus_Config_Item{}
-		emptyIgnitionConfig, _, _ := config_latest.ParseCompatibleVersion([]byte("{\"ignition\": {\"version\": \"3.4.0\"}"))
-		t.renderedConfig = &emptyIgnitionConfig
+		t.frozenConfig = []api.TemplateVersionStatus_Config_Item{}
 
 		for i := range *t.fleet.Spec.Template.Spec.Config {
 			configItem := (*t.fleet.Spec.Template.Spec.Config)[i]
@@ -150,27 +140,20 @@ func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, conf
 		return fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
-	mfs, hash, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, util.IntToPtr(1))
+	// TODO: Use local cache
+	_, hash, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, util.IntToPtr(1))
 	if err != nil {
 		return fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
-	// Add this git config into the unrendered config, but with a hash for targetRevision
+	// Add this git hash into the frozen config
 	gitSpec.GitRef.TargetRevision = hash
 	newConfig := &api.TemplateVersionStatus_Config_Item{}
 	err = newConfig.FromGitConfigProviderSpec(gitSpec)
 	if err != nil {
 		return fmt.Errorf("failed creating git config from item %s: %w", gitSpec.Name, err)
 	}
-	t.unrenderedConfig = append(t.unrenderedConfig, *newConfig)
-
-	// Create an ignition from the git subtree and merge it into the rendered config
-	ignitionConfig, err := t.getIgnitionFromFileSystem(mfs, gitSpec.GitRef.Path)
-	if err != nil {
-		return fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
-	}
-	renderedConfig := config_latest.Merge(*t.renderedConfig, *ignitionConfig)
-	t.renderedConfig = &renderedConfig
+	t.frozenConfig = append(t.frozenConfig, *newConfig)
 
 	return nil
 }
@@ -187,9 +170,8 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(inlineSpec *api.Inline
 	if err != nil {
 		return fmt.Errorf("failed creating inline config from item %s: %w", inlineSpec.Name, err)
 	}
-	t.unrenderedConfig = append(t.unrenderedConfig, *newConfig)
 
-	// Convert yaml to json
+	// Ensure config can be converted from yaml to ignition with no errors
 	yamlBytes, err := yaml.Marshal(inlineSpec.Inline)
 	if err != nil {
 		return fmt.Errorf("invalid yaml in inline config item %s: %w", inlineSpec.Name, err)
@@ -200,99 +182,13 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(inlineSpec *api.Inline
 	}
 
 	// Convert to ignition and merge into the rendered config
-	ignitionConfig, _, err := config_latest.ParseCompatibleVersion(jsonBytes)
+	_, _, err = config_latest.ParseCompatibleVersion(jsonBytes)
 	if err != nil {
 		return fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
 	}
-	renderedConfig := config_latest.Merge(*t.renderedConfig, ignitionConfig)
-	t.renderedConfig = &renderedConfig
 
+	t.frozenConfig = append(t.frozenConfig, *newConfig)
 	return nil
-}
-
-func (t *TemplateVersionPopulateLogic) getIgnitionFromFileSystem(mfs billy.Filesystem, path string) (*config_latest_types.Config, error) {
-	fileInfo, err := mfs.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed accessing path %s: %w", path, err)
-	}
-	ignitionConfig, _, _ := config_latest.ParseCompatibleVersion([]byte("{\"ignition\": {\"version\": \"3.4.0\"}"))
-
-	if fileInfo.IsDir() {
-		files, err := mfs.ReadDir(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed reading directory %s: %w", path, err)
-		}
-		err = t.addGitDirToIgnitionConfig(mfs, path, "/", files, &ignitionConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed converting directory %s to ignition: %w", path, err)
-		}
-	} else {
-		err = t.addGitFileToIgnitionConfig(mfs, path, "/", fileInfo, &ignitionConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed converting file %s to ignition: %w", path, err)
-		}
-	}
-
-	return &ignitionConfig, nil
-}
-
-func (t *TemplateVersionPopulateLogic) addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix string, fileInfos []fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
-	for _, fileInfo := range fileInfos {
-		if fileInfo.IsDir() {
-			subdirFiles, err := mfs.ReadDir(filepath.Join(fullPrefix, fileInfo.Name()))
-			if err != nil {
-				return fmt.Errorf("failed reading directory %s: %w", fileInfo.Name(), err)
-			}
-			// recursion!
-			err = t.addGitDirToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), subdirFiles, ignitionConfig)
-			if err != nil {
-				return err
-			}
-		} else {
-			err := t.addGitFileToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), fileInfo, ignitionConfig)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (t *TemplateVersionPopulateLogic) addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, fileInfo fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
-	openFile, err := mfs.Open(fullPath)
-	if err != nil {
-		return err
-	}
-	defer openFile.Close()
-
-	fileContents, err := io.ReadAll(openFile)
-	if err != nil {
-		return err
-	}
-
-	t.setFileInIgnition(ignitionConfig, ignPath, fileContents, int(fileInfo.Mode()), true)
-	return nil
-}
-
-func (t *TemplateVersionPopulateLogic) setFileInIgnition(ignitionConfig *config_latest_types.Config, filePath string, fileBytes []byte, mode int, overwrite bool) {
-	fileContents := "data:text/plain;charset=utf-8;base64," + base64.StdEncoding.EncodeToString(fileBytes)
-	rootUser := "root"
-	file := config_latest_types.File{
-		Node: config_latest_types.Node{
-			Path:      filePath,
-			Overwrite: &overwrite,
-			Group:     config_latest_types.NodeGroup{},
-			User:      config_latest_types.NodeUser{Name: &rootUser},
-		},
-		FileEmbedded1: config_latest_types.FileEmbedded1{
-			Append: []config_latest_types.Resource{},
-			Contents: config_latest_types.Resource{
-				Source: &fileContents,
-			},
-			Mode: &mode,
-		},
-	}
-	ignitionConfig.Storage.Files = append(ignitionConfig.Storage.Files, file)
 }
 
 func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, err error) error {
@@ -303,20 +199,10 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, err error)
 		t.templateVersion.Status.Os = t.fleet.Spec.Template.Spec.Os
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
-		t.templateVersion.Status.Config = &t.unrenderedConfig
+		t.templateVersion.Status.Config = &t.frozenConfig
 	}
 	t.templateVersion.Status.Conditions = &[]api.Condition{}
 	api.SetStatusConditionByError(t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", err)
 
-	var config *string
-	if err == nil {
-		configjson, err := json.Marshal(t.renderedConfig)
-		if err != nil {
-			return fmt.Errorf("failed to marshal rendered config: %w", err)
-		}
-		configStr := string(configjson)
-		config = &configStr
-	}
-
-	return t.store.TemplateVersion().UpdateStatusAndConfig(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(err == nil), config, t.taskManager.TemplateVersionValidatedCallback)
+	return t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(err == nil), t.taskManager.TemplateVersionValidatedCallback)
 }

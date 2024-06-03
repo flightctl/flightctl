@@ -28,6 +28,7 @@ const (
 	DevicePIDPressure          ConditionType = "PIDPressure"
 	DeviceProgressing          ConditionType = "Progressing"
 	DeviceReady                ConditionType = "Ready"
+	DeviceSpecValid            ConditionType = "SpecValid"
 	DeviceSystemdUnitsRunning  ConditionType = "SystemdUnitsRunning"
 	EnrollmentRequestApproved  ConditionType = "Approved"
 	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
@@ -394,12 +395,11 @@ type RenderedDeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
-	Owner   string        `json:"owner"`
-	Systemd *struct {
+	Os              *DeviceOSSpec `json:"os,omitempty"`
+	RenderedVersion string        `json:"renderedVersion"`
+	Systemd         *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
-	TemplateVersion string `json:"templateVersion"`
 }
 
 // Repository Repository represents a git repository
@@ -598,11 +598,8 @@ type ListDevicesParams struct {
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
 type GetRenderedDeviceSpecParams struct {
-	// KnownOwner The last known owner
-	KnownOwner *string `form:"knownOwner,omitempty" json:"knownOwner,omitempty"`
-
-	// KnownTemplateVersion The last known template version
-	KnownTemplateVersion *string `form:"knownTemplateVersion,omitempty" json:"knownTemplateVersion,omitempty"`
+	// KnownRenderedVersion The last known renderedVersion
+	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
 // ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.
@@ -632,6 +629,18 @@ type ListFleetsParams struct {
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
+// ListTemplateVersionsParams defines parameters for ListTemplateVersions.
+type ListTemplateVersionsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -654,27 +663,6 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// DeleteTemplateVersionsParams defines parameters for DeleteTemplateVersions.
-type DeleteTemplateVersionsParams struct {
-	// Owner The owner of the templateversions.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
-}
-
-// ListTemplateVersionsParams defines parameters for ListTemplateVersions.
-type ListTemplateVersionsParams struct {
-	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
-	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
-
-	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
-	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
-
-	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
-	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Owner The owner of the templateversions.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
@@ -718,9 +706,6 @@ type CreateResourceSyncJSONRequestBody = ResourceSync
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
-
-// CreateTemplateVersionJSONRequestBody defines body for CreateTemplateVersion for application/json ContentType.
-type CreateTemplateVersionJSONRequestBody = TemplateVersion
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {

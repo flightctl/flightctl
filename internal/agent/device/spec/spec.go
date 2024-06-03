@@ -75,7 +75,7 @@ func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec,
 		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, err
 	}
 
-	desired, skipSync, err := s.getDesiredRenderedSpec(ctx, current.Owner, current.TemplateVersion)
+	desired, skipSync, err := s.getDesiredRenderedSpec(ctx, current.RenderedVersion)
 	if err != nil {
 		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("get rendered spec: %w", err)
 	}
@@ -83,10 +83,10 @@ func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec,
 }
 
 // getDesiredRenderedSpec returns the desired rendered device spec from the management API or from disk if the API is unavailable.
-func (m *Manager) getDesiredRenderedSpec(ctx context.Context, owner, templateVersion string) (v1alpha1.RenderedDeviceSpec, bool, error) {
+func (m *Manager) getDesiredRenderedSpec(ctx context.Context, renderedVersion string) (v1alpha1.RenderedDeviceSpec, bool, error) {
 	var desired v1alpha1.RenderedDeviceSpec
 	err := wait.ExponentialBackoff(m.backoff, func() (bool, error) {
-		return m.getRenderedSpecFromManagementAPIWithRetry(ctx, owner, templateVersion, &desired)
+		return m.getRenderedSpecFromManagementAPIWithRetry(ctx, renderedVersion, &desired)
 	})
 	if err != nil {
 		if errors.Is(err, ErrNoContent) {
@@ -95,7 +95,7 @@ func (m *Manager) getDesiredRenderedSpec(ctx context.Context, owner, templateVer
 		m.log.Warnf("Failed to get rendered device spec after retry: %v", err)
 	} else {
 		// write to disk
-		m.log.Infof("Writing desired rendered spec to disk with template version: %s", desired.TemplateVersion)
+		m.log.Infof("Writing desired rendered spec to disk with rendered version: %s", desired.RenderedVersion)
 		if err := WriteRenderedSpecToFile(m.deviceWriter, &desired, m.desiredRenderedFilePath); err != nil {
 			return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("write rendered spec to disk: %w", err)
 		}
@@ -124,16 +124,12 @@ func (m *Manager) getDesiredRenderedSpec(ctx context.Context, owner, templateVer
 
 func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
 	ctx context.Context,
-	owner string,
-	templateVersion string,
+	renderedVersion string,
 	rendered *v1alpha1.RenderedDeviceSpec,
 ) (bool, error) {
 	params := &v1alpha1.GetRenderedDeviceSpecParams{}
-	if owner != "" {
-		params.KnownOwner = &owner
-	}
-	if templateVersion != "" {
-		params.KnownTemplateVersion = &templateVersion
+	if renderedVersion != "" {
+		params.KnownRenderedVersion = &renderedVersion
 	}
 
 	resp, statusCode, err := m.managementClient.GetRenderedDeviceSpec(ctx, m.deviceName, params)

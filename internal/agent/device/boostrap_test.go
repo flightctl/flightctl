@@ -165,8 +165,7 @@ var _ = Describe("Calling osimages Sync", func() {
 				Image: "image",
 			},
 			Config:          util.StrToPtr("config stuff"),
-			Owner:           "myfleet",
-			TemplateVersion: "tv",
+			RenderedVersion: "1",
 		}
 		defaultRenderedData, err = json.Marshal(renderedConfig)
 		Expect(err).ToNot(HaveOccurred())
@@ -373,11 +372,9 @@ func createMockEnrollmentServer(t *testing.T, approved bool) *httptest.Server {
 func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mockTemplateVersion := "mockTemplateVersion"
-		mockOwner := "mockOwner"
+		mockRenderedVersion := "mockRenderedVersion"
 		resp := v1alpha1.RenderedDeviceSpec{
-			Owner:           mockOwner,
-			TemplateVersion: mockTemplateVersion,
+			RenderedVersion: mockRenderedVersion,
 		}
 
 		w.Header().Set("Content-Type", "application/json")

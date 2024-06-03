@@ -169,6 +169,12 @@ type ClientInterface interface {
 
 	CreateFleet(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteTemplateVersions request
+	DeleteTemplateVersions(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListTemplateVersions request
+	ListTemplateVersions(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteTemplateVersion request
 	DeleteTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -237,17 +243,6 @@ type ClientInterface interface {
 	ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteTemplateVersions request
-	DeleteTemplateVersions(ctx context.Context, params *DeleteTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListTemplateVersions request
-	ListTemplateVersions(ctx context.Context, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateTemplateVersionWithBody request with any body
-	CreateTemplateVersionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateTemplateVersion(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -598,6 +593,30 @@ func (c *Client) CreateFleet(ctx context.Context, body CreateFleetJSONRequestBod
 	return c.Client.Do(req)
 }
 
+func (c *Client) DeleteTemplateVersions(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteTemplateVersionsRequest(c.Server, fleet)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListTemplateVersions(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTemplateVersionsRequest(c.Server, fleet, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) DeleteTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteTemplateVersionRequest(c.Server, fleet, name)
 	if err != nil {
@@ -888,54 +907,6 @@ func (c *Client) ReplaceResourceSyncWithBody(ctx context.Context, name string, c
 
 func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceResourceSyncRequest(c.Server, name, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteTemplateVersions(ctx context.Context, params *DeleteTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteTemplateVersionsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListTemplateVersions(ctx context.Context, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListTemplateVersionsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateTemplateVersionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateTemplateVersionRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateTemplateVersion(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateTemplateVersionRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1241,7 +1212,7 @@ func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRend
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/devices/%s/specification", pathParam0)
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/rendered", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1254,25 +1225,9 @@ func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRend
 	if params != nil {
 		queryValues := queryURL.Query()
 
-		if params.KnownOwner != nil {
+		if params.KnownRenderedVersion != nil {
 
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "knownOwner", runtime.ParamLocationQuery, *params.KnownOwner); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.KnownTemplateVersion != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "knownTemplateVersion", runtime.ParamLocationQuery, *params.KnownTemplateVersion); err != nil {
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "knownRenderedVersion", runtime.ParamLocationQuery, *params.KnownRenderedVersion); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -1929,6 +1884,128 @@ func NewCreateFleetRequestWithBody(server string, contentType string, body io.Re
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteTemplateVersionsRequest generates requests for DeleteTemplateVersions
+func NewDeleteTemplateVersionsRequest(server string, fleet string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "fleet", runtime.ParamLocationPath, fleet)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/fleets/%s/templateversions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListTemplateVersionsRequest generates requests for ListTemplateVersions
+func NewListTemplateVersionsRequest(server string, fleet string, params *ListTemplateVersionsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "fleet", runtime.ParamLocationPath, fleet)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/fleets/%s/templateversions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Continue != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "continue", runtime.ParamLocationQuery, *params.Continue); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.LabelSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labelSelector", runtime.ParamLocationQuery, *params.LabelSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -2737,192 +2814,6 @@ func NewReplaceResourceSyncRequestWithBody(server string, name string, contentTy
 	return req, nil
 }
 
-// NewDeleteTemplateVersionsRequest generates requests for DeleteTemplateVersions
-func NewDeleteTemplateVersionsRequest(server string, params *DeleteTemplateVersionsParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/templateversions")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.Owner != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "owner", runtime.ParamLocationQuery, *params.Owner); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListTemplateVersionsRequest generates requests for ListTemplateVersions
-func NewListTemplateVersionsRequest(server string, params *ListTemplateVersionsParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/templateversions")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.Continue != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "continue", runtime.ParamLocationQuery, *params.Continue); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.LabelSelector != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labelSelector", runtime.ParamLocationQuery, *params.LabelSelector); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.Limit != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.Owner != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "owner", runtime.ParamLocationQuery, *params.Owner); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateTemplateVersionRequest calls the generic CreateTemplateVersion builder with application/json body
-func NewCreateTemplateVersionRequest(server string, body CreateTemplateVersionJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateTemplateVersionRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateTemplateVersionRequestWithBody generates requests for CreateTemplateVersion with any type of body
-func NewCreateTemplateVersionRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/templateversions")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -3045,6 +2936,12 @@ type ClientWithResponsesInterface interface {
 
 	CreateFleetWithResponse(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateFleetResponse, error)
 
+	// DeleteTemplateVersionsWithResponse request
+	DeleteTemplateVersionsWithResponse(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error)
+
+	// ListTemplateVersionsWithResponse request
+	ListTemplateVersionsWithResponse(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error)
+
 	// DeleteTemplateVersionWithResponse request
 	DeleteTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionResponse, error)
 
@@ -3113,17 +3010,6 @@ type ClientWithResponsesInterface interface {
 	ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
 
 	ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
-
-	// DeleteTemplateVersionsWithResponse request
-	DeleteTemplateVersionsWithResponse(ctx context.Context, params *DeleteTemplateVersionsParams, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error)
-
-	// ListTemplateVersionsWithResponse request
-	ListTemplateVersionsWithResponse(ctx context.Context, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error)
-
-	// CreateTemplateVersionWithBodyWithResponse request with any body
-	CreateTemplateVersionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error)
-
-	CreateTemplateVersionWithResponse(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error)
 }
 
 type DeleteDevicesResponse struct {
@@ -3639,6 +3525,53 @@ func (r CreateFleetResponse) StatusCode() int {
 	return 0
 }
 
+type DeleteTemplateVersionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Status
+	JSON401      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteTemplateVersionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteTemplateVersionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListTemplateVersionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *TemplateVersionList
+	JSON400      *Error
+	JSON401      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTemplateVersionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTemplateVersionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteTemplateVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4103,78 +4036,6 @@ func (r ReplaceResourceSyncResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteTemplateVersionsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteTemplateVersionsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteTemplateVersionsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ListTemplateVersionsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *TemplateVersionList
-	JSON400      *Error
-	JSON401      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r ListTemplateVersionsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListTemplateVersionsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type CreateTemplateVersionResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *TemplateVersion
-	JSON400      *Error
-	JSON401      *Error
-	JSON409      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateTemplateVersionResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateTemplateVersionResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 // DeleteDevicesWithResponse request returning *DeleteDevicesResponse
 func (c *ClientWithResponses) DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error) {
 	rsp, err := c.DeleteDevices(ctx, reqEditors...)
@@ -4428,6 +4289,24 @@ func (c *ClientWithResponses) CreateFleetWithResponse(ctx context.Context, body 
 	return ParseCreateFleetResponse(rsp)
 }
 
+// DeleteTemplateVersionsWithResponse request returning *DeleteTemplateVersionsResponse
+func (c *ClientWithResponses) DeleteTemplateVersionsWithResponse(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error) {
+	rsp, err := c.DeleteTemplateVersions(ctx, fleet, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteTemplateVersionsResponse(rsp)
+}
+
+// ListTemplateVersionsWithResponse request returning *ListTemplateVersionsResponse
+func (c *ClientWithResponses) ListTemplateVersionsWithResponse(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error) {
+	rsp, err := c.ListTemplateVersions(ctx, fleet, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTemplateVersionsResponse(rsp)
+}
+
 // DeleteTemplateVersionWithResponse request returning *DeleteTemplateVersionResponse
 func (c *ClientWithResponses) DeleteTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionResponse, error) {
 	rsp, err := c.DeleteTemplateVersion(ctx, fleet, name, reqEditors...)
@@ -4645,41 +4524,6 @@ func (c *ClientWithResponses) ReplaceResourceSyncWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseReplaceResourceSyncResponse(rsp)
-}
-
-// DeleteTemplateVersionsWithResponse request returning *DeleteTemplateVersionsResponse
-func (c *ClientWithResponses) DeleteTemplateVersionsWithResponse(ctx context.Context, params *DeleteTemplateVersionsParams, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error) {
-	rsp, err := c.DeleteTemplateVersions(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteTemplateVersionsResponse(rsp)
-}
-
-// ListTemplateVersionsWithResponse request returning *ListTemplateVersionsResponse
-func (c *ClientWithResponses) ListTemplateVersionsWithResponse(ctx context.Context, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error) {
-	rsp, err := c.ListTemplateVersions(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListTemplateVersionsResponse(rsp)
-}
-
-// CreateTemplateVersionWithBodyWithResponse request with arbitrary body returning *CreateTemplateVersionResponse
-func (c *ClientWithResponses) CreateTemplateVersionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error) {
-	rsp, err := c.CreateTemplateVersionWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateTemplateVersionResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateTemplateVersionWithResponse(ctx context.Context, body CreateTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTemplateVersionResponse, error) {
-	rsp, err := c.CreateTemplateVersion(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateTemplateVersionResponse(rsp)
 }
 
 // ParseDeleteDevicesResponse parses an HTTP response from a DeleteDevicesWithResponse call
@@ -5585,6 +5429,79 @@ func ParseCreateFleetResponse(rsp *http.Response) (*CreateFleetResponse, error) 
 	return response, nil
 }
 
+// ParseDeleteTemplateVersionsResponse parses an HTTP response from a DeleteTemplateVersionsWithResponse call
+func ParseDeleteTemplateVersionsResponse(rsp *http.Response) (*DeleteTemplateVersionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteTemplateVersionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListTemplateVersionsResponse parses an HTTP response from a ListTemplateVersionsWithResponse call
+func ParseListTemplateVersionsResponse(rsp *http.Response) (*ListTemplateVersionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTemplateVersionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TemplateVersionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteTemplateVersionResponse parses an HTTP response from a DeleteTemplateVersionWithResponse call
 func ParseDeleteTemplateVersionResponse(rsp *http.Response) (*DeleteTemplateVersionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6395,126 +6312,6 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 			return nil, err
 		}
 		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteTemplateVersionsResponse parses an HTTP response from a DeleteTemplateVersionsWithResponse call
-func ParseDeleteTemplateVersionsResponse(rsp *http.Response) (*DeleteTemplateVersionsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteTemplateVersionsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListTemplateVersionsResponse parses an HTTP response from a ListTemplateVersionsWithResponse call
-func ParseListTemplateVersionsResponse(rsp *http.Response) (*ListTemplateVersionsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListTemplateVersionsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest TemplateVersionList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateTemplateVersionResponse parses an HTTP response from a CreateTemplateVersionWithResponse call
-func ParseCreateTemplateVersionResponse(rsp *http.Response) (*CreateTemplateVersionResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateTemplateVersionResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest TemplateVersion
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
 
 	}
 
