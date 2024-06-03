@@ -2,3 +2,4 @@ registry:
   image: docker.io/library/registry:2
   nodePort: 5000
   namespace: flightctl-e2e
+  certsPath: /tmp/e2e-certs/

@@ -1,0 +1,14 @@
+[Unit]
+Description=Test E2E Dummy V3
+
+[Service]
+Type=simple
+WorkingDirectory=/tmp
+ExecStart=/usr/bin/sleep 3600
+KillMode=process
+Restart=never
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
