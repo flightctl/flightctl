@@ -15,6 +15,7 @@ var (
 
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
 	DeviceAnnotationMultipleOwners  = "fleet-controller/multipleOwners"
+	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
 )
 
 type Device struct {
@@ -25,6 +26,16 @@ type Device struct {
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.DeviceStatus]
+
+	// Conditions set by the service, as opposed to the agent.
+	ServiceConditions *JSONField[ServiceConditions]
+
+	// The rendered ignition config, exposed in a separate endpoint.
+	RenderedConfig *string
+}
+
+type ServiceConditions struct {
+	Conditions *[]api.Condition `json:"conditions,omitempty"`
 }
 
 type DeviceList []Device
@@ -75,6 +86,13 @@ func (d *Device) ToApiResource() api.Device {
 	var status api.DeviceStatus
 	if d.Status != nil {
 		status = d.Status.Data
+	}
+
+	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
+		if status.Conditions == nil {
+			status.Conditions = &[]api.Condition{}
+		}
+		*status.Conditions = append(*status.Conditions, *d.ServiceConditions.Data.Conditions...)
 	}
 
 	metadataLabels := util.LabelArrayToMap(d.Resource.Labels)

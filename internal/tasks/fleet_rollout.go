@@ -177,5 +177,19 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		model.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
 	}
 	err := f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
+	if err != nil {
+		return err
+	}
+
+	device.Spec.Config = &[]api.DeviceSpec_Config_Item{}
+	if templateVersion.Status.Config != nil {
+		for _, configItem := range *templateVersion.Status.Config {
+			*device.Spec.Config = append(*device.Spec.Config, api.DeviceSpec_Config_Item(configItem))
+		}
+		device.Spec.Containers = templateVersion.Status.Containers
+		device.Spec.Os = templateVersion.Status.Os
+		device.Spec.Systemd = templateVersion.Status.Systemd
+	}
+	_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.taskManager.DeviceUpdatedCallback)
 	return err
 }

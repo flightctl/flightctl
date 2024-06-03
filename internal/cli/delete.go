@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
 )
 
 type DeleteOptions struct {
-	Owner     string
 	FleetName string
 }
 
@@ -32,8 +29,7 @@ func NewCmdDelete() *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
-	cmd.Flags().StringVar(&o.Owner, "owner", o.Owner, "Filter by owner.")
-	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing individual templateversions.")
+	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing templateversions.")
 	return cmd
 }
 
@@ -42,21 +38,12 @@ func (o *DeleteOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *DeleteOptions) Validate(args []string) error {
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, _, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
 	}
-	if len(o.Owner) > 0 && kind != TemplateVersionKind {
-		return fmt.Errorf("owner can only be specified when deleting templateversions")
-	}
-	if kind == TemplateVersionKind && len(name) > 0 {
-		if len(o.FleetName) == 0 {
-			return fmt.Errorf("fleetname must be specified when fetching a specific templatevesion")
-		}
-	} else {
-		if len(o.FleetName) > 0 {
-			return fmt.Errorf("fleetname must only be specified when fetching a specific templatevesion")
-		}
+	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
+		return fmt.Errorf("fleetname must be specified when deleting templatevesions")
 	}
 	return nil
 }
@@ -122,10 +109,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 			}
 			fmt.Printf("%s\n", response.Status())
 		} else {
-			params := api.DeleteTemplateVersionsParams{
-				Owner: util.StrToPtrWithNilDefault(o.Owner),
-			}
-			response, err := c.DeleteTemplateVersionsWithResponse(ctx, &params)
+			response, err := c.DeleteTemplateVersionsWithResponse(ctx, o.FleetName)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
