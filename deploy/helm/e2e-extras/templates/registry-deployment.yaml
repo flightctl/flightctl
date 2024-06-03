@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: e2e-container-registry
+  name: e2e-container-registry
+  namespace: {{ .Values.registry.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: e2e-container-registry
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: e2e-container-registry
+    spec:
+      containers:
+        - name: container-reg
+          image: {{ .Values.registry.image }}
+          ports:
+            - containerPort: 5000
+              protocol: TCP
+      restartPolicy: Always
