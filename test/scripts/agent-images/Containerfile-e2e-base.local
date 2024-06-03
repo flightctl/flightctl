@@ -1,4 +1,16 @@
+# localhost:5000/flightctl-device:base
+#     ${IP}:5000/flightctl-device:base
+#
+# Base bootc image used for E2E testing and agent-vm with the following features:
+#
+# * User/pw: redhat/redhat
+# * Trust on our E2E CA Certificate
+# * flightctl-agent configured to talk to our e2e kind flightctl-server
+
 FROM quay.io/centos-bootc/centos-bootc:stream9
+
+COPY bin/e2e-certs/ca.pem /etc/pki/ca-trust/source/anchors/
+RUN update-ca-trust
 
 COPY bin/rpm/flightctl-agent-*.rpm /tmp/
 RUN dnf install -y /tmp/flightctl-agent-*.rpm && \

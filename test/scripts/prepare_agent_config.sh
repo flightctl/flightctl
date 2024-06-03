@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
+OUTFILE=bin/agent/etc/flightctl/config.yaml
 mkdir -p bin/agent/etc/flightctl/certs
 cp ~/.flightctl/certs/ca.crt bin/agent/etc/flightctl/certs/ca.crt
 cp ~/.flightctl/certs/client-enrollment.{crt,key} bin/agent/etc/flightctl/certs/
 
-IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
-echo "Found ethernet interface IP: ${IP}"
-
-echo "Creating agent config"
-cat <<EOF > bin/agent/etc/flightctl/config.yaml
+echo "Creating agent config in ${OUTFILE}"
+tee ${OUTFILE} <<EOF
 management-endpoint: https://${IP}:3333
 enrollment-endpoint: https://${IP}:3333
 enrollment-ui-endpoint: https://${IP}:8080

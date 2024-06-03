@@ -23,4 +23,17 @@ spec:
           ports:
             - containerPort: 5000
               protocol: TCP
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+          env:
+            - name: REGISTRY_HTTP_TLS_CERTIFICATE
+              value: /certs/registry.crt
+            - name: REGISTRY_HTTP_TLS_KEY
+              value: /certs/registry.key
+      volumes:
+        - name: certs
+          hostPath:
+            path: {{ .Values.registry.certsPath }}
+            type: Directory
       restartPolicy: Always

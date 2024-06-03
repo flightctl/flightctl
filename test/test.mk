@@ -59,6 +59,9 @@ test: unit-test integration-test e2e-test
 
 run-test: unit-test run-intesgration-test
 
+bin/e2e-certs/ca.pem:
+	test/scripts/create_e2e_certs.sh
+
 .PHONY: test run-test
 
 $(REPORTS):
