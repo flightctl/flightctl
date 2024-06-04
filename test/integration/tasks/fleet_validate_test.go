@@ -42,16 +42,19 @@ var _ = Describe("FleetValidate", func() {
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
 		taskManager = tasks.Init(log, storeInst)
 
+		spec := api.RepositorySpec{}
+		err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+			Repo: "repo-url",
+		})
+		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
 			Metadata: api.ObjectMeta{
 				Name: util.StrToPtr("repo"),
 			},
-			Spec: api.RepositorySpec{
-				Repo: util.StrToPtr("repo-url"),
-			},
+			Spec: spec,
 		}
 		repoCallback := store.RepositoryStoreCallback(func(*model.Repository) {})
-		_, err := storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
+		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
