@@ -1571,12 +1571,10 @@ components:
         - metadata
         - spec
       description: Repository represents a git repository
-    RepositorySpec:
+    GitHttpConfig:
       type: object
+      additionalProperties: false
       properties:
-        repo:
-          type: string
-          description: 'The (possibly remote) repository URL to clone from'
         username:
           type: string
           description: 'The username for auth with HTTP transport'
@@ -1584,6 +1582,74 @@ components:
           type: string
           description: 'The password for auth with HTTP transport'
           format: password
+        tls.crt:
+          type: string
+          description: 'Base64 encoded TLS cert data'
+          format: password
+        tls.key:
+          type: string
+          description: 'Base64 encoded TLS cert key'
+          format: password
+        ca.crt:
+          type: string
+          description: 'Base64 encoded root CA'
+        skipServerVerification:
+          type: boolean
+          description: 'Skip remote server verification'
+    GitHttpRepoSpec:
+      type: object
+      additionalProperties: false
+      properties:
+        repo:
+          type: string
+          description: 'The HTTP Git repository URL to clone from'
+        httpConfig:
+          $ref: "#/components/schemas/GitHttpConfig"
+      required:
+        - repo
+        - httpConfig
+    GitSshConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        sshPrivateKey:
+          type: string
+          description: 'Base64 encoded private SSH key'
+          format: password
+        privateKeyPassphrase:
+          type: string
+          description: 'The passphrase for sshPrivateKey'
+          format: password
+        skipServerVerification:
+          type: boolean
+          description: 'Skip remote server verification'
+    GitSshRepoSpec:
+      type: object
+      additionalProperties: false
+      properties:
+        repo:
+          type: string
+          description: 'The SSH Git repository URL to clone from'
+        sshConfig:
+          $ref: "#/components/schemas/GitSshConfig"
+      required:
+        - repo
+        - sshConfig
+    GitGenericRepoSpec:
+      type: object
+      additionalProperties: false
+      properties:
+        repo:
+          type: string
+          description: 'The (possibly remote) repository URL to clone from'
+      required:
+        - repo
+    RepositorySpec:
+      type: object
+      oneOf:
+        - $ref: "#/components/schemas/GitGenericRepoSpec"
+        - $ref: "#/components/schemas/GitHttpRepoSpec"
+        - $ref: "#/components/schemas/GitSshRepoSpec"
     RepositoryStatus:
       type: object
       properties:

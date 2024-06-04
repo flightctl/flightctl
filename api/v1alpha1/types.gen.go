@@ -337,6 +337,60 @@ type GitConfigProviderSpec struct {
 	Name string `json:"name"`
 }
 
+// GitGenericRepoSpec defines model for GitGenericRepoSpec.
+type GitGenericRepoSpec struct {
+	// Repo The (possibly remote) repository URL to clone from
+	Repo string `json:"repo"`
+}
+
+// GitHttpConfig defines model for GitHttpConfig.
+type GitHttpConfig struct {
+	// CaCrt Base64 encoded root CA
+	CaCrt *string `json:"ca.crt,omitempty"`
+
+	// Password The password for auth with HTTP transport
+	Password *string `json:"password,omitempty"`
+
+	// SkipServerVerification Skip remote server verification
+	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
+
+	// TlsCrt Base64 encoded TLS cert data
+	TlsCrt *string `json:"tls.crt,omitempty"`
+
+	// TlsKey Base64 encoded TLS cert key
+	TlsKey *string `json:"tls.key,omitempty"`
+
+	// Username The username for auth with HTTP transport
+	Username *string `json:"username,omitempty"`
+}
+
+// GitHttpRepoSpec defines model for GitHttpRepoSpec.
+type GitHttpRepoSpec struct {
+	HttpConfig GitHttpConfig `json:"httpConfig"`
+
+	// Repo The HTTP Git repository URL to clone from
+	Repo string `json:"repo"`
+}
+
+// GitSshConfig defines model for GitSshConfig.
+type GitSshConfig struct {
+	// PrivateKeyPassphrase The passphrase for sshPrivateKey
+	PrivateKeyPassphrase *string `json:"privateKeyPassphrase,omitempty"`
+
+	// SkipServerVerification Skip remote server verification
+	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
+
+	// SshPrivateKey Base64 encoded private SSH key
+	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
+}
+
+// GitSshRepoSpec defines model for GitSshRepoSpec.
+type GitSshRepoSpec struct {
+	// Repo The SSH Git repository URL to clone from
+	Repo      string       `json:"repo"`
+	SshConfig GitSshConfig `json:"sshConfig"`
+}
+
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
 	ConfigType string                 `json:"configType"`
@@ -435,14 +489,7 @@ type RepositoryList struct {
 
 // RepositorySpec defines model for RepositorySpec.
 type RepositorySpec struct {
-	// Password The password for auth with HTTP transport
-	Password *string `json:"password,omitempty"`
-
-	// Repo The (possibly remote) repository URL to clone from
-	Repo *string `json:"repo,omitempty"`
-
-	// Username The username for auth with HTTP transport
-	Username *string `json:"username,omitempty"`
+	union json.RawMessage
 }
 
 // RepositoryStatus RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
@@ -822,6 +869,94 @@ func (t DeviceSpec_Config_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsGitGenericRepoSpec returns the union data inside the RepositorySpec as a GitGenericRepoSpec
+func (t RepositorySpec) AsGitGenericRepoSpec() (GitGenericRepoSpec, error) {
+	var body GitGenericRepoSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GitGenericRepoSpec
+func (t *RepositorySpec) FromGitGenericRepoSpec(v GitGenericRepoSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitGenericRepoSpec
+func (t *RepositorySpec) MergeGitGenericRepoSpec(v GitGenericRepoSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGitHttpRepoSpec returns the union data inside the RepositorySpec as a GitHttpRepoSpec
+func (t RepositorySpec) AsGitHttpRepoSpec() (GitHttpRepoSpec, error) {
+	var body GitHttpRepoSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided GitHttpRepoSpec
+func (t *RepositorySpec) FromGitHttpRepoSpec(v GitHttpRepoSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitHttpRepoSpec
+func (t *RepositorySpec) MergeGitHttpRepoSpec(v GitHttpRepoSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGitSshRepoSpec returns the union data inside the RepositorySpec as a GitSshRepoSpec
+func (t RepositorySpec) AsGitSshRepoSpec() (GitSshRepoSpec, error) {
+	var body GitSshRepoSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitSshRepoSpec overwrites any union data inside the RepositorySpec as the provided GitSshRepoSpec
+func (t *RepositorySpec) FromGitSshRepoSpec(v GitSshRepoSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitSshRepoSpec
+func (t *RepositorySpec) MergeGitSshRepoSpec(v GitSshRepoSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RepositorySpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RepositorySpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

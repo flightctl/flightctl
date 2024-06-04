@@ -59,7 +59,8 @@ func TestFleetDelta(t *testing.T) {
 func TestParseAndValidate_already_in_sync(t *testing.T) {
 	require := require.New(t)
 	rs := testResourceSync()
-	repo := testRepo()
+	repo, err := testRepo()
+	require.NoError(err)
 	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
 	// Patch the status so we are already in sync
@@ -75,28 +76,31 @@ func TestParseAndValidate_already_in_sync(t *testing.T) {
 func TestParseAndValidate_no_files(t *testing.T) {
 	require := require.New(t)
 	rs := testResourceSync()
-	repo := testRepo()
+	repo, err := testRepo()
+	require.NoError(err)
 	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
 	// Empty folder
-	_, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
+	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
 	require.Error(err)
 }
 
 func TestParseAndValidate_unsupportedFiles(t *testing.T) {
 	require := require.New(t)
 	rs := testResourceSync()
-	repo := testRepo()
+	repo, err := testRepo()
+	require.NoError(err)
 	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
-	_, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
+	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.Error(err)
 }
 
 func TestParseAndValidate_singleFile(t *testing.T) {
 	require := require.New(t)
 	rs := testResourceSync()
-	repo := testRepo()
+	repo, err := testRepo()
+	require.NoError(err)
 	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
 
 	rs.Spec.Data.Path = "/examples/fleet.yaml"
@@ -232,16 +236,19 @@ func testResourceSync() model.ResourceSync {
 	}
 }
 
-func testRepo() model.Repository {
+func testRepo() (model.Repository, error) {
+	spec := api.RepositorySpec{}
+	err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+		// This is contacting a GIT repo, we should either mock it, or move it to E2E eventually
+		// where we setup a local test git repo we could control (i.e. https://github.com/rockstorm101/git-server-docker)
+		Repo: "https://github.com/flightctl/flightctl",
+	})
 	return model.Repository{
 		Spec: &model.JSONField[api.RepositorySpec]{
-			Data: api.RepositorySpec{
-				// This is contacting a GIT repo, we should either mock it, or move it to E2E eventually
-				// where we setup a local test git repo we could control (i.e. https://github.com/rockstorm101/git-server-docker)
-				Repo: util.StrToPtr("https://github.com/flightctl/flightctl"),
-			},
+			Data: spec,
 		},
-	}
+	}, err
+
 }
 
 var gitRepoCommit = "abcdef012"

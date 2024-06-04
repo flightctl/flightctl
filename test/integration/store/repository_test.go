@@ -3,7 +3,6 @@ package store_test
 import (
 	"context"
 	"fmt"
-	"log"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -20,21 +19,22 @@ import (
 
 func createRepositories(numRepositories int, ctx context.Context, storeInst store.Store, orgId uuid.UUID) {
 	for i := 1; i <= numRepositories; i++ {
+		spec := api.RepositorySpec{}
+		err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+			Repo: "myrepo",
+		})
+		Expect(err).ToNot(HaveOccurred())
 		resource := api.Repository{
 			Metadata: api.ObjectMeta{
 				Name:   util.StrToPtr(fmt.Sprintf("myrepository-%d", i)),
 				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
 			},
-			Spec: api.RepositorySpec{
-				Repo: util.StrToPtr("myrepo"),
-			},
+			Spec: spec,
 		}
 
 		callback := store.RepositoryStoreCallback(func(*model.Repository) {})
-		_, err := storeInst.Repository().Create(ctx, orgId, &resource, callback)
-		if err != nil {
-			log.Fatalf("creating repository: %v", err)
-		}
+		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
+		Expect(err).ToNot(HaveOccurred())
 	}
 }
 
@@ -174,13 +174,16 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("CreateOrUpdateRepository create mode", func() {
+			spec := api.RepositorySpec{}
+			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+				Repo: "myrepo",
+			})
+			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename"),
 				},
-				Spec: api.RepositorySpec{
-					Repo: util.StrToPtr("myrepo"),
-				},
+				Spec:   spec,
 				Status: nil,
 			}
 			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
@@ -189,18 +192,23 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			Expect(*repo.Spec.Repo).To(Equal("myrepo"))
+			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repoSpec.Repo).To(Equal("myrepo"))
 			Expect(repo.Status.Conditions).To(BeNil())
 		})
 
 		It("CreateOrUpdateRepository update mode", func() {
+			spec := api.RepositorySpec{}
+			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+				Repo: "myotherrepo",
+			})
+			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("myrepository-1"),
 				},
-				Spec: api.RepositorySpec{
-					Repo: util.StrToPtr("myotherrepo"),
-				},
+				Spec:   spec,
 				Status: nil,
 			}
 			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
@@ -209,7 +217,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(false))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			Expect(*repo.Spec.Repo).To(Equal("myotherrepo"))
+			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).To(BeNil())
 		})
 	})
