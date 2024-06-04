@@ -32,6 +32,8 @@ func DeviceRender(taskManager TaskManager) {
 				err := logic.RenderDevice(ctx)
 				if err != nil {
 					log.Errorf("failed rendering device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+				} else {
+					log.Infof("completed rendering device %s/%s", resourceRef.OrgID, resourceRef.Name)
 				}
 			} else {
 				log.Errorf("DeviceRender called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
@@ -118,7 +120,7 @@ func (t *DeviceRenderLogic) handleGitConfig(ctx context.Context, configItem *api
 	}
 
 	// TODO: Use local cache
-	mfs, _, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, util.IntToPtr(1))
+	mfs, _, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, nil)
 	if err != nil {
 		return fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}

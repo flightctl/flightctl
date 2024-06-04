@@ -39,18 +39,35 @@ func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.F
 		return nil, "", err
 	}
 	opts.Auth = auth
+	hash := ""
 	if revision != nil {
-		opts.ReferenceName = gitplumbing.ReferenceName(*revision)
+		referenceIsHash := gitplumbing.IsHash(*revision)
+		if !referenceIsHash {
+			opts.ReferenceName = gitplumbing.ReferenceName(*revision)
+		} else {
+			hash = *revision
+		}
 	}
 	gitRepo, err := git.Clone(storage, mfs, opts)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("failed cloning git repo: %w", err)
 	}
-	head, err := gitRepo.Head()
-	if err != nil {
-		return nil, "", err
+	if hash != "" {
+		worktree, err := gitRepo.Worktree()
+		if err != nil {
+			return nil, "", fmt.Errorf("failed getting git repo worktree: %w", err)
+		}
+		err = worktree.Checkout(&git.CheckoutOptions{Hash: gitplumbing.NewHash(hash), Force: true})
+		if err != nil {
+			return nil, "", fmt.Errorf("failed checking out specified git hash %s: %w", gitplumbing.NewHash(hash), err)
+		}
+	} else {
+		head, err := gitRepo.Head()
+		if err != nil {
+			return nil, "", fmt.Errorf("failed getting git repo head: %w", err)
+		}
+		hash = head.Hash().String()
 	}
-	hash := head.Hash().String()
 	return mfs, hash, nil
 }
 
