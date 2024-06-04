@@ -9,17 +9,21 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var repo model.Repository = model.Repository{
-	Spec: &model.JSONField[api.RepositorySpec]{
-		Data: api.RepositorySpec{
-			// This should move to E2E with a local git repo in kind
-			Repo: util.StrToPtr("https://github.com/flightctl/flightctl"),
-		},
-	},
-}
 var _ = Describe("ResourceSync CloneGitRepo", Ordered, func() {
 
 	It("should checkout a known git repo", func() {
+		spec := api.RepositorySpec{}
+		err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+			// This should move to E2E with a local git repo in kind
+			Repo: "https://github.com/flightctl/flightctl",
+		})
+		Expect(err).ToNot(HaveOccurred())
+		repo := model.Repository{
+			Spec: &model.JSONField[api.RepositorySpec]{
+				Data: spec,
+			},
+		}
+
 		// Clone the repo
 		fs, _, err := tasks.CloneGitRepo(&repo, nil, util.IntToPtr(1))
 		Expect(err).ToNot(HaveOccurred())
