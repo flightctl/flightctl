@@ -22,10 +22,10 @@ type SystemD struct {
 	client        *app.SystemDClient
 	mu            sync.Mutex
 	matchPatterns []string
-	AppManager    *AppManager
+	AppManager    *app.Manager
 }
 
-func newSystemD(exec executer.Executer, appManager *AppManager) *SystemD {
+func newSystemD(exec executer.Executer, appManager *app.Manager) *SystemD {
 	return &SystemD{
 		AppManager: appManager,
 		client:     app.NewSystemDClient(exec),
@@ -37,17 +37,18 @@ func (c *SystemD) Export(ctx context.Context, _ *v1alpha1.DeviceStatus) error {
 	defer cancel()
 
 	matchPatterns := c.getMatchPatterns()
-	units, err := c.client.ListUnits(ctx, matchPatterns...)
+	units, err := c.client.List(ctx, matchPatterns...)
 	if err != nil {
 		return fmt.Errorf("failed listing systemd units: %w", err)
 	}
 
-	for _, u := range units {
-		app, err := c.client.GetApplicationStatus(ctx, u.Unit)
+	for _, unit := range units {
+		name := *unit.Name
+		app, err := c.client.GetStatus(ctx, name)
 		if err != nil {
 			return fmt.Errorf("failed getting application status: %w", err)
 		}
-		c.AppManager.ExportStatus(u.Unit, *app)
+		c.AppManager.ExportStatus(name, *app)
 	}
 	return nil
 }

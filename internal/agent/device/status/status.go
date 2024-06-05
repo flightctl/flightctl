@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/app"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -20,7 +21,7 @@ func NewManager(
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	appManager := newAppManager()
+	appManager := app.NewManager()
 	exporters := []Exporter{
 		newSystemD(executer, appManager),
 		newContainer(executer, appManager),
@@ -29,7 +30,7 @@ func NewManager(
 	return &StatusManager{
 		deviceName: deviceName,
 		exporters:  exporters,
-		appManager: newAppManager(),
+		appManager: appManager,
 		conditions: DefaultConditions(),
 		log:        log,
 	}
@@ -40,12 +41,13 @@ type StatusManager struct {
 	deviceName       string
 	managementClient *client.Management
 	exporters        []Exporter
-	appManager       *AppManager
+	appManager       *app.Manager
 	log              *log.PrefixLogger
 	conditions       *[]v1alpha1.Condition
 }
 
 type Exporter interface {
+	// TODO: Export seems to not need status
 	Export(ctx context.Context, device *v1alpha1.DeviceStatus) error
 	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
@@ -105,7 +107,7 @@ func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.De
 		previous[*app.Name] = struct{}{}
 	}
 
-	for name, app := range m.appManager.apps {
+	for name, app := range m.appManager.Apps {
 		if _, ok := previous[name]; !ok {
 			// new app
 			*deviceStatus.Applications = append(*deviceStatus.Applications, app)
@@ -195,20 +197,4 @@ func (m *StatusManager) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
 	for _, exporter := range m.exporters {
 		exporter.SetProperties(spec)
 	}
-}
-
-// AppManager is responsible for managing and collecting the status of applications on a device.
-type AppManager struct {
-	apps map[string]v1alpha1.ApplicationStatus
-}
-
-// newAppManager creates a new AppManager.
-func newAppManager() *AppManager {
-	return &AppManager{
-		apps: make(map[string]v1alpha1.ApplicationStatus),
-	}
-}
-
-func (a *AppManager) ExportStatus(name string, status v1alpha1.ApplicationStatus) {
-	a.apps[name] = status
 }

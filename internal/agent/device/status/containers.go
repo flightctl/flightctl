@@ -12,14 +12,7 @@ import (
 )
 
 const (
-	podmanCommand          = "/usr/bin/podman"
-	podmanCommandTimeout   = 10 * time.Second
-	podmanContainerRunning = "running"
-	PodmanEngine           = "podman"
-	crioCommand            = "/usr/bin/crictl"
-	crioCommandTimeout     = 10 * time.Second
-	crioContainerRunning   = "CONTAINER_RUNNING"
-	CrioEngine             = "crio"
+	commandTimeout = 10 * time.Second
 )
 
 var _ Exporter = (*Container)(nil)
@@ -27,84 +20,66 @@ var _ Exporter = (*Container)(nil)
 // Container collects container status.
 type Container struct {
 	exec          executer.Executer
-	crictl        *app.CrioClient
-	podman        *app.PodmanClient
-	appManager    *AppManager
+	crictl        app.Engine
+	podman        app.Engine
+	appManager    *app.Manager
 	mu            sync.Mutex
 	matchPatterns []string
 }
 
-func newContainer(exec executer.Executer, appManager *AppManager) *Container {
+func newContainer(exec executer.Executer, appManager *app.Manager) *Container {
 	return &Container{
 		exec:       exec,
 		crictl:     app.NewCrioClient(exec),
 		podman:     app.NewPodmanClient(exec),
-		appManager: appManager,
+		appManager: app.NewManager(),
 	}
 }
 
-type PodmanContainerList []PodmanContainerListEntry
-type PodmanContainerListEntry struct {
-	Names []string `json:"Names"`
-	State string   `json:"State"`
-	Image string   `json:"Image"`
-	Id    string   `json:"Id"`
-}
-
-type Shell interface {
-	Command(cmd string) (output []byte, err error)
-}
-
-func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	ctx, cancel := context.WithTimeout(ctx, podmanCommandTimeout)
+// PodmanExport collects podman container status as defined by match patterns.
+func (c *Container) PodmanExport(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	containers, err := c.podman.ListContainers(ctx, c.matchPatterns...)
+	apps, err := c.podman.List(ctx, c.matchPatterns...)
 	if err != nil {
 		return fmt.Errorf("failed listing crio containers: %w", err)
 	}
 
-	for _, container := range containers {
-		appStatus, err := c.podman.GetApplicationStatus(ctx, container.Id)
-		if err != nil {
-			return err
-		}
-		c.appManager.ExportStatus(container.Metadata.Name, *appStatus)
+	for _, app := range apps {
+		c.appManager.ExportStatus(*app.Name, app)
 	}
 
 	return nil
 }
 
-func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	ctx, cancel := context.WithTimeout(ctx, podmanCommandTimeout)
+// CrioExport collects crio container status as defined by match patterns.
+func (c *Container) CrioExport(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	containers, err := c.crictl.ListContainers(ctx, c.matchPatterns...)
+	apps, err := c.crictl.List(ctx, c.matchPatterns...)
 	if err != nil {
 		return fmt.Errorf("failed listing crio containers: %w", err)
 	}
 
-	for _, container := range containers {
-		appStatus, err := c.crictl.GetApplicationStatus(ctx, container.Id)
-		if err != nil {
-			return err
-		}
-		c.appManager.ExportStatus(container.Metadata.Name, *appStatus)
+	for _, app := range apps {
+		c.appManager.ExportStatus(*app.Name, app)
 	}
 
 	return nil
 }
 
-func (c *Container) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (c *Container) Export(ctx context.Context, _ *v1alpha1.DeviceStatus) error {
 	if _, err := c.exec.LookPath("podman"); err == nil {
-		err := c.PodmanExport(ctx, status)
+		err := c.PodmanExport(ctx)
 		if err != nil {
 			return fmt.Errorf("failed exporting podman status: %w", err)
 		}
 	}
 
 	if _, err := c.exec.LookPath("crictl"); err == nil {
-		err := c.CrioExport(ctx, status)
+		err := c.CrioExport(ctx)
 		if err != nil {
 			return fmt.Errorf("failed exporting crio status: %w", err)
 		}

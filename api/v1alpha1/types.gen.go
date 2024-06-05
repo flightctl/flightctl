@@ -12,12 +12,12 @@ import (
 
 // Defines values for ApplicationState.
 const (
-	ApplicationStateCrashed      ApplicationState = "Crashed"
-	ApplicationStateInitializing ApplicationState = "Initializing"
-	ApplicationStateRunning      ApplicationState = "Running"
-	ApplicationStateStarting     ApplicationState = "Starting"
-	ApplicationStateStopped      ApplicationState = "Stopped"
-	ApplicationStateUnknown      ApplicationState = "Unknown"
+	ApplicationStateError     ApplicationState = "Error"
+	ApplicationStatePreparing ApplicationState = "Preparing"
+	ApplicationStateRunning   ApplicationState = "Running"
+	ApplicationStateStarting  ApplicationState = "Starting"
+	ApplicationStateStopped   ApplicationState = "Stopped"
+	ApplicationStateUnknown   ApplicationState = "Unknown"
 )
 
 // Defines values for ConditionStatus.
@@ -65,6 +65,9 @@ type ApplicationState string
 
 // ApplicationStatus defines model for ApplicationStatus.
 type ApplicationStatus struct {
+	// Id unique ID of the application.
+	Id *string `json:"id,omitempty"`
+
 	// Name Name of the application.
 	Name *string `json:"name,omitempty"`
 

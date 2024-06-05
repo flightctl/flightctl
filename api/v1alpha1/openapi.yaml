@@ -2309,6 +2309,9 @@ components:
     ApplicationStatus:
       type: object
       properties:
+        id:
+          type: string
+          description: unique ID of the application.
         name:
           type: string
           description: Name of the application.
@@ -2321,18 +2324,18 @@ components:
     ApplicationState:
       type: string
       enum:
-      - 'Initializing'
+      - 'Preparing'
       - 'Starting'
       - 'Running'
-      - 'Crashed'
       - 'Stopped'
+      - 'Error'
       - 'Unknown'
       x-enum-varnames:
-      - 'ApplicationStateInitializing'
+      - 'ApplicationStatePreparing'
       - 'ApplicationStateStarting'
       - 'ApplicationStateRunning'
-      - 'ApplicationStateCrashed'
       - 'ApplicationStateStopped'
+      - 'ApplicationStateError'
       - 'ApplicationStateUnknown'
     Error:
       required:

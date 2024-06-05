@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	crictlCmd = "/usr/bin/crictl"
+	CrictlCmd = "/usr/bin/crictl"
 )
+
+var _ Engine = (*CrioClient)(nil)
 
 type CrioClient struct {
 	exec executer.Executer
@@ -23,25 +25,22 @@ func NewCrioClient(exec executer.Executer) *CrioClient {
 	}
 }
 
-// PullImage pulls an image from the registry.
 func (c *CrioClient) PullImage() error {
-	return nil
+	return fmt.Errorf("not implemented")
 }
 
-// ImageExists checks if an image exists in the local container storage.
 func (c *CrioClient) ImageExists() (bool, error) {
-	return false, nil
+	return false, fmt.Errorf("not implemented")
 }
 
-// ListContainers returns a list of containers based on the match patterns.
-func (c *CrioClient) ListContainers(ctx context.Context, matchPatterns ...string) ([]CrioContainer, error) {
+func (c *CrioClient) List(ctx context.Context, matchPatterns ...string) ([]v1alpha1.ApplicationStatus, error) {
 	args := []string{"ps", "-a", "--output", "json"}
 	for _, pattern := range matchPatterns {
 		args = append(args, "--name")
-		args = append(args, pattern)
+		args = append(args, fmt.Sprintf("^%s$", pattern)) // crio uses regex for matching
 	}
 
-	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, CrictlCmd, args...)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -59,13 +58,50 @@ func (c *CrioClient) ListContainers(ctx context.Context, matchPatterns ...string
 		return nil, fmt.Errorf("failed unmarshalling crio containers: %s", err)
 	}
 
-	return list.Containers, nil
+	status := make([]v1alpha1.ApplicationStatus, 0, len(list.Containers))
+	for _, container := range list.Containers {
+		cs, err := c.getCrioStatus(ctx, container.Id)
+		if err != nil {
+			return nil, err
+		}
+		state, err := c.GetApplicationState(ctx, cs)
+		if err != nil {
+			return nil, err
+		}
+		restarts := cs.Status.Metadata.Attempt
+		status = append(status, v1alpha1.ApplicationStatus{
+			Id:       &container.Id,
+			Name:     &container.Metadata.Name,
+			State:    &state,
+			Restarts: &restarts,
+		})
+	}
+
+	return status, nil
 }
 
-// GetContainerStatus returns the status of a container.
-func (c *CrioClient) GetContainerStatus(ctx context.Context, id string) (*CrioContainerStatus, error) {
+func (c *CrioClient) GetStatus(ctx context.Context, id string) (*v1alpha1.ApplicationStatus, error) {
+	cs, err := c.getCrioStatus(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	state, err := c.GetApplicationState(ctx, cs)
+	if err != nil {
+		return nil, err
+	}
+	restarts := cs.Status.Metadata.Attempt
+
+	return &v1alpha1.ApplicationStatus{
+		Id:       &id,
+		Name:     &cs.Status.Metadata.Name,
+		State:    &state,
+		Restarts: &restarts,
+	}, nil
+}
+
+func (c *CrioClient) getCrioStatus(ctx context.Context, id string) (*CrioContainerStatus, error) {
 	args := []string{"inspect", id}
-	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, CrictlCmd, args...)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -73,45 +109,27 @@ func (c *CrioClient) GetContainerStatus(ctx context.Context, id string) (*CrioCo
 		return nil, fmt.Errorf("inspect image id %s: %s", id, stderr)
 	}
 
-	var status CrioContainerStatus
-	if err := json.Unmarshal([]byte(stdout), &status); err != nil {
+	var cs CrioContainerStatus
+	if err := json.Unmarshal([]byte(stdout), &cs); err != nil {
 		return nil, fmt.Errorf("unmarshal container status: %w", err)
 	}
 
-	return &status, nil
-}
-
-// GetApplicationStatus returns the application status based on the container status.
-func (c *CrioClient) GetApplicationStatus(ctx context.Context, id string) (*v1alpha1.ApplicationStatus, error) {
-	cs, err := c.GetContainerStatus(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	restarts := cs.Status.RestartCount
-	state, err := c.GetApplicationState(ctx, cs)
-	if err != nil {
-		return nil, err
-	}
-	return &v1alpha1.ApplicationStatus{
-		Name:     &id,
-		State:    &state,
-		Restarts: &restarts,
-	}, nil
+	return &cs, nil
 }
 
 // GetApplicationStateFromId returns the application state based on the container id.
 func (c *CrioClient) GetApplicationState(ctx context.Context, cs *CrioContainerStatus) (v1alpha1.ApplicationState, error) {
-	restarts := cs.Status.RestartCount
+	restarts := cs.Status.Metadata.Attempt
 	switch cs.Status.State {
-	case "created":
-		return v1alpha1.ApplicationStateInitializing, nil
-	case "running":
+	case "CONTAINER_CREATED":
+		return v1alpha1.ApplicationStatePreparing, nil
+	case "CONTAINER_RUNNING":
 		return v1alpha1.ApplicationStateRunning, nil
-	case "paused":
-		return v1alpha1.ApplicationStateInitializing, nil
-	case "exited":
+	case "CONTAINER_STOPPED":
+		return v1alpha1.ApplicationStateStopped, nil
+	case "CONTAINER_EXITED":
 		if restarts > 0 {
-			return v1alpha1.ApplicationStateCrashed, nil
+			return v1alpha1.ApplicationStateError, nil
 		}
 		return v1alpha1.ApplicationStateStopped, nil
 	default:
@@ -119,17 +137,31 @@ func (c *CrioClient) GetApplicationState(ctx context.Context, cs *CrioContainerS
 	}
 }
 
-// CrioContainerStatus represents the status of a container.
+// CrioContainerStatus represents the status of a CRI-O container.
 type CrioContainerStatus struct {
-	Status struct {
-		Running      bool   `json:"running"`
-		Paused       bool   `json:"paused"`
-		RestartCount int    `json:"restartCount"`
-		State        string `json:"state"`
-	} `json:"status"`
+	Status CrioStatus `json:"status"`
 }
 
-// CrictlContainer represents a container.
+// CrioStatus represents the status of a crio managed container.
+type CrioStatus struct {
+	ID       string   `json:"id"`
+	Metadata Metadata `json:"metadata"`
+	State    string   `json:"state"`
+	ExitCode int      `json:"exitCode"`
+	Image    Image    `json:"image"`
+}
+
+// Image represents the image information of a container.
+type Image struct {
+	Image string `json:"image"`
+}
+
+type Metadata struct {
+	Attempt int    `json:"attempt"`
+	Name    string `json:"name"`
+}
+
+// CrictlContainer represents a CRI-O container.
 type CrioContainer struct {
 	Id       string `json:"id"`
 	Metadata struct {
