@@ -131,6 +131,10 @@ with agents on VMs, or connect the server to the local kind k8s cluster.
 We use ginkgo/gomega for these tests, as they are more complex and require
 more setup and teardown than unit tests.
 
+For E2E testing we build several agent images that we exercise and update through
+in the tests, more details can be found here  [Agent Images](./scripts/agent-image/README.md)
+
+### Running E2E tests
 ```bash
 make e2e-test
 ```

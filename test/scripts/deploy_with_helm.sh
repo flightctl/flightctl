@@ -96,10 +96,13 @@ fi
 
 # deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
 helm ${METHOD} --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
-                        ./deploy/helm/e2e-extras/ --kube-context kind-kind 
+                        ./deploy/helm/e2e-extras/ --kube-context kind-kind
 
 sudo tee /etc/containers/registries.conf.d/flightctl-e2e.conf <<EOF
 [[registry]]
 location = "${IP}:5000"
+insecure = true
+[[registry]]
+location = "localhost:5000"
 insecure = true
 EOF

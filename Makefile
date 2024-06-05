@@ -85,7 +85,7 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm
+clean: clean-agent-vm clean-e2e-agent-images
 	- kind delete cluster
 	- podman-compose -f deploy/podman/compose.yaml down
 	- rm -r ~/.flightctl
@@ -104,3 +104,4 @@ $(GOBIN)/golangci-lint:
 include deploy/deploy.mk
 include deploy/agent-vm.mk
 include test/test.mk
+include test/scripts/agent-images/agent-images.mk
