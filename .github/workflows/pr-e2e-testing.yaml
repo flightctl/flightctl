@@ -41,7 +41,7 @@ jobs:
 
       - name: Make rpm, and agent images
         run: |
-          make agent-image
+          make e2e-agent-images
 
       - name: Make sure the images are owned by the runner user
         run: |

@@ -1,4 +1,5 @@
-cluster:
+
+cluster: bin/e2e-certs/ca.pem
 	test/scripts/install_kind.sh
 	kind get clusters | grep kind || test/scripts/create_cluster.sh
 
