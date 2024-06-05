@@ -3,6 +3,7 @@ VMRAM ?= 512
 VMCPUS ?= 1
 VMDISK = /var/lib/libvirt/images/$(VMNAME).qcow2
 VMWAIT ?= 0
+IMAGE ?= localhost/local-flightctl-agent:latest
 
 bin/output/qcow2/disk.qcow2: hack/Containerfile.local bin/.rpm
 	sudo podman build -f hack/Containerfile.local -t localhost/local-flightctl-agent:latest .
@@ -16,13 +17,29 @@ bin/output/qcow2/disk.qcow2: hack/Containerfile.local bin/.rpm
 					-v /var/lib/containers/storage:/var/lib/containers/storage \
 					quay.io/centos-bootc/bootc-image-builder:latest \
 					--type qcow2 \
-					--local localhost/local-flightctl-agent:latest
+					--local $(IMAGE)
 
 agent-image: bin/output/qcow2/disk.qcow2
 	@echo "Agent image built at bin/output/qcow2/disk.qcow2"
 	sudo chmod a+rw $(VMDISK) 2>/dev/null || true
 
 .PHONY: agent-image
+
+# This target is used to build the base image for the agent upgrade
+agent-upgrade-image:
+	# start local registry
+	sudo mkdir -p /var/lib/registry
+	sudo podman container run --replace -dt -p 5000:5000 --name registry --volume registry:/var/lib/registry:Z docker.io/library/registry:2
+	# build base agent image
+	sudo podman build -f hack/Containerfile.upgrade -t localhost/local-flightctl-agent:upgrade .
+	$(MAKE) agent-image IMAGE=localhost/local-flightctl-agent:upgrade
+	# build image to upgrade to push to local registry
+	sudo podman build -f hack/Containerfile.local -t localhost:5000/local-flightctl-agent:latest .
+	sudo podman push localhost:5000/local-flightctl-agent:latest --tls-verify=false
+	@echo "Base upgrade base agent image built at bin/output/qcow2/disk.qcow2"
+	sudo chmod a+rw $(VMDISK) 2>/dev/null || true
+
+.PHONY: agent-upgrade-image
 
 agent-vm: bin/output/qcow2/disk.qcow2
 	@echo "Booting Agent VM from $(VMDISK)"

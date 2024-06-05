@@ -5,7 +5,8 @@ GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
 
 GO_UNITTEST_DIRS 		= ./internal/...
 GO_INTEGRATIONTEST_DIRS = ./test/integration/...
-GO_E2E_DIRS 			= ./test/e2e/...
+GO_E2E_DIRS 			=  $(shell find ./test/e2e -type f -name '*.go' -not -path './test/e2e/upgrade/*')
+GO_E2E_UPGRADE_DIRS 	= ./test/e2e/upgrade/...
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
 GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_INTEGRATIONTEST_DIRS) -coverprofile=$(REPORTS)/integration-coverage.out
@@ -27,6 +28,10 @@ _e2e_test: $(REPORTS)
 	sudo chown $(shell whoami):$(shell whoami) -R bin/output
 	ginkgo run --timeout 30m --race -vv --junit-report $(REPORTS)/junit_e2e_test.xml --github-output $(GO_E2E_DIRS)
 
+_e2e_upgrade_test: $(REPORTS)
+	sudo chown $(shell whoami):$(shell whoami) -R bin/output
+	ginkgo run --timeout 30m --race -vv --junit-report $(REPORTS)/junit_e2e_test.xml --github-output $(GO_E2E_UPGRADE_DIRS)
+
 _unit_test: $(REPORTS)
 	gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
 	$(MAKE) _collect_junit
@@ -45,11 +50,14 @@ run-integration-test:
 integration-test: deploy-db run-integration-test kill-db
 
 e2e-test: deploy bin/output/qcow2/disk.qcow2
-	$(MAKE) _e2e_test TEST="$(or $(TEST),$(shell go list ./test/e2e/...))"
+	$(MAKE) _e2e_test TEST="$(or $(TEST),$(GO_E2E_DIRS))"
 
 run-e2e-test:
-	$(MAKE) _e2e_test TEST="$(or $(TEST),$(shell go list ./test/e2e/...))"
+	$(MAKE) _e2e_test TEST="$(or $(TEST),$(GO_E2E_DIRS))"
 
+run-e2e-upgrade-test:
+	sudo chown $(shell whoami):$(shell whoami) -R bin/output
+	ginkgo run --timeout 30m --race -vv --junit-report $(REPORTS)/junit_e2e_test.xml --github-output $(GO_E2E_UPGRADE_DIRS)
 
 view-coverage: $(REPORTS)/unit-coverage.out $(REPORTS)/unit-coverage.out
 	# TODO: merge unit and integration coverage reports
