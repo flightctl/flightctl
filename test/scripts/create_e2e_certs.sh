@@ -3,7 +3,7 @@
 # This script is used to generate a CA and the necessary certificates for a
 # private Docker registry targetting the local IP
 
-set -x -e
+set -x -euo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
