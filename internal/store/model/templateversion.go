@@ -84,6 +84,7 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 			Generation:        t.Generation,
 			Owner:             t.Owner,
 			Annotations:       &metadataAnnotations,
+			ResourceVersion:   GetResourceVersion(t.UpdatedAt),
 		},
 		Spec:   spec,
 		Status: &status,
