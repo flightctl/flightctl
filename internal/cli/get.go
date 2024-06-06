@@ -88,7 +88,7 @@ func (o *GetOptions) Validate(args []string) error {
 		}
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
-		return fmt.Errorf("fleetname must be specified when fetching templatevesions")
+		return fmt.Errorf("fleetname must be specified when fetching templateversions")
 	}
 	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
 		return fmt.Errorf("rendered must only be specified when fetching a specific device")
