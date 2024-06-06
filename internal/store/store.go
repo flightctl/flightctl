@@ -110,6 +110,7 @@ type ListParams struct {
 	Owner        *string
 	Limit        int
 	Continue     *Continue
+	FleetName    *string
 }
 
 type Continue struct {
