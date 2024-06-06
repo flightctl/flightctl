@@ -78,6 +78,7 @@ func (f *Fleet) ToApiResource() api.Fleet {
 			Generation:        f.Generation,
 			Owner:             f.Owner,
 			Annotations:       &metadataAnnotations,
+			ResourceVersion:   GetResourceVersion(f.UpdatedAt),
 		},
 		Spec:   f.Spec.Data,
 		Status: &status,

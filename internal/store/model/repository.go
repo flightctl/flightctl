@@ -102,6 +102,7 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
 			Labels:            &metadataLabels,
+			ResourceVersion:   GetResourceVersion(f.UpdatedAt),
 		},
 		Spec:   spec,
 		Status: &status,
