@@ -41,9 +41,10 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	}
 
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
+		Labels:    labelMap,
+		Limit:     int(swag.Int32Value(request.Params.Limit)),
+		Continue:  cont,
+		FleetName: &request.Fleet,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -65,7 +66,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request server.DeleteTemplateVersionsRequestObject) (server.DeleteTemplateVersionsResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.TemplateVersion().DeleteAll(ctx, orgId, request.Fleet)
+	err := h.store.TemplateVersion().DeleteAll(ctx, orgId, &request.Fleet)
 	switch err {
 	case nil:
 		return server.DeleteTemplateVersions200JSONResponse{}, nil

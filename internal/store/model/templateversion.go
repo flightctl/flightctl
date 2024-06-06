@@ -6,6 +6,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
+	"github.com/lib/pq"
+	"gorm.io/gorm"
 )
 
 var (
@@ -15,7 +18,16 @@ var (
 )
 
 type TemplateVersion struct {
-	ResourceWithPrimaryKeyOwner
+	OrgID       uuid.UUID      `gorm:"type:uuid;primary_key;"`
+	Name        string         `gorm:"primary_key;"`
+	FleetName   string         `gorm:"primary_key;"`
+	Fleet       Fleet          `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
+	Labels      pq.StringArray `gorm:"type:text[]"`
+	Annotations pq.StringArray `gorm:"type:text[]"`
+	Generation  *int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   gorm.DeletedAt `gorm:"index"`
 
 	// The desired state, stored as opaque JSON object.
 	Spec *JSONField[api.TemplateVersionSpec]
@@ -45,15 +57,14 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) *TemplateV
 		status = *resource.Status
 	}
 
+	_, ownerName, _ := util.GetResourceOwner(resource.Metadata.Owner)
 	return &TemplateVersion{
-		ResourceWithPrimaryKeyOwner: ResourceWithPrimaryKeyOwner{
-			Name:        *resource.Metadata.Name,
-			Generation:  resource.Metadata.Generation,
-			Owner:       resource.Metadata.Owner,
-			Annotations: util.LabelMapToArray(resource.Metadata.Annotations),
-		},
-		Spec:   MakeJSONField(resource.Spec),
-		Status: MakeJSONField(status),
+		Name:        *resource.Metadata.Name,
+		Generation:  resource.Metadata.Generation,
+		FleetName:   ownerName,
+		Annotations: util.LabelMapToArray(resource.Metadata.Annotations),
+		Spec:        MakeJSONField(resource.Spec),
+		Status:      MakeJSONField(status),
 	}
 }
 
@@ -73,7 +84,7 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 		status = t.Status.Data
 	}
 
-	metadataAnnotations := util.LabelArrayToMap(t.ResourceWithPrimaryKeyOwner.Annotations)
+	metadataAnnotations := util.LabelArrayToMap(t.Annotations)
 
 	return api.TemplateVersion{
 		ApiVersion: TemplateVersionAPI,
@@ -82,7 +93,7 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 			Name:              util.StrToPtr(t.Name),
 			CreationTimestamp: util.StrToPtr(t.CreatedAt.UTC().Format(time.RFC3339)),
 			Generation:        t.Generation,
-			Owner:             t.Owner,
+			Owner:             util.SetResourceOwner(FleetKind, t.FleetName),
 			Annotations:       &metadataAnnotations,
 			ResourceVersion:   GetResourceVersion(t.UpdatedAt),
 		},

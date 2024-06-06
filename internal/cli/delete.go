@@ -43,7 +43,7 @@ func (o *DeleteOptions) Validate(args []string) error {
 		return err
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
-		return fmt.Errorf("fleetname must be specified when deleting templatevesions")
+		return fmt.Errorf("fleetname must be specified when deleting templateversions")
 	}
 	return nil
 }
