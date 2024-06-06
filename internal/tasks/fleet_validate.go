@@ -69,8 +69,11 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	}
 
 	templateVersion := api.TemplateVersion{
-		Metadata: api.ObjectMeta{Name: util.TimeStampStringPtr()},
-		Spec:     api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
+		Metadata: api.ObjectMeta{
+			Name:  util.TimeStampStringPtr(),
+			Owner: util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name),
+		},
+		Spec: api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
 	}
 
 	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.taskManager.TemplateVersionCreatedCallback)
@@ -113,8 +116,12 @@ func (t *FleetValidateLogic) validateFleetTemplate(ctx context.Context, fleet *a
 	} else {
 		condition.Status = api.ConditionStatusFalse
 		condition.Reason = util.StrToPtr("Invalid")
-		condition.Message = util.StrToPtr(fmt.Sprintf("Fleet has %d invalid configurations: %s", len(invalidConfigs), strings.Join(invalidConfigs, ", ")))
-		retErr = fmt.Errorf("found %d invalid configurations: %s", len(invalidConfigs), strings.Join(invalidConfigs, ", "))
+		configurationStr := "configuration"
+		if len(invalidConfigs) > 1 {
+			configurationStr += "s"
+		}
+		retErr = fmt.Errorf("fleet has %d invalid %s: %s", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "))
+		condition.Message = util.StrToPtr(retErr.Error())
 	}
 
 	if fleet.Status.Conditions == nil {
