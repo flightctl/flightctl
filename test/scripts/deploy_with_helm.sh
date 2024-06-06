@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -x -e
+set -x -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 METHOD=install
@@ -93,6 +93,12 @@ if [ -z "$ONLY_DB" ]; then
   chmod og-rwx ~/.flightctl/certs/*.key
 fi
 
+# in github CI load docker-image does not seem to work for our images
+if ! kind load docker-image localhost/git-server:latest; then
+  podman save localhost/git-server:latest -o git-server.tar && \
+  kind load image-archive git-server.tar
+  rm git-server.tar
+fi
 
 # deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
 helm ${METHOD} --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \

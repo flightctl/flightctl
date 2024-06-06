@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: e2e-git-server
+  name: e2e-git-server
+  namespace: {{ .Values.gitserver.namespace }}
+spec:
+  type: NodePort
+  ports:
+    - name: "registry"
+      port: 3222
+      targetPort: 22
+      nodePort: {{ .Values.gitserver.nodePort }}
+  selector:
+    flightctl.service: e2e-git-server

@@ -3,3 +3,7 @@ registry:
   nodePort: 5000
   namespace: flightctl-e2e
   certsPath: /tmp/e2e-certs/
+gitserver:
+  image: localhost/git-server:latest
+  nodePort: 3222
+  namespace: flightctl-e2e

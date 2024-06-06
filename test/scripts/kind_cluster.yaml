@@ -18,6 +18,10 @@ nodes:
   - containerPort: 5000 # local registry for E2E testing
     hostPort: 5000
     protocol: TCP
+  - containerPort: 3222 # local git server for E2E testing
+    hostPort: 3222
+    protocol: TCP
   extraMounts:
   - hostPath: ./bin/e2e-certs
     containerPath: /tmp/e2e-certs
+  
