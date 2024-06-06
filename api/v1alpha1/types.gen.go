@@ -441,6 +441,9 @@ type ObjectMeta struct {
 
 	// Owner A resource that owns this resource, in "kind/name" format.
 	Owner *string `json:"owner,omitempty"`
+
+	// ResourceVersion An opaque string that identifies the server's internal version of an object.
+	ResourceVersion *string `json:"resourceVersion,omitempty"`
 }
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.

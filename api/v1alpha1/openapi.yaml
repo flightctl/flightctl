@@ -2286,6 +2286,9 @@ components:
           additionalProperties:
             type: string
           description: 'Properties set by the service.'
+        resourceVersion:
+          type: string
+          description: An opaque string that identifies the server's internal version of an object.
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
     LabelSelector:
       type: object
