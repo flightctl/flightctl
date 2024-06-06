@@ -16,6 +16,9 @@ func BuildBaseListQuery(db *gorm.DB, orgId uuid.UUID, listParams ListParams) *go
 	if listParams.Owner != nil {
 		query = db.Where("owner = ?", *listParams.Owner)
 	}
+	if listParams.FleetName != nil {
+		query = db.Where("fleet_name = ?", *listParams.FleetName)
+	}
 	return query
 }
 
