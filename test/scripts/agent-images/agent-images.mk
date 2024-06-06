@@ -7,6 +7,6 @@ e2e-agent-images: bin rpm bin/e2e-certs
 .PHONY: e2e-agent-images
 
 clean-e2e-agent-images:
-	sudo rm bin/output/qcow2/disk.qcow2
+	sudo rm -f bin/output/qcow2/disk.qcow2
 	rm -f out/.e2e-agent-images
 
