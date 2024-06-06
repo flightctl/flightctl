@@ -6,6 +6,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -113,7 +115,31 @@ var _ = Describe("TemplateVersion", func() {
 			err = testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.TemplateVersion().DeleteAll(ctx, otherOrgId, "myfleet")
+			err = storeInst.TemplateVersion().DeleteAll(ctx, otherOrgId, util.StrToPtr("myfleet"))
+			Expect(err).ToNot(HaveOccurred())
+
+			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(templateVersions.Items)).To(Equal(numResources))
+
+			templateVersions, err = storeInst.TemplateVersion().List(ctx, otherOrgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(templateVersions.Items)).To(Equal(0))
+		})
+
+		It("Delete fleet deletes its templateVersions", func() {
+			numResources := 5
+			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
+			err := testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+
+			otherOrgId, _ := uuid.NewUUID()
+			testutil.CreateTestFleet(ctx, storeInst.Fleet(), otherOrgId, "myfleet", nil, nil)
+			err = testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, otherOrgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+
+			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+			err = storeInst.Fleet().Delete(ctx, otherOrgId, callback, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})

@@ -18,7 +18,7 @@ import (
 type TemplateVersion interface {
 	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet string) error
+	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error
@@ -50,7 +50,6 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	}
 	templateVersion := model.NewTemplateVersionFromApiResource(resource)
 	templateVersion.OrgID = orgId
-	templateVersion.Owner = util.SetResourceOwner(model.FleetKind, resource.Spec.Fleet)
 	templateVersion.Generation = util.Int64ToPtr(1)
 	status := api.TemplateVersionStatus{Conditions: &[]api.Condition{}}
 	api.SetStatusCondition(status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
@@ -64,11 +63,9 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 			return flterrors.ErrorFromGormError(result.Error)
 		}
 		duplicateName := model.TemplateVersion{
-			ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{
-				OrgID: orgId,
-				Owner: templateVersion.Owner,
-				Name:  *resource.Metadata.Name,
-			},
+			OrgID:     orgId,
+			FleetName: templateVersion.FleetName,
+			Name:      *resource.Metadata.Name,
 		}
 		result = innerTx.First(&duplicateName)
 		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -130,9 +127,8 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 }
 
 func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
-	owner := util.SetResourceOwner(model.FleetKind, fleet)
 	var templateVersion model.TemplateVersion
-	result := s.db.Model(&templateVersion).Where("org_id = ? AND owner = ? AND valid = ?", orgId, owner, true).Order("created_at DESC").First(&templateVersion)
+	result := s.db.Model(&templateVersion).Where("org_id = ? AND fleet_name = ? AND valid = ?", orgId, fleet, true).Order("created_at DESC").First(&templateVersion)
 	if result.Error != nil {
 		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
@@ -140,17 +136,25 @@ func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UU
 	return &apiResource, nil
 }
 
-func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, fleet string) error {
-	owner := util.SetResourceOwner(model.FleetKind, fleet)
+func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error {
 	condition := model.TemplateVersion{}
-	result := s.db.Unscoped().Where("org_id = ? AND owner = ?", orgId, *owner).Delete(&condition)
+	unscoped := s.db.Unscoped()
+	var whereQuery *gorm.DB
+	if fleet != nil {
+		whereQuery = unscoped.Where("org_id = ? AND fleet_name = ?", orgId, *fleet)
+	} else {
+		whereQuery = unscoped.Where("org_id = ?", orgId)
+	}
+
+	result := whereQuery.Delete(&condition)
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
-	owner := util.SetResourceOwner(model.FleetKind, fleet)
 	templateVersion := model.TemplateVersion{
-		ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: owner, Name: name},
+		OrgID:     orgId,
+		FleetName: fleet,
+		Name:      name,
 	}
 	result := s.db.First(&templateVersion)
 	if result.Error != nil {
@@ -161,9 +165,10 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 }
 
 func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error {
-	owner := util.SetResourceOwner(model.FleetKind, fleet)
 	condition := model.TemplateVersion{
-		ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{OrgID: orgId, Owner: owner, Name: name},
+		OrgID:     orgId,
+		FleetName: fleet,
+		Name:      name,
 	}
 	result := s.db.Unscoped().Delete(&condition)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -179,11 +184,11 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 	if resource.Metadata.Name == nil {
 		return flterrors.ErrResourceNameIsNil
 	}
+	_, ownerName, _ := util.GetResourceOwner(resource.Metadata.Owner)
 	templateVersion := model.TemplateVersion{
-		ResourceWithPrimaryKeyOwner: model.ResourceWithPrimaryKeyOwner{
-			OrgID: orgId,
-			Owner: resource.Metadata.Owner,
-			Name:  *resource.Metadata.Name},
+		OrgID:     orgId,
+		FleetName: ownerName,
+		Name:      *resource.Metadata.Name,
 	}
 
 	updates := map[string]interface{}{"status": model.MakeJSONField(resource.Status)}
