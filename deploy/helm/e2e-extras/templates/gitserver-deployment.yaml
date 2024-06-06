@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: e2e-git-server
+  name: e2e-git-server
+  namespace: {{ .Values.gitserver.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: e2e-git-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: e2e-git-server
+    spec:
+      containers:
+        - name: container-reg
+          image: {{ .Values.gitserver.image }}
+          ports:
+            - containerPort: 22
+              protocol: TCP
+          imagePullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: true
+        capabilities:
+          add:
+          - NET_BIND_SERVICE
+          - SYS_CHROOT 
+      restartPolicy: Always
