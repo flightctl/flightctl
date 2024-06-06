@@ -244,21 +244,16 @@ func (t TaskManager) TemplateVersionCreatedCallback(templateVersion *model.Templ
 		OrgID: templateVersion.OrgID,
 		Kind:  model.TemplateVersionKind,
 		Name:  templateVersion.Name,
-		Owner: *templateVersion.Owner,
+		Owner: *util.SetResourceOwner(model.FleetKind, templateVersion.FleetName),
 	}
 	t.SubmitTask(ChannelTemplateVersionPopulate, resourceRef, TemplateVersionPopulateOpCreated)
 }
 
 func (t TaskManager) TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion) {
-	_, fleetName, err := util.GetResourceOwner(templateVersion.Owner)
-	if err != nil {
-		t.log.Errorf("failed getting templateVersion owner: %v", err)
-		return
-	}
 	resourceRef := ResourceReference{
 		OrgID: templateVersion.OrgID,
 		Kind:  model.FleetKind,
-		Name:  fleetName,
+		Name:  templateVersion.FleetName,
 	}
 	t.SubmitTask(ChannelFleetRollout, resourceRef, FleetRolloutOpUpdate)
 }
