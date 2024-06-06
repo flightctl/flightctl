@@ -49,8 +49,8 @@ func NewTestHarness() *Harness {
 		TestDir:       GinkgoT().TempDir(),
 		VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
 		DiskImagePath: filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"),
-		VMUser:        "redhat",
-		SSHPassword:   "redhat",
+		VMUser:        "user",
+		SSHPassword:   "user",
 		SSHPort:       2233, // TODO: randomize and retry on error
 	})
 	Expect(err).ToNot(HaveOccurred())
