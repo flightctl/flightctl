@@ -17,14 +17,12 @@ var _ Manager = (*StatusManager)(nil)
 // NewManager creates a new device status manager.
 func NewManager(
 	deviceName string,
+	appManager *app.Manager,
 	tpm *tpm.TPM,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	appManager := app.NewManager()
 	exporters := []Exporter{
-		newSystemD(executer, appManager),
-		newContainer(executer, appManager),
 		newSystemInfo(tpm),
 	}
 	return &StatusManager{
@@ -65,8 +63,9 @@ type Manager interface {
 	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
-func (m *StatusManager) SetClient(managementCLient *client.Management) {
-	m.managementClient = managementCLient
+func (m *StatusManager) SetClient(managementClient *client.Management) {
+	m.managementClient = managementClient
+	m.appManager.SetClient(managementClient)
 }
 
 func (m *StatusManager) Get(ctx context.Context) (*v1alpha1.DeviceStatus, error) {
@@ -101,6 +100,8 @@ func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.De
 	// 4. If an application is in the device status, update its state
 	// 5. If an application is in the device status but not in the app manager, mark it as stopped
 	// 6. Return the updated device status
+
+	// event loop for runtimes
 
 	previous := make(map[string]struct{})
 	for _, app := range *deviceStatus.Applications {

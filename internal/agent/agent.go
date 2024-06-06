@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device"
+	"github.com/flightctl/flightctl/internal/agent/device/app"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
@@ -112,9 +113,12 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	executer := &executer.CommonExecuter{}
 
+	appManager := app.NewManager(a.log, executer, deviceName)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
+		appManager,
 		tpmChannel,
 		executer,
 		a.log,

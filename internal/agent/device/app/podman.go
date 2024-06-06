@@ -159,6 +159,10 @@ func (c *PodmanClient) getApplicationState(state string, restarts int) (v1alpha1
 	}
 }
 
+func (c *PodmanClient) Type() RuntimeType {
+	return RuntimeTypePodman
+}
+
 // PodmanContainer represents a container.
 type PodmanContainer struct {
 	Names []string `json:"Names"`

@@ -25,11 +25,11 @@ func NewCrioClient(exec executer.Executer) *CrioClient {
 	}
 }
 
-func (c *CrioClient) PullImage() error {
+func (c *CrioClient) PullImage(context.Context, string) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (c *CrioClient) ImageExists() (bool, error) {
+func (c *CrioClient) ImageExists(context.Context, string) (bool, error) {
 	return false, fmt.Errorf("not implemented")
 }
 
@@ -135,6 +135,10 @@ func (c *CrioClient) GetApplicationState(ctx context.Context, cs *CrioContainerS
 	default:
 		return v1alpha1.ApplicationStateUnknown, nil
 	}
+}
+
+func (c *CrioClient) Type() RuntimeType {
+	return RuntimeTypeCrio
 }
 
 // CrioContainerStatus represents the status of a CRI-O container.
