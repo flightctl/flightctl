@@ -108,6 +108,7 @@ func (d *Device) ToApiResource() api.Device {
 			Generation:        d.Generation,
 			Owner:             d.Owner,
 			Annotations:       &metadataAnnotations,
+			ResourceVersion:   GetResourceVersion(d.UpdatedAt),
 		},
 		Spec:   &spec,
 		Status: &status,

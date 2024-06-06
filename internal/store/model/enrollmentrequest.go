@@ -69,6 +69,7 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 			Name:              util.StrToPtr(e.Name),
 			CreationTimestamp: util.StrToPtr(e.CreatedAt.UTC().Format(time.RFC3339)),
 			Labels:            &metadataLabels,
+			ResourceVersion:   GetResourceVersion(e.UpdatedAt),
 		},
 		Spec:   e.Spec.Data,
 		Status: &status,
