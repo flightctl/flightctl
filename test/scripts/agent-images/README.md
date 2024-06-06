@@ -18,6 +18,12 @@ additional transition images are required we should create and document new Cont
 | v2     | N/A                           | $(IP):5000/flightctl-device:v2   |
 | v3     | N/A                           | $(IP):5000/flightctl-device:v3   |
 
+## Credentials
+
+All images are built with the following credentials:
+- user: `user`
+- password: `user`
+
 ## Image descriptions
 ### base
 This image is the base image for all other images. It contains the following services:

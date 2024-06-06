@@ -62,7 +62,10 @@ run-test: unit-test run-intesgration-test
 bin/e2e-certs/ca.pem:
 	test/scripts/create_e2e_certs.sh
 
-.PHONY: test run-test
+git-server-container:
+	test/scripts/prepare_git_server.sh
+
+.PHONY: test run-test git-server-container
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)

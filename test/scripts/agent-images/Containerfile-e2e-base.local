@@ -3,7 +3,7 @@
 #
 # Base bootc image used for E2E testing and agent-vm with the following features:
 #
-# * User/pw: redhat/redhat
+# * User/pw: user/user
 # * Trust on our E2E CA Certificate
 # * flightctl-agent configured to talk to our e2e kind flightctl-server
 
@@ -16,9 +16,9 @@ COPY bin/rpm/flightctl-agent-*.rpm /tmp/
 RUN dnf install -y /tmp/flightctl-agent-*.rpm && \
     systemctl enable flightctl-agent.service
 
-RUN useradd -ms /bin/bash redhat && \
-    echo "redhat:redhat" | chpasswd && \
-    echo "redhat ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+RUN useradd -ms /bin/bash user && \
+    echo "user:user" | chpasswd && \
+    echo "user ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 ## Add your flightctl configuration and certificates
 ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/

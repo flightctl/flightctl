@@ -1,0 +1,23 @@
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+RUN dnf install -y git git-core openssh-server
+RUN ssh-keygen -A
+
+
+RUN adduser -d /home/user -s /usr/bin/git-shell user
+
+RUN echo "user:user" | chpasswd
+RUN mkdir -p /home/user/.ssh && chown user:user /home/user/.ssh && chmod 700 /home/user/.ssh
+COPY bin/.ssh/id_rsa.pub /home/user/.ssh/authorized_keys
+RUN chown user:user /home/user/.ssh/authorized_keys && chmod 600 /home/user/.ssh/authorized_keys
+
+RUN mkdir -p /home/user/repos && chown user:user /home/user/repos
+RUN mkdir /home/user/git-shell-commands
+COPY test/scripts/git-server-cmds/* /home/user/git-shell-commands/
+USER user
+RUN git config --global init.defaultBranch main
+USER root
+
+EXPOSE 22
+# run in a while loop otherwise sshd exits sometimes in -D mode
+CMD ["/bin/sh", "-c", "while true; do /usr/sbin/sshd -D -e; sleep 1; done"]
