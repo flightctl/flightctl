@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -16,8 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-func FleetFromReader(r io.Reader) (*api.Fleet, error) {
-	var fleet api.Fleet
+func FleetFromReader(r io.Reader) (*v1alpha1.Fleet, error) {
+	var fleet v1alpha1.Fleet
 	decoder := json.NewDecoder(r)
 	decoder.DisallowUnknownFields()
 	err := decoder.Decode(&fleet)
@@ -219,7 +219,7 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	}
 }
 
-func validateDiscriminators(fleet *api.Fleet) error {
+func validateDiscriminators(fleet *v1alpha1.Fleet) error {
 	if fleet.Spec.Template.Spec.Config == nil {
 		return nil
 	}
@@ -230,9 +230,9 @@ func validateDiscriminators(fleet *api.Fleet) error {
 		}
 		found := false
 		discriminators := []string{
-			string(api.TemplateDiscriminatorGitConfig),
-			string(api.TemplateDiscriminatorKubernetesSec),
-			string(api.TemplateDiscriminatorInlineConfig)}
+			string(v1alpha1.TemplateDiscriminatorGitConfig),
+			string(v1alpha1.TemplateDiscriminatorKubernetesSec),
+			string(v1alpha1.TemplateDiscriminatorInlineConfig)}
 		for _, d := range discriminators {
 			if discriminator == d {
 				found = true
@@ -263,8 +263,8 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		}
 	}
 
-	newObj := &api.Fleet{}
-	err = ApplyJSONPatch(currentObj, newObj, *request.Body, "/api/v1/fleets/"+request.Name)
+	newObj := &v1alpha1.Fleet{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/fleets/"+request.Name)
 	if err != nil {
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	}

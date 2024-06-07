@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -169,8 +169,8 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 		}
 	}
 
-	newObj := &api.ResourceSync{}
-	err = ApplyJSONPatch(currentObj, newObj, *request.Body, "/api/v1/resourcesyncs/"+request.Name)
+	newObj := &v1alpha1.ResourceSync{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/resourcesyncs/"+request.Name)
 	if err != nil {
 		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
 	}

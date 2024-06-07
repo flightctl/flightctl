@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -17,17 +17,17 @@ import (
 
 const ClientCertExpiryDays = 365
 
-func validateAndCompleteEnrollmentRequest(enrollmentRequest *api.EnrollmentRequest) error {
+func validateAndCompleteEnrollmentRequest(enrollmentRequest *v1alpha1.EnrollmentRequest) error {
 	if enrollmentRequest.Status == nil {
-		enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+		enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
 			Certificate: nil,
-			Conditions:  &[]api.Condition{},
+			Conditions:  &[]v1alpha1.Condition{},
 		}
 	}
 	return nil
 }
 
-func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApproval) error {
+func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
 	csrPEM := enrollmentRequest.Spec.Csr
 	csr, err := crypto.ParseCSR([]byte(csrPEM))
 	if err != nil {
@@ -40,24 +40,24 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.Enrol
 	if err != nil {
 		return err
 	}
-	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+	enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
 		Certificate: util.StrToPtr(string(certData)),
-		Conditions:  &[]api.Condition{},
+		Conditions:  &[]v1alpha1.Condition{},
 		Approval:    approval,
 	}
-	condition := api.Condition{
-		Type:    api.EnrollmentRequestApproved,
-		Status:  api.ConditionStatusTrue,
+	condition := v1alpha1.Condition{
+		Type:    v1alpha1.EnrollmentRequestApproved,
+		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  util.StrToPtr("ManuallyApproved"),
 		Message: util.StrToPtr("Approved by " + *approval.ApprovedBy),
 	}
-	api.SetStatusCondition(enrollmentRequest.Status.Conditions, condition)
+	v1alpha1.SetStatusCondition(enrollmentRequest.Status.Conditions, condition)
 	return nil
 }
 
-func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
-	apiResource := &api.Device{
-		Metadata: api.ObjectMeta{
+func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+	apiResource := &v1alpha1.Device{
+		Metadata: v1alpha1.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
 	}
