@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -233,8 +233,8 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		}
 	}
 
-	newObj := &api.Device{}
-	err = ApplyJSONPatch(currentObj, newObj, *request.Body, "/api/v1/devices/"+request.Name)
+	newObj := &v1alpha1.Device{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/devices/"+request.Name)
 	if err != nil {
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
 	}

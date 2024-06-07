@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -15,7 +15,7 @@ import (
 
 type DeviceStore struct {
 	store.Store
-	DeviceVal api.Device
+	DeviceVal v1alpha1.Device
 }
 
 func (s *DeviceStore) Device() store.Device {
@@ -24,17 +24,17 @@ func (s *DeviceStore) Device() store.Device {
 
 type DummyDevice struct {
 	store.Device
-	DeviceVal api.Device
+	DeviceVal v1alpha1.Device
 }
 
-func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.Device, error) {
 	if name == *s.DeviceVal.Metadata.Name {
 		return &s.DeviceVal, nil
 	}
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback store.DeviceStoreCallback) (*api.Device, bool, error) {
+func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *v1alpha1.Device, fieldsToUnset []string, fromAPI bool, callback store.DeviceStoreCallback) (*v1alpha1.Device, bool, error) {
 	return device, false, nil
 }
 
@@ -43,18 +43,18 @@ func verifyDevicePatchFailed(require *require.Assertions, resp server.PatchDevic
 	require.True(ok)
 }
 
-func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (server.PatchDeviceResponseObject, api.Device) {
-	device := api.Device{
+func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchDeviceResponseObject, v1alpha1.Device) {
+	device := v1alpha1.Device{
 		ApiVersion: "v1",
 		Kind:       "Device",
-		Metadata: api.ObjectMeta{
+		Metadata: v1alpha1.ObjectMeta{
 			Name:   util.StrToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
-		Spec: &api.DeviceSpec{
-			Os: &api.DeviceOSSpec{Image: "img"},
+		Spec: &v1alpha1.DeviceSpec{
+			Os: &v1alpha1.DeviceOSSpec{Image: "img"},
 		},
-		Status: &api.DeviceStatus{
+		Status: &v1alpha1.DeviceStatus{
 			UpdatedAt: util.StrToPtr("123"),
 		},
 	}
@@ -71,13 +71,13 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (serve
 func TestDevicePatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	resp, _ := testDevicePatch(require, pr)
 	require.Equal(server.PatchDevice400JSONResponse{Message: "metadata.name is immutable"}, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
 	resp, _ = testDevicePatch(require, pr)
@@ -87,13 +87,13 @@ func TestDevicePatchName(t *testing.T) {
 func TestDevicePatchKind(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
 	resp, _ := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
 	resp, _ = testDevicePatch(require, pr)
@@ -103,13 +103,13 @@ func TestDevicePatchKind(t *testing.T) {
 func TestDevicePatchAPIVersion(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
 	resp, _ := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
 	resp, _ = testDevicePatch(require, pr)
@@ -120,14 +120,14 @@ func TestDevicePatchAPIVersion(t *testing.T) {
 func TestDevicePatchSpec(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "newimg"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/os/image", Value: &value},
 	}
 	resp, device := testDevicePatch(require, pr)
 	device.Spec.Os.Image = "newimg"
 	require.Equal(server.PatchDevice200JSONResponse(device), resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec/os"},
 	}
 	resp, device = testDevicePatch(require, pr)
@@ -135,7 +135,7 @@ func TestDevicePatchSpec(t *testing.T) {
 	require.Equal(server.PatchDevice200JSONResponse(device), resp)
 
 	value = "foo"
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/os", Value: &value},
 	}
 	resp, _ = testDevicePatch(require, pr)
@@ -145,13 +145,13 @@ func TestDevicePatchSpec(t *testing.T) {
 func TestDevicePatchStatus(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "1234"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
 	resp, _ := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/status/updatedAt"},
 	}
 	resp, _ = testDevicePatch(require, pr)
@@ -162,13 +162,13 @@ func TestDevicePatchStatus(t *testing.T) {
 func TestDevicePatchNonExistingPath(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "foo"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
 	resp, _ := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
 	resp, _ = testDevicePatch(require, pr)
@@ -179,7 +179,7 @@ func TestDevicePatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"labelKey": "labelValue1"}
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -187,7 +187,7 @@ func TestDevicePatchLabels(t *testing.T) {
 	device.Metadata.Labels = &addLabels
 	require.Equal(server.PatchDevice200JSONResponse(device), resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
@@ -199,13 +199,13 @@ func TestDevicePatchLabels(t *testing.T) {
 func TestDeviceNonExistingResource(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &DeviceStore{DeviceVal: api.Device{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("foo")},
+		store: &DeviceStore{DeviceVal: v1alpha1.Device{
+			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchDevice(context.Background(), server.PatchDeviceRequestObject{

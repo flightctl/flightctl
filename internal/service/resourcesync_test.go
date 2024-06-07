@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -15,7 +15,7 @@ import (
 
 type ResourceSyncStore struct {
 	store.Store
-	ResourceSyncVal api.ResourceSync
+	ResourceSyncVal v1alpha1.ResourceSync
 }
 
 func (s *ResourceSyncStore) ResourceSync() store.ResourceSync {
@@ -24,17 +24,17 @@ func (s *ResourceSyncStore) ResourceSync() store.ResourceSync {
 
 type DummyResourceSync struct {
 	store.ResourceSync
-	ResourceSyncVal api.ResourceSync
+	ResourceSyncVal v1alpha1.ResourceSync
 }
 
-func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
+func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.ResourceSync, error) {
 	if name == *s.ResourceSyncVal.Metadata.Name {
 		return &s.ResourceSyncVal, nil
 	}
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, bool, error) {
+func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, bool, error) {
 	return resourceSync, false, nil
 }
 
@@ -43,15 +43,15 @@ func verifyRSPatchFailed(require *require.Assertions, resp server.PatchResourceS
 	require.True(ok)
 }
 
-func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) (server.PatchResourceSyncResponseObject, api.ResourceSync) {
-	resourceSync := api.ResourceSync{
+func testResourceSyncPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchResourceSyncResponseObject, v1alpha1.ResourceSync) {
+	resourceSync := v1alpha1.ResourceSync{
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
-		Metadata: api.ObjectMeta{
+		Metadata: v1alpha1.ObjectMeta{
 			Name:   util.StrToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
-		Spec: api.ResourceSyncSpec{
+		Spec: v1alpha1.ResourceSyncSpec{
 			Repository: "foo",
 		},
 	}
@@ -68,13 +68,13 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 func TestResourceSyncPatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	resp, _ := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
 	resp, _ = testResourceSyncPatch(require, pr)
@@ -84,13 +84,13 @@ func TestResourceSyncPatchName(t *testing.T) {
 func TestResourceSyncPatchKind(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
 	resp, _ := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
 	resp, _ = testResourceSyncPatch(require, pr)
@@ -100,13 +100,13 @@ func TestResourceSyncPatchKind(t *testing.T) {
 func TestResourceSyncPatchAPIVersion(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
 	resp, _ := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
 	resp, _ = testResourceSyncPatch(require, pr)
@@ -115,14 +115,14 @@ func TestResourceSyncPatchAPIVersion(t *testing.T) {
 
 func TestResourceSyncPatchSpec(t *testing.T) {
 	require := require.New(t)
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec"},
 	}
 	resp, _ := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, resp)
 
 	var value interface{} = "bar"
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/repository", Value: &value},
 	}
 	resp, rs := testResourceSyncPatch(require, pr)
@@ -133,13 +133,13 @@ func TestResourceSyncPatchSpec(t *testing.T) {
 func TestResourceSyncPatchStatus(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "1234"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
 	resp, _ := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt"},
 	}
 	resp, _ = testResourceSyncPatch(require, pr)
@@ -149,13 +149,13 @@ func TestResourceSyncPatchStatus(t *testing.T) {
 func TestResourceSyncPatchNonExistingPath(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "foo"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
 	resp, _ := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
 	resp, _ = testResourceSyncPatch(require, pr)
@@ -166,7 +166,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"labelKey": "labelValue1"}
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -174,7 +174,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 	resourceSync.Metadata.Labels = &addLabels
 	require.Equal(server.PatchResourceSync200JSONResponse(resourceSync), resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
@@ -186,13 +186,13 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 func TestResourceSyncNonExistingResource(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &ResourceSyncStore{ResourceSyncVal: api.ResourceSync{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("foo")},
+		store: &ResourceSyncStore{ResourceSyncVal: v1alpha1.ResourceSync{
+			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchResourceSync(context.Background(), server.PatchResourceSyncRequestObject{

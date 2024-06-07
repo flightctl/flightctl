@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -15,7 +15,7 @@ import (
 
 type FleetStore struct {
 	store.Store
-	FleetVal api.Fleet
+	FleetVal v1alpha1.Fleet
 }
 
 func (s *FleetStore) Fleet() store.Fleet {
@@ -24,17 +24,17 @@ func (s *FleetStore) Fleet() store.Fleet {
 
 type DummyFleet struct {
 	store.Fleet
-	FleetVal api.Fleet
+	FleetVal v1alpha1.Fleet
 }
 
-func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
+func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.Fleet, error) {
 	if name == *s.FleetVal.Metadata.Name {
 		return &s.FleetVal, nil
 	}
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback store.FleetStoreCallback) (*api.Fleet, bool, error) {
+func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, callback store.FleetStoreCallback) (*v1alpha1.Fleet, bool, error) {
 	return fleet, false, nil
 }
 
@@ -43,31 +43,31 @@ func verifyFleetPatchFailed(require *require.Assertions, resp server.PatchFleetR
 	require.True(ok)
 }
 
-func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (server.PatchFleetResponseObject, api.Fleet) {
-	fleet := api.Fleet{
+func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchFleetResponseObject, v1alpha1.Fleet) {
+	fleet := v1alpha1.Fleet{
 		ApiVersion: "v1",
 		Kind:       "Fleet",
-		Metadata: api.ObjectMeta{
+		Metadata: v1alpha1.ObjectMeta{
 			Name:   util.StrToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
-		Spec: api.FleetSpec{
-			Selector: &api.LabelSelector{
+		Spec: v1alpha1.FleetSpec{
+			Selector: &v1alpha1.LabelSelector{
 				MatchLabels: map[string]string{"devKey": "devValue"},
 			},
 			Template: struct {
-				Metadata *api.ObjectMeta "json:\"metadata,omitempty\""
-				Spec     api.DeviceSpec  "json:\"spec\""
+				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
+				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 			}{
-				Spec: api.DeviceSpec{
-					Os: &api.DeviceOSSpec{
+				Spec: v1alpha1.DeviceSpec{
+					Os: &v1alpha1.DeviceOSSpec{
 						Image: "img",
 					},
 				},
 			},
 		},
-		Status: &api.FleetStatus{
-			Conditions: &[]api.Condition{
+		Status: &v1alpha1.FleetStatus{
+			Conditions: &[]v1alpha1.Condition{
 				{
 					Type:   "Approved",
 					Status: "True",
@@ -88,12 +88,12 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (server
 func TestFleetPatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	resp, _ := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, resp)
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
 	resp, _ = testFleetPatch(require, pr)
@@ -103,13 +103,13 @@ func TestFleetPatchName(t *testing.T) {
 func TestFleetPatchKind(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
 	resp, _ := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
 	resp, _ = testFleetPatch(require, pr)
@@ -119,13 +119,13 @@ func TestFleetPatchKind(t *testing.T) {
 func TestFleetPatchAPIVersion(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
 	resp, _ := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
 	resp, _ = testFleetPatch(require, pr)
@@ -135,7 +135,7 @@ func TestFleetPatchAPIVersion(t *testing.T) {
 func TestFleetPatchSpec(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "newValue"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/selector/matchLabels/devKey", Value: &value},
 	}
 	resp, device := testFleetPatch(require, pr)
@@ -143,23 +143,23 @@ func TestFleetPatchSpec(t *testing.T) {
 	require.Equal(server.PatchFleet200JSONResponse(device), resp)
 
 	value = 1234
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/selector/matchLabels/devKey", Value: &value},
 	}
 	resp, _ = testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, resp)
 
 	value = "newimg"
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/template/spec/os/image", Value: &value},
 	}
 	resp, device = testFleetPatch(require, pr)
 	device.Spec.Template = struct {
-		Metadata *api.ObjectMeta "json:\"metadata,omitempty\""
-		Spec     api.DeviceSpec  "json:\"spec\""
+		Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
+		Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 	}{
-		Spec: api.DeviceSpec{
-			Os: &api.DeviceOSSpec{
+		Spec: v1alpha1.DeviceSpec{
+			Os: &v1alpha1.DeviceOSSpec{
 				Image: "newimg",
 			},
 		},
@@ -167,7 +167,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	device.Spec.Template.Spec.Os.Image = "newimg"
 	require.Equal(server.PatchFleet200JSONResponse(device), resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec/template/spec/os"},
 	}
 	resp, device = testFleetPatch(require, pr)
@@ -175,7 +175,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	require.Equal(server.PatchFleet200JSONResponse(device), resp)
 
 	value = "foo"
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/template/spec/os", Value: &value},
 	}
 	resp, _ = testFleetPatch(require, pr)
@@ -184,7 +184,7 @@ func TestFleetPatchSpec(t *testing.T) {
 
 func TestFleetPatchStatus(t *testing.T) {
 	require := require.New(t)
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/status/conditions/0"},
 	}
 	resp, _ := testFleetPatch(require, pr)
@@ -194,13 +194,13 @@ func TestFleetPatchStatus(t *testing.T) {
 func TestFleetPatchNonExistingPath(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "foo"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/spec/doesnotexist", Value: &value},
 	}
 	resp, _ := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec/doesnotexist"},
 	}
 	resp, _ = testFleetPatch(require, pr)
@@ -211,7 +211,7 @@ func TestFleetPatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"labelKey": "labelValue1"}
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -219,7 +219,7 @@ func TestFleetPatchLabels(t *testing.T) {
 	device.Metadata.Labels = &addLabels
 	require.Equal(server.PatchFleet200JSONResponse(device), resp)
 
-	pr = api.PatchRequest{
+	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
@@ -231,13 +231,13 @@ func TestFleetPatchLabels(t *testing.T) {
 func TestFleetNonExistingResource(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := v1alpha1.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &FleetStore{FleetVal: api.Fleet{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("foo")},
+		store: &FleetStore{FleetVal: v1alpha1.Fleet{
+			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchFleet(context.Background(), server.PatchFleetRequestObject{
