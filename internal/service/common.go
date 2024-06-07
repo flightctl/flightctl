@@ -9,12 +9,12 @@ import (
 	"net/url"
 
 	jsonpatch "github.com/evanphx/json-patch"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
 
-func NilOutManagedObjectMetaProperties(om *api.ObjectMeta) {
+func NilOutManagedObjectMetaProperties(om *v1alpha1.ObjectMeta) {
 	om.Generation = nil
 	om.Owner = nil
 	om.Annotations = nil
@@ -22,8 +22,8 @@ func NilOutManagedObjectMetaProperties(om *api.ObjectMeta) {
 	om.DeletionTimestamp = nil
 }
 
-func validateAgainstSchema(obj []byte, objPath string) error {
-	swagger, err := api.GetSwagger()
+func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) error {
+	swagger, err := v1alpha1.GetSwagger()
 	if err != nil {
 		return err
 	}
@@ -49,10 +49,10 @@ func validateAgainstSchema(obj []byte, objPath string) error {
 		PathParams: pathParams,
 		Route:      route,
 	}
-	return openapi3filter.ValidateRequest(context.Background(), requestValidationInput)
+	return openapi3filter.ValidateRequest(ctx, requestValidationInput)
 }
 
-func ApplyJSONPatch[T any](obj T, newObj T, patchRequest api.PatchRequest, objPath string) error {
+func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest v1alpha1.PatchRequest, objPath string) error {
 	patch, err := json.Marshal(patchRequest)
 	if err != nil {
 		return err
@@ -72,7 +72,7 @@ func ApplyJSONPatch[T any](obj T, newObj T, patchRequest api.PatchRequest, objPa
 	}
 
 	//validate the new object against OpenAPI schema
-	err = validateAgainstSchema(newJSON, objPath)
+	err = validateAgainstSchema(ctx, newJSON, objPath)
 	if err != nil {
 		return err
 	}
