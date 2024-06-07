@@ -14,6 +14,11 @@ import (
 )
 
 const (
+	configDir = "/etc/flightctl"
+	certsDir  = "certs"
+	certFile  = "some.crt"
+	certData  = "certdata"
+
 	caCertValidityDays          = 365 * 10
 	serverCertValidityDays      = 365 * 1
 	clientBootStrapValidityDays = 365 * 1
@@ -22,16 +27,24 @@ const (
 )
 
 func TestValidConfig(t *testing.T) {
-	assert := assert.New(t)
+	require := require.New(t)
+
+	testRootDir := t.TempDir()
+	require.NoError(os.MkdirAll(filepath.Join(testRootDir, configDir, certsDir), 0700))
+	require.NoError(os.WriteFile(filepath.Join(testRootDir, configDir, certsDir, certFile), []byte(certData), 0600))
+
 	tests := []struct {
 		name   string
 		config Config
 	}{
-		{name: "server, no auth", config: Config{Service: Service{Server: "https://localhost:3333"}}},
+		{name: "only server", config: Config{Service: Service{Server: "https://localhost:3333"}}},
+		{name: "server with CA cert data", config: Config{Service: Service{Server: "https://localhost:3333", CertificateAuthorityData: []byte(certData)}, testRootDir: testRootDir}},
+		{name: "server with absolute path to CA file", config: Config{Service: Service{Server: "https://localhost:3333", CertificateAuthority: filepath.Join(configDir, certsDir, certFile)}, testRootDir: testRootDir}},
+		{name: "server with relative path to CA file", config: Config{Service: Service{Server: "https://localhost:3333", CertificateAuthority: filepath.Join(certsDir, certFile)}, baseDir: configDir, testRootDir: testRootDir}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.NoError(tt.config.Validate())
+			assert.NoError(t, tt.config.Validate())
 		})
 	}
 }
@@ -59,26 +72,21 @@ func TestInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestReadingCredentialsFromFiles(t *testing.T) {
+func TestFlattenedConfig(t *testing.T) {
 	require := require.New(t)
 
-	tempFile, _ := os.CreateTemp("", "")
-	defer os.Remove(tempFile.Name())
+	testRootDir := t.TempDir()
+	os.Setenv(TestRootDirEnvKey, testRootDir)
+	require.NoError(os.MkdirAll(filepath.Join(testRootDir, configDir, certsDir), 0700))
+	require.NoError(os.WriteFile(filepath.Join(testRootDir, configDir, certsDir, certFile), []byte(certData), 0600))
 
-	content := []byte("certdata")
-	if _, err := tempFile.Write(content); err != nil {
-		require.NoError(err)
-	}
-	require.NoError(tempFile.Close())
-
-	config := Config{
-		Service: Service{
-			Server:               "https://localhost",
-			CertificateAuthority: tempFile.Name(),
-		},
+	config := NewDefault()
+	config.Service = Service{
+		Server:               "https://localhost",
+		CertificateAuthority: filepath.Join(configDir, certsDir, certFile),
 	}
 	require.NoError(config.Flatten())
-	require.Equal(config.Service.CertificateAuthorityData, content)
+	require.Equal(config.Service.CertificateAuthorityData, []byte(certData))
 }
 
 func TestClientConfig(t *testing.T) {
