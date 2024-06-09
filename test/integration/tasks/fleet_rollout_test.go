@@ -62,7 +62,7 @@ var _ = Describe("FleetRollout", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet-1", nil, nil)
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet-1", "1.0.bad", "my bad OS", false)
 			Expect(err).ToNot(HaveOccurred())
-			testutil.CreateTestDevices(numDevices, ctx, deviceStore, orgId, util.StrToPtr("Fleet/myfleet-1"), true)
+			testutil.CreateTestDevices(ctx, numDevices, deviceStore, orgId, util.StrToPtr("Fleet/myfleet-1"), true)
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))

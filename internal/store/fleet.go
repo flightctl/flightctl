@@ -32,6 +32,8 @@ type Fleet interface {
 	ListIgnoreOrg() ([]model.Fleet, error)
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
+	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
+	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	InitialMigration() error
 }
 
@@ -418,4 +420,37 @@ func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, nam
 		})
 		return flterrors.ErrorFromGormError(result.Error)
 	})
+}
+
+func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
+	repos := []model.Repository{}
+	for _, repoName := range repositoryNames {
+		repos = append(repos, model.Repository{Resource: model.Resource{OrgID: orgId, Name: repoName}})
+	}
+	return s.db.Transaction(func(innerTx *gorm.DB) error {
+		fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+		err := innerTx.Model(&fleet).Association("Repositories").Clear()
+		if err != nil {
+			return flterrors.ErrorFromGormError(err)
+		}
+		if len(repos) > 0 {
+			err = innerTx.Model(&fleet).Association("Repositories").Append(repos)
+			return flterrors.ErrorFromGormError(err)
+		}
+		return nil
+	})
+}
+
+func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
+	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+	var repos model.RepositoryList
+	err := s.db.Model(&fleet).Association("Repositories").Find(&repos)
+	if err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+	repositories, err := repos.ToApiResource(nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &repositories, nil
 }

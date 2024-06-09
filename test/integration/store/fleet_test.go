@@ -36,7 +36,7 @@ var _ = Describe("FleetStore create", func() {
 		numFleets = 3
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
 
-		testutil.CreateTestFleets(3, ctx, storeInst.Fleet(), orgId, "myfleet", false, nil)
+		testutil.CreateTestFleets(ctx, 3, storeInst.Fleet(), orgId, "myfleet", false, nil)
 	})
 
 	AfterEach(func() {
@@ -443,7 +443,7 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {})
 			err := storeInst.Fleet().DeleteAll(ctx, orgId, callback)
 			Expect(err).ToNot(HaveOccurred())
-			testutil.CreateTestFleets(numFleets, ctx, storeInst.Fleet(), orgId, "myfleet", true, util.StrToPtr(owner))
+			testutil.CreateTestFleets(ctx, numFleets, storeInst.Fleet(), orgId, "myfleet", true, util.StrToPtr(owner))
 
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -488,6 +488,39 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
 			Expect((*updatedFleet.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
 			Expect((*updatedFleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
+		})
+
+		It("OverwriteRepositoryRefs", func() {
+			err := testutil.CreateRepositories(ctx, 2, storeInst, orgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			fleets, err := storeInst.Repository().GetFleetRefs(ctx, orgId, "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets.Items).To(HaveLen(1))
+			Expect(*(fleets.Items[0]).Metadata.Name).To(Equal("myfleet-1"))
+
+			err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-2")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err = storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-2"))
+
+			fleets, err = storeInst.Repository().GetFleetRefs(ctx, orgId, "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets.Items).To(HaveLen(0))
+
+			fleets, err = storeInst.Repository().GetFleetRefs(ctx, orgId, "myrepository-2")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets.Items).To(HaveLen(1))
+			Expect(*(fleets.Items[0]).Metadata.Name).To(Equal("myfleet-1"))
 		})
 	})
 })

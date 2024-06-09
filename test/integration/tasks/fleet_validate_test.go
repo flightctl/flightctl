@@ -144,6 +144,11 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusTrue))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
 		})
 	})
 
@@ -186,6 +191,11 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("missingrepo"))
 		})
 	})
 
@@ -228,6 +238,11 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
 		})
 	})
 

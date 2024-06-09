@@ -24,6 +24,8 @@ type Repository interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error
 	UpdateStatusIgnoreOrg(repository *model.Repository) error
+	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error)
+	GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, error)
 	InitialMigration() error
 }
 
@@ -74,6 +76,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	}
+	query = query.Where("spec IS NOT NULL")
 	result := query.Find(&repositories)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
@@ -222,4 +225,26 @@ func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name stri
 
 	callback(&existingRecord)
 	return nil
+}
+
+func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error) {
+	repository := model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}
+	var fleets model.FleetList
+	err := s.db.Model(&repository).Association("Fleets").Find(&fleets)
+	if err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+	fleetList := fleets.ToApiResource(nil, nil)
+	return &fleetList, nil
+}
+
+func (s *RepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, error) {
+	repository := model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}
+	var devices model.DeviceList
+	err := s.db.Model(&repository).Association("Devices").Find(&devices)
+	if err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+	deviceList := devices.ToApiResource(nil, nil)
+	return &deviceList, nil
 }
