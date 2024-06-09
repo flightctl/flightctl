@@ -32,6 +32,9 @@ type Device struct {
 
 	// The rendered ignition config, exposed in a separate endpoint.
 	RenderedConfig *string
+
+	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
+	Repositories []Repository `gorm:"many2many:device_repos;"`
 }
 
 type ServiceConditions struct {

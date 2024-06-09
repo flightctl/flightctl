@@ -56,6 +56,7 @@ type FleetValidateLogic struct {
 	log         logrus.FieldLogger
 	store       store.Store
 	resourceRef ResourceReference
+	repoNames   []string
 }
 
 func NewFleetValidateLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) FleetValidateLogic {
@@ -63,9 +64,15 @@ func NewFleetValidateLogic(taskManager TaskManager, log logrus.FieldLogger, stor
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context, fleet *api.Fleet) error {
-	err := t.validateFleetTemplate(ctx, fleet)
-	if err != nil {
-		return fmt.Errorf("validating fleet: %w", err)
+	validationErr := t.validateFleetTemplate(ctx, fleet)
+	// Set the many-to-may relationship with the repos
+	refErr := t.store.Fleet().OverwriteRepositoryRefs(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name, t.repoNames...)
+
+	if validationErr != nil {
+		return fmt.Errorf("validating fleet: %w", validationErr)
+	}
+	if refErr != nil {
+		return fmt.Errorf("setting repository references: %w", refErr)
 	}
 
 	templateVersion := api.TemplateVersion{
@@ -149,6 +156,7 @@ func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem 
 		if err != nil {
 			return unknownName, fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
 		}
+		t.repoNames = append(t.repoNames, gitSpec.GitRef.Repository)
 		_, err = t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
 		if err != nil {
 			return gitSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)

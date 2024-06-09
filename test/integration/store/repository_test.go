@@ -2,7 +2,6 @@ package store_test
 
 import (
 	"context"
-	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -11,32 +10,12 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
-
-func createRepositories(numRepositories int, ctx context.Context, storeInst store.Store, orgId uuid.UUID) {
-	for i := 1; i <= numRepositories; i++ {
-		spec := api.RepositorySpec{}
-		err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-			Repo: "myrepo",
-		})
-		Expect(err).ToNot(HaveOccurred())
-		resource := api.Repository{
-			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("myrepository-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
-			},
-			Spec: spec,
-		}
-
-		callback := store.RepositoryStoreCallback(func(*model.Repository) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
-		Expect(err).ToNot(HaveOccurred())
-	}
-}
 
 var _ = Describe("RepositoryStore create", func() {
 	var (
@@ -60,7 +39,8 @@ var _ = Describe("RepositoryStore create", func() {
 		callbackCalled = false
 		callback = store.RepositoryStoreCallback(func(*model.Repository) { callbackCalled = true })
 
-		createRepositories(3, ctx, storeInst, orgId)
+		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {

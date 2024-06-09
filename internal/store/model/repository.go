@@ -22,6 +22,12 @@ type Repository struct {
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.RepositoryStatus]
+
+	// Join table with the relationship of repository to fleets
+	Fleets []Fleet `gorm:"many2many:fleet_repos;"`
+
+	// Join table with the relationship of repository to devices (only maintained for standalone devices)
+	Devices []Device `gorm:"many2many:device_repos;"`
 }
 
 type RepositoryList []Repository

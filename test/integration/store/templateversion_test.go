@@ -58,7 +58,7 @@ var _ = Describe("TemplateVersion", func() {
 		It("List with paging", func() {
 			numResources := 5
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			err := testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, orgId, "myfleet")
+			err := testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := store.ListParams{}
@@ -107,12 +107,12 @@ var _ = Describe("TemplateVersion", func() {
 		It("Delete all templateVersions of fleet", func() {
 			numResources := 5
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			err := testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, orgId, "myfleet")
+			err := testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId, _ := uuid.NewUUID()
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), otherOrgId, "myfleet", nil, nil)
-			err = testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, otherOrgId, "myfleet")
+			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			err = storeInst.TemplateVersion().DeleteAll(ctx, otherOrgId, util.StrToPtr("myfleet"))
@@ -130,12 +130,12 @@ var _ = Describe("TemplateVersion", func() {
 		It("Delete fleet deletes its templateVersions", func() {
 			numResources := 5
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			err := testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, orgId, "myfleet")
+			err := testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId, _ := uuid.NewUUID()
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), otherOrgId, "myfleet", nil, nil)
-			err = testutil.CreateTestTemplateVersions(numResources, ctx, tvStore, otherOrgId, "myfleet")
+			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})

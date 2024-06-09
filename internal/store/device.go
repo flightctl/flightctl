@@ -31,6 +31,8 @@ type Device interface {
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string) (*api.RenderedDeviceSpec, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
+	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	InitialMigration() error
 }
 
@@ -389,4 +391,37 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 		})
 		return flterrors.ErrorFromGormError(result.Error)
 	})
+}
+
+func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
+	repos := []model.Repository{}
+	for _, repoName := range repositoryNames {
+		repos = append(repos, model.Repository{Resource: model.Resource{OrgID: orgId, Name: repoName}})
+	}
+	return s.db.Transaction(func(innerTx *gorm.DB) error {
+		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+		err := innerTx.Model(&device).Association("Repositories").Clear()
+		if err != nil {
+			return flterrors.ErrorFromGormError(err)
+		}
+		if len(repos) > 0 {
+			err = innerTx.Model(&device).Association("Repositories").Append(repos)
+			return flterrors.ErrorFromGormError(err)
+		}
+		return nil
+	})
+}
+
+func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
+	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	var repos model.RepositoryList
+	err := s.db.Model(&device).Association("Repositories").Find(&repos)
+	if err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+	repositories, err := repos.ToApiResource(nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &repositories, nil
 }

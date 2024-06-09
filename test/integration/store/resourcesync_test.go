@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func createResourceSyncs(numResourceSyncs int, ctx context.Context, storeInst store.Store, orgId uuid.UUID) {
+func createResourceSyncs(ctx context.Context, numResourceSyncs int, storeInst store.Store, orgId uuid.UUID) {
 	for i := 1; i <= numResourceSyncs; i++ {
 		resource := api.ResourceSync{
 			Metadata: api.ObjectMeta{
@@ -58,7 +58,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		numResourceSyncs = 3
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
 
-		createResourceSyncs(3, ctx, storeInst, orgId)
+		createResourceSyncs(ctx, 3, storeInst, orgId)
 	})
 
 	AfterEach(func() {
@@ -146,8 +146,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("Delete all resourcesyncs in org", func() {
 			owner := util.SetResourceOwner(model.ResourceSyncKind, "myresourcesync-1")
 			otherOrgId, _ := uuid.NewUUID()
-			testutil.CreateTestFleets(2, ctx, storeInst.Fleet(), orgId, "myfleet", true, owner)
-			testutil.CreateTestFleets(2, ctx, storeInst.Fleet(), otherOrgId, "myfleet", true, owner)
+			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), orgId, "myfleet", true, owner)
+			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), otherOrgId, "myfleet", true, owner)
 			callbackCalled := false
 			err := storeInst.ResourceSync().DeleteAll(ctx, otherOrgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
 				callbackCalled = true
