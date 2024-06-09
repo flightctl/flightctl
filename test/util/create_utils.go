@@ -40,7 +40,7 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 	}
 }
 
-func CreateTestDevices(numDevices int, ctx context.Context, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool) {
+func CreateTestDevices(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool) {
 	for i := 1; i <= numDevices; i++ {
 		labels := map[string]string{"key": fmt.Sprintf("value-%d", i), "otherkey": "othervalue"}
 		if sameVals {
@@ -71,7 +71,7 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 	}
 }
 
-func CreateTestFleets(numFleets int, ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID, namePrefix string, sameVals bool, owner *string) {
+func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet, orgId uuid.UUID, namePrefix string, sameVals bool, owner *string) {
 	for i := 1; i <= numFleets; i++ {
 		selector := map[string]string{"key": fmt.Sprintf("value-%d", i)}
 		if sameVals {
@@ -105,9 +105,35 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 	return err
 }
 
-func CreateTestTemplateVersions(numTemplateVersions int, ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet string) error {
+func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tvStore store.TemplateVersion, orgId uuid.UUID, fleet string) error {
 	for i := 1; i <= numTemplateVersions; i++ {
 		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), "myimage", true)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func CreateRepositories(ctx context.Context, numRepositories int, storeInst store.Store, orgId uuid.UUID) error {
+	for i := 1; i <= numRepositories; i++ {
+		spec := api.RepositorySpec{}
+		err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+			Repo: "myrepo",
+		})
+		if err != nil {
+			return err
+		}
+		resource := api.Repository{
+			Metadata: api.ObjectMeta{
+				Name:   util.StrToPtr(fmt.Sprintf("myrepository-%d", i)),
+				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+			},
+			Spec: spec,
+		}
+
+		callback := store.RepositoryStoreCallback(func(*model.Repository) {})
+		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			return err
 		}
