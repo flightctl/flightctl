@@ -75,8 +75,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 			configItem := (*device.Spec.Config)[i]
 			name, err := t.handleConfigItem(ctx, &configItem)
 			if err != nil {
-				var unknownErr ErrUnknownConfigName
-				if errors.As(err, &unknownErr) {
+				if errors.Is(err, ErrUnknownConfigName) {
 					name = "<unknown>"
 				}
 				invalidConfigs = append(invalidConfigs, name)
@@ -116,7 +115,7 @@ func (t *DeviceRenderLogic) handleConfigItem(ctx context.Context, configItem *ap
 
 	disc, err := configItem.Discriminator()
 	if err != nil {
-		return "", NewUnknownConfigNameError(fmt.Errorf("failed getting discriminator: %w", err))
+		return "", fmt.Errorf("%w: failed getting discriminator: %w", ErrUnknownConfigName, err)
 	}
 
 	switch disc {
@@ -127,14 +126,14 @@ func (t *DeviceRenderLogic) handleConfigItem(ctx context.Context, configItem *ap
 	case string(api.TemplateDiscriminatorInlineConfig):
 		return t.handleInlineConfig(configItem)
 	default:
-		return "", NewUnknownConfigNameError(fmt.Errorf("unsupported discriminator %s", disc))
+		return "", fmt.Errorf("%w: unsupported discriminator: %s", ErrUnknownConfigName, disc)
 	}
 }
 
 func (t *DeviceRenderLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item) (string, error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
-		return "", NewUnknownConfigNameError(fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err))
+		return "", fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
 	t.repoNames = append(t.repoNames, gitSpec.GitRef.Repository)
@@ -168,7 +167,7 @@ func (t *DeviceRenderLogic) handleGitConfig(ctx context.Context, configItem *api
 func (t *DeviceRenderLogic) handleK8sConfig(configItem *api.DeviceSpec_Config_Item) (string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
-		return "", NewUnknownConfigNameError(fmt.Errorf("failed getting config item as KubernetesSecretProviderSpec: %w", err))
+		return "", fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
 	return k8sSpec.Name, fmt.Errorf("service does not yet support kubernetes config")
@@ -177,7 +176,7 @@ func (t *DeviceRenderLogic) handleK8sConfig(configItem *api.DeviceSpec_Config_It
 func (t *DeviceRenderLogic) handleInlineConfig(configItem *api.DeviceSpec_Config_Item) (string, error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
-		return "", NewUnknownConfigNameError(fmt.Errorf("failed getting config item as InlineConfigProviderSpec: %w", err))
+		return "", fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
 	// Add this inline config into the unrendered config
