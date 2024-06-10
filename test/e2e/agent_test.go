@@ -38,6 +38,21 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	AfterEach(func() {
+		if CurrentSpecReport().Failed() {
+			fmt.Printf("oops... %s failed, collecting agent output\n", CurrentSpecReport().FullText())
+
+			stdout, _ := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+			fmt.Print("\n\n\n")
+			fmt.Println("============ systemctl status flightctl-agent ============")
+			fmt.Println(stdout.String())
+			fmt.Println("=============== journalctl -u flightctl-agent ============")
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-agent"}, nil)
+			fmt.Println(stdout.String())
+			fmt.Println("======================= VM Console =======================")
+			fmt.Println(harness.VM.GetConsoleOutput())
+			fmt.Println("==========================================================")
+			fmt.Print("\n\n\n")
+		}
 		harness.Cleanup()
 	})
 
