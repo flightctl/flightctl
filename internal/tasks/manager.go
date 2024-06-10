@@ -9,7 +9,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/tasks/repotester"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/flightctl/flightctl/pkg/thread"
@@ -84,7 +83,7 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 }
 
 func (t TaskManager) Start() {
-	repoTester := repotester.NewRepoTester(t.log, t.store)
+	repoTester := NewRepoTester(t.log, t.store)
 	repoTesterThread := thread.New(
 		t.log.WithField("pkg", "repository-tester"), "Repository tester", threadIntervalMinute(2), repoTester.TestRepositories)
 	repoTesterThread.Start()
