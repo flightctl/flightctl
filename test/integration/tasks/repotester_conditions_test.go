@@ -1,15 +1,14 @@
-package repotester
+package tasks_test
 
 import (
 	"context"
 	"errors"
-	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/tasks/repotester"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -17,11 +16,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
-
-func TestStore(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "RepoTester Suite")
-}
 
 type MockRepoTester struct {
 }
@@ -62,7 +56,7 @@ var _ = Describe("RepoTester", func() {
 		stores    store.Store
 		cfg       *config.Config
 		dbName    string
-		repotestr *repotester.RepoTester
+		repotestr *tasks.RepoTester
 	)
 
 	BeforeEach(func() {
@@ -70,7 +64,7 @@ var _ = Describe("RepoTester", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
-		repotestr = repotester.NewRepoTester(log, stores)
+		repotestr = tasks.NewRepoTester(log, stores)
 		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
 	})
 
