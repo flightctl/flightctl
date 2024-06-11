@@ -1,5 +1,5 @@
 //nolint:gosec
-package repotester
+package tasks_test
 
 import (
 	"crypto/rand"
@@ -17,6 +17,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/gliderlabs/ssh"
 	"github.com/stretchr/testify/require"
@@ -57,7 +58,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	require.NoError(err)
 
 	go startHttpsMTLSRepo(tlsConfig, require)
-	repotester := GitRepoTester{}
+	repotester := tasks.GitRepoTester{}
 
 	clientCertPEM, clientKeyPEM, err := adminCert.GetPEMBytes()
 	require.NoError(err)
@@ -112,7 +113,7 @@ func TestSSHRepo(t *testing.T) {
 	publicRsaKey, err := gossh.NewPublicKey(&privateKey.PublicKey)
 	require.NoError(err)
 	go startSshGitRepo(publicRsaKey, require)
-	repotester := GitRepoTester{}
+	repotester := tasks.GitRepoTester{}
 
 	privatePEM := pem.EncodeToMemory(&pem.Block{
 		Type:    "RSA PRIVATE KEY",
