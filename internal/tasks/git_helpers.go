@@ -1,22 +1,35 @@
 package tasks
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/tasks/repotester"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	gitplumbing "github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	gitclient "github.com/go-git/go-git/v5/plumbing/transport/client"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
+	"golang.org/x/crypto/ssh"
 )
+
+// Ref: https://github.com/git/git/blob/master/Documentation/urls.txt#L37
+var scpLikeUrlRegExp = regexp.MustCompile(`^(?:(?P<user>[^@]+)@)?(?P<host>[^:\s]+):(?:(?P<port>[0-9]{1,5}):)?(?P<path>[^\\].*)$`)
 
 // a function to clone a git repo, for mockable unit testing
 type cloneGitRepoFunc func(repo *model.Repository, revision *string, depth *int) (billy.Filesystem, string, error)
@@ -34,7 +47,7 @@ func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.F
 	if depth != nil {
 		opts.Depth = *depth
 	}
-	auth, err := repotester.GetAuth(repo)
+	auth, err := GetAuth(repo)
 	if err != nil {
 		return nil, "", err
 	}
@@ -69,6 +82,120 @@ func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.F
 		hash = head.Hash().String()
 	}
 	return mfs, hash, nil
+}
+
+// Read repository's ssh/http config and create transport.AuthMethod.
+// If no ssh/http config is defined a nil is returned.
+func GetAuth(repository *model.Repository) (transport.AuthMethod, error) {
+	_, err := repository.Spec.Data.GetGitGenericRepoSpec()
+	if err == nil {
+		return nil, nil
+	}
+	sshSpec, err := repository.Spec.Data.GetGitSshRepoSpec()
+	if err == nil {
+		var auth *gitssh.PublicKeys
+		if sshSpec.SshConfig.SshPrivateKey != nil {
+			sshPrivateKey, err := base64.StdEncoding.DecodeString(*sshSpec.SshConfig.SshPrivateKey)
+			if err != nil {
+				return nil, err
+			}
+
+			password := ""
+			if sshSpec.SshConfig.PrivateKeyPassphrase != nil {
+				password = *sshSpec.SshConfig.PrivateKeyPassphrase
+			}
+			user := ""
+			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(sshSpec.Repo)
+			if len(repoSubmatch) > 1 {
+				user = repoSubmatch[1]
+			}
+			auth, err = gitssh.NewPublicKeys(user, sshPrivateKey, password)
+			if err != nil {
+				return nil, err
+			}
+			if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
+				auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
+					HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
+				}
+			}
+		}
+		if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
+			if auth == nil {
+				auth = &gitssh.PublicKeys{}
+			}
+			auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
+			}
+		}
+		return auth, nil
+	} else {
+		httpSpec, err := repository.Spec.Data.GetGitHttpRepoSpec()
+		if err == nil {
+			if strings.HasPrefix(httpSpec.Repo, "https") {
+				err := configureRepoHTTPSClient(httpSpec.HttpConfig)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if httpSpec.HttpConfig.Username != nil && httpSpec.HttpConfig.Password != nil {
+				auth := &githttp.BasicAuth{
+					Username: *httpSpec.HttpConfig.Username,
+					Password: *httpSpec.HttpConfig.Password,
+				}
+				return auth, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func configureRepoHTTPSClient(httpConfig api.GitHttpConfig) error {
+	tlsConfig := tls.Config{} //nolint:gosec
+	if httpConfig.SkipServerVerification != nil {
+		tlsConfig.InsecureSkipVerify = *httpConfig.SkipServerVerification //nolint:gosec
+	}
+
+	if httpConfig.TlsCrt != nil && httpConfig.TlsKey != nil {
+		cert, err := base64.StdEncoding.DecodeString(*httpConfig.TlsCrt)
+		if err != nil {
+			return err
+		}
+
+		key, err := base64.StdEncoding.DecodeString(*httpConfig.TlsKey)
+		if err != nil {
+			return err
+		}
+
+		tlsPair, err := tls.X509KeyPair(cert, key)
+		if err != nil {
+			return err
+		}
+
+		tlsConfig.Certificates = []tls.Certificate{tlsPair}
+	}
+
+	if httpConfig.CaCrt != nil {
+		ca, err := base64.StdEncoding.DecodeString(*httpConfig.CaCrt)
+		if err != nil {
+			return err
+		}
+
+		rootCAs, _ := x509.SystemCertPool()
+		if rootCAs == nil {
+			rootCAs = x509.NewCertPool()
+		}
+		rootCAs.AppendCertsFromPEM(ca)
+		tlsConfig.RootCAs = rootCAs
+	}
+
+	gitclient.InstallProtocol("https", githttp.NewClient(
+		&http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tlsConfig,
+			},
+		},
+	))
+	return nil
 }
 
 func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_latest_types.Config, error) {
