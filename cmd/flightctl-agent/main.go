@@ -29,7 +29,7 @@ func NewAgentCommand() *agentCmd {
 		config: agent.NewDefault(),
 	}
 
-	flag.StringVar(&a.configFile, "config", agent.DefaultConfigFile, fmt.Sprintf("path to config file: default: %s", agent.DefaultConfigFile))
+	flag.StringVar(&a.configFile, "config", agent.DefaultConfigFile, "Path to the agent's configuration file.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
@@ -41,6 +41,9 @@ func NewAgentCommand() *agentCmd {
 
 	if err := a.config.ParseConfigFile(a.configFile); err != nil {
 		a.log.Fatalf("Error parsing config: %v", err)
+	}
+	if err := a.config.Complete(); err != nil {
+		a.log.Fatalf("Error completing config: %v", err)
 	}
 	if err := a.config.Validate(); err != nil {
 		a.log.Fatalf("Error validating config: %v", err)

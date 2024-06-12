@@ -107,8 +107,10 @@ func (c *Config) DeepCopy() *Config {
 		return nil
 	}
 	return &Config{
-		Service:  *c.Service.DeepCopy(),
-		AuthInfo: *c.AuthInfo.DeepCopy(),
+		Service:     *c.Service.DeepCopy(),
+		AuthInfo:    *c.AuthInfo.DeepCopy(),
+		baseDir:     c.baseDir,
+		testRootDir: c.testRootDir,
 	}
 }
 
@@ -136,6 +138,18 @@ func (c *Config) HasCredentials() bool {
 		(len(c.AuthInfo.ClientKey) > 0 || len(c.AuthInfo.ClientKeyData) > 0)
 }
 
+func (c *Config) GetClientKeyPath() string {
+	return resolvePath(c.AuthInfo.ClientCertificate, c.baseDir)
+}
+
+func (c *Config) GetClientCertificatePath() string {
+	return resolvePath(c.AuthInfo.ClientCertificate, c.baseDir)
+}
+
+func (c *Config) SetBaseDir(baseDir string) {
+	c.baseDir = baseDir
+}
+
 func NewDefault() *Config {
 	c := &Config{}
 
@@ -148,6 +162,11 @@ func NewDefault() *Config {
 
 // NewFromConfig returns a new FlightCtl API client from the given config.
 func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
+	config = config.DeepCopy()
+	if err := config.Flatten(); err != nil {
+		return nil, err
+	}
+
 	caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
 	if err != nil {
 		return nil, fmt.Errorf("parsing CA certs: %v", err)
@@ -199,7 +218,7 @@ func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 	if err := yaml.Unmarshal(contents, config); err != nil {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
-	config.baseDir = filepath.Dir(filename)
+	config.SetBaseDir(filepath.Dir(filename))
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

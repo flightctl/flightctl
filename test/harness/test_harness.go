@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
-	"github.com/flightctl/flightctl/internal/api/client"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
@@ -38,7 +40,7 @@ type TestHarness struct {
 	Context     context.Context
 	Server      *server.Server
 	Agent       *agent.Agent
-	Client      *client.ClientWithResponses
+	Client      *apiclient.ClientWithResponses
 	Store       *store.Store
 	TestDirPath string
 }
@@ -49,7 +51,7 @@ type TestHarness struct {
 // It provides the necessary elements to perform tests against the agent and server.
 func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
 
-	err := makeTestDirs(testDirPath, []string{"/etc/issue.d/"})
+	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/"})
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness failed creating temporary directories: %w", err)
 	}
@@ -66,7 +68,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	serverCfg.Database.Name = dbName
 
 	// create certs
-	serverCfg.Service.CertStore = testDirPath
+	serverCfg.Service.CertStore = filepath.Join(testDirPath, "etc", "flightctl", "certs")
 	ca, serverCerts, _, clientCerts, err := testutil.NewTestCerts(&serverCfg)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
@@ -88,21 +90,33 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		}
 	}()
 
-	fetchSpecInterval := 1 * time.Second
-	statusUpdateInterval := 2 * time.Second
+	fetchSpecInterval := util.Duration(1 * time.Second)
+	statusUpdateInterval := util.Duration(2 * time.Second)
 
 	os.Setenv(agent.TestRootDirEnvKey, testDirPath)
 	cfg := agent.NewDefault()
 	// TODO: remove the cert/key modifications from default, and start storing
 	// the test harness files for those in the testDir/etc/flightctl/certs path
-	cfg.Cacert = "ca.crt"
-	cfg.EnrollmentCertFile = "client-enrollment.crt"
-	cfg.EnrollmentKeyFile = "client-enrollment.key"
-	cfg.EnrollmentEndpoint = "https://" + serverCfg.Service.Address
-	cfg.EnrollmentUIEndpoint = "https://flightctl.ui/"
-	cfg.ManagementEndpoint = "https://" + serverCfg.Service.Address
+	cfg.EnrollmentService = agent.EnrollmentService{
+		Config:               *client.NewDefault(),
+		EnrollmentUIEndpoint: "https://flightctl.ui/",
+	}
+	cfg.EnrollmentService.Service = client.Service{
+		Server:               "https://" + serverCfg.Service.Address,
+		CertificateAuthority: "/etc/flightctl/certs/ca.crt",
+	}
+	cfg.EnrollmentService.AuthInfo = client.AuthInfo{
+		ClientCertificate: "/etc/flightctl/certs/client-enrollment.crt",
+		ClientKey:         "/etc/flightctl/certs/client-enrollment.key",
+	}
 	cfg.SpecFetchInterval = fetchSpecInterval
 	cfg.StatusUpdateInterval = statusUpdateInterval
+	if err := cfg.Complete(); err != nil {
+		return nil, fmt.Errorf("NewTestHarness: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("NewTestHarness: %w", err)
+	}
 
 	// create client to talk to the server
 	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.Config, clientCerts)

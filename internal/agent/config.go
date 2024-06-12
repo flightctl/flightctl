@@ -9,16 +9,18 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/yaml"
 )
 
 const (
 	// DefaultSpecFetchInterval is the default interval between two reads of the remote device spec
-	DefaultSpecFetchInterval = time.Second * 60
+	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
-	DefaultStatusUpdateInterval = time.Second * 60
+	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
 	// DefaultConfigDir is the default directory where the device's configuration is stored
 	DefaultConfigDir = "/etc/flightctl"
 	// DefaultConfigFile is the default path to the agent's configuration file
@@ -44,59 +46,69 @@ const (
 )
 
 type Config struct {
-	// Key is the path to the agent's private key
-	Key string `yaml:"key"`
-	// Cacert is the path to the CA certificate
-	Cacert string `yaml:"ca-cert"`
-	// GenerateCert is the path to the cert file which is generated as the result of enrollment
-	GeneratedCert string `yaml:"generated-cert"`
-	// DataDir is the directory where the device's data is stored
-	DataDir string `yaml:"data-dir"`
 	// ConfigDir is the directory where the device's configuration is stored
-	ConfigDir string `yaml:"config-dir"`
-	// EnrollmentCertFile is the path to the enrollment certificate
-	EnrollmentCertFile string `yaml:"enrollment-cert-file"`
-	// EnrollmentKeyFile is the path to the enrollment key
-	EnrollmentKeyFile string `yaml:"enrollment-key-file"`
-	// ManagementEndpoint is the address of the device management server
-	ManagementEndpoint string `yaml:"management-endpoint,omitempty"`
-	// EnrollmentEndpoint is the address of the device enrollment server
-	EnrollmentEndpoint string `yaml:"enrollment-endpoint,omitempty"`
-	// EnrollmentUIEndpoint is the address of the device enrollment UI
-	EnrollmentUIEndpoint string `yaml:"enrollment-ui-endpoint,omitempty"`
-	// TPMPath is the path to the TPM device
-	TPMPath string `yaml:"tpm-path,omitempty"`
+	ConfigDir string `json:"-"`
+	// DataDir is the directory where the device's data is stored
+	DataDir string `json:"-"`
+
+	// EnrollmentService is the client configuration for connecting to the device enrollment server
+	EnrollmentService EnrollmentService `json:"enrollment-service,omitempty"`
+	// ManagementService is the client configuration for connecting to the device management server
+	ManagementService ManagementService `json:"management-service,omitempty"`
+
 	// SpecFetchInterval is the interval between two reads of the remote device spec
-	SpecFetchInterval time.Duration `yaml:"spec-fetch-interval,omitempty"`
+	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
-	StatusUpdateInterval time.Duration `yaml:"status-update-interval,omitempty"`
+	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
+
+	// TPMPath is the path to the TPM device
+	TPMPath string `json:"tpm-path,omitempty"`
+
+	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
+	// "info", "debug" or "trace", any other will be treated as "info"
+	LogLevel string `json:"log-level,omitempty"`
 	// LogPrefix is the log prefix used for testing
-	LogPrefix string `yaml:"log-prefix,omitempty"`
+	LogPrefix string `json:"log-prefix,omitempty"`
 
 	// testRootDir is the root directory of the test agent
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
 	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
 
-	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
-	// "info", "debug" or "trace", any other will be treated as "info"
-	LogLevel string `yaml:"log-level,omitempty"`
-
 	reader *fileio.Reader
+}
+
+type EnrollmentService struct {
+	client.Config
+
+	// EnrollmentUIEndpoint is the address of the device enrollment UI
+	EnrollmentUIEndpoint string `json:"enrollment-ui-endpoint,omitempty"`
+}
+
+type ManagementService struct {
+	client.Config
+}
+
+func (s *EnrollmentService) Equal(s2 *EnrollmentService) bool {
+	if s == s2 {
+		return true
+	}
+	return s.Config.Equal(&s2.Config) && s.EnrollmentUIEndpoint == s2.EnrollmentUIEndpoint
+}
+
+func (s *ManagementService) Equal(s2 *ManagementService) bool {
+	if s == s2 {
+		return true
+	}
+	return s.Config.Equal(&s2.Config)
 }
 
 func NewDefault() *Config {
 	c := &Config{
-		ManagementEndpoint:   DefaultManagementEndpoint,
-		EnrollmentEndpoint:   DefaultManagementEndpoint,
-		EnrollmentUIEndpoint: DefaultManagementEndpoint,
 		ConfigDir:            DefaultConfigDir,
 		DataDir:              DefaultDataDir,
-		Cacert:               filepath.Join(DefaultConfigDir, DefaultCertsDirName, CacertFile),
-		Key:                  filepath.Join(DefaultDataDir, DefaultCertsDirName, KeyFile),
-		GeneratedCert:        filepath.Join(DefaultDataDir, DefaultCertsDirName, GeneratedCertFile),
-		EnrollmentCertFile:   filepath.Join(DefaultConfigDir, DefaultCertsDirName, EnrollmentCertFile),
-		EnrollmentKeyFile:    filepath.Join(DefaultConfigDir, DefaultCertsDirName, EnrollmentKeyFile),
+		EnrollmentService:    EnrollmentService{Config: *client.NewDefault()},
+		ManagementService:    ManagementService{Config: *client.NewDefault()},
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
 		reader:               fileio.NewReader(),
@@ -127,22 +139,52 @@ func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duract
 	cfg.enrollmentMetricsCallback = cb
 }
 
+// Complete fills in defaults for fields not set by the config file
+func (cfg *Config) Complete() error {
+	// If the enrollment service hasn't been specified, attempt using the default local dev env.
+	emptyEnrollmentService := EnrollmentService{}
+	if cfg.EnrollmentService.Equal(&emptyEnrollmentService) {
+		cfg.EnrollmentService = EnrollmentService{Config: *client.NewDefault()}
+		cfg.EnrollmentService.Service = client.Service{
+			Server:               DefaultManagementEndpoint,
+			CertificateAuthority: filepath.Join(cfg.ConfigDir, DefaultCertsDirName, CacertFile),
+		}
+		cfg.EnrollmentService.AuthInfo = client.AuthInfo{
+			ClientCertificate: filepath.Join(cfg.DataDir, DefaultCertsDirName, EnrollmentCertFile),
+			ClientKey:         filepath.Join(cfg.DataDir, DefaultCertsDirName, EnrollmentKeyFile),
+		}
+		cfg.EnrollmentService.EnrollmentUIEndpoint = DefaultManagementEndpoint
+	}
+	// If the enrollment UI endpoint hasn't been specified, attempt using the same endpoint as the enrollment service.
+	if cfg.EnrollmentService.EnrollmentUIEndpoint == "" {
+		cfg.EnrollmentService.EnrollmentUIEndpoint = cfg.EnrollmentService.Config.Service.Server
+	}
+	// If the management service hasn't been specified, attempt using the same endpoint as the enrollment service,
+	// but clear the auth info.
+	emptyManagementService := ManagementService{}
+	if cfg.ManagementService.Equal(&emptyManagementService) {
+		cfg.ManagementService.Config = *cfg.EnrollmentService.Config.DeepCopy()
+		cfg.ManagementService.Config.AuthInfo = client.AuthInfo{}
+	}
+	return nil
+}
+
 // Validate checks that the required fields are set and that the paths exist.
 func (cfg *Config) Validate() error {
+	if err := cfg.EnrollmentService.Validate(); err != nil {
+		return err
+	}
+	if err := cfg.ManagementService.Validate(); err != nil {
+		return err
+	}
+
 	requiredFields := []struct {
 		value     string
 		name      string
 		checkPath bool
 	}{
-		{cfg.ManagementEndpoint, "management-endpoint", false},
-		{cfg.EnrollmentEndpoint, "enrollment-endpoint", false},
-		{cfg.GeneratedCert, "generated-cert", false},
 		{cfg.ConfigDir, "config-dir", true},
 		{cfg.DataDir, "data-dir", true},
-		{cfg.Cacert, "ca-cert", true},
-		{cfg.Key, "key", false},
-		{cfg.EnrollmentCertFile, "enrollment-cert-file", true},
-		{cfg.EnrollmentKeyFile, "enrollment-key-file", true},
 	}
 
 	for _, field := range requiredFields {
@@ -168,6 +210,8 @@ func (cfg *Config) ParseConfigFile(cfgFile string) error {
 	if err := yaml.Unmarshal(contents, cfg); err != nil {
 		return fmt.Errorf("unmarshalling config file: %w", err)
 	}
+	cfg.EnrollmentService.Config.SetBaseDir(filepath.Dir(cfgFile))
+	cfg.ManagementService.Config.SetBaseDir(filepath.Dir(cfgFile))
 	return nil
 }
 

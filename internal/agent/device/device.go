@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/lthibault/jitterbug"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -23,8 +24,8 @@ type Agent struct {
 	configController  *config.Controller
 	osImageController *OSImageController
 
-	fetchSpecInterval   time.Duration
-	fetchStatusInterval time.Duration
+	fetchSpecInterval   util.Duration
+	fetchStatusInterval util.Duration
 
 	log *log.PrefixLogger
 }
@@ -35,8 +36,8 @@ func NewAgent(
 	deviceWriter *fileio.Writer,
 	statusManager status.Manager,
 	specManager *spec.Manager,
-	fetchSpecInterval time.Duration,
-	fetchStatusInterval time.Duration,
+	fetchSpecInterval util.Duration,
+	fetchStatusInterval util.Duration,
 	configController *config.Controller,
 	osImageController *OSImageController,
 	log *log.PrefixLogger,
@@ -57,9 +58,9 @@ func NewAgent(
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
 	// TODO: needs tuned
-	fetchSpecTicker := jitterbug.New(a.fetchSpecInterval, &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
+	fetchSpecTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
 	defer fetchSpecTicker.Stop()
-	fetchStatusTicker := jitterbug.New(a.fetchStatusInterval, &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
+	fetchStatusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
 	defer fetchStatusTicker.Stop()
 
 	for {

@@ -35,11 +35,8 @@ type Bootstrap struct {
 	currentRenderedFile string
 	desiredRenderedFile string
 
-	managementClient            *client.Management
-	managementEndpoint          string
-	managementGeneratedCertFile string
-	caFile                      string
-	keyFile                     string
+	managementServiceConfig *client.Config
+	managementClient        *client.Management
 
 	enrollmentCSR []byte
 	log           *log.PrefixLogger
@@ -53,33 +50,27 @@ func NewBootstrap(
 	enrollmentCSR []byte,
 	statusManager status.Manager,
 	enrollmentClient *client.Enrollment,
-	managementEndpoint string,
 	enrollmentUIEndpoint string,
-	caFile string,
-	keyFile string,
-	managementGeneratedCertFile string,
+	managementServiceConfig *client.Config,
 	backoff wait.Backoff,
 	currentRenderedFile string,
 	desiredRenderedFile string,
 	log *log.PrefixLogger,
 ) *Bootstrap {
 	return &Bootstrap{
-		deviceName:                  deviceName,
-		executer:                    executer,
-		deviceWriter:                deviceWriter,
-		deviceReader:                deviceReader,
-		enrollmentCSR:               enrollmentCSR,
-		statusManager:               statusManager,
-		enrollmentClient:            enrollmentClient,
-		managementEndpoint:          managementEndpoint,
-		enrollmentUIEndpoint:        enrollmentUIEndpoint,
-		caFile:                      caFile,
-		keyFile:                     keyFile,
-		managementGeneratedCertFile: managementGeneratedCertFile,
-		backoff:                     backoff,
-		currentRenderedFile:         currentRenderedFile,
-		desiredRenderedFile:         desiredRenderedFile,
-		log:                         log,
+		deviceName:              deviceName,
+		executer:                executer,
+		deviceWriter:            deviceWriter,
+		deviceReader:            deviceReader,
+		enrollmentCSR:           enrollmentCSR,
+		statusManager:           statusManager,
+		enrollmentClient:        enrollmentClient,
+		enrollmentUIEndpoint:    enrollmentUIEndpoint,
+		managementServiceConfig: managementServiceConfig,
+		backoff:                 backoff,
+		currentRenderedFile:     currentRenderedFile,
+		desiredRenderedFile:     desiredRenderedFile,
+		log:                     log,
 	}
 }
 
@@ -178,15 +169,12 @@ func isOsImageInTransition(current *v1alpha1.RenderedDeviceSpec, desired *v1alph
 }
 
 func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
-	if err := b.deviceReader.CheckPathExists(b.managementGeneratedCertFile); err != nil {
-		return fmt.Errorf("generated cert: %q: %w", b.managementGeneratedCertFile, err)
+	if err := b.deviceReader.CheckPathExists(b.managementServiceConfig.GetClientCertificatePath()); err != nil {
+		return fmt.Errorf("generated cert: %q: %w", b.managementServiceConfig.GetClientCertificatePath(), err)
 	}
 
 	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(b.managementEndpoint,
-		b.deviceReader.PathFor(b.caFile),
-		b.deviceReader.PathFor(b.managementGeneratedCertFile),
-		b.deviceReader.PathFor(b.keyFile))
+	managementHTTPClient, err := client.NewFromConfig(b.managementServiceConfig)
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}
@@ -230,7 +218,7 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 
 // TODO: make more robust
 func (b *Bootstrap) isBootstrapComplete() bool {
-	_, err := b.deviceReader.ReadFile(b.managementGeneratedCertFile)
+	_, err := b.deviceReader.ReadFile(b.managementServiceConfig.GetClientCertificatePath())
 	return !os.IsNotExist(err)
 }
 
@@ -272,8 +260,8 @@ func (b *Bootstrap) verifyEnrollment(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("parsing signed certificate: %v", err)
 	}
 
-	b.log.Infof("Writing signed certificate to %s", b.managementGeneratedCertFile)
-	if err := b.deviceWriter.WriteFile(b.managementGeneratedCertFile, []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
+	b.log.Infof("Writing signed certificate to %s", b.managementServiceConfig.GetClientCertificatePath())
+	if err := b.deviceWriter.WriteFile(b.managementServiceConfig.GetClientCertificatePath(), []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
 		return false, fmt.Errorf("writing signed certificate: %v", err)
 	}
 
@@ -361,15 +349,12 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 }
 
 func (b *Bootstrap) setManagementClient() error {
-	if err := b.deviceReader.CheckPathExists(b.managementGeneratedCertFile); err != nil {
-		return fmt.Errorf("generated cert: %q: %w", b.managementGeneratedCertFile, err)
+	if err := b.deviceReader.CheckPathExists(b.managementServiceConfig.GetClientCertificatePath()); err != nil {
+		return fmt.Errorf("generated cert: %q: %w", b.managementServiceConfig.GetClientCertificatePath(), err)
 	}
 
 	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(b.managementEndpoint,
-		b.deviceReader.PathFor(b.caFile),
-		b.deviceReader.PathFor(b.managementGeneratedCertFile),
-		b.deviceReader.PathFor(b.keyFile))
+	managementHTTPClient, err := client.NewFromConfig(b.managementServiceConfig)
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}

@@ -157,6 +157,10 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+func (d Duration) String() string {
+	return time.Duration(d).String()
+}
+
 func MergeLabels(labels ...map[string]string) map[string]string {
 	result := make(map[string]string)
 	for _, l := range labels {
