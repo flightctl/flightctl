@@ -34,13 +34,15 @@ var _ = Describe("FleetValidate", func() {
 		goodInlineConfig *api.InlineConfigProviderSpec
 		badInlineConfig  *api.InlineConfigProviderSpec
 		callback         store.FleetStoreCallback
+		err              error
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 		taskManager = tasks.Init(log, storeInst)
 
 		spec := api.RepositorySpec{}

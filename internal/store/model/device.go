@@ -24,8 +24,8 @@ type Device struct {
 	// The desired state, stored as opaque JSON object.
 	Spec *JSONField[api.DeviceSpec]
 
-	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.DeviceStatus]
+	// The last reported status, stored as JSONB object
+	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
 
 	// Conditions set by the service, as opposed to the agent.
 	ServiceConditions *JSONField[ServiceConditions]
@@ -118,7 +118,7 @@ func (d *Device) ToApiResource() api.Device {
 	}
 }
 
-func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.DeviceList {
+func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64, conditionCount map[string]int) api.DeviceList {
 	if dl == nil {
 		return api.DeviceList{
 			ApiVersion: DeviceAPI,
@@ -140,6 +140,9 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 	if cont != nil {
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
+	}
+	if conditionCount != nil {
+		ret.Metadata.ConditionCounts = &conditionCount
 	}
 	return ret
 }

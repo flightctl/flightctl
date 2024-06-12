@@ -25,13 +25,15 @@ var _ = Describe("TemplateVersion", func() {
 		tvStore   store.TemplateVersion
 		cfg       *config.Config
 		dbName    string
+		err       error
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 		tvStore = storeInst.TemplateVersion()
 	})
 

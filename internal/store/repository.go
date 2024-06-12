@@ -245,6 +245,6 @@ func (s *RepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, na
 	if err != nil {
 		return nil, flterrors.ErrorFromGormError(err)
 	}
-	deviceList := devices.ToApiResource(nil, nil)
+	deviceList := devices.ToApiResource(nil, nil, nil)
 	return &deviceList, nil
 }

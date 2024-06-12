@@ -36,6 +36,7 @@ var _ = Describe("DeviceStore create", func() {
 		called             bool
 		callback           store.DeviceStoreCallback
 		allDeletedCallback store.DeviceStoreAllDeletedCallback
+		err                error
 	)
 
 	BeforeEach(func() {
@@ -43,7 +44,8 @@ var _ = Describe("DeviceStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) { called = true })

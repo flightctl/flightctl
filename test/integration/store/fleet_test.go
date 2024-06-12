@@ -27,6 +27,7 @@ var _ = Describe("FleetStore create", func() {
 		cfg       *config.Config
 		dbName    string
 		numFleets int
+		err       error
 	)
 
 	BeforeEach(func() {
@@ -34,7 +35,8 @@ var _ = Describe("FleetStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numFleets = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 
 		testutil.CreateTestFleets(ctx, 3, storeInst.Fleet(), orgId, "myfleet", false, nil)
 	})

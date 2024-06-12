@@ -28,6 +28,7 @@ var _ = Describe("RepositoryStore create", func() {
 		numRepositories int
 		callbackCalled  bool
 		callback        store.RepositoryStoreCallback
+		err             error
 	)
 
 	BeforeEach(func() {
@@ -35,7 +36,8 @@ var _ = Describe("RepositoryStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 		callbackCalled = false
 		callback = store.RepositoryStoreCallback(func(*model.Repository) { callbackCalled = true })
 

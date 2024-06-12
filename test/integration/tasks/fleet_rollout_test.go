@@ -38,6 +38,7 @@ var _ = Describe("FleetRollout", func() {
 		numDevices  int
 		callback    store.FleetStoreCallback
 		taskManager tasks.TaskManager
+		err         error
 	)
 
 	BeforeEach(func() {
@@ -45,7 +46,8 @@ var _ = Describe("FleetRollout", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()

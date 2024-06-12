@@ -24,6 +24,7 @@ type Store interface {
 	Repository() Repository
 	ResourceSync() ResourceSync
 	InitialMigration() error
+	Maintenance() error
 	Close() error
 }
 
@@ -96,6 +97,10 @@ func (s *DataStore) InitialMigration() error {
 	return nil
 }
 
+func (s *DataStore) Maintenance() error {
+    return s.db.Exec("VACUUM ANALYZE devices;").Error
+}
+
 func (s *DataStore) Close() error {
 	sqlDB, err := s.db.DB()
 	if err != nil {
@@ -105,12 +110,14 @@ func (s *DataStore) Close() error {
 }
 
 type ListParams struct {
-	Labels       map[string]string
-	InvertLabels *bool
-	Owner        *string
-	Limit        int
-	Continue     *Continue
-	FleetName    *string
+	Labels          map[string]string
+	InvertLabels    *bool
+	Conditions      map[string]string
+	ConditionCounts *bool
+	Owner           *string
+	Limit           int
+	Continue        *Continue
+	FleetName       *string
 }
 
 type Continue struct {

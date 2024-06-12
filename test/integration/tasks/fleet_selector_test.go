@@ -29,13 +29,15 @@ var _ = Describe("FleetSelector", func() {
 		dbName      string
 		taskManager tasks.TaskManager
 		logic       tasks.FleetSelectorMatchingLogic
+		err         error
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		taskManager = tasks.Init(log, storeInst)

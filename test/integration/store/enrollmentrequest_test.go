@@ -46,6 +46,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		cfg                   *config.Config
 		dbName                string
 		numEnrollmentRequests int
+		err                   error
 	)
 
 	BeforeEach(func() {
@@ -53,7 +54,8 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numEnrollmentRequests = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 
 		createEnrollmentRequests(3, ctx, storeInst, orgId)
 	})

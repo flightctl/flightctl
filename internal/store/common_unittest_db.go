@@ -11,33 +11,39 @@ import (
 	"gorm.io/gorm"
 )
 
-func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
+func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, error) {
 	cfg := config.NewDefault()
 	cfg.Database.Name = ""
 	dbTemp, err := InitDB(cfg, log)
-	Expect(err).ShouldNot(HaveOccurred())
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("initializing data store: %w", err)
+	}
 	defer CloseDB(dbTemp)
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
 	dbTemp = dbTemp.Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
-	Expect(dbTemp.Error).ShouldNot(HaveOccurred())
+	if dbTemp.Error != nil {
+		return nil, nil, "", fmt.Errorf("creating database: %w", dbTemp.Error)
+	}
 
 	cfg.Database.Name = randomDBName
 	db, err := InitDB(cfg, log)
 	if err != nil {
-		log.Fatalf("initializing data store: %v", err)
+		return nil, nil, "", fmt.Errorf("initializing data store: %w", err)
 	}
 
 	store := NewStore(db, log.WithField("pkg", "store"))
 	if err := store.InitialMigration(); err != nil {
-		log.Fatalf("running initial migration: %v", err)
+		return nil, nil, "", fmt.Errorf("running initial migration: %w", err)
 	}
 
 	err = store.InitialMigration()
-	Expect(err).ShouldNot(HaveOccurred())
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("running initial migration: %w", err)
+	}
 
-	return store, cfg, randomDBName
+	return store, cfg, randomDBName, nil
 }
 
 func DeleteTestDB(cfg *config.Config, store Store, dbName string) {

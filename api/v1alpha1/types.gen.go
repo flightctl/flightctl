@@ -10,6 +10,16 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ApplicationStatus.
+const (
+	ApplicationStateCompleted ApplicationStatus = "Completed"
+	ApplicationStateError     ApplicationStatus = "Error"
+	ApplicationStatePreparing ApplicationStatus = "Preparing"
+	ApplicationStateRunning   ApplicationStatus = "Running"
+	ApplicationStateStarting  ApplicationStatus = "Starting"
+	ApplicationStateUnknown   ApplicationStatus = "Unknown"
+)
+
 // Defines values for ConditionStatus.
 const (
 	ConditionStatusFalse   ConditionStatus = "False"
@@ -19,6 +29,8 @@ const (
 
 // Defines values for ConditionType.
 const (
+	DeviceAppsAvailable        ConditionType = "AppsAvailable"
+	DeviceAppsDegraded         ConditionType = "AppsDegraded"
 	DeviceAvailable            ConditionType = "Available"
 	DeviceCPUPressure          ConditionType = "CPUPressure"
 	DeviceContainersRunning    ConditionType = "ContainersRunning"
@@ -30,6 +42,7 @@ const (
 	DeviceReady                ConditionType = "Ready"
 	DeviceSpecValid            ConditionType = "SpecValid"
 	DeviceSystemdUnitsRunning  ConditionType = "SystemdUnitsRunning"
+	DeviceUpdating             ConditionType = "Updating"
 	EnrollmentRequestApproved  ConditionType = "Approved"
 	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
 	FleetValid                 ConditionType = "Valid"
@@ -53,6 +66,16 @@ const (
 	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
+
+// Defines values for UpdateStatus.
+const (
+	UpdateStatusFalse   UpdateStatus = "False"
+	UpdateStatusTrue    UpdateStatus = "True"
+	UpdateStatusUnknown UpdateStatus = "Unknown"
+)
+
+// ApplicationStatus defines model for ApplicationStatus.
+type ApplicationStatus string
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
@@ -113,6 +136,22 @@ type Device struct {
 	Status *DeviceStatus `json:"status,omitempty"`
 }
 
+// DeviceApplicationStatus defines model for DeviceApplicationStatus.
+type DeviceApplicationStatus struct {
+	// Id Unique identifier for the application.
+	Id *string `json:"id,omitempty"`
+
+	// Name Human readable name of the application.
+	Name *string `json:"name,omitempty"`
+
+	// Ready The number of containers which are ready in an application.
+	Ready *string `json:"ready,omitempty"`
+
+	// Restarts Number of restarts observed for the application.
+	Restarts *int               `json:"restarts,omitempty"`
+	Status   *ApplicationStatus `json:"status,omitempty"`
+}
+
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -165,7 +204,13 @@ type DeviceStatus struct {
 
 	// SystemdUnits Current state of systemd units on the device.
 	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
-	UpdatedAt    *string                    `json:"updatedAt,omitempty"`
+
+	// Updated Current device update status.
+	Updated   *map[string]interface{} `json:"updated,omitempty"`
+	UpdatedAt *string                 `json:"updatedAt,omitempty"`
+
+	// Workloads Current status of device workloads.
+	Workloads *[]DeviceWorkloadStatus `json:"workloads,omitempty"`
 }
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
@@ -196,6 +241,28 @@ type DeviceSystemdUnitStatus struct {
 
 	// Name The name of the systemd unit.
 	Name interface{} `json:"name"`
+}
+
+// DeviceUpdateStatus defines model for DeviceUpdateStatus.
+type DeviceUpdateStatus struct {
+	// Message Human readable message indicating details about last transition.
+	Message *string `json:"message,omitempty"`
+
+	// Name Human readable name of the update.
+	Name   *string       `json:"name,omitempty"`
+	Status *UpdateStatus `json:"status,omitempty"`
+}
+
+// DeviceWorkloadStatus defines model for DeviceWorkloadStatus.
+type DeviceWorkloadStatus struct {
+	// Applications Statuses of applications in the workload.
+	Applications *[]DeviceApplicationStatus `json:"applications,omitempty"`
+
+	// Id Unique identifier for the workload.
+	Id *string `json:"id,omitempty"`
+
+	// Name Human readable name of the workload.
+	Name *string `json:"name,omitempty"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
@@ -423,6 +490,9 @@ type LabelSelector struct {
 
 // ListMeta ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 type ListMeta struct {
+	// ConditionCounts List of the number of items per condition.
+	ConditionCounts *map[string]int `json:"conditionCounts,omitempty"`
+
 	// Continue continue may be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
 	Continue *string `json:"continue,omitempty"`
 
@@ -652,6 +722,9 @@ type TemplateVersionStatus struct {
 type TemplateVersionStatus_Config_Item struct {
 	union json.RawMessage
 }
+
+// UpdateStatus defines model for UpdateStatus.
+type UpdateStatus string
 
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {

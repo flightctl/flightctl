@@ -57,13 +57,15 @@ var _ = Describe("RepoTester", func() {
 		cfg       *config.Config
 		dbName    string
 		repotestr *tasks.RepoTester
+		err       error
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 		repotestr = tasks.NewRepoTester(log, stores)
 		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
 	})

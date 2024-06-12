@@ -49,6 +49,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		cfg              *config.Config
 		dbName           string
 		numResourceSyncs int
+		err              error
 	)
 
 	BeforeEach(func() {
@@ -56,7 +57,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numResourceSyncs = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, err = store.PrepareDBForUnitTests(log)
+		Expect(err).ToNot(HaveOccurred())
 
 		createResourceSyncs(ctx, 3, storeInst, orgId)
 	})

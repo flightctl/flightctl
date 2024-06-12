@@ -2005,6 +2005,16 @@ components:
           description: 'Current state of systemd units on the device.'
           items:
             $ref: '#/components/schemas/DeviceSystemdUnitStatus'
+        workloads:
+          type: array
+          description: 'Current status of device workloads.'
+          items:
+            $ref: '#/components/schemas/DeviceWorkloadStatus'
+        updated:
+          type: object
+          description: 'Current device update status.'
+          items:
+            $ref: '#/components/schemas/DeviceUpdateStatus'
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
     DeviceSystemInfo:
       required:
@@ -2447,6 +2457,11 @@ components:
           type: integer
           description: remainingItemCount is the number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
           format: int64
+        conditionCounts:
+          type: object
+          additionalProperties:
+            type: integer
+          description: 'List of the number of items per condition.'
       description: ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
     ObjectMeta:
       type: object
@@ -2502,6 +2517,76 @@ components:
           type: string
           description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
       description: Status is a return value for calls that don't return other objects.
+    DeviceWorkloadStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 'Unique identifier for the workload.'
+        name:
+          type: string
+          description: 'Human readable name of the workload.'
+        applications:
+          type: array
+          description: 'Statuses of applications in the workload.'
+          items:
+            $ref: '#/components/schemas/DeviceApplicationStatus'
+    DeviceApplicationStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 'Unique identifier for the application.'
+        name:
+          type: string
+          description: 'Human readable name of the application.'
+        status:
+          $ref: '#/components/schemas/ApplicationStatus'
+          description: 'Status of the application.'
+        ready:
+          type: string
+          description: 'The number of containers which are ready in an application.'
+        restarts:
+          type: integer
+          description: 'Number of restarts observed for the application.'
+    ApplicationStatus:
+      type: string
+      enum:
+      - 'Preparing'
+      - 'Starting'
+      - 'Running'
+      - 'Error'
+      - 'Unknown'
+      - 'Completed'
+      x-enum-varnames:
+      - 'ApplicationStatePreparing'
+      - 'ApplicationStateStarting'
+      - 'ApplicationStateRunning'
+      - 'ApplicationStateError'
+      - 'ApplicationStateUnknown'
+      - 'ApplicationStateCompleted'
+    DeviceUpdateStatus:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/UpdateStatus'
+          description: 'Status of the update, one of True, False, Unknown.'
+        name:
+          type: string
+          description: 'Human readable name of the update.'
+        message:
+          type: string
+          description: 'Human readable message indicating details about last transition.'
+    UpdateStatus:
+      type: string
+      enum:
+      - 'True'
+      - 'False'
+      - 'Unknown'
+      x-enum-varnames:
+      - 'UpdateStatusTrue'
+      - 'UpdateStatusFalse'
+      - 'UpdateStatusUnknown'
     Error:
       required:
         - message
@@ -2553,10 +2638,13 @@ components:
       - 'PIDPressure'          # Device
       - 'CPUPressure'          # Device
       - 'Available'            # Device
-      - 'Progressing'          # Device
+      - 'Progressing'          # Device (deprecated)
       - 'Degraded'             # Device
-      - 'SystemdUnitsRunning'  # Device
-      - 'ContainersRunning'    # Device
+      - 'SystemdUnitsRunning'  # Device (deprecated)
+      - 'ContainersRunning'    # Device (deprecated)
+      - 'Updating'             # Device
+      - 'AppsAvailable'        # Device
+      - 'AppsDegraded'         # Device
       - 'SpecValid'            # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
@@ -2577,6 +2665,9 @@ components:
       - DeviceDegraded
       - DeviceSystemdUnitsRunning
       - DeviceContainersRunning
+      - DeviceUpdating
+      - DeviceAppsAvailable
+      - DeviceAppsDegraded
       - DeviceSpecValid
       - TemplateVersionValid
     ConditionStatus:

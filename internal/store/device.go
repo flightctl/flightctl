@@ -5,6 +5,7 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -33,6 +34,7 @@ type Device interface {
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+	Txn(ctx context.Context, devices []api.Device) error
 	InitialMigration() error
 }
 
@@ -65,7 +67,22 @@ func (s *DeviceStore) InitialMigration() error {
 				return err
 			}
 		} else {
-			return s.db.Migrator().CreateIndex(&model.Device{}, "Labels")
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for device status
+	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_status") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Status"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -122,7 +139,8 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 		numRemaining = &numRemainingVal
 	}
 
-	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
+	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining, nil)
+	fmt.Printf("apiDevicelist: %d\n", len(apiDevicelist.Items))
 	return &apiDevicelist, flterrors.ErrorFromGormError(result.Error)
 }
 
@@ -407,6 +425,19 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 		if len(repos) > 0 {
 			err = innerTx.Model(&device).Association("Repositories").Append(repos)
 			return flterrors.ErrorFromGormError(err)
+		}
+		return nil
+	})
+}
+
+func (s *DeviceStore) Txn(ctx context.Context, devices []api.Device) error {
+	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		for _, device := range devices {
+			modelDevice := model.NewDeviceFromApiResource(&device)
+			result := innerTx.Create(modelDevice)
+			if result.Error != nil {
+				return flterrors.ErrorFromGormError(result.Error)
+			}
 		}
 		return nil
 	})
