@@ -12,8 +12,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/bootimage"
 	"github.com/flightctl/flightctl/internal/client"
-	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
@@ -30,6 +30,7 @@ type Bootstrap struct {
 	enrollmentClient     *client.Enrollment
 	enrollmentUIEndpoint string
 	statusManager        status.Manager
+	imageManager         bootimage.Manager
 	backoff              wait.Backoff
 
 	currentRenderedFile string
@@ -52,6 +53,7 @@ func NewBootstrap(
 	deviceReader *fileio.Reader,
 	enrollmentCSR []byte,
 	statusManager status.Manager,
+	imageManager bootimage.Manager,
 	enrollmentClient *client.Enrollment,
 	managementEndpoint string,
 	enrollmentUIEndpoint string,
@@ -70,6 +72,7 @@ func NewBootstrap(
 		deviceReader:                deviceReader,
 		enrollmentCSR:               enrollmentCSR,
 		statusManager:               statusManager,
+		imageManager:                imageManager,
 		enrollmentClient:            enrollmentClient,
 		managementEndpoint:          managementEndpoint,
 		enrollmentUIEndpoint:        enrollmentUIEndpoint,
@@ -135,18 +138,17 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 		return fmt.Errorf("getting desired rendered spec: %w", err)
 	}
 
-	if !isOsImageInTransition(&currentSpec, &desiredSpec) {
-		// We didn't change the OS image, so nothing to do here
+	if b.imageManager.IsDisabled() || !spec.OsImageInTransition(&currentSpec, &desiredSpec) {
+		// We didn't change the OS image or the image manager is disabled.
 		return nil
 	}
 
-	bootcCmd := container.NewBootcCmd(b.executer)
-	bootcHost, err := bootcCmd.Status(ctx)
+	imageStatus, err := b.imageManager.Status(ctx)
 	if err != nil {
 		return fmt.Errorf("getting current bootc status: %w", err)
 	}
 
-	if container.IsOsImageReconciled(bootcHost, &desiredSpec) {
+	if imageStatus.IsBootedImageExpected(&desiredSpec) {
 		err = spec.WriteRenderedSpecToFile(b.deviceWriter, &desiredSpec, b.currentRenderedFile)
 		if err != nil {
 			return fmt.Errorf("writing rendered spec to file: %w", err)
@@ -154,7 +156,7 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 	} else {
 		// We rebooted without applying the new OS image - something went wrong
 		b.log.Warn("Started bootstrap with OS image not equal to desired image")
-		condErr := fmt.Errorf("booted image %s, expected %s", container.GetImage(bootcHost), desiredSpec.Os.Image)
+		condErr := fmt.Errorf("booted image %s, expected %s", imageStatus.BootedImage(), desiredSpec.Os.Image)
 		err = b.statusManager.UpdateConditionError(ctx, BootedWithUnexpectedImage, condErr)
 		if err != nil {
 			b.log.Warnf("Failed setting error condition: %v", err)
@@ -165,34 +167,8 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 	return nil
 }
 
-func isOsImageInTransition(current *v1alpha1.RenderedDeviceSpec, desired *v1alpha1.RenderedDeviceSpec) bool {
-	currentImage := ""
-	if current.Os != nil {
-		currentImage = current.Os.Image
-	}
-	desiredImage := ""
-	if desired.Os != nil {
-		desiredImage = desired.Os.Image
-	}
-	return currentImage != desiredImage
-}
-
 func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
-	if err := b.deviceReader.CheckPathExists(b.managementGeneratedCertFile); err != nil {
-		return fmt.Errorf("generated cert: %q: %w", b.managementGeneratedCertFile, err)
-	}
-
-	// create the management client
-	managementHTTPClient, err := client.NewWithResponses(b.managementEndpoint,
-		b.deviceReader.PathFor(b.caFile),
-		b.deviceReader.PathFor(b.managementGeneratedCertFile),
-		b.deviceReader.PathFor(b.keyFile))
-	if err != nil {
-		return fmt.Errorf("create management client: %w", err)
-	}
-	managementClient := client.NewManagement(managementHTTPClient)
-
-	_, err = spec.EnsureDesiredRenderedSpec(ctx, b.log, b.deviceWriter, b.deviceReader, managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
+	_, err := spec.EnsureDesiredRenderedSpec(ctx, b.log, b.deviceWriter, b.deviceReader, b.managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
 	if err != nil {
 		return fmt.Errorf("ensure desired rendered spec: %w", err)
 	}

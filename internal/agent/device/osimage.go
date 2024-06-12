@@ -6,7 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/bootimage"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -18,7 +18,7 @@ const (
 )
 
 type OSImageController struct {
-	bootc         *container.BootcCmd
+	imageManager  bootimage.Manager
 	statusManager status.Manager
 	log           *log.PrefixLogger
 }
@@ -26,16 +26,27 @@ type OSImageController struct {
 func NewOSImageController(
 	executer executer.Executer,
 	statusManager status.Manager,
+	imageManager bootimage.Manager,
 	log *log.PrefixLogger,
 ) *OSImageController {
 	return &OSImageController{
-		bootc:         container.NewBootcCmd(executer),
+		imageManager:  imageManager,
 		statusManager: statusManager,
 		log:           log,
 	}
 }
 
 func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+	if desired.Os == nil {
+		c.log.Debugf("Device os image is nil")
+		return nil
+	}
+
+	if c.imageManager.IsDisabled() {
+		c.log.Warnf("Image manager is disabled: can not reconcile image: %s", desired.Os.Image)
+		return nil
+	}
+
 	c.log.Debug("Syncing device image")
 	defer c.log.Debug("Finished syncing device image")
 
@@ -51,25 +62,20 @@ func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 }
 
 func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	if desired.Os == nil {
-		c.log.Debugf("Device os image is nil")
-		return nil
-	}
 
-	host, err := c.bootc.Status(ctx)
+	imageStatus, err := c.imageManager.Status(ctx)
 	if err != nil {
 		return err
 	}
-
 	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
-	if container.IsOsImageReconciled(host, desired) {
+	if imageStatus.IsBootedImageExpected(desired) {
 		c.log.Debugf("Host is reconciled to os image %s", desired.Os.Image)
 		return nil
 	}
 
 	image := desired.Os.Image
 	c.log.Infof("Switching to os image: %s", image)
-	if err := c.bootc.Switch(ctx, image); err != nil {
+	if err := c.imageManager.Switch(ctx, image); err != nil {
 		return err
 	}
 
@@ -79,5 +85,5 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	c.log.Infof("Os image switch complete - rebooting into new image")
-	return c.bootc.Apply(ctx)
+	return c.imageManager.Apply(ctx)
 }

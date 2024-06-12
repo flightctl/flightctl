@@ -1,0 +1,64 @@
+{
+  "apiVersion": "org.containers.bootc/v1alpha1",
+  "kind": "BootcHost",
+  "metadata": {
+    "name": "host"
+  },
+  "spec": {
+    "image": {
+      "image": "quay.io/flightctl/flightctl-agent-centos:latest",
+      "transport": "registry"
+    },
+    "bootOrder": "default"
+  },
+  "status": {
+    "staged": null,
+    "booted": {
+      "image": {
+        "image": {
+          "image": "quay.io/flightctl/flightctl-agent-centos:latest",
+          "transport": "registry"
+        },
+        "version": "stream9.20240503.0",
+        "timestamp": null,
+        "imageDigest": "sha256:8e67302bedc3321c0592df3804688ca168acc29c08b39e033b4a74be2f6b564d"
+      },
+      "cachedUpdate": null,
+      "incompatible": false,
+      "pinned": false,
+      "ostree": {
+        "checksum": "8570a1f1fd63277e4f99a191128b6960172c7e227bc500fbb30000c633f87060",
+        "deploySerial": 0
+      }
+    },
+    "rollback": {
+      "image": {
+        "image": {
+          "image": "quay.io/flightctl/flightctl-agent-centos:latest",
+          "transport": "registry"
+        },
+        "version": "stream9.20240503.0",
+        "timestamp": null,
+        "imageDigest": "sha256:5c663a3fd36dfc1f13698b9560a29474198cec47f3f7f032b96ec2fd4b39cde4"
+      },
+      "cachedUpdate": {
+        "image": {
+          "image": "quay.io/flightctl/flightctl-agent-centos:latest",
+          "transport": "registry"
+        },
+        "version": "stream9.20240503.0",
+        "timestamp": null,
+        "imageDigest": "sha256:8e67302bedc3321c0592df3804688ca168acc29c08b39e033b4a74be2f6b564d"
+      },
+      "incompatible": false,
+      "pinned": false,
+      "ostree": {
+        "checksum": "5fa81f6da05f0553cf48e05383888f7c5e1515cb0229d5feaa120fcf60cb7b22",
+        "deploySerial": 0
+      }
+    },
+    "rollbackQueued": false,
+    "type": "bootcHost"
+  }
+}
+
