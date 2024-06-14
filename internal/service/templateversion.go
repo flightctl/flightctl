@@ -32,7 +32,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
-		return nil, err
+		return server.ListTemplateVersions400JSONResponse{Message: err.Error()}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)

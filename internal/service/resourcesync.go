@@ -49,7 +49,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
-		return nil, err
+		return server.ListResourceSync400JSONResponse{Message: err.Error()}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)

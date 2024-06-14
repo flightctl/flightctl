@@ -49,7 +49,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
-		return nil, err
+		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
