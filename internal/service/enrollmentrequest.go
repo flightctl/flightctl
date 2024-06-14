@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -75,6 +76,14 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 // (POST /api/v1/enrollmentrequests)
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
 	orgId := store.NullOrgId
+
+	// don't set fields that are managed by the service
+	request.Body.Status = nil
+	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.CreateEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
 
 	// verify if the enrollment request already exists, and return it with a 208 status code if it does
 	if enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, *request.Body.Metadata.Name); err == nil {
@@ -167,8 +176,9 @@ func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request serv
 // (PUT /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: "metadata.name is not specified"}, nil
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.ReplaceEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceEnrollmentRequest400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
@@ -230,6 +240,11 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 // (POST /api/v1/enrollmentrequests/{name}/approval)
 func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, request server.CreateEnrollmentRequestApprovalRequestObject) (server.CreateEnrollmentRequestApprovalResponseObject, error) {
 	orgId := store.NullOrgId
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.CreateEnrollmentRequestApproval400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	switch err {
 	default:

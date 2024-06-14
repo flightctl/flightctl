@@ -2573,6 +2573,15 @@ func (response CreateEnrollmentRequestApproval200JSONResponse) VisitCreateEnroll
 	return json.NewEncoder(w).Encode(response)
 }
 
+type CreateEnrollmentRequestApproval400JSONResponse Error
+
+func (response CreateEnrollmentRequestApproval400JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type CreateEnrollmentRequestApproval401JSONResponse Error
 
 func (response CreateEnrollmentRequestApproval401JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
