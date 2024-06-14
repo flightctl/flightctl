@@ -116,7 +116,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
-		return nil, err
+		return server.ListEnrollmentRequests400JSONResponse{Message: err.Error()}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
