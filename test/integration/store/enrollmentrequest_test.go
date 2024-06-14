@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -203,7 +204,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		It("UpdateEnrollmentRequestStatus", func() {
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
+				LastTransitionTime: util.TimeToPtr(time.Now()),
 				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),

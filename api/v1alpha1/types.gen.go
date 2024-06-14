@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
 )
@@ -56,10 +57,8 @@ const (
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
-	LastHeartbeatTime *string `json:"lastHeartbeatTime,omitempty"`
-
 	// LastTransitionTime The last time the condition transitioned from one status to another.
-	LastTransitionTime *string `json:"lastTransitionTime,omitempty"`
+	LastTransitionTime *time.Time `json:"lastTransitionTime,omitempty"`
 
 	// Message Human readable message indicating details about last transition.
 	Message *string `json:"message,omitempty"`
@@ -165,7 +164,7 @@ type DeviceStatus struct {
 
 	// SystemdUnits Current state of systemd units on the device.
 	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
-	UpdatedAt    *string                    `json:"updatedAt,omitempty"`
+	UpdatedAt    *time.Time                 `json:"updatedAt,omitempty"`
 }
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
@@ -222,7 +221,7 @@ type EnrollmentRequestApproval struct {
 	Approved bool `json:"approved"`
 
 	// ApprovedAt approvedAt is the time at which the request was approved.
-	ApprovedAt *string `json:"approvedAt,omitempty"`
+	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
 
 	// ApprovedBy approvedBy is the name of the approver.
 	ApprovedBy *string `json:"approvedBy,omitempty"`
@@ -410,9 +409,9 @@ type KubernetesSecretProviderSpec struct {
 	ConfigType string `json:"configType"`
 	Name       string `json:"name"`
 	SecretRef  struct {
-		MountPath string  `json:"mountPath"`
-		Name      *string `json:"name,omitempty"`
-		Namespace string  `json:"namespace"`
+		MountPath string `json:"mountPath"`
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
 	} `json:"secretRef"`
 }
 
@@ -434,8 +433,8 @@ type ListMeta struct {
 type ObjectMeta struct {
 	// Annotations Properties set by the service.
 	Annotations       *map[string]string `json:"annotations,omitempty"`
-	CreationTimestamp *string            `json:"creationTimestamp,omitempty"`
-	DeletionTimestamp *string            `json:"deletionTimestamp,omitempty"`
+	CreationTimestamp *time.Time         `json:"creationTimestamp,omitempty"`
+	DeletionTimestamp *time.Time         `json:"deletionTimestamp,omitempty"`
 
 	// Generation A sequence number representing a specific generation of the desired state. Populated by the system. Read-only.
 	Generation *int64 `json:"generation,omitempty"`
@@ -645,7 +644,7 @@ type TemplateVersionStatus struct {
 	Systemd *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
-	UpdatedAt *string `json:"updatedAt,omitempty"`
+	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
 // TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.

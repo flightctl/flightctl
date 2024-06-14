@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -55,7 +56,7 @@ func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (
 			Os: &v1alpha1.DeviceOSSpec{Image: "img"},
 		},
 		Status: &v1alpha1.DeviceStatus{
-			UpdatedAt: util.StrToPtr("123"),
+			UpdatedAt: util.TimeToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)),
 		},
 	}
 	serviceHandler := ServiceHandler{
