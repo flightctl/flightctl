@@ -3,11 +3,12 @@ package agent
 import (
 	"context"
 	"crypto"
-	"encoding/hex"
+	"encoding/base32"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -93,7 +94,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	deviceName := hex.EncodeToString(publicKeyHash)
+	deviceName := strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash))
 	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
 	if err != nil {
 		return err
