@@ -1,8 +1,8 @@
 apiVersion: v1alpha1
 kind: ResourceSync
 metadata:
-  name: defaultSync
+  name: default-sync
 spec:
-  repository: defaultRepo
+  repository: default-repo
   path: /examples/fleet.yaml
   targetRevision: main
