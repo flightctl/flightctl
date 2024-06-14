@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -178,7 +179,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	orgId := store.NullOrgId
 
 	device := request.Body
-	device.Status.UpdatedAt = util.TimeStampStringPtr()
+	device.Status.UpdatedAt = util.TimeToPtr(time.Now())
 
 	result, err := h.store.Device().UpdateStatus(ctx, orgId, device)
 	switch err {

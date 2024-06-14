@@ -91,7 +91,7 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 		Kind:       TemplateVersionKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(t.Name),
-			CreationTimestamp: util.StrToPtr(t.CreatedAt.UTC().Format(time.RFC3339)),
+			CreationTimestamp: util.TimeToPtr(t.CreatedAt.UTC()),
 			Generation:        t.Generation,
 			Owner:             util.SetResourceOwner(FleetKind, t.FleetName),
 			Annotations:       &metadataAnnotations,
