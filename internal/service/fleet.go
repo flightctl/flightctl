@@ -64,7 +64,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
-		return nil, err
+		return server.ListFleets400JSONResponse{Message: err.Error()}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
