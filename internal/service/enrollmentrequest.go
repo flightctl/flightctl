@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -260,7 +261,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 			return server.CreateEnrollmentRequestApproval422JSONResponse{Message: "ApprovedAt is not allowed to be set when approving enrollment requests"}, nil
 		}
 
-		request.Body.ApprovedAt = util.TimeStampStringPtr()
+		request.Body.ApprovedAt = util.TimeToPtr(time.Now())
 
 		// The same check should happen for ApprovedBy, but we don't have a way to identify
 		// users yet, so we'll let the UI set it for now.
