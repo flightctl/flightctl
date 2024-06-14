@@ -11,7 +11,7 @@ spec:
     - name: base
       configType: GitConfigProviderSpec
       gitRef:
-        repository: defaultRepo
+        repository: default-repo
         targetRevision: main
         path: /basic-nginx-demo/configuration
     - name: motd-update
