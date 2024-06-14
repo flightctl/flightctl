@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -16,13 +17,14 @@ import (
 // (POST /api/v1/repositories)
 func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.CreateRepositoryRequestObject) (server.CreateRepositoryResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.CreateRepository400JSONResponse{Message: "metadata.name not specified"}, nil
-	}
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.CreateRepository400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
 
 	result, err := h.store.Repository().Create(ctx, orgId, request.Body, h.taskManager.RepositoryUpdatedCallback)
 	switch err {
@@ -106,16 +108,17 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 // (PUT /api/v1/repositories/{name})
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.ReplaceRepositoryRequestObject) (server.ReplaceRepositoryResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.ReplaceRepository400JSONResponse{Message: "metadata.name not specified"}, nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceRepository400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
-	}
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.ReplaceRepository400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceRepository400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	}
 
 	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.RepositoryUpdatedCallback)
 	switch err {

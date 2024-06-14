@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -27,9 +28,6 @@ func FleetFromReader(r io.Reader) (*v1alpha1.Fleet, error) {
 // (POST /api/v1/fleets)
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.CreateFleet400JSONResponse{Message: "fleet name not specified"}, nil
-	}
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
@@ -38,8 +36,10 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 		NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
 	}
 
-	err := validateDiscriminators(request.Body)
-	if err != nil {
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.CreateFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+	if err := validateDiscriminators(request.Body); err != nil {
 		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
@@ -125,23 +125,22 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.ReplaceFleet400JSONResponse{Message: "metadata.name not specified"}, nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
-	}
-
-	err := validateDiscriminators(request.Body)
-	if err != nil {
-		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
-	}
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 	if request.Body.Spec.Template.Metadata != nil {
 		NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+	}
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.ReplaceFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	}
+	if err := validateDiscriminators(request.Body); err != nil {
+		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
 	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
