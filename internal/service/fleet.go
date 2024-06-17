@@ -246,6 +246,7 @@ func validateDiscriminators(fleet *v1alpha1.Fleet) error {
 }
 
 // (PATCH /api/v1/fleets/{name})
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFleetRequestObject) (server.PatchFleetResponseObject, error) {
 	orgId := store.NullOrgId
 

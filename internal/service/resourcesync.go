@@ -152,6 +152,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.
 }
 
 // (PATCH /api/v1/resourcesyncs/{name})
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.PatchResourceSyncRequestObject) (server.PatchResourceSyncResponseObject, error) {
 	orgId := store.NullOrgId
 
