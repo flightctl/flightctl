@@ -216,6 +216,7 @@ func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request serv
 }
 
 // (PATCH /api/v1/devices/{name})
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDeviceRequestObject) (server.PatchDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 
