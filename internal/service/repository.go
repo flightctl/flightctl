@@ -158,9 +158,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	currentObj, err := h.store.Repository().Get(ctx, orgId, request.Name)
 	if err != nil {
 		switch err {
-		case flterrors.ErrResourceIsNil:
-			return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNameIsNil:
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 			return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
 		case flterrors.ErrResourceNotFound:
 			return server.PatchRepository404JSONResponse{}, nil
@@ -194,9 +192,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	switch err {
 	case nil:
 		return server.PatchRepository200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchRepository404JSONResponse{}, nil

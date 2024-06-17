@@ -41,8 +41,14 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) erro
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
 
-	router, _ := gorillamux.NewRouter(swagger)
-	route, pathParams, _ := router.FindRoute(httpReq)
+	router, err := gorillamux.NewRouter(swagger)
+	if err != nil {
+		return err
+	}
+	route, pathParams, err := router.FindRoute(httpReq)
+	if err != nil {
+		return err
+	}
 
 	requestValidationInput := &openapi3filter.RequestValidationInput{
 		Request:    httpReq,
