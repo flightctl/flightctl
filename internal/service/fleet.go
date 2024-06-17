@@ -252,9 +252,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	currentObj, err := h.store.Fleet().Get(ctx, orgId, request.Name)
 	if err != nil {
 		switch err {
-		case flterrors.ErrResourceIsNil:
-			return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNameIsNil:
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 			return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 		case flterrors.ErrResourceNotFound:
 			return server.PatchFleet404JSONResponse{}, nil
@@ -288,9 +286,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	switch err {
 	case nil:
 		return server.PatchFleet200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchFleet404JSONResponse{}, nil

@@ -222,9 +222,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
 		switch err {
-		case flterrors.ErrResourceIsNil:
-			return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNameIsNil:
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 			return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
 		case flterrors.ErrResourceNotFound:
 			return server.PatchDevice404JSONResponse{}, nil
@@ -258,9 +256,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	switch err {
 	case nil:
 		return server.PatchDevice200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchDevice404JSONResponse{}, nil
