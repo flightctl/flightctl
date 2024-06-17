@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -30,6 +29,11 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 		return server.CreateFleet400JSONResponse{Message: "fleet name not specified"}, nil
 	}
 
+	err := ValidateSettings(request.Body.Spec.Template.Spec.Settings)
+	if err != nil {
+		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
+	}
+
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
@@ -37,7 +41,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 		NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
 	}
 
-	err := validateDiscriminators(request.Body)
+	err = ValidateDiscriminators(request.Body.Spec.Template.Spec.Config)
 	if err != nil {
 		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
 	}
@@ -131,7 +135,12 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	err := validateDiscriminators(request.Body)
+	err := ValidateSettings(request.Body.Spec.Template.Spec.Settings)
+	if err != nil {
+		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
+	}
+
+	err = ValidateDiscriminators(request.Body.Spec.Template.Spec.Config)
 	if err != nil {
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	}
@@ -216,30 +225,4 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	default:
 		return nil, err
 	}
-}
-
-func validateDiscriminators(fleet *api.Fleet) error {
-	if fleet.Spec.Template.Spec.Config == nil {
-		return nil
-	}
-	for _, config := range *fleet.Spec.Template.Spec.Config {
-		discriminator, err := config.Discriminator()
-		if err != nil {
-			return err
-		}
-		found := false
-		discriminators := []string{
-			string(api.TemplateDiscriminatorGitConfig),
-			string(api.TemplateDiscriminatorKubernetesSec),
-			string(api.TemplateDiscriminatorInlineConfig)}
-		for _, d := range discriminators {
-			if discriminator == d {
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("configType must be one of %s", strings.Join(discriminators, ", "))
-		}
-	}
-	return nil
 }

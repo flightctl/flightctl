@@ -77,7 +77,7 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 		cancelFunc: cancelFunc,
 		channels:   channels,
 		store:      store,
-		threads:    make([]*thread.Thread, 2),
+		threads:    make([]*thread.Thread, 3),
 		once:       new(sync.Once),
 	}
 }
@@ -99,8 +99,14 @@ func (t TaskManager) Start() {
 		t.log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalMinute(2), resourceSync.Poll)
 	resourceSyncThread.Start()
 
+	deviceLivenessChecker := NewDeviceLivenessChecker(t)
+	deviceLivenessCheckerThread := thread.New(
+		t.log.WithField("pkg", "deviceLivenessChecker"), "DeviceLivenessChecker", threadIntervalMinute(2), deviceLivenessChecker.Poll)
+	deviceLivenessCheckerThread.Start()
+
 	t.threads[0] = repoTesterThread
 	t.threads[1] = resourceSyncThread
+	t.threads[2] = deviceLivenessCheckerThread
 }
 
 func (t TaskManager) Stop() {

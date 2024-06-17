@@ -23,6 +23,10 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 			Os: &api.DeviceOSSpec{
 				Image: "os",
 			},
+			Settings: &api.DeviceSettings{
+				HeartbeatWarningTime: util.StrToPtr("30m"),
+				HeartbeatErrorTime:   util.StrToPtr("1h"),
+			},
 		},
 	}
 

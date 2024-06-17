@@ -51,11 +51,11 @@ func SetStatusCondition(conditions *[]Condition, newCondition Condition) (change
 		changed = true
 	}
 
-	if existingCondition.Reason != newCondition.Reason {
+	if util.DefaultIfNil(existingCondition.Reason, "") != util.DefaultIfNil(newCondition.Reason, "") {
 		existingCondition.Reason = newCondition.Reason
 		changed = true
 	}
-	if existingCondition.Message != newCondition.Message {
+	if util.DefaultIfNil(existingCondition.Message, "") != util.DefaultIfNil(newCondition.Message, "") {
 		existingCondition.Message = newCondition.Message
 		changed = true
 	}

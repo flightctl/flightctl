@@ -1797,8 +1797,9 @@ components:
     DeviceStatus:
       type: object
       properties:
-        updatedAt:
+        lastSeenAt:
           type: string
+          description: 'The time at which the agent running on the device last checked in.'
         conditions:
           type: array
           description: 'Current state of the device.'
@@ -2175,6 +2176,17 @@ components:
                 type: string
                 pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
                 maxLength: 256
+        settings:
+          $ref: '#/components/schemas/DeviceSettings'
+    DeviceSettings:
+      type: object
+      properties:
+        heartbeatWarningTime:
+          type: string
+          description: How long since a device was last seen before issuing a warning. Format like "30m", "2.3h", or "4h35m".
+        heartbeatErrorTime:
+          type: string
+          description: How long since a device was last seen before issuing an error. Format like "30m", "2.3h", or "4h35m".
     FleetStatus:
       type: object
       properties:
@@ -2368,6 +2380,8 @@ components:
       - 'Degraded'             # Device
       - 'SystemdUnitsRunning'  # Device
       - 'ContainersRunning'    # Device
+      - 'HeartbeatWarning'     # Device (service condition)
+      - 'HeartbeatError'       # Device (service condition)
       - 'SpecValid'            # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
@@ -2388,6 +2402,8 @@ components:
       - DeviceDegraded
       - DeviceSystemdUnitsRunning
       - DeviceContainersRunning
+      - DeviceHeartbeatWarning
+      - DeviceHeartbeatError
       - DeviceSpecValid
       - TemplateVersionValid
     ConditionStatus:
