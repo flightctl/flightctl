@@ -5,8 +5,10 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -22,6 +24,7 @@ import (
 type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	ListExpiredHeartbeats(ctx context.Context, expirationTime time.Time) (*model.DeviceList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -31,12 +34,15 @@ type Device interface {
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string) (*api.RenderedDeviceSpec, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	OverrideTimeGetterForTesting(timeGetter TimeGetter)
 	InitialMigration() error
 }
 
+type TimeGetter func() time.Time
 type DeviceStore struct {
-	db  *gorm.DB
-	log logrus.FieldLogger
+	db             *gorm.DB
+	log            logrus.FieldLogger
+	getCurrentTime TimeGetter
 }
 
 type DeviceStoreCallback func(before *model.Device, after *model.Device)
@@ -46,7 +52,11 @@ type DeviceStoreAllDeletedCallback func(orgId uuid.UUID)
 var _ Device = (*DeviceStore)(nil)
 
 func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
-	return &DeviceStore{db: db, log: log}
+	return &DeviceStore{db: db, log: log, getCurrentTime: time.Now}
+}
+
+func (s *DeviceStore) OverrideTimeGetterForTesting(timeGetter TimeGetter) {
+	s.getCurrentTime = timeGetter
 }
 
 func (s *DeviceStore) InitialMigration() error {
@@ -122,6 +132,13 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
 	return &apiDevicelist, flterrors.ErrorFromGormError(result.Error)
+}
+
+func (s *DeviceStore) ListExpiredHeartbeats(ctx context.Context, expirationTime time.Time) (*model.DeviceList, error) {
+	var devices model.DeviceList
+	query := s.db.Where("heartbeat_timeout_at < ?", expirationTime)
+	result := query.Find(&devices)
+	return &devices, flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
@@ -232,6 +249,8 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 	return &updatedResource, created, nil
 }
 
+// Method called only by agent, handles check-in timestamps as a side effect.
+// Contains logic that doesn't belong in the store layer, but is here for efficiency.
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
@@ -239,13 +258,69 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 	if resource.Metadata.Name == nil {
 		return nil, flterrors.ErrResourceNameIsNil
 	}
-	device := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
-	}
-	result := s.db.Model(&device).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(resource.Status),
+	var existingRecord *model.Device
+
+	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord = &model.Device{Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name}}
+		result := innerTx.First(existingRecord)
+		if result.Error != nil {
+			return flterrors.ErrorFromGormError(result.Error)
+		}
+
+		// Update the time that the agent last reported in
+		now := time.Now()
+		resource.Status.LastSeenAt = util.StrToPtr(now.Format(time.RFC3339))
+
+		updatedStatus := model.MakeJSONField(*resource.Status)
+		updates := map[string]interface{}{
+			"status": updatedStatus,
+		}
+		existingRecord.Status = updatedStatus
+
+		// If a heartbeat threshold is defined, set the time in the DB to the expiration of the sooner one
+		if existingRecord.Spec.Data.Settings != nil {
+			var minTime *time.Duration
+			if existingRecord.Spec.Data.Settings.HeartbeatWarningTime != nil {
+				warningTime, err := time.ParseDuration(*existingRecord.Spec.Data.Settings.HeartbeatWarningTime)
+				if err != nil {
+					return fmt.Errorf("failed to parse HeartbeatWarningTime: %w", err)
+				}
+				minTime = &warningTime
+			}
+			if existingRecord.Spec.Data.Settings.HeartbeatErrorTime != nil {
+				errorTime, err := time.ParseDuration(*existingRecord.Spec.Data.Settings.HeartbeatErrorTime)
+				if err != nil {
+					return fmt.Errorf("failed to parse HeartbeatErrorTime: %w", err)
+				}
+				if minTime != nil && errorTime < *minTime {
+					minTime = &errorTime
+				}
+			}
+			if minTime != nil {
+				heartbeatTimeoutAt := time.Time.Add(now, *minTime)
+				updates["heartbeat_timeout_at"] = heartbeatTimeoutAt
+				existingRecord.HeartbeatTimeoutAt = heartbeatTimeoutAt
+			}
+		}
+
+		// Unset the heartbeat warning and error conditions (has no effect if they are already unset)
+		if existingRecord.ServiceConditions != nil && existingRecord.ServiceConditions.Data.Conditions != nil {
+			okCondition := api.Condition{
+				Type:   api.DeviceHeartbeatWarning,
+				Status: api.ConditionStatusFalse,
+			}
+			api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, okCondition)
+			okCondition.Type = api.DeviceHeartbeatError
+			api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, okCondition)
+			updates["service_conditions"] = existingRecord.ServiceConditions
+		}
+
+		result = innerTx.Model(existingRecord).Updates(updates)
+		return flterrors.ErrorFromGormError(result.Error)
 	})
-	return resource, flterrors.ErrorFromGormError(result.Error)
+
+	updatedResource := existingRecord.ToApiResource()
+	return &updatedResource, flterrors.ErrorFromGormError(err)
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
@@ -381,7 +456,7 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 		}
 
 		for _, condition := range conditions {
-			api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
+			_ = api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
 		}
 
 		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{

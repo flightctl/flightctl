@@ -7,7 +7,6 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -17,6 +16,16 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	orgId := store.NullOrgId
 	if request.Body.Metadata.Name == nil {
 		return server.CreateDevice400JSONResponse{Message: "metadata.name not specified"}, nil
+	}
+
+	err := ValidateSettings(request.Body.Spec.Settings)
+	if err != nil {
+		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
+	}
+
+	err = ValidateDiscriminators(request.Body.Spec.Config)
+	if err != nil {
+		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
 	}
 
 	// don't set fields that are managed by the service
@@ -112,6 +121,18 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
+	if request.Body.Spec != nil {
+		err := ValidateSettings(request.Body.Spec.Settings)
+		if err != nil {
+			return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
+		}
+
+		err = ValidateDiscriminators(request.Body.Spec.Config)
+		if err != nil {
+			return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
+		}
+	}
+
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
@@ -168,12 +189,10 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 }
 
 // (PUT /api/v1/devices/{name}/status)
+// Method called only by agent, updates check-in timestamps as a side effect
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
 	orgId := store.NullOrgId
-
 	device := request.Body
-	device.Status.UpdatedAt = util.TimeStampStringPtr()
-
 	result, err := h.store.Device().UpdateStatus(ctx, orgId, device)
 	switch err {
 	case nil:

@@ -32,6 +32,9 @@ type Device struct {
 
 	// The rendered ignition config, exposed in a separate endpoint.
 	RenderedConfig *string
+
+	// The time at which the device's heartbeat times out
+	HeartbeatTimeoutAt time.Time
 }
 
 type ServiceConditions struct {

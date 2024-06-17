@@ -24,6 +24,8 @@ const (
 	DeviceContainersRunning    ConditionType = "ContainersRunning"
 	DeviceDegraded             ConditionType = "Degraded"
 	DeviceDiskPressure         ConditionType = "DiskPressure"
+	DeviceHeartbeatError       ConditionType = "HeartbeatError"
+	DeviceHeartbeatWarning     ConditionType = "HeartbeatWarning"
 	DeviceMemoryPressure       ConditionType = "MemoryPressure"
 	DevicePIDPressure          ConditionType = "PIDPressure"
 	DeviceProgressing          ConditionType = "Progressing"
@@ -127,6 +129,15 @@ type DeviceOSSpec struct {
 	Image string `json:"image"`
 }
 
+// DeviceSettings defines model for DeviceSettings.
+type DeviceSettings struct {
+	// HeartbeatErrorTime How long since a device was last seen before issuing an error. Format like "30m", "2.3h", or "4h35m".
+	HeartbeatErrorTime *string `json:"heartbeatErrorTime,omitempty"`
+
+	// HeartbeatWarningTime How long since a device was last seen before issuing a warning. Format like "30m", "2.3h", or "4h35m".
+	HeartbeatWarningTime *string `json:"heartbeatWarningTime,omitempty"`
+}
+
 // DeviceSpec defines model for DeviceSpec.
 type DeviceSpec struct {
 	// Config List of config resources.
@@ -134,8 +145,9 @@ type DeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
-	Systemd *struct {
+	Os       *DeviceOSSpec   `json:"os,omitempty"`
+	Settings *DeviceSettings `json:"settings,omitempty"`
+	Systemd  *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
 }
@@ -153,12 +165,14 @@ type DeviceStatus struct {
 	// Containers Statuses of containers in the device.
 	Containers *[]ContainerStatus `json:"containers,omitempty"`
 
+	// LastSeenAt The time at which the agent running on the device last checked in.
+	LastSeenAt *string `json:"lastSeenAt,omitempty"`
+
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 	SystemInfo *DeviceSystemInfo `json:"systemInfo,omitempty"`
 
 	// SystemdUnits Current state of systemd units on the device.
 	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
-	UpdatedAt    *string                    `json:"updatedAt,omitempty"`
 }
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
@@ -619,8 +633,9 @@ type TemplateVersionStatus struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
-	Systemd *struct {
+	Os       *DeviceOSSpec   `json:"os,omitempty"`
+	Settings *DeviceSettings `json:"settings,omitempty"`
+	Systemd  *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
 	UpdatedAt *string `json:"updatedAt,omitempty"`

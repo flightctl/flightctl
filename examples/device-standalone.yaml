@@ -30,3 +30,6 @@ spec:
   systemd:
     matchPatterns:
       - chronyd.service
+  settings:
+    heartbeatWarningTime: 30s
+    heartbeatErrorTime: 1m

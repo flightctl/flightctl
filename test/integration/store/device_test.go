@@ -239,9 +239,7 @@ var _ = Describe("DeviceStore create", func() {
 					Conditions: &[]api.Condition{condition},
 				},
 			}
-			_, err := devStore.UpdateStatus(ctx, orgId, &device)
-			Expect(err).ToNot(HaveOccurred())
-			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+			dev, err := devStore.UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
