@@ -158,9 +158,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
 	if err != nil {
 		switch err {
-		case flterrors.ErrResourceIsNil:
-			return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNameIsNil:
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 			return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
 		case flterrors.ErrResourceNotFound:
 			return server.PatchResourceSync404JSONResponse{}, nil
@@ -194,9 +192,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 	switch err {
 	case nil:
 		return server.PatchResourceSync200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchResourceSync404JSONResponse{}, nil
