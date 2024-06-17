@@ -152,6 +152,7 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.De
 }
 
 // (PATCH /api/v1/repositories/{name})
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.PatchRepositoryRequestObject) (server.PatchRepositoryResponseObject, error) {
 	orgId := store.NullOrgId
 
