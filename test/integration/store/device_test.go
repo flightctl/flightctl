@@ -49,7 +49,7 @@ var _ = Describe("DeviceStore create", func() {
 		callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) { called = true })
 		allDeletedCallback = store.DeviceStoreAllDeletedCallback(func(orgId uuid.UUID) { called = true })
 
-		testutil.CreateTestDevices(3, ctx, devStore, orgId, nil, false)
+		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
 	})
 
 	AfterEach(func() {
@@ -341,6 +341,39 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*renderedConfig.Config).To(Equal("this is the second config"))
 			Expect(renderedConfig.Os.Image).To(Equal("os"))
 			Expect(renderedConfig.RenderedVersion).To(Equal("2"))
+		})
+
+		It("OverwriteRepositoryRefs", func() {
+			err := testutil.CreateRepositories(ctx, 2, storeInst, orgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			devs, err := storeInst.Repository().GetDeviceRefs(ctx, orgId, "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devs.Items).To(HaveLen(1))
+			Expect(*(devs.Items[0]).Metadata.Name).To(Equal("mydevice-1"))
+
+			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-2")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err = storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-2"))
+
+			devs, err = storeInst.Repository().GetDeviceRefs(ctx, orgId, "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devs.Items).To(HaveLen(0))
+
+			devs, err = storeInst.Repository().GetDeviceRefs(ctx, orgId, "myrepository-2")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devs.Items).To(HaveLen(1))
+			Expect(*(devs.Items[0]).Metadata.Name).To(Equal("mydevice-1"))
 		})
 	})
 })
