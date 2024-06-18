@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device"
+	"github.com/flightctl/flightctl/internal/agent/device/action"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
@@ -186,6 +187,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	actionManager, err := action.NewManager()
+	if err != nil {
+		return err
+	}
+
+	// TODO: register default actions and from config.
+
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
@@ -199,7 +207,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	return agent.Run(ctx)
+	go agent.Run(ctx)
+	go actionManager.Run(ctx)
+
+	<-ctx.Done()
+	return nil
 }
 
 func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {

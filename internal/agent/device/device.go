@@ -56,7 +56,7 @@ func NewAgent(
 }
 
 // Run starts the device agent reconciliation loop.
-func (a *Agent) Run(ctx context.Context) error {
+func (a *Agent) Run(ctx context.Context) {
 	// TODO: needs tuned
 	fetchSpecTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
 	defer fetchSpecTicker.Stop()
@@ -66,7 +66,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-fetchSpecTicker.C:
 			a.log.Debug("Fetching device spec")
 			if err := a.syncDevice(ctx); err != nil {
