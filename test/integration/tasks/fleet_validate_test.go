@@ -128,10 +128,7 @@ var _ = Describe("FleetValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			err = logic.CreateNewTemplateVersionIfFleetValid(ctx, fleet)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -175,10 +172,7 @@ var _ = Describe("FleetValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			err = logic.CreateNewTemplateVersionIfFleetValid(ctx, fleet)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -222,10 +216,7 @@ var _ = Describe("FleetValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			err = logic.CreateNewTemplateVersionIfFleetValid(ctx, fleet)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -270,10 +261,7 @@ var _ = Describe("FleetValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			err = logic.CreateNewTemplateVersionIfFleetValid(ctx, fleet)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -287,7 +275,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
-			Expect(*((*fleet.Status.Conditions)[0].Message)).To(Equal("fleet has 1 invalid configuration: <unknown>"))
+			Expect(*((*fleet.Status.Conditions)[0].Message)).To(Equal("1 invalid configuration: <unknown>. Error: failed to find configuration item name: unsupported discriminator: InvalidProviderSpec"))
 		})
 	})
 })
