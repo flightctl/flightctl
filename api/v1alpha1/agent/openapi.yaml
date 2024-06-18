@@ -1,0 +1,181 @@
+openapi: 3.0.1
+info:
+  title: Open Device Management API - agent endpoint
+  version: undefined
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: /
+paths:
+  /api/v1/devices/{name}/status:
+    put:
+      tags:
+        - device
+      description: replace status of the specified Device
+      operationId: replaceDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: name of the Device
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/Device'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+  /api/v1/devices/{name}/rendered:
+    #$ref: '../openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
+    # this is buggy and generates invalid references, see:
+    # https://github.com/oapi-codegen/oapi-codegen/issues/1452#issuecomment-2176032513
+    get:
+      tags:
+        - device
+      description: get the full specification for the specified device
+      operationId: getRenderedDeviceSpec
+      parameters:
+        - name: name
+          in: path
+          description: Name of the device
+          required: true
+          schema:
+            type: string
+        - name: knownRenderedVersion
+          in: query
+          description: The last known renderedVersion
+          required: false
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/RenderedDeviceSpec'
+        "204":
+          description: No content
+          content: {}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+  /api/v1/enrollmentrequests/{name}:
+    # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
+    get:
+      tags:
+        - enrollmentrequest
+      description: read the specified Enrollment
+      operationId: readEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: the fingerprint of the EnrollmentRequest
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+  /api/v1/enrollmentrequests:
+    post:
+      tags:
+        - enrollmentrequest
+      description: request enrollment of a Device
+      operationId: createEnrollmentRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+        "208":
+          description: Already Reported
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
