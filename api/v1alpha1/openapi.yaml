@@ -1816,6 +1816,31 @@ components:
           description: 'Current state of systemd units on the device.'
           items:
             $ref: '#/components/schemas/DeviceSystemdUnitStatus'
+        applications:
+          type: object
+          description: 'Current status of device applications.'
+          items:
+            $ref: '#/components/schemas/DeviceApplicationsStatus'
+        runtime:
+          type: object
+          description: 'Current device runtime status.'
+          items:
+            $ref: '#/components/schemas/DeviceRuntimeStatus'
+        update:
+          type: object
+          description: 'Current device update status.'
+          items:
+            $ref: '#/components/schemas/DeviceUpdateStatus'
+        integrity:
+          type: object
+          description: 'Current device integrity status.'
+          items:
+            $ref: '#/components/schemas/DeviceIntegrityStatus'
+        config:
+          type: object
+          description: 'Current device config status.'
+          items:
+            $ref: '#/components/schemas/DeviceConfigStatus'
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
     DeviceSystemInfo:
       required:
@@ -2313,6 +2338,183 @@ components:
           type: string
           description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
       description: Status is a return value for calls that don't return other objects.
+    DeviceApplicationsStatus:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/DeviceApplicationSummary'
+          description: 'Summary status of all device applications.'
+        applications:
+          type: array
+          description: 'Statuses of device applications.'
+          items:
+            $ref: '#/components/schemas/DeviceApplication'
+    DeviceApplication:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 'Unique identifier for the application.'
+        name:
+          type: string
+          description: 'Human readable name of the application.'
+        status:
+          $ref: '#/components/schemas/DeviceApplicationStatus'
+          description: 'Status of the application.'
+        ready:
+          type: string
+          description: 'The number of containers which are ready in an application.'
+        restarts:
+          type: integer
+          description: 'Number of restarts observed for the application.'
+    DeviceApplicationSummary:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/DeviceApplicationSummaryStatus'
+          description: 'Status of applications.'
+        info:
+          type: string
+          description: 'Human readable message indicating details about the status.'
+    DeviceApplicationSummaryStatus:
+      enum:
+      - 'Healthy'
+      - 'Degraded'
+      - 'Running'
+      - 'Error'
+      - 'Unknown'
+      x-enum-varnames:
+      - 'ApplicationsStatusHealthy'
+      - 'ApplicationsStatusDegraded'
+      - 'ApplicationsStatusRunning'
+      - 'ApplicationsStatusError'
+      - 'ApplicationsStatusUnknown'
+    DeviceApplicationStatus:
+      type: string
+      enum:
+      - 'Preparing'
+      - 'Starting'
+      - 'Running'
+      - 'Error'
+      - 'Unknown'
+      - 'Completed'
+      x-enum-varnames:
+      - 'ApplicationPreparing'
+      - 'ApplicationStarting'
+      - 'ApplicationRunning'
+      - 'ApplicationError'
+      - 'ApplicationUnknown'
+      - 'ApplicationCompleted'
+    DeviceRuntimeStatus:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/DeviceRuntimeSummaryStatus'
+          description: 'Status of the update, one of True, False, Unknown.'
+        name:
+          type: string
+          description: 'Human readable name of the update.'
+        message:
+          type: string
+          description: 'Human readable message indicating details about last transition.'
+    DeviceRuntimeSummaryStatus:
+      type: string
+      enum:
+      - 'Online'
+      - 'Degraded'
+      - 'Error'
+      - 'Rebooting'
+      - 'PoweredOff'
+      - 'Unknown'
+      x-enum-varnames:
+      - 'DeviceRuntimeStatusOnline'
+      - 'DeviceRuntimeStatusDegraded'
+      - 'DeviceRuntimeStatusError'
+      - 'DeviceRuntimeStatusRebooting'
+      - 'DeviceRuntimeStatusPoweredOff'
+      - 'DeviceRuntimeStatusUnknown'
+    DeviceUpdateStatus:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/DeviceUpdateSummaryStatus'
+          description: 'Status of the device update.'
+        phase:
+          $ref: '#/components/schemas/DeviceUpdatePhaseStatus'
+          description: 'The passphrase for the private key.'
+    DeviceUpdateSummaryStatus:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/DeviceSummaryStatusType'
+          description: 'Status summary type of the device update.'
+        message:
+          type: string
+          description: 'Human readable message indicating details about last update transition.'
+    DeviceSummaryStatusType:
+      type: string
+      enum:
+      - 'UpToDate'
+      - 'OutOfDate'
+      - 'Updating'
+      - 'Unknown'
+      x-enum-varnames:
+      - 'DeviceUpdateStatusUpToDate'
+      - 'DeviceUpdateStatusOutOfDate'
+      - 'DeviceUpdateStatusUpdating'
+      - 'DeviceUpdateStatusUnknown'
+    DeviceUpdatePhaseStatus:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/DeviceUpdatePhaseType'
+          description: 'Status of the device update phase.'
+        message:
+          type: string
+          description: 'Human readable message indicating details about last update phase transition.'
+    DeviceUpdatePhaseType:
+      type: string
+      enum:
+      - 'Downloading'
+      - 'Verifying'
+      - 'Updating'
+      - 'Rebooting'
+      - 'RollingBack'
+      - 'Failed'
+      x-enum-varnames:
+      - 'DeviceUpdatePhaseDownloading'
+      - 'DeviceUpdatePhaseVerifying'
+      - 'DeviceUpdatePhaseUpdating'
+      - 'DeviceUpdatePhaseRebooting'
+      - 'DeviceUpdatePhaseRollingBack'
+      - 'DeviceUpdatePhaseFailed'
+    DeviceIntegrityStatus:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/DeviceIntegrityType'
+          description: 'Status of the device integrity.'
+        message:
+          type: string
+          description: 'Human readable message indicating details about last integrity transition.'
+    DeviceIntegrityType:
+      type: string
+      enum:
+      - 'Passed'
+      - 'Failed'
+      - 'Unknown'
+      - 'Unsupported'
+      x-enum-varnames:
+      - 'DeviceIntegrityPassed'
+      - 'DeviceIntegrityFailed'
+      - 'DeviceIntegrityUnknown'
+      - 'DeviceIntegrityUnsupported'
+    DeviceConfigStatus:
+      type: object
+      properties:
+        osImage:
+          type: string
+          description: 'The current os image of the device.'
     Error:
       required:
         - message
@@ -2364,10 +2566,13 @@ components:
       - 'PIDPressure'          # Device
       - 'CPUPressure'          # Device
       - 'Available'            # Device
-      - 'Progressing'          # Device
+      - 'Progressing'          # Device (deprecated)
       - 'Degraded'             # Device
-      - 'SystemdUnitsRunning'  # Device
-      - 'ContainersRunning'    # Device
+      - 'SystemdUnitsRunning'  # Device (deprecated)
+      - 'ContainersRunning'    # Device (deprecated)
+      - 'Updating'             # Device
+      - 'AppsAvailable'        # Device
+      - 'AppsDegraded'         # Device
       - 'SpecValid'            # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
@@ -2388,6 +2593,9 @@ components:
       - DeviceDegraded
       - DeviceSystemdUnitsRunning
       - DeviceContainersRunning
+      - DeviceUpdating
+      - DeviceAppsAvailable
+      - DeviceAppsDegraded
       - DeviceSpecValid
       - TemplateVersionValid
     ConditionStatus:
