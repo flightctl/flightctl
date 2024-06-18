@@ -25,6 +25,7 @@ require (
 	github.com/onsi/gomega v1.33.1
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
 	github.com/prometheus/client_golang v1.19.0
+	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.8.0
