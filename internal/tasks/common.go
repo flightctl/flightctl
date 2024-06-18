@@ -1,12 +1,16 @@
 package tasks
 
 import (
+	"errors"
+
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 )
 
 const ItemsPerPage = 1000
+
+var ErrUnknownConfigName = errors.New("failed to find configuration item name")
 
 func getOwnerFleet(device *api.Device) (string, bool, error) {
 	if device.Metadata.Owner == nil {

@@ -3,6 +3,7 @@ package tasks_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -144,6 +145,11 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusTrue))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
 		})
 	})
 
@@ -186,6 +192,11 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("missingrepo"))
 		})
 	})
 
@@ -228,23 +239,29 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
 		})
 	})
 
-	When("a Repository definition is valid", func() {
-		It("creates new TemplateVersions for relevant Fleets", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "repo", Kind: model.RepositoryKind}
+	When("a Fleet has an invalid configuration type", func() {
+		It("sets an error Condition", func() {
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
 			logic := tasks.NewFleetValidateLogic(taskManager, log, storeInst, resourceRef)
 
 			gitItem := api.DeviceSpec_Config_Item{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
 			Expect(err).ToNot(HaveOccurred())
-
-			inlineItem := api.DeviceSpec_Config_Item{}
-			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
+			b, err := gitItem.MarshalJSON()
+			Expect(err).ToNot(HaveOccurred())
+			invalidStr := strings.ReplaceAll(string(b), "GitConfigProviderSpec", "InvalidProviderSpec")
+			err = gitItem.UnmarshalJSON([]byte(invalidStr))
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem}
+			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem}
 
 			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
@@ -256,83 +273,8 @@ var _ = Describe("FleetValidate", func() {
 			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			logic.ValidateFleetsReferencingRepository(ctx)
-
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(1))
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(fleet.Status.Conditions).ToNot(BeNil())
-			Expect(*fleet.Status.Conditions).To(HaveLen(1))
-			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
-			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusTrue))
-		})
-
-		It("doesn't create new TemplateVersions for irrelevant Fleets", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "repo", Kind: model.RepositoryKind}
-			logic := tasks.NewFleetValidateLogic(taskManager, log, storeInst, resourceRef)
-
-			gitItem := api.DeviceSpec_Config_Item{}
-			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			inlineItem := api.DeviceSpec_Config_Item{}
-			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem}
-
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			logic.ValidateFleetsReferencingRepository(ctx)
-
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Status.Conditions).To(BeNil())
-		})
-	})
-
-	When("a Repository definition is invalid", func() {
-		It("doesn't create new TemplateVersions for relevant Fleets", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "missingrepo", Kind: model.RepositoryKind}
-			logic := tasks.NewFleetValidateLogic(taskManager, log, storeInst, resourceRef)
-
-			gitItem := api.DeviceSpec_Config_Item{}
-			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			inlineItem := api.DeviceSpec_Config_Item{}
-			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem}
-
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			logic.ValidateFleetsReferencingRepository(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx, fleet)
+			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
@@ -345,79 +287,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
+			Expect(*((*fleet.Status.Conditions)[0].Message)).To(Equal("fleet has 1 invalid configuration: <unknown>"))
 		})
 	})
-
-	When("all repositories are deleted", func() {
-		It("sets fleets that reference repositories as invalid", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}
-			logic := tasks.NewFleetValidateLogic(taskManager, log, storeInst, resourceRef)
-
-			gitItem := api.DeviceSpec_Config_Item{}
-			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			inlineItem := api.DeviceSpec_Config_Item{}
-			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem}
-
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			logic.ValidateFleetsReferencingAnyRepository(ctx)
-
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(fleet.Status.Conditions).ToNot(BeNil())
-			Expect(*fleet.Status.Conditions).To(HaveLen(1))
-			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
-			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
-		})
-
-		It("has no effect on fleets that don't reference any repositories", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "repo", Kind: model.RepositoryKind}
-			logic := tasks.NewFleetValidateLogic(taskManager, log, storeInst, resourceRef)
-
-			inlineItem := api.DeviceSpec_Config_Item{}
-			err := inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{inlineItem}
-
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			logic.ValidateFleetsReferencingAnyRepository(ctx)
-
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Status.Conditions).To(BeNil())
-		})
-	})
-
 })

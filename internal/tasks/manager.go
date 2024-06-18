@@ -45,6 +45,8 @@ const (
 	ChannelFleetValidate = "fleet-template-validate"
 	// Task to render the device spec
 	ChannelDeviceRender = "device-render"
+	// Task to re-evaluate fleets and devices if a repository resource changes
+	ChannelRepositoryUpdates = "repository-updates"
 
 	ChannelSize = 20
 
@@ -54,8 +56,9 @@ const (
 	FleetSelectorMatchOpDeleteAll     = "delete-all"
 	TemplateVersionPopulateOpCreated  = "create"
 	FleetValidateOpUpdate             = "update"
-	FleetValidateOpDeleteAll          = "delete-all"
 	DeviceRenderOpUpdate              = "update"
+	RepositoryUpdateOpUpdate          = "update"
+	RepositoryUpdateOpDeleteAll       = "delete-all"
 )
 
 func Init(log logrus.FieldLogger, store store.Store) TaskManager {
@@ -68,6 +71,7 @@ func Init(log logrus.FieldLogger, store store.Store) TaskManager {
 	channels[ChannelTemplateVersionPopulate] = make(chan ResourceReference, ChannelSize)
 	channels[ChannelFleetValidate] = make(chan ResourceReference, ChannelSize)
 	channels[ChannelDeviceRender] = make(chan ResourceReference, ChannelSize)
+	channels[ChannelRepositoryUpdates] = make(chan ResourceReference, ChannelSize)
 
 	reqid.OverridePrefix("tasks")
 
@@ -93,6 +97,7 @@ func (t TaskManager) Start() {
 	go TemplateVersionPopulate(t)
 	go FleetValidate(t)
 	go DeviceRender(t)
+	go RepositoryUpdate(t)
 
 	resourceSync := NewResourceSync(t)
 	resourceSyncThread := thread.New(
@@ -123,6 +128,10 @@ func (t TaskManager) SubmitTask(taskName string, resource ResourceReference, op 
 
 func (t TaskManager) GetTask(taskName string) ResourceReference {
 	return <-t.channels[taskName]
+}
+
+func (t TaskManager) HasTasks(taskName string) bool {
+	return len(t.channels[taskName]) != 0
 }
 
 func (t TaskManager) FleetUpdatedCallback(before *model.Fleet, after *model.Fleet) {
@@ -164,17 +173,22 @@ func (t TaskManager) FleetUpdatedCallback(before *model.Fleet, after *model.Flee
 	}
 }
 
+func (t TaskManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
+	ref := ResourceReference{OrgID: orgId, Kind: model.FleetKind, Name: name}
+	t.SubmitTask(ChannelFleetValidate, ref, FleetValidateOpUpdate)
+}
+
 func (t TaskManager) RepositoryUpdatedCallback(repository *model.Repository) {
 	resourceRef := ResourceReference{
 		OrgID: repository.OrgID,
 		Kind:  model.RepositoryKind,
 		Name:  repository.Name,
 	}
-	t.SubmitTask(ChannelFleetValidate, resourceRef, FleetValidateOpUpdate)
+	t.SubmitTask(ChannelRepositoryUpdates, resourceRef, RepositoryUpdateOpUpdate)
 }
 
 func (t TaskManager) AllRepositoriesDeletedCallback(orgId uuid.UUID) {
-	t.SubmitTask(ChannelFleetValidate, ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}, FleetValidateOpDeleteAll)
+	t.SubmitTask(ChannelRepositoryUpdates, ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}, RepositoryUpdateOpDeleteAll)
 }
 
 func (t TaskManager) AllFleetsDeletedCallback(orgId uuid.UUID) {
@@ -232,6 +246,11 @@ func (t TaskManager) DeviceUpdatedCallback(before *model.Device, after *model.De
 	if specUpdated {
 		t.SubmitTask(ChannelDeviceRender, ref, DeviceRenderOpUpdate)
 	}
+}
+
+func (t TaskManager) DeviceSourceUpdated(orgId uuid.UUID, name string) {
+	ref := ResourceReference{OrgID: orgId, Kind: model.DeviceKind, Name: name}
+	t.SubmitTask(ChannelDeviceRender, ref, DeviceRenderOpUpdate)
 }
 
 func threadIntervalMinute(min float64) time.Duration {

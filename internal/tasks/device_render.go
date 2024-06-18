@@ -3,7 +3,9 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
@@ -49,6 +51,7 @@ type DeviceRenderLogic struct {
 	resourceRef    ResourceReference
 	device         *api.Device
 	renderedConfig *config_latest_types.Config
+	repoNames      []string
 }
 
 func NewDeviceRenderLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) DeviceRenderLogic {
@@ -66,14 +69,37 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	emptyIgnitionConfig, _, _ := config_latest.ParseCompatibleVersion([]byte("{\"ignition\": {\"version\": \"3.4.0\"}"))
 	t.renderedConfig = &emptyIgnitionConfig
 
+	invalidConfigs := []string{}
 	if device.Spec != nil && device.Spec.Config != nil {
 		for i := range *device.Spec.Config {
 			configItem := (*device.Spec.Config)[i]
-			err := t.handleConfigItem(ctx, &configItem)
+			name, err := t.handleConfigItem(ctx, &configItem)
 			if err != nil {
-				return t.setStatus(ctx, err)
+				if errors.Is(err, ErrUnknownConfigName) {
+					name = "<unknown>"
+				}
+				invalidConfigs = append(invalidConfigs, name)
 			}
+			t.log.Errorf("failed rendering config %s for device %s/%s: %v", name, t.resourceRef.OrgID, t.resourceRef.Name, err)
 		}
+	}
+
+	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
+		// Set the many-to-may relationship with the repos (we do this even if the validation failed so that we will
+		// validate the fleet again if the repository is updated, and then it might be fixed)
+		err = t.store.Device().OverwriteRepositoryRefs(ctx, t.resourceRef.OrgID, *device.Metadata.Name, t.repoNames...)
+		if err != nil {
+			return t.setStatus(ctx, fmt.Errorf("setting repository references: %w", err))
+		}
+	}
+
+	if len(invalidConfigs) != 0 {
+		configurationStr := "configuration"
+		if len(invalidConfigs) > 1 {
+			configurationStr += "s"
+		}
+		err = fmt.Errorf("device has %d invalid %s: %s", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "))
+		return t.setStatus(ctx, err)
 	}
 
 	configjson, err := json.Marshal(t.renderedConfig)
@@ -85,10 +111,11 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	return t.setStatus(ctx, err)
 }
 
-func (t *DeviceRenderLogic) handleConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Item) error {
+func (t *DeviceRenderLogic) handleConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Item) (string, error) {
+
 	disc, err := configItem.Discriminator()
 	if err != nil {
-		return fmt.Errorf("failed getting discriminator: %w", err)
+		return "", fmt.Errorf("%w: failed getting discriminator: %w", ErrUnknownConfigName, err)
 	}
 
 	switch disc {
@@ -97,77 +124,87 @@ func (t *DeviceRenderLogic) handleConfigItem(ctx context.Context, configItem *ap
 	case string(api.TemplateDiscriminatorKubernetesSec):
 		return t.handleK8sConfig(configItem)
 	case string(api.TemplateDiscriminatorInlineConfig):
-		inlineSpec, err := configItem.AsInlineConfigProviderSpec()
-		if err != nil {
-			return fmt.Errorf("failed getting config item %s as InlineConfigProviderSpec: %w", inlineSpec.Name, err)
-		}
-
-		return t.handleInlineConfig(&inlineSpec)
+		return t.handleInlineConfig(configItem)
 	default:
-		return fmt.Errorf("unsupported discriminator %s", disc)
+		return "", fmt.Errorf("%w: unsupported discriminator: %s", ErrUnknownConfigName, disc)
 	}
 }
 
-func (t *DeviceRenderLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item) error {
+func (t *DeviceRenderLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item) (string, error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
-		return fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
+		return "", fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
+	t.repoNames = append(t.repoNames, gitSpec.GitRef.Repository)
 	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
 	if err != nil {
-		return fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+		return gitSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+	}
+
+	if repo.Spec == nil {
+		return gitSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
 	// TODO: Use local cache
 	mfs, _, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, nil)
 	if err != nil {
-		return fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+		return gitSpec.Name, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
 	// Create an ignition from the git subtree and merge it into the rendered config
 	ignitionConfig, err := ConvertFileSystemToIgnition(mfs, gitSpec.GitRef.Path)
 	if err != nil {
-		return fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
+		return gitSpec.Name, fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
 	}
 	renderedConfig := config_latest.Merge(*t.renderedConfig, *ignitionConfig)
 	t.renderedConfig = &renderedConfig
 
-	return nil
+	return gitSpec.Name, nil
 }
 
 // TODO: implement
-func (t *DeviceRenderLogic) handleK8sConfig(configItem *api.DeviceSpec_Config_Item) error {
-	return fmt.Errorf("service does not yet support kubernetes config")
+func (t *DeviceRenderLogic) handleK8sConfig(configItem *api.DeviceSpec_Config_Item) (string, error) {
+	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
+	if err != nil {
+		return "", fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
+	}
+
+	return k8sSpec.Name, fmt.Errorf("service does not yet support kubernetes config")
 }
 
-func (t *DeviceRenderLogic) handleInlineConfig(inlineSpec *api.InlineConfigProviderSpec) error {
+func (t *DeviceRenderLogic) handleInlineConfig(configItem *api.DeviceSpec_Config_Item) (string, error) {
+	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
+	if err != nil {
+		return "", fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
+	}
+
 	// Add this inline config into the unrendered config
 	newConfig := &api.TemplateVersionStatus_Config_Item{}
-	err := newConfig.FromInlineConfigProviderSpec(*inlineSpec)
+	err = newConfig.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
-		return fmt.Errorf("failed creating inline config from item %s: %w", inlineSpec.Name, err)
+		return inlineSpec.Name, fmt.Errorf("failed creating inline config from item %s: %w", inlineSpec.Name, err)
 	}
 
 	// Convert yaml to json
 	yamlBytes, err := yaml.Marshal(inlineSpec.Inline)
 	if err != nil {
-		return fmt.Errorf("invalid yaml in inline config item %s: %w", inlineSpec.Name, err)
+		return inlineSpec.Name, fmt.Errorf("invalid yaml in inline config item %s: %w", inlineSpec.Name, err)
 	}
 	jsonBytes, err := yaml.YAMLToJSON(yamlBytes)
 	if err != nil {
-		return fmt.Errorf("failed converting yaml to json in inline config item %s: %w", inlineSpec.Name, err)
+		return inlineSpec.Name, fmt.Errorf("failed converting yaml to json in inline config item %s: %w", inlineSpec.Name, err)
 	}
 
 	// Convert to ignition and merge into the rendered config
 	ignitionConfig, _, err := config_latest.ParseCompatibleVersion(jsonBytes)
 	if err != nil {
-		return fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
+		return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
 	}
 
 	renderedConfig := config_latest.Merge(*t.renderedConfig, ignitionConfig)
 	t.renderedConfig = &renderedConfig
-	return nil
+	return inlineSpec.Name, nil
 }
 
 func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
