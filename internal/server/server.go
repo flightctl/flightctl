@@ -81,6 +81,7 @@ func (s *Server) Run() error {
 		middleware.Logger,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
+		// auth.ParseHeaders,
 	)
 
 	h := service.NewServiceHandler(s.store, taskManager, s.ca, s.log)
