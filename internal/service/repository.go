@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"reflect"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -144,6 +146,57 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.De
 		return server.DeleteRepository200JSONResponse{}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.DeleteRepository404JSONResponse{}, nil
+	default:
+		return nil, err
+	}
+}
+
+// (PATCH /api/v1/repositories/{name})
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
+func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.PatchRepositoryRequestObject) (server.PatchRepositoryResponseObject, error) {
+	orgId := store.NullOrgId
+
+	currentObj, err := h.store.Repository().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.PatchRepository404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+
+	newObj := &v1alpha1.Repository{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/repositories/"+request.Name)
+	if err != nil {
+		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
+	}
+
+	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
+		return server.PatchRepository400JSONResponse{Message: "metadata.name is immutable"}, nil
+	}
+	if currentObj.ApiVersion != newObj.ApiVersion {
+		return server.PatchRepository400JSONResponse{Message: "apiVersion is immutable"}, nil
+	}
+	if currentObj.Kind != newObj.Kind {
+		return server.PatchRepository400JSONResponse{Message: "kind is immutable"}, nil
+	}
+	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
+		return server.PatchRepository400JSONResponse{Message: "status is immutable"}, nil
+	}
+
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	result, _, err := h.store.Repository().CreateOrUpdate(ctx, orgId, newObj, h.taskManager.RepositoryUpdatedCallback)
+
+	switch err {
+	case nil:
+		return server.PatchRepository200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.PatchRepository404JSONResponse{}, nil
 	default:
 		return nil, err
 	}

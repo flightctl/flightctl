@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -15,8 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-func FleetFromReader(r io.Reader) (*api.Fleet, error) {
-	var fleet api.Fleet
+func FleetFromReader(r io.Reader) (*v1alpha1.Fleet, error) {
+	var fleet v1alpha1.Fleet
 	decoder := json.NewDecoder(r)
 	decoder.DisallowUnknownFields()
 	err := decoder.Decode(&fleet)
@@ -218,7 +219,7 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	}
 }
 
-func validateDiscriminators(fleet *api.Fleet) error {
+func validateDiscriminators(fleet *v1alpha1.Fleet) error {
 	if fleet.Spec.Template.Spec.Config == nil {
 		return nil
 	}
@@ -229,9 +230,9 @@ func validateDiscriminators(fleet *api.Fleet) error {
 		}
 		found := false
 		discriminators := []string{
-			string(api.TemplateDiscriminatorGitConfig),
-			string(api.TemplateDiscriminatorKubernetesSec),
-			string(api.TemplateDiscriminatorInlineConfig)}
+			string(v1alpha1.TemplateDiscriminatorGitConfig),
+			string(v1alpha1.TemplateDiscriminatorKubernetesSec),
+			string(v1alpha1.TemplateDiscriminatorInlineConfig)}
 		for _, d := range discriminators {
 			if discriminator == d {
 				found = true
@@ -242,4 +243,55 @@ func validateDiscriminators(fleet *api.Fleet) error {
 		}
 	}
 	return nil
+}
+
+// (PATCH /api/v1/fleets/{name})
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
+func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFleetRequestObject) (server.PatchFleetResponseObject, error) {
+	orgId := store.NullOrgId
+
+	currentObj, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.PatchFleet404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+
+	newObj := &v1alpha1.Fleet{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/fleets/"+request.Name)
+	if err != nil {
+		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+	}
+
+	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
+		return server.PatchFleet400JSONResponse{Message: "metadata.name is immutable"}, nil
+	}
+	if currentObj.ApiVersion != newObj.ApiVersion {
+		return server.PatchFleet400JSONResponse{Message: "apiVersion is immutable"}, nil
+	}
+	if currentObj.Kind != newObj.Kind {
+		return server.PatchFleet400JSONResponse{Message: "kind is immutable"}, nil
+	}
+	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
+		return server.PatchFleet400JSONResponse{Message: "status is immutable"}, nil
+	}
+
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, h.taskManager.FleetUpdatedCallback)
+
+	switch err {
+	case nil:
+		return server.PatchFleet200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.PatchFleet404JSONResponse{}, nil
+	default:
+		return nil, err
+	}
 }
