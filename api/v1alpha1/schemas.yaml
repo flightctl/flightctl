@@ -1,0 +1,860 @@
+Repository:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ObjectMeta'
+    spec:
+      $ref: '#/RepositorySpec'
+    status:
+      $ref: '#/RepositoryStatus'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - spec
+  description: Repository represents a git repository
+GitHttpConfig:
+  type: object
+  additionalProperties: false
+  properties:
+    username:
+      type: string
+      description: 'The username for auth with HTTP transport'
+    password:
+      type: string
+      description: 'The password for auth with HTTP transport'
+      format: password
+    tls.crt:
+      type: string
+      description: 'Base64 encoded TLS cert data'
+      format: password
+    tls.key:
+      type: string
+      description: 'Base64 encoded TLS cert key'
+      format: password
+    ca.crt:
+      type: string
+      description: 'Base64 encoded root CA'
+    skipServerVerification:
+      type: boolean
+      description: 'Skip remote server verification'
+GitHttpRepoSpec:
+  type: object
+  additionalProperties: false
+  properties:
+    repo:
+      type: string
+      description: 'The HTTP Git repository URL to clone from'
+    httpConfig:
+      $ref: "#/GitHttpConfig"
+  required:
+    - repo
+    - httpConfig
+GitSshConfig:
+  type: object
+  additionalProperties: false
+  properties:
+    sshPrivateKey:
+      type: string
+      description: 'Base64 encoded private SSH key'
+      format: password
+    privateKeyPassphrase:
+      type: string
+      description: 'The passphrase for sshPrivateKey'
+      format: password
+    skipServerVerification:
+      type: boolean
+      description: 'Skip remote server verification'
+GitSshRepoSpec:
+  type: object
+  additionalProperties: false
+  properties:
+    repo:
+      type: string
+      description: 'The SSH Git repository URL to clone from'
+    sshConfig:
+      $ref: "#/GitSshConfig"
+  required:
+    - repo
+    - sshConfig
+GitGenericRepoSpec:
+  type: object
+  additionalProperties: false
+  properties:
+    repo:
+      type: string
+      description: 'The (possibly remote) repository URL to clone from'
+  required:
+    - repo
+RepositorySpec:
+  type: object
+  oneOf:
+    - $ref: "#/GitGenericRepoSpec"
+    - $ref: "#/GitHttpRepoSpec"
+    - $ref: "#/GitSshRepoSpec"
+RepositoryStatus:
+  type: object
+  properties:
+    conditions:
+      type: array
+      description: 'Current state of the repository.'
+      items:
+        $ref: '#/Condition'
+  description: RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+RepositoryList:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ListMeta'
+    items:
+      type: array
+      description: 'List of repositories.'
+      items:
+        $ref: '#/Repository'
+  description: RepositoryList is a list of Repositories.
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - items
+Device:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ObjectMeta'
+    spec:
+      $ref: '#/DeviceSpec'
+    status:
+      $ref: '#/DeviceStatus'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+  description: Device represents a physical device.
+GenericConfigSpec:
+  type: object
+  properties:
+    configType:
+      type: string
+    name:
+      type: string
+  discriminator:
+    propertyName: configType
+  required:
+    - configType
+    - name
+GitConfigProviderSpec:
+  allOf:
+    - $ref: '#/GenericConfigSpec'
+    - type: object
+      properties:
+        gitRef:
+          type: object
+          properties:
+            repository:
+              type: string
+              description: |
+                The name of the repository resource to use as the sync source
+            targetRevision:
+              type: string
+            path:
+              type: string
+          required:
+            - repository
+            - targetRevision
+            - path
+      required:
+      - gitRef
+KubernetesSecretProviderSpec:
+  allOf:
+    - $ref: '#/GenericConfigSpec'
+    - type: object
+      properties:
+        secretRef:
+          type: object
+          properties:
+            name:
+              type: string
+            namespace:
+              type: string
+            mountPath:
+              type: string
+          required:
+            - namespace
+            - mountPath
+      required:
+      - secretRef
+InlineConfigProviderSpec:
+  allOf:
+    - $ref: '#/GenericConfigSpec'
+    - type: object
+      properties:
+        inline:
+          type: object
+          additionalProperties: true
+      required:
+      - inline
+DeviceList:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ListMeta'
+    items:
+      type: array
+      description: 'List of Devices.'
+      items:
+        $ref: '#/Device'
+  description: DeviceList is a list of Devices.
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - items
+DeviceOSSpec:
+  type: object
+  properties:
+    image:
+      type: string
+      description: 'ostree image name or URL.'
+  required:
+    - image
+DeviceStatus:
+  type: object
+  properties:
+    updatedAt:
+      type: string
+    conditions:
+      type: array
+      description: 'Current state of the device.'
+      items:
+        $ref: '#/Condition'
+    systemInfo:
+      $ref: '#/DeviceSystemInfo'
+    containers:
+      type: array
+      description: Statuses of containers in the device.
+      items:
+        $ref: '#/ContainerStatus'
+    systemdUnits:
+      type: array
+      description: 'Current state of systemd units on the device.'
+      items:
+        $ref: '#/DeviceSystemdUnitStatus'
+  description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
+DeviceSystemInfo:
+  required:
+    - architecture
+    - bootID
+    - machineID
+    - operatingSystem
+    - measurements
+  type: object
+  properties:
+    architecture:
+      type: string
+      description: The Architecture reported by the device.
+    bootID:
+      type: string
+      description: Boot ID reported by the device.
+    machineID:
+      type: string
+      description: 'MachineID reported by the device.'
+    operatingSystem:
+      type: string
+      description: The Operating System reported by the device.
+    measurements:
+      type: object
+      additionalProperties:
+        type: string
+      description: The integrity measurements of the system.
+  description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+ContainerStatus:
+  required:
+    - id
+    - image
+    - name
+    - status
+    - engine
+  type: object
+  properties:
+    name:
+      type: string
+      description: Name of the container.
+    id:
+      type: string
+      description: ID of the container.
+    status:
+      type: string
+      description: Status of the container (e.g., running, stopped, etc.).
+    image:
+      type: string
+      description: Image of the container.
+    engine:
+      type: string
+      description: Engine running the container (e.g., podman, crio, etc).
+DeviceSystemdUnitStatus:
+  required:
+    - name
+    - loadState
+    - activeState
+  type: object
+  properties:
+    name:
+      description: The name of the systemd unit.
+    loadState:
+      type: string
+      description: The load state of the systemd unit.
+    activeState:
+      type: string
+      description: The active state of the systemd unit.
+  description: The status of the systemd unit.
+
+EnrollmentRequestApproval:
+  type: object
+  properties:
+    labels:
+      type: object
+      additionalProperties:
+        type: string
+      description: 'labels is a set of labels to apply to the device.'
+    region:
+      type: string
+      description: 'region is the region in which the device should be enrolled.'
+    approved:
+      type: boolean
+      description: 'approved indicates whether the request has been approved.'
+    approvedBy:
+      type: string
+      description: 'approvedBy is the name of the approver.'
+    approvedAt:
+      type: string
+      description: 'approvedAt is the time at which the request was approved.'
+  required:
+    - approved
+EnrollmentRequest:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ObjectMeta'
+    spec:
+      $ref: '#/EnrollmentRequestSpec'
+    status:
+      $ref: '#/EnrollmentRequestStatus'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - spec
+  description: EnrollmentRequest represents a request for approval to enroll a device.
+EnrollmentRequestList:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ListMeta'
+    items:
+      type: array
+      description: 'List of EnrollmentRequest.'
+      items:
+        $ref: '#/EnrollmentRequest'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - items
+  description: EnrollmentRequestList is a list of EnrollmentRequest.
+EnrollmentRequestSpec:
+  required:
+    - csr
+  type: object
+  properties:
+    csr:
+      type: string
+      description: 'csr is a PEM-encoded PKCS#10 certificate signing request.'
+    deviceStatus:
+      $ref: '#/DeviceStatus'
+  description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
+EnrollmentRequestStatus:
+  type: object
+  properties:
+    certificate:
+      type: string
+      description: 'certificate is a PEM-encoded signed certificate.'
+    conditions:
+      type: array
+      description: 'Current state of the EnrollmentRequest.'
+      items:
+        $ref: '#/Condition'
+    approval:
+      $ref: '#/EnrollmentRequestApproval'
+  description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+
+ResourceSync:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ObjectMeta'
+    spec:
+      $ref: '#/ResourceSyncSpec'
+    status:
+      $ref: '#/ResourceSyncStatus'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - spec
+  description: ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
+ResourceSyncSpec:
+  type: object
+  properties:
+    repository:
+      type: string
+      description: |
+        The name of the repository resource to use as the sync source
+    targetRevision:
+      type: string
+      description: The desired revision in the repository
+    path:
+      type: string
+      description: |
+        The path of a file or directory in the repository. If a directory,
+        the directory should contain only resource definitions with no
+        subdirectories. Each file should contain the definition of one or
+        more resources.
+  required:
+  - repository
+  - targetRevision
+  - path
+ResourceSyncStatus:
+  type: object
+  properties:
+    observedCommit:
+      type: string
+      description: |
+        The last commit hash that was synced
+    observedGeneration:
+      type: integer
+      format: int64
+      description: |
+        The last generation that was synced
+    conditions:
+      type: array
+      description: 'Current state of a resourcesync.'
+      items:
+        $ref: '#/Condition'
+  description: ResourceSyncStatus represents information about the status of a resourcesync
+ResourceSyncList:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ListMeta'
+    items:
+      type: array
+      description: 'List of resourcesync.'
+      items:
+        $ref: '#/ResourceSync'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - items
+Fleet:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ObjectMeta'
+    spec:
+      $ref: '#/FleetSpec'
+    status:
+      $ref: '#/FleetStatus'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - spec
+  description: Fleet represents a set of devices.
+FleetList:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ListMeta'
+    items:
+      type: array
+      description: 'List of Fleets.'
+      items:
+        $ref: '#/Fleet'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - items
+  description: FleetList is a list of Fleets.
+FleetSpec:
+  type: object
+  properties:
+    selector:
+      $ref: '#/LabelSelector'
+    template:
+      type: object
+      properties:
+        metadata:
+          $ref: '#/ObjectMeta'
+        spec:
+          $ref: '#/DeviceSpec'
+      required:
+        - spec
+  required:
+    - template
+  description: FleetSpec is a description of a fleet's target state.
+RenderedDeviceSpec:
+  type: object
+  properties:
+    renderedVersion:
+      type: string
+    os:
+      $ref: '#/DeviceOSSpec'
+    containers:
+      type: object
+      properties:
+        matchPatterns:
+          type: array
+          items:
+            type: string
+    config:
+      type: string
+    systemd:
+      type: object
+      properties:
+        matchPatterns:
+          type: array
+          items:
+            type: string
+  required:
+    - renderedVersion
+DeviceSpec:
+  type: object
+  properties:
+    os:
+      $ref: '#/DeviceOSSpec'
+    config:
+      type: array
+      description: List of config resources.
+      items:
+        type: object
+        oneOf:
+          - $ref: "#/GitConfigProviderSpec"
+          - $ref: "#/KubernetesSecretProviderSpec"
+          - $ref: "#/InlineConfigProviderSpec"
+        discriminator:
+          propertyName: configType
+    containers:
+      type: object
+      properties:
+        matchPatterns:
+          type: array
+          items:
+            type: string
+            pattern: '^[a-z][a-z0-9-_.]*$'
+    systemd:
+      type: object
+      properties:
+        matchPatterns:
+          type: array
+          items:
+            type: string
+            pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
+            maxLength: 256
+FleetStatus:
+  type: object
+  properties:
+    conditions:
+      type: array
+      description: 'Current state of the fleet.'
+      items:
+        $ref: '#/Condition'
+  description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
+TemplateVersion:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ObjectMeta'
+    spec:
+      $ref: '#/TemplateVersionSpec'
+    status:
+      $ref: '#/TemplateVersionStatus'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - spec
+  description: TemplateVersion represents a version of a template.
+TemplateVersionSpec:
+  type: object
+  properties:
+    fleet:
+      type: string
+      description: The fleet whose template this refers to.
+  required:
+    - fleet
+TemplateVersionStatus:
+  allOf:
+    - $ref: '#/DeviceSpec'
+    - type: object
+      properties:
+        updatedAt:
+          type: string
+        conditions:
+          type: array
+          description: 'Current state of the device.'
+          items:
+            $ref: '#/Condition'
+      description: TemplateVersionStatus represents information about the status of a template version.
+TemplateVersionList:
+  type: object
+  properties:
+    apiVersion:
+      type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+    kind:
+      type: string
+      description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+    metadata:
+      $ref: '#/ListMeta'
+    items:
+      type: array
+      description: 'List of TemplateVersions.'
+      items:
+        $ref: '#/TemplateVersion'
+  required:
+    - apiVersion
+    - kind
+    - metadata
+    - items
+  description: TemplateVersionList is a list of TemplateVersions.
+ListMeta:
+  type: object
+  properties:
+    continue:
+      type: string
+      description: continue may be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
+    remainingItemCount:
+      type: integer
+      description: remainingItemCount is the number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
+      format: int64
+  description: ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+ObjectMeta:
+  type: object
+  properties:
+    creationTimestamp:
+      type: string
+    deletionTimestamp:
+      type: string
+    name:
+      type: string
+      description: name of the object
+    labels:
+      type: object
+      additionalProperties:
+        type: string
+      description: 'Map of string keys and values that can be used to organize and categorize (scope and select) objects.'
+    generation:
+      type: integer
+      format: int64
+      description: A sequence number representing a specific generation of the desired state. Populated by the system. Read-only.
+    owner:
+      type: string
+      description: A resource that owns this resource, in "kind/name" format.
+    annotations:
+      type: object
+      additionalProperties:
+        type: string
+      description: 'Properties set by the service.'
+    resourceVersion:
+      type: string
+      description: An opaque string that identifies the server's internal version of an object.
+  description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+LabelSelector:
+  type: object
+  properties:
+    matchLabels:
+      type: object
+      additionalProperties:
+        type: string
+  required:
+    - matchLabels
+  description: A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
+Status:
+  type: object
+  properties:
+    message:
+      type: string
+      description: A human-readable description of the status of this operation.
+    reason:
+      type: string
+      description: A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
+    status:
+      type: string
+      description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
+  description: Status is a return value for calls that don't return other objects.
+Error:
+  required:
+    - message
+  properties:
+    message:
+      type: string
+      description: Error message
+Condition:
+  required:
+    - status
+    - type
+  type: object
+  properties:
+    type:
+      $ref: '#/ConditionType'
+      description: Type of condition in CamelCase
+    status:
+      $ref: '#/ConditionStatus'
+      description: Status of the condition, one of True, False, Unknown.
+    observedGeneration:
+      type: integer
+      format: int64
+      description: The .metadata.generation that the condition was set based upon.
+    lastHeartbeatTime:
+      type: string
+    lastTransitionTime:
+      type: string
+      description: The last time the condition transitioned from one status to another.
+    message:
+      type: string
+      description: Human readable message indicating details about last transition.
+    reason:
+      type: string
+      description: (brief) reason for the condition's last transition.
+  description: Condition contains details for one aspect of the current state of this API Resource.
+ConditionType:
+  type: string
+  enum:
+  - 'Approved'             # EnrollmentRequest
+  - 'Accessible'           # Repository
+  - 'Accessible'           # ResourceSync
+  - 'ResourceParsed'       # ResourceSync
+  - 'Synced'               # ResourceSync
+  - 'OverlappingSelectors' # Fleet
+  - 'Valid'                # Fleet
+  - 'Ready'                # Device
+  - 'DiskPressure'         # Device
+  - 'MemoryPressure'       # Device
+  - 'PIDPressure'          # Device
+  - 'CPUPressure'          # Device
+  - 'Available'            # Device
+  - 'Progressing'          # Device
+  - 'Degraded'             # Device
+  - 'SystemdUnitsRunning'  # Device
+  - 'ContainersRunning'    # Device
+  - 'SpecValid'            # Device (service condition)
+  - 'Valid'                # TemplateVersion
+  x-enum-varnames:
+  - EnrollmentRequestApproved
+  - RepositoryAccessible
+  - ResourceSyncAccessible
+  - ResourceSyncResourceParsed
+  - ResourceSyncSynced
+  - FleetOverlappingSelectors
+  - FleetValid
+  - DeviceReady
+  - DeviceDiskPressure
+  - DeviceMemoryPressure
+  - DevicePIDPressure
+  - DeviceCPUPressure
+  - DeviceAvailable
+  - DeviceProgressing
+  - DeviceDegraded
+  - DeviceSystemdUnitsRunning
+  - DeviceContainersRunning
+  - DeviceSpecValid
+  - TemplateVersionValid
+ConditionStatus:
+  type: string
+  enum:
+  - 'True'
+  - 'False'
+  - 'Unknown'
+  x-enum-varnames:
+  - 'ConditionStatusTrue'
+  - 'ConditionStatusFalse'
+  - 'ConditionStatusUnknown'
+TemplateDiscriminators:
+  type: string
+  enum:
+  - 'GitConfigProviderSpec'
+  - 'KubernetesSecretProviderSpec'
+  - 'InlineConfigProviderSpec'
+  x-enum-varnames:
+  - 'TemplateDiscriminatorGitConfig'
+  - 'TemplateDiscriminatorKubernetesSec'
+  - 'TemplateDiscriminatorInlineConfig'
