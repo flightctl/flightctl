@@ -37,6 +37,9 @@ type cloneGitRepoFunc func(repo *model.Repository, revision *string, depth *int)
 func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
 	storage := gitmemory.NewStorage()
 	mfs := memfs.New()
+	if repo.Spec == nil {
+		return nil, "", fmt.Errorf("repository has no spec")
+	}
 	repoURL, err := repo.Spec.Data.GetRepoURL()
 	if err != nil {
 		return nil, "", err

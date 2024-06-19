@@ -251,11 +251,6 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("UpdateOwner", func() {
-			called := false
-			callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {
-				called = true
-			})
-
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 
@@ -374,6 +369,38 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devs.Items).To(HaveLen(1))
 			Expect(*(devs.Items[0]).Metadata.Name).To(Equal("mydevice-1"))
+		})
+
+		It("Delete device with repo association", func() {
+			err := testutil.CreateRepositories(ctx, 1, storeInst, orgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			err = devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+		})
+
+		It("Delete all devices with repo association", func() {
+			err := testutil.CreateRepositories(ctx, 1, storeInst, orgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			err = devStore.DeleteAll(ctx, orgId, allDeletedCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
 		})
 	})
 })

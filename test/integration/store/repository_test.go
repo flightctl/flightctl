@@ -202,5 +202,59 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).To(BeNil())
 		})
+
+		It("Delete repo with fleet association", func() {
+			testutil.CreateTestFleets(ctx, 1, storeInst.Fleet(), orgId, "myfleet", false, nil)
+
+			err := storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
+		})
+
+		It("Delete repo with device association", func() {
+			testutil.CreateTestDevices(ctx, 1, storeInst.Device(), orgId, nil, false)
+
+			err := storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
+		})
+
+		It("Delete all repos with associations", func() {
+			testutil.CreateTestFleets(ctx, 1, storeInst.Fleet(), orgId, "myfleet", false, nil)
+			testutil.CreateTestDevices(ctx, 1, storeInst.Device(), orgId, nil, false)
+
+			err := storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err = storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(uuid.UUID) { callbackCalled = true })
+			err = storeInst.Repository().DeleteAll(ctx, orgId, deleteAllCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
+		})
 	})
 })
