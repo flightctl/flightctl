@@ -24,10 +24,10 @@ type Repository struct {
 	Status *JSONField[api.RepositoryStatus]
 
 	// Join table with the relationship of repository to fleets
-	Fleets []Fleet `gorm:"many2many:fleet_repos;"`
+	Fleets []Fleet `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`
 
 	// Join table with the relationship of repository to devices (only maintained for standalone devices)
-	Devices []Device `gorm:"many2many:device_repos;"`
+	Devices []Device `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
 }
 
 type RepositoryList []Repository
