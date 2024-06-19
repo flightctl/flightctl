@@ -9,20 +9,20 @@ import (
 )
 
 type ServiceHandler struct {
-	store       store.Store
-	ca          *crypto.CA
-	log         logrus.FieldLogger
-	taskManager *tasks.TaskManager
+	store           store.Store
+	ca              *crypto.CA
+	log             logrus.FieldLogger
+	callbackManager tasks.CallbackManager
 }
 
 // Make sure we conform to servers Service interface
 var _ server.Service = (*ServiceHandler)(nil)
 
-func NewServiceHandler(store store.Store, taskManager tasks.TaskManager, ca *crypto.CA, log logrus.FieldLogger) *ServiceHandler {
+func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager, ca *crypto.CA, log logrus.FieldLogger) *ServiceHandler {
 	return &ServiceHandler{
-		store:       store,
-		ca:          ca,
-		log:         log,
-		taskManager: &taskManager,
+		store:           store,
+		ca:              ca,
+		log:             log,
+		callbackManager: callbackManager,
 	}
 }
