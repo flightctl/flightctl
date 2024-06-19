@@ -522,5 +522,45 @@ var _ = Describe("FleetStore create", func() {
 			Expect(fleets.Items).To(HaveLen(1))
 			Expect(*(fleets.Items[0]).Metadata.Name).To(Equal("myfleet-1"))
 		})
+
+		It("Delete fleet with repo association", func() {
+			err := testutil.CreateRepositories(ctx, 1, storeInst, orgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			called := false
+			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
+				called = true
+			})
+			err = storeInst.Fleet().Delete(ctx, orgId, callback, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+		})
+
+		It("Delete all fleets with repo association", func() {
+			err := testutil.CreateRepositories(ctx, 1, storeInst, orgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
+			Expect(err).ToNot(HaveOccurred())
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(1))
+			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
+
+			called := false
+			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {
+				called = true
+			})
+			err = storeInst.Fleet().DeleteAll(ctx, orgId, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+		})
 	})
 })
