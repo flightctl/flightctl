@@ -26,7 +26,7 @@ type Fleet struct {
 	Status *JSONField[api.FleetStatus]
 
 	// Join table with the relationship of fleets to repositories
-	Repositories []Repository `gorm:"many2many:fleet_repos;"`
+	Repositories []Repository `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`
 }
 
 type FleetList []Fleet

@@ -34,7 +34,7 @@ type Device struct {
 	RenderedConfig *string
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
-	Repositories []Repository `gorm:"many2many:device_repos;"`
+	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
 }
 
 type ServiceConditions struct {
