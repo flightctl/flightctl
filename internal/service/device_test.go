@@ -9,8 +9,10 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,6 +28,20 @@ func (s *DeviceStore) Device() store.Device {
 type DummyDevice struct {
 	store.Device
 	DeviceVal v1alpha1.Device
+}
+
+type dummyPublisher struct{}
+
+func (d *dummyPublisher) Publish(_ []byte) error {
+	return nil
+}
+
+func (d *dummyPublisher) Close() {
+
+}
+
+func dummyCallbackManager() tasks.CallbackManager {
+	return tasks.NewCallbackManager(&dummyPublisher{}, logrus.New())
 }
 
 func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.Device, error) {
@@ -81,7 +97,8 @@ func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (
 		},
 	}
 	serviceHandler := ServiceHandler{
-		store: &DeviceStore{DeviceVal: device},
+		store:           &DeviceStore{DeviceVal: device},
+		callbackManager: dummyCallbackManager(),
 	}
 	resp, err := serviceHandler.PatchDevice(context.Background(), server.PatchDeviceRequestObject{
 		Name: "foo",

@@ -76,7 +76,8 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 		},
 	}
 	serviceHandler := ServiceHandler{
-		store: &FleetStore{FleetVal: fleet},
+		store:           &FleetStore{FleetVal: fleet},
+		callbackManager: dummyCallbackManager(),
 	}
 	resp, err := serviceHandler.PatchFleet(context.Background(), server.PatchFleetRequestObject{
 		Name: "foo",

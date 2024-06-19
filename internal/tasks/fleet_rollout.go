@@ -14,6 +14,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+	if resourceRef.Op != FleetRolloutOpUpdate {
+		log.Errorf("received unknown op %s", resourceRef.Op)
+		return nil
+	}
+	logic := NewFleetRolloutsLogic(callbackManager, log, store, *resourceRef)
+	switch resourceRef.Kind {
+	case model.FleetKind:
+		err := logic.RolloutFleet(ctx)
+		if err != nil {
+			log.Errorf("failed rolling out fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+		}
+		return err
+	case model.DeviceKind:
+		err := logic.RolloutDevice(ctx)
+		if err != nil {
+			log.Errorf("failed rolling out device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+		}
+		return err
+	default:
+		return fmt.Errorf("FleetRollouts called with incorrect resource kind %s", resourceRef.Kind)
+	}
+}
+
 // Wait to be notified via channel about fleet template updates, exit upon ctx.Done()
 func FleetRollouts(taskManager TaskManager) {
 	for {
@@ -49,24 +73,24 @@ func FleetRollouts(taskManager TaskManager) {
 }
 
 type FleetRolloutsLogic struct {
-	taskManager  TaskManager
-	log          logrus.FieldLogger
-	fleetStore   store.Fleet
-	devStore     store.Device
-	tvStore      store.TemplateVersion
-	resourceRef  ResourceReference
-	itemsPerPage int
+	callbackManager CallbackManager
+	log             logrus.FieldLogger
+	fleetStore      store.Fleet
+	devStore        store.Device
+	tvStore         store.TemplateVersion
+	resourceRef     ResourceReference
+	itemsPerPage    int
 }
 
-func NewFleetRolloutsLogic(tm TaskManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
-		taskManager:  tm,
-		log:          log,
-		fleetStore:   storeInst.Fleet(),
-		devStore:     storeInst.Device(),
-		tvStore:      storeInst.TemplateVersion(),
-		resourceRef:  resourceRef,
-		itemsPerPage: ItemsPerPage,
+		callbackManager: callbackManager,
+		log:             log,
+		fleetStore:      storeInst.Fleet(),
+		devStore:        storeInst.Device(),
+		tvStore:         storeInst.TemplateVersion(),
+		resourceRef:     resourceRef,
+		itemsPerPage:    ItemsPerPage,
 	}
 }
 
@@ -205,6 +229,6 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		device.Spec.Os = templateVersion.Status.Os
 		device.Spec.Systemd = templateVersion.Status.Systemd
 	}
-	_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.taskManager.DeviceUpdatedCallback)
+	_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
 	return err
 }
