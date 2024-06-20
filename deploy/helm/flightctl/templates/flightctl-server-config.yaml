@@ -15,9 +15,18 @@ data:
         password: {{ .Values.flightctl.db.masterPassword }}   # we should funnel this via secrets instead
     service:
         address: :3333
+        agentEndpointAddress: :7443
         baseUrl: https://{{ .Values.flightctl.server.hostName }}:3333/
+        {{ if .Values.flightctl.server.agentAPIHostName }}
+        baseAgentEndpointUrl:  https://{{ .Values.flightctl.server.agentAPIHostName }}:7443/
+        {{ else }}
+        baseAgentEndpointUrl:  https://{{ .Values.flightctl.server.hostName }}:7443/
+        {{ end }}
         altNames:
           - {{ .Values.flightctl.server.hostName }}
+          {{ if .Values.flightctl.server.agentAPIHostName }}
+          - {{ .Values.flightctl.server.agentAPIHostName }}
+          {{ end }}
           - flightctl-server
           - flightctl-server.{{ .Values.flightctl.server.namespace }}
           - flightctl-server.{{ .Values.flightctl.server.namespace }}.svc.cluster.local

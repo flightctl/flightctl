@@ -1,4 +1,4 @@
-package server_test
+package middleware_test
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/server/middleware"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -50,10 +50,10 @@ var _ = Describe("Low level server behavior", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// create a listener using the next available port
-		listener, err = server.NewTLSListener("", tlsConfig)
+		listener, err = middleware.NewTLSListener("", tlsConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		srv := server.NewHTTPServerWithTLSContext(testTLSCNServer{}, serverLog, listener.Addr().String())
+		srv := middleware.NewHTTPServerWithTLSContext(testTLSCNServer{}, serverLog, listener.Addr().String())
 
 		go func() {
 			defer GinkgoRecover()
@@ -97,7 +97,7 @@ type testTLSCNServer struct {
 }
 
 func (s testTLSCNServer) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	tlsCN := request.Context().Value(server.TLSCommonNameContextKey)
+	tlsCN := request.Context().Value(middleware.TLSCommonNameContextKey)
 	if tlsCN == nil {
 		// this should not really happen, this will make the tests fail
 		response.WriteHeader(http.StatusInternalServerError)

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/client"
+	client "github.com/flightctl/flightctl/internal/api/client/agent"
 )
 
 var (
@@ -26,55 +26,6 @@ func NewManagement(
 type Management struct {
 	client                 *client.ClientWithResponses
 	rpcMetricsCallbackFunc func(operation string, durationSeconds float64, err error)
-}
-
-func (m *Management) GetDevice(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.Device, error) {
-	start := time.Now()
-	resp, err := m.client.ReadDeviceWithResponse(ctx, name, rcb...)
-	if err != nil {
-		return nil, err
-	}
-	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
-	}
-
-	if m.rpcMetricsCallbackFunc != nil {
-		m.rpcMetricsCallbackFunc("get_device_duration", time.Since(start).Seconds(), err)
-	}
-
-	if resp.JSON200 == nil {
-		return nil, ErrEmptyResponse
-	}
-
-	return resp.JSON200, nil
-}
-
-func (m *Management) UpdateDevice(ctx context.Context, name string, req v1alpha1.Device, rcb ...client.RequestEditorFn) (*v1alpha1.Device, error) {
-	device := v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
-			Name: &name,
-		},
-		Spec: req.Spec,
-	}
-
-	start := time.Now()
-	resp, err := m.client.ReplaceDeviceStatusWithResponse(ctx, name, device, rcb...)
-	if err != nil {
-		return nil, err
-	}
-	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
-	}
-
-	if m.rpcMetricsCallbackFunc != nil {
-		m.rpcMetricsCallbackFunc("update_device_duration", time.Since(start).Seconds(), err)
-	}
-
-	if resp.JSON200 == nil {
-		return nil, ErrEmptyResponse
-	}
-
-	return resp.JSON200, nil
 }
 
 // UpdateDeviceStatus updates the status of the device with the given name.

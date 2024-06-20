@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/server/agentserver"
+	"github.com/flightctl/flightctl/internal/server/middleware"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
@@ -88,15 +94,34 @@ func main() {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	listener, err := server.NewTLSListener(cfg.Service.Address, tlsConfig)
-	if err != nil {
-		log.Fatalf("creating listener: %s", err)
-	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
+		if err != nil {
+			log.Fatalf("creating listener: %s", err)
+		}
 
-	server := server.New(log, cfg, store, ca, listener)
-	if err := server.Run(); err != nil {
-		log.Fatalf("Error running server: %s", err)
-	}
+		server := server.New(log, cfg, store, ca, listener)
+		if err := server.Run(ctx); err != nil {
+			log.Fatalf("Error running server: %s", err)
+		}
+		cancel()
+	}()
+
+	go func() {
+		listener, err := middleware.NewTLSListener(cfg.Service.AgentEndpointAddress, tlsConfig)
+		if err != nil {
+			log.Fatalf("creating listener: %s", err)
+		}
+
+		agentserver := agentserver.New(log, cfg, store, ca, listener)
+		if err := agentserver.Run(ctx); err != nil {
+			log.Fatalf("Error running server: %s", err)
+		}
+		cancel()
+	}()
+
+	<-ctx.Done()
 }
 
 func certFile(name string) string {

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -58,7 +58,7 @@ func TestManager(t *testing.T) {
 			defer server.Close()
 
 			serverUrl := server.URL
-			httpClient, err := testutil.NewClient(serverUrl, nil, nil)
+			httpClient, err := testutil.NewAgentClient(serverUrl, nil, nil)
 			require.NoError(err)
 			managementClient := client.NewManagement(httpClient)
 

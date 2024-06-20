@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
@@ -20,7 +21,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.CreateResourceSync400JSONResponse{Message: errors.Join(errs...).Error()}, nil
@@ -112,7 +113,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.ReplaceResourceSync400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
@@ -189,7 +190,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 		return server.PatchResourceSync400JSONResponse{Message: "status is immutable"}, nil
 	}
 
-	NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	result, _, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, newObj)
 
 	switch err {
