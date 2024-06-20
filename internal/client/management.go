@@ -34,6 +34,10 @@ func (m *Management) GetDevice(ctx context.Context, name string, rcb ...client.R
 	if err != nil {
 		return nil, err
 	}
+	if resp.HTTPResponse != nil {
+		defer resp.HTTPResponse.Body.Close()
+	}
+
 	if m.rpcMetricsCallbackFunc != nil {
 		m.rpcMetricsCallbackFunc("get_device_duration", time.Since(start).Seconds(), err)
 	}
@@ -54,12 +58,16 @@ func (m *Management) UpdateDevice(ctx context.Context, name string, req v1alpha1
 	}
 
 	start := time.Now()
-	resp, err := m.client.ReplaceDeviceWithResponse(ctx, name, device, rcb...)
-	if m.rpcMetricsCallbackFunc != nil {
-		m.rpcMetricsCallbackFunc("update_device_duration", time.Since(start).Seconds(), err)
-	}
+	resp, err := m.client.ReplaceDeviceStatusWithResponse(ctx, name, device, rcb...)
 	if err != nil {
 		return nil, err
+	}
+	if resp.HTTPResponse != nil {
+		defer resp.HTTPResponse.Body.Close()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("update_device_duration", time.Since(start).Seconds(), err)
 	}
 
 	if resp.JSON200 == nil {
@@ -72,16 +80,20 @@ func (m *Management) UpdateDevice(ctx context.Context, name string, req v1alpha1
 // UpdateDeviceStatus updates the status of the device with the given name.
 func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
 	start := time.Now()
-	resp, err := m.client.ReplaceDeviceStatus(ctx, name, device, rcb...)
-	if m.rpcMetricsCallbackFunc != nil {
-		m.rpcMetricsCallbackFunc("update_device_status_duration", time.Since(start).Seconds(), err)
-	}
+	resp, err := m.client.ReplaceDeviceStatusWithResponse(ctx, name, device, rcb...)
 	if err != nil {
 		return err
 	}
+	if resp.HTTPResponse != nil {
+		defer resp.HTTPResponse.Body.Close()
+	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("update device status failed: %s", resp.Status)
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("update_device_status_duration", time.Since(start).Seconds(), err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("update device status failed: %s", resp.Status())
 	}
 
 	return nil
@@ -94,11 +106,15 @@ func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, device
 func (m *Management) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
 	start := time.Now()
 	resp, err := m.client.GetRenderedDeviceSpecWithResponse(ctx, name, params, rcb...)
-	if m.rpcMetricsCallbackFunc != nil {
-		m.rpcMetricsCallbackFunc("get_rendered_device_spec_duration", time.Since(start).Seconds(), err)
-	}
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
+	}
+	if resp.HTTPResponse != nil {
+		defer resp.HTTPResponse.Body.Close()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("get_rendered_device_spec_duration", time.Since(start).Seconds(), err)
 	}
 
 	if resp.JSON200 != nil {
