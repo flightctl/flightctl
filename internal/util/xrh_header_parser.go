@@ -73,7 +73,6 @@ func ParseJWTToken(tokenString string) (DecodedToken, error) {
 
 	var res DecodedToken
 	err = json.Unmarshal([]byte(str), &res)
-	fmt.Println(res)
 	if err != nil {
 		return DecodedToken{}, err
 	}
