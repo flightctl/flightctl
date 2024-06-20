@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -13,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
-	"sigs.k8s.io/yaml"
 )
 
 func TemplateVersionPopulate(taskManager TaskManager) {
@@ -117,12 +115,7 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 	case string(api.TemplateDiscriminatorKubernetesSec):
 		return t.handleK8sConfig(configItem)
 	case string(api.TemplateDiscriminatorInlineConfig):
-		inlineSpec, err := configItem.AsInlineConfigProviderSpec()
-		if err != nil {
-			return fmt.Errorf("failed getting config item %s as InlineConfigProviderSpec: %w", inlineSpec.Name, err)
-		}
-
-		return t.handleInlineConfig(&inlineSpec)
+		return t.handleInlineConfig(configItem)
 	default:
 		return fmt.Errorf("unsupported discriminator %s", disc)
 	}
@@ -138,6 +131,14 @@ func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, conf
 	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
 	if err != nil {
 		return fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+	}
+
+	if repo.Spec == nil {
+		return fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+	}
+
+	if ContainsParameter([]byte(gitSpec.GitRef.TargetRevision)) {
+		return fmt.Errorf("parameters in TargetRevision are not currently supported")
 	}
 
 	// TODO: Use local cache
@@ -163,46 +164,40 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 	return fmt.Errorf("service does not yet support kubernetes config")
 }
 
-func (t *TemplateVersionPopulateLogic) handleInlineConfig(inlineSpec *api.InlineConfigProviderSpec) error {
-	// Add this inline config into the unrendered config
+func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.DeviceSpec_Config_Item) error {
+	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
+	if err != nil {
+		return fmt.Errorf("failed getting config item as InlineConfigProviderSpec: %w", err)
+	}
+
+	// Just add the inline config as-is
 	newConfig := &api.TemplateVersionStatus_Config_Item{}
-	err := newConfig.FromInlineConfigProviderSpec(*inlineSpec)
+	err = newConfig.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
 		return fmt.Errorf("failed creating inline config from item %s: %w", inlineSpec.Name, err)
-	}
-
-	// Ensure config can be converted from yaml to ignition with no errors
-	yamlBytes, err := yaml.Marshal(inlineSpec.Inline)
-	if err != nil {
-		return fmt.Errorf("invalid yaml in inline config item %s: %w", inlineSpec.Name, err)
-	}
-	jsonBytes, err := yaml.YAMLToJSON(yamlBytes)
-	if err != nil {
-		return fmt.Errorf("failed converting yaml to json in inline config item %s: %w", inlineSpec.Name, err)
-	}
-
-	// Convert to ignition and merge into the rendered config
-	_, _, err = config_latest.ParseCompatibleVersion(jsonBytes)
-	if err != nil {
-		return fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
 	}
 
 	t.frozenConfig = append(t.frozenConfig, *newConfig)
 	return nil
 }
 
-func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, err error) error {
+func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validationErr error) error {
 	t.templateVersion.Status = &api.TemplateVersionStatus{}
-	if err != nil {
-		t.log.Errorf("failed syncing template to template version: %v", err)
+	if validationErr != nil {
+		t.log.Errorf("failed syncing template to template version: %v", validationErr)
 	} else {
 		t.templateVersion.Status.Os = t.fleet.Spec.Template.Spec.Os
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
 	}
-	t.templateVersion.Status.Conditions = []api.Condition{}
-	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", err)
 
-	return t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(err == nil), t.taskManager.TemplateVersionValidatedCallback)
+	t.templateVersion.Status.Conditions = []api.Condition{}
+	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)
+
+	err := t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(validationErr == nil), t.taskManager.TemplateVersionValidatedCallback)
+	if err != nil {
+		return fmt.Errorf("failed setting TemplateVersion status: %w", err)
+	}
+	return validationErr
 }

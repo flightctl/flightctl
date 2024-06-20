@@ -257,13 +257,23 @@ func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConf
 		return inlineSpec.Name, fmt.Errorf("failed converting yaml to json in inline config item %s: %w", inlineSpec.Name, err)
 	}
 
-	// Convert to ignition and merge into the rendered config
-	ignitionConfig, _, err := config_latest.ParseCompatibleVersion(jsonBytes)
-	if err != nil {
-		return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
+	// If we are validating and parameters are present, the ignition conversion will fail.
+	if args.validateOnly {
+		if !ContainsParameter(jsonBytes) {
+			_, _, err = config_latest.ParseCompatibleVersion(jsonBytes)
+			if err != nil {
+				return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
+			}
+		}
+		return inlineSpec.Name, nil
 	}
 
 	if !args.validateOnly {
+		// Merge the ignition into the rendered config
+		ignitionConfig, _, err := config_latest.ParseCompatibleVersion(jsonBytes)
+		if err != nil {
+			return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
+		}
 		mergedConfig := config_latest.Merge(*args.ignitionConfig, ignitionConfig)
 		args.ignitionConfig = &mergedConfig
 	}
