@@ -7,8 +7,12 @@ spec:
   ingress:
   - from:
     - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: {{ .Values.flightctl.server.namespace }}
+        matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+          - {{ .Values.flightctl.api.namespace }}
+          - {{ .Values.flightctl.worker.namespace }}
       podSelector: {}
   podSelector: {}
   policyTypes:
