@@ -1,0 +1,39 @@
+{{ if .Values.flightctl.periodic.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-periodic
+  name: flightctl-periodic
+  namespace: {{ .Values.flightctl.periodic.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-periodic
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-periodic
+    spec:
+      containers:
+        - name: periodic
+          image: {{ .Values.flightctl.periodic.image }}
+          imagePullPolicy: {{ .Values.flightctl.periodic.imagePullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-periodic-config
+              subPath: config.yaml
+              readOnly: true
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-periodic-config
+          configMap:
+            name: flightctl-periodic-config
+{{ end }}

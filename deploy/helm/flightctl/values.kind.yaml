@@ -2,12 +2,22 @@ flightctl:
   db:
     nodePort: 5432 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     imagePullPolicy: IfNotPresent
-  server:
-    image: localhost/flightctl-server:latest
+  api:
+    image: localhost/flightctl-api:latest
     imagePullPolicy: IfNotPresent
     hostName: localhost
     nodePort: 3443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentNodePort: 7443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+  worker:
+    image: localhost/flightctl-worker:latest
+    imagePullPolicy: IfNotPresent
+  periodic:
+    image: localhost/flightctl-periodic:latest
+    imagePullPolicy: IfNotPresent
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    imagePullPolicy: IfNotPresent
+    nodePort: 15672 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
 
 storageClassName: standard
 storageClassNameRWM: standard

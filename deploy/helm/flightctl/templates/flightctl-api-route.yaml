@@ -1,4 +1,4 @@
-{{ if and (.Values.flightctl.server.enabled) (not .Values.flightctl.server.nodePort) }}
+{{ if and (.Values.flightctl.api.enabled) (not .Values.flightctl.api.nodePort) }}
 
 apiVersion: route.openshift.io/v1
 kind: Route
@@ -7,10 +7,10 @@ metadata:
     external-exposed: "true"
     paas.redhat.com/appcode: {{ .Values.appCode }}
     shard: external
-  name: flightctl-server-route
-  namespace: {{ .Values.flightctl.server.namespace }}
+  name: flightctl-api-route
+  namespace: {{ .Values.flightctl.api.namespace }}
 spec:
-  host: {{ .Values.flightctl.server.hostName }}
+  host: {{ .Values.flightctl.api.hostName }}
   port:
     targetPort: 8080
   tls:
@@ -18,7 +18,7 @@ spec:
     insecureEdgeTerminationPolicy: None
   to:
     kind: Service
-    name: flightctl-server
+    name: flightctl-api
     weight: 100
   wildcardPolicy: None
 
