@@ -79,15 +79,35 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
-	serverCfg.Service.Address = listener.Addr().String()
 
-	// start server
+	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts)
+	if err != nil {
+		return nil, fmt.Errorf("NewTestHarness: %w", err)
+	}
+
+	serverCfg.Service.Address = listener.Addr().String()
+	serverCfg.Service.AgentEndpointAddress = agentListener.Addr().String()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// start main api server
 	go func() {
-		err := server.Run()
+		err := server.Run(ctx)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
-			goRoutineErrorHandler(fmt.Errorf("error starting server: %w", err))
+			goRoutineErrorHandler(fmt.Errorf("error starting main api server: %w", err))
 		}
+		cancel()
+	}()
+
+	// start agent api server
+	go func() {
+		err := agentServer.Run(ctx)
+		if err != nil {
+			// provide a wrapper to allow require.NoError or ginkgo handling
+			goRoutineErrorHandler(fmt.Errorf("error starting main api server: %w", err))
+		}
+		cancel()
 	}()
 
 	fetchSpecInterval := util.Duration(1 * time.Second)
@@ -102,7 +122,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		EnrollmentUIEndpoint: "https://flightctl.ui/",
 	}
 	cfg.EnrollmentService.Service = client.Service{
-		Server:               "https://" + serverCfg.Service.Address,
+		Server:               "https://" + serverCfg.Service.AgentEndpointAddress,
 		CertificateAuthority: "/etc/flightctl/certs/ca.crt",
 	}
 	cfg.EnrollmentService.AuthInfo = client.AuthInfo{
@@ -124,8 +144,6 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	testHarness := &TestHarness{
 		agentConfig:           cfg,
 		serverListener:        listener,
@@ -146,8 +164,6 @@ func (h *TestHarness) Cleanup() {
 	h.StopAgent()
 	// stop any pending API requests
 	h.cancelCtx()
-	// stop the server
-	h.serverListener.Close()
 	// unset env var for the test dir path
 	os.Unsetenv(agent.TestRootDirEnvKey)
 }

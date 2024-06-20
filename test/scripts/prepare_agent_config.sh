@@ -15,7 +15,7 @@ enrollment-service:
     client-key: certs/client-enrollment.key
   service:
     certificate-authority: certs/ca.crt
-    server: https://${IP}:3333
+    server: https://${IP}:7443
   enrollment-ui-endpoint: https://${IP}:8080
 spec-fetch-interval: 0m10s
 status-update-interval: 0m10s

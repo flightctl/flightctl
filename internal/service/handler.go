@@ -12,7 +12,7 @@ type ServiceHandler struct {
 	store       store.Store
 	ca          *crypto.CA
 	log         logrus.FieldLogger
-	taskManager tasks.TaskManager
+	taskManager *tasks.TaskManager
 }
 
 // Make sure we conform to servers Service interface
@@ -23,6 +23,6 @@ func NewServiceHandler(store store.Store, taskManager tasks.TaskManager, ca *cry
 		store:       store,
 		ca:          ca,
 		log:         log,
-		taskManager: taskManager,
+		taskManager: &taskManager,
 	}
 }

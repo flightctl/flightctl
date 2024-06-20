@@ -101,8 +101,8 @@ const podmanListResult = `
     "Ports": [
       {
         "host_ip": "127.0.0.1",
-        "container_port": 4444,
-        "host_port": 4444,
+        "container_port": 7443,
+        "host_port": 7443,
         "range": 1,
         "protocol": "tcp"
       }
