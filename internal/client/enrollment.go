@@ -33,6 +33,10 @@ func (e *Enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 	if err != nil {
 		return nil, err
 	}
+	if resp.HTTPResponse != nil {
+		defer resp.HTTPResponse.Body.Close()
+	}
+
 	if e.rpcMetricsCallbackFunc != nil {
 		e.rpcMetricsCallbackFunc("create_enrollmentrequest_duration", time.Since(start).Seconds(), err)
 	}
@@ -57,6 +61,10 @@ func (e *Enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...
 	if err != nil {
 		return nil, err
 	}
+	if resp.HTTPResponse != nil {
+		defer resp.HTTPResponse.Body.Close()
+	}
+
 	if e.rpcMetricsCallbackFunc != nil {
 		e.rpcMetricsCallbackFunc("get_enrollmentrequest_duration", time.Since(start).Seconds(), err)
 	}
