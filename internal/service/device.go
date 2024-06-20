@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -21,7 +22,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.CreateDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
@@ -113,7 +114,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.ReplaceDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
@@ -175,48 +176,12 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 
 // (PUT /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	orgId := store.NullOrgId
-
-	device := request.Body
-	device.Status.UpdatedAt = time.Now()
-
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, device)
-	switch err {
-	case nil:
-		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
-		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReplaceDeviceStatus404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	return common.ReplaceDeviceStatus(ctx, h.store, request)
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	orgId := store.NullOrgId
-
-	result, err := h.store.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion)
-	switch err {
-	case nil:
-		if result == nil {
-			return server.GetRenderedDeviceSpec204Response{}, nil
-		}
-		return server.GetRenderedDeviceSpec200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
-		return server.GetRenderedDeviceSpec404JSONResponse{}, nil
-	case flterrors.ErrResourceOwnerIsNil:
-		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrTemplateVersionIsNil:
-		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrInvalidTemplateVersion:
-		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
-	default:
-		return nil, err
-	}
+	return common.GetRenderedDeviceSpec(ctx, h.store, request)
 }
 
 // (PATCH /api/v1/devices/{name})
@@ -255,8 +220,15 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
 	}
 
-	NilOutManagedObjectMetaProperties(&newObj.Metadata)
-	result, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, newObj, nil, true, h.taskManager.DeviceUpdatedCallback)
+	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+
+	var updateCallback func(before *model.Device, after *model.Device)
+
+	if h.taskManager != nil {
+		updateCallback = h.taskManager.DeviceUpdatedCallback
+	}
+	// create
+	result, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, newObj, nil, true, updateCallback)
 
 	switch err {
 	case nil:

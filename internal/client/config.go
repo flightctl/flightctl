@@ -162,6 +162,20 @@ func NewDefault() *Config {
 
 // NewFromConfig returns a new FlightCtl API client from the given config.
 func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
+
+	httpClient, err := NewHTTPClientFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
+	}
+	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
+		return nil
+	})
+	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+}
+
+// NewHTTPClientFromConfig returns a new HTTP Client from the given config.
+func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	config = config.DeepCopy()
 	if err := config.Flatten(); err != nil {
 		return nil, err
@@ -169,21 +183,21 @@ func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
 
 	caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
 	if err != nil {
-		return nil, fmt.Errorf("parsing CA certs: %v", err)
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
 	}
 
 	tlsServerName := config.Service.TLSServerName
 	if len(tlsServerName) == 0 {
 		u, err := url.Parse(config.Service.Server)
 		if err != nil {
-			return nil, fmt.Errorf("parsing CA certs: %v", err)
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
 		}
 		tlsServerName = u.Hostname()
 	}
 
 	clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
 	if err != nil {
-		return nil, fmt.Errorf("parsing client cert and key: %v", err)
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
 	}
 
 	httpClient := &http.Client{
@@ -196,11 +210,7 @@ func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
 			},
 		},
 	}
-	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-		req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
-		return nil
-	})
-	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+	return httpClient, nil
 }
 
 // DefaultFlightctlClientConfigPath returns the default path to the FlightCtl client config file.

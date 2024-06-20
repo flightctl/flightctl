@@ -9,7 +9,9 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -20,7 +22,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.CreateRepository400JSONResponse{Message: errors.Join(errs...).Error()}, nil
@@ -111,7 +113,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.ReplaceRepository400JSONResponse{Message: errors.Join(errs...).Error()}, nil
@@ -190,8 +192,14 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 		return server.PatchRepository400JSONResponse{Message: "status is immutable"}, nil
 	}
 
-	NilOutManagedObjectMetaProperties(&newObj.Metadata)
-	result, _, err := h.store.Repository().CreateOrUpdate(ctx, orgId, newObj, h.taskManager.RepositoryUpdatedCallback)
+	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+
+	var updateCallback func(repo *model.Repository)
+
+	if h.taskManager != nil {
+		updateCallback = h.taskManager.RepositoryUpdatedCallback
+	}
+	result, _, err := h.store.Repository().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
 
 	switch err {
 	case nil:

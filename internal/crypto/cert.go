@@ -19,6 +19,14 @@ import (
 // Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
 const ClientBootstrapCommonName = "client-enrollment"
 const AdminCommonName = "flightctl-admin"
+const DeviceCommonNamePrefix = "device:"
+
+func CNFromDeviceFingerprint(fingerprint string) (string, error) {
+	if len(fingerprint) < 16 {
+		return "", errors.New("device fingerprint must have 16 characters at least")
+	}
+	return DeviceCommonNamePrefix + fingerprint, nil
+}
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
