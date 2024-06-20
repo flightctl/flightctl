@@ -23,7 +23,8 @@ func ParseXRHIdentityHeader(identityHeader string) (*identity.XRHID, error) {
 
 	if err != nil {
 		logrus.Errorf("x-rh-identity header is not a valid json: %s. Identity: %s", err.Error(), identityHeader)
-		return nil, fmt.Errorf("x-rh-identity header is not a valid json: %s", err.Error())
+		logrus.Errorf("x-rh-identity header is not valid json: %s. Identity: %s", err.Error(), identityHeader)
+		return nil, fmt.Errorf("x-rh-identity header is not valid json: %w", err)
 	}
 
 	// XRHIdentity.Identity.User.UserID
