@@ -58,16 +58,16 @@ const (
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
-	LastTransitionTime *time.Time `json:"lastTransitionTime,omitempty"`
+	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
 	// Message Human readable message indicating details about last transition.
-	Message *string `json:"message,omitempty"`
+	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
 	// Reason (brief) reason for the condition's last transition.
-	Reason *string         `json:"reason,omitempty"`
+	Reason string          `json:"reason"`
 	Status ConditionStatus `json:"status"`
 	Type   ConditionType   `json:"type"`
 }

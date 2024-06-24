@@ -2523,8 +2523,11 @@ components:
           description: Error message
     Condition:
       required:
-        - status
         - type
+        - status
+        - lastTransitionTime
+        - reason
+        - message
       type: object
       properties:
         type:
