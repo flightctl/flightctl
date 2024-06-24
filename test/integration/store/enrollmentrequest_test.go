@@ -204,10 +204,10 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		It("UpdateEnrollmentRequestStatus", func() {
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeToPtr(time.Now()),
+				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
+				Reason:             "reason",
+				Message:            "message",
 			}
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{

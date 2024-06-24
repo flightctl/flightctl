@@ -63,7 +63,7 @@ var _ = Describe("containers controller", func() {
 			Expect(*deviceStatus.Conditions).To(HaveLen(1))
 			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceSystemdUnitsRunning))
 			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusTrue))
-			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("Running"))
+			Expect((*deviceStatus.Conditions)[0].Reason).To(Equal("Running"))
 		})
 	})
 })

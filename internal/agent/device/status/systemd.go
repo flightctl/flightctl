@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 )
 
@@ -81,15 +80,15 @@ func (c *SystemD) Export(ctx context.Context, status *v1alpha1.DeviceStatus) err
 
 	if notRunning == 0 {
 		runningCondition.Status = v1alpha1.ConditionStatusTrue
-		runningCondition.Reason = util.StrToPtr("Running")
+		runningCondition.Reason = "Running"
 	} else {
 		runningCondition.Status = v1alpha1.ConditionStatusFalse
-		runningCondition.Reason = util.StrToPtr("NotRunning")
+		runningCondition.Reason = "NotRunning"
 		unitStr := "unit"
 		if notRunning > 1 {
 			unitStr = "units"
 		}
-		runningCondition.Message = util.StrToPtr(fmt.Sprintf("%d %s not running", notRunning, unitStr))
+		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, unitStr)
 	}
 	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
 

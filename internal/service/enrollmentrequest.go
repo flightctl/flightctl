@@ -50,8 +50,8 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 	condition := v1alpha1.Condition{
 		Type:    v1alpha1.EnrollmentRequestApproved,
 		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  util.StrToPtr("ManuallyApproved"),
-		Message: util.StrToPtr("Approved by " + *approval.ApprovedBy),
+		Reason:  "ManuallyApproved",
+		Message: "Approved by " + *approval.ApprovedBy,
 	}
 	v1alpha1.SetStatusCondition(enrollmentRequest.Status.Conditions, condition)
 	return nil

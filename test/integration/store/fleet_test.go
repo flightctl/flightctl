@@ -412,10 +412,10 @@ var _ = Describe("FleetStore create", func() {
 		It("UpdateStatus", func() {
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeToPtr(time.Now()),
+				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
+				Reason:             "reason",
+				Message:            "message",
 			}
 
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
@@ -477,8 +477,8 @@ var _ = Describe("FleetStore create", func() {
 				{
 					Type:    api.EnrollmentRequestApproved,
 					Status:  api.ConditionStatusFalse,
-					Reason:  util.StrToPtr("reason"),
-					Message: util.StrToPtr("message"),
+					Reason:  "reason",
+					Message: "message",
 				},
 			}
 

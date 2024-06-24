@@ -2,8 +2,6 @@ package v1alpha1
 
 import (
 	"time"
-
-	"github.com/flightctl/flightctl/internal/util"
 )
 
 // Adapted from apimachinery
@@ -14,12 +12,12 @@ func SetStatusConditionByError(conditions *[]Condition, conditionType ConditionT
 	}
 	if err == nil {
 		newCondition.Status = ConditionStatusTrue
-		newCondition.Reason = util.StrToPtr(okReason)
-		newCondition.Message = util.StrToPtr(okReason)
+		newCondition.Reason = okReason
+		newCondition.Message = okReason
 	} else {
 		newCondition.Status = ConditionStatusFalse
-		newCondition.Reason = util.StrToPtr(failReason)
-		newCondition.Message = util.StrToPtr(err.Error())
+		newCondition.Reason = failReason
+		newCondition.Message = err.Error()
 	}
 	return SetStatusCondition(conditions, newCondition)
 }
@@ -36,8 +34,8 @@ func SetStatusCondition(conditions *[]Condition, newCondition Condition) (change
 	}
 	existingCondition := FindStatusCondition(*conditions, newCondition.Type)
 	if existingCondition == nil {
-		if newCondition.LastTransitionTime == nil {
-			newCondition.LastTransitionTime = util.TimeToPtr(time.Now())
+		if newCondition.LastTransitionTime.IsZero() {
+			newCondition.LastTransitionTime = time.Now()
 		}
 		*conditions = append(*conditions, newCondition)
 		return true
@@ -45,10 +43,10 @@ func SetStatusCondition(conditions *[]Condition, newCondition Condition) (change
 
 	if existingCondition.Status != newCondition.Status {
 		existingCondition.Status = newCondition.Status
-		if newCondition.LastTransitionTime != nil {
+		if newCondition.LastTransitionTime.IsZero() {
 			existingCondition.LastTransitionTime = newCondition.LastTransitionTime
 		} else {
-			existingCondition.LastTransitionTime = util.TimeToPtr(time.Now())
+			existingCondition.LastTransitionTime = time.Now()
 		}
 		changed = true
 	}

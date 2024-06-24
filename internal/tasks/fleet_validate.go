@@ -98,11 +98,11 @@ func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error)
 
 	if validationErr == nil {
 		condition.Status = api.ConditionStatusTrue
-		condition.Reason = util.StrToPtr("Valid")
+		condition.Reason = "Valid"
 	} else {
 		condition.Status = api.ConditionStatusFalse
-		condition.Reason = util.StrToPtr("Invalid")
-		condition.Message = util.StrToPtr(validationErr.Error())
+		condition.Reason = "Invalid"
+		condition.Message = validationErr.Error()
 	}
 
 	err := t.store.Fleet().UpdateConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, []api.Condition{condition})

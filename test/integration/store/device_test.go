@@ -224,10 +224,10 @@ var _ = Describe("DeviceStore create", func() {
 			// Random Condition to make sure Conditions do get stored
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeToPtr(time.Now()),
+				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
+				Reason:             "reason",
+				Message:            "message",
 			}
 			device := api.Device{
 				Metadata: api.ObjectMeta{
