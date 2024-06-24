@@ -1,6 +1,7 @@
 module github.com/flightctl/flightctl
 
 go 1.21
+toolchain go1.22.3
 
 require (
 	github.com/coreos/ignition/v2 v2.18.0
@@ -13,7 +14,7 @@ require (
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/go-openapi/swag v0.23.0
 	github.com/google/cadvisor v0.49.0
-	github.com/google/go-tpm v0.9.0
+	github.com/google/go-tpm v0.9.1
 	github.com/google/go-tpm-tools v0.4.4
 	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.6.0
