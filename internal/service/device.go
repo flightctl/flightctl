@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -17,13 +19,14 @@ import (
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.CreateDevice400JSONResponse{Message: "metadata.name not specified"}, nil
-	}
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.CreateDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
 
 	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
 	switch err {
@@ -39,6 +42,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 // (GET /api/v1/devices)
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
 	orgId := store.NullOrgId
+
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
@@ -46,7 +50,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
-		return nil, err
+		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
@@ -107,16 +111,17 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
 	orgId := store.NullOrgId
-	if request.Body.Metadata.Name == nil {
-		return server.ReplaceDevice400JSONResponse{Message: "metadata.name not specified"}, nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
-	}
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+
+	if errs := request.Body.Validate(); len(errs) > 0 {
+		return server.ReplaceDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	}
 
 	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.taskManager.DeviceUpdatedCallback)
 	switch err {
@@ -174,7 +179,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	orgId := store.NullOrgId
 
 	device := request.Body
-	device.Status.UpdatedAt = util.TimeStampStringPtr()
+	device.Status.UpdatedAt = util.TimeToPtr(time.Now())
 
 	result, err := h.store.Device().UpdateStatus(ctx, orgId, device)
 	switch err {

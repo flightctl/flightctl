@@ -63,6 +63,10 @@ func BoolToPtr(b bool) *bool {
 	return &b
 }
 
+func TimeToPtr(t time.Time) *time.Time {
+	return &t
+}
+
 func Int32ToPtrWithNilDefault(i int32) *int32 {
 	var defaultInt32 int32
 	if i == defaultInt32 {

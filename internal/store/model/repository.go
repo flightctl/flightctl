@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
@@ -106,7 +105,7 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 		Kind:       RepositoryKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(f.Name),
-			CreationTimestamp: util.StrToPtr(f.CreatedAt.UTC().Format(time.RFC3339)),
+			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
 			ResourceVersion:   GetResourceVersion(f.UpdatedAt),
 		},

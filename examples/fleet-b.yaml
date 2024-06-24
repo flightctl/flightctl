@@ -17,13 +17,13 @@ spec:
         - name: base
           configType: GitConfigProviderSpec
           gitRef:
-            repository: defaultRepo
+            repository: default-repo
             targetRevision: main
             path: /production
         - name: acm-secrets
           configType: KubernetesSecretProviderSpec
           secretRef:
-            name: DEVICENAME
+            name: device-name
             namespace: devices
             mountPath: /etc/microshift/manifests
         - name: motd-update

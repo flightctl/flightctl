@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
@@ -72,7 +71,7 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 		Kind:       ResourceSyncKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(r.Name),
-			CreationTimestamp: util.StrToPtr(r.CreatedAt.UTC().Format(time.RFC3339)),
+			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
 			Generation:        r.Generation,
 			ResourceVersion:   GetResourceVersion(r.UpdatedAt),
