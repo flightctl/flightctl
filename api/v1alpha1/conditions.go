@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"time"
+
 	"github.com/flightctl/flightctl/internal/util"
 )
 
@@ -35,7 +37,7 @@ func SetStatusCondition(conditions *[]Condition, newCondition Condition) (change
 	existingCondition := FindStatusCondition(*conditions, newCondition.Type)
 	if existingCondition == nil {
 		if newCondition.LastTransitionTime == nil {
-			newCondition.LastTransitionTime = util.TimeStampStringPtr()
+			newCondition.LastTransitionTime = util.TimeToPtr(time.Now())
 		}
 		*conditions = append(*conditions, newCondition)
 		return true
@@ -46,7 +48,7 @@ func SetStatusCondition(conditions *[]Condition, newCondition Condition) (change
 		if newCondition.LastTransitionTime != nil {
 			existingCondition.LastTransitionTime = newCondition.LastTransitionTime
 		} else {
-			existingCondition.LastTransitionTime = util.TimeStampStringPtr()
+			existingCondition.LastTransitionTime = util.TimeToPtr(time.Now())
 		}
 		changed = true
 	}

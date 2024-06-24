@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
@@ -106,7 +105,7 @@ func (d *Device) ToApiResource() api.Device {
 		Kind:       DeviceKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(d.Name),
-			CreationTimestamp: util.StrToPtr(d.CreatedAt.UTC().Format(time.RFC3339)),
+			CreationTimestamp: util.TimeToPtr(d.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
 			Generation:        d.Generation,
 			Owner:             d.Owner,

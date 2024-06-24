@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -223,7 +224,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Random Condition to make sure Conditions do get stored
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeStampStringPtr(),
+				LastTransitionTime: util.TimeToPtr(time.Now()),
 				Status:             api.ConditionStatusFalse,
 				Reason:             util.StrToPtr("reason"),
 				Message:            util.StrToPtr("message"),

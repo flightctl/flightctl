@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
@@ -67,7 +66,7 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 		Kind:       EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(e.Name),
-			CreationTimestamp: util.StrToPtr(e.CreatedAt.UTC().Format(time.RFC3339)),
+			CreationTimestamp: util.TimeToPtr(e.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
 			ResourceVersion:   GetResourceVersion(e.UpdatedAt),
 		},

@@ -1215,6 +1215,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1939,6 +1945,7 @@ components:
                 mountPath:
                   type: string
               required:
+                - name
                 - namespace
                 - mountPath
           required:
@@ -1988,6 +1995,7 @@ components:
       properties:
         updatedAt:
           type: string
+          format: date-time
         conditions:
           type: array
           description: 'Current state of the device.'
@@ -2093,6 +2101,7 @@ components:
           description: 'approvedBy is the name of the approver.'
         approvedAt:
           type: string
+          format: date-time
           description: 'approvedAt is the time at which the request was approved.'
       required:
         - approved
@@ -2409,6 +2418,7 @@ components:
           properties:
             updatedAt:
               type: string
+              format: date-time
             conditions:
               type: array
               description: 'Current state of the device.'
@@ -2453,8 +2463,10 @@ components:
       properties:
         creationTimestamp:
           type: string
+          format: date-time
         deletionTimestamp:
           type: string
+          format: date-time
         name:
           type: string
           description: name of the object
@@ -2525,10 +2537,9 @@ components:
           type: integer
           format: int64
           description: The .metadata.generation that the condition was set based upon.
-        lastHeartbeatTime:
-          type: string
         lastTransitionTime:
           type: string
+          format: date-time
           description: The last time the condition transitioned from one status to another.
         message:
           type: string
