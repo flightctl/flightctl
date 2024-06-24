@@ -640,8 +640,8 @@ func (f FleetSelectorMatchingLogic) setOverlappingFleetConditionTrue(ctx context
 	condition := api.Condition{
 		Type:    api.FleetOverlappingSelectors,
 		Status:  api.ConditionStatusTrue,
-		Reason:  util.StrToPtr("Overlapping selectors"),
-		Message: util.StrToPtr("Fleet's selector overlaps with at least one other fleet, causing ambiguous device ownership"),
+		Reason:  "Overlapping selectors",
+		Message: "Fleet's selector overlaps with at least one other fleet, causing ambiguous device ownership",
 	}
 	return f.fleetStore.UpdateConditions(ctx, f.resourceRef.OrgID, fleetName, []api.Condition{condition})
 }

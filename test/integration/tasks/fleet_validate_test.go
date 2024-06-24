@@ -275,7 +275,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(*fleet.Status.Conditions).To(HaveLen(1))
 			Expect((*fleet.Status.Conditions)[0].Type).To(Equal(api.FleetValid))
 			Expect((*fleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
-			Expect(*((*fleet.Status.Conditions)[0].Message)).To(Equal("1 invalid configuration: <unknown>. Error: failed to find configuration item name: unsupported discriminator: InvalidProviderSpec"))
+			Expect((*fleet.Status.Conditions)[0].Message).To(Equal("1 invalid configuration: <unknown>. Error: failed to find configuration item name: unsupported discriminator: InvalidProviderSpec"))
 		})
 	})
 })

@@ -204,8 +204,8 @@ var _ = Describe("containers exporter", func() {
 			Expect(*deviceStatus.Conditions).To(HaveLen(1))
 			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
 			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
-			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
-			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
+			Expect((*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
+			Expect((*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
 
 		})
 
@@ -233,8 +233,8 @@ var _ = Describe("containers exporter", func() {
 			Expect(*deviceStatus.Conditions).To(HaveLen(1))
 			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
 			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
-			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
-			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
+			Expect((*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
+			Expect((*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
 		})
 
 		It("list both podman and crio containers", func() {
@@ -279,8 +279,8 @@ var _ = Describe("containers exporter", func() {
 			Expect(*deviceStatus.Conditions).To(HaveLen(1))
 			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
 			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
-			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
-			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("2 containers not running"))
+			Expect((*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
+			Expect((*deviceStatus.Conditions)[0].Message).To(Equal("2 containers not running"))
 		})
 	})
 })
