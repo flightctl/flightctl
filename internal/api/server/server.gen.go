@@ -1971,6 +1971,15 @@ func (response ListDevices401JSONResponse) VisitListDevicesResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListDevices403JSONResponse Error
+
+func (response ListDevices403JSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type CreateDeviceRequestObject struct {
 	Body *CreateDeviceJSONRequestBody
 }
