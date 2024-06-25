@@ -40,7 +40,7 @@ func NewFleetFromApiResource(resource *api.Fleet) *Fleet {
 		return &Fleet{}
 	}
 
-	var status api.FleetStatus
+	status := api.FleetStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -62,7 +62,7 @@ func (f *Fleet) ToApiResource() api.Fleet {
 		return api.Fleet{}
 	}
 
-	var status api.FleetStatus
+	status := api.FleetStatus{Conditions: []api.Condition{}}
 	if f.Status != nil {
 		status = f.Status.Data
 	}

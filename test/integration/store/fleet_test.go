@@ -190,7 +190,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(createdFleet.Kind).To(Equal(model.FleetKind))
 			Expect(createdFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
-			Expect(createdFleet.Status.Conditions).To(BeNil())
+			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
+			Expect(createdFleet.Status.Conditions).To(BeEmpty())
 			Expect(*createdFleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*createdFleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 		})
@@ -217,7 +218,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
-			Expect(updatedFleet.Status.Conditions).To(BeNil())
+			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
+			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
 			Expect(*updatedFleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 		})
@@ -242,7 +244,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
-			Expect(updatedFleet.Status.Conditions).To(BeNil())
+			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
+			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
 			Expect(*updatedFleet.Spec.Template.Metadata.Generation).To(Equal(int64(2)))
 		})
@@ -268,7 +271,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
-			Expect(updatedFleet.Status.Conditions).To(BeNil())
+			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
+			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
 			Expect(*updatedFleet.Spec.Template.Metadata.Generation).To(Equal(int64(2)))
 			Expect(updatedFleet.Metadata.Owner).ToNot(BeNil())
@@ -365,7 +369,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(createdFleet.Kind).To(Equal(model.FleetKind))
 			Expect(createdFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
-			Expect(createdFleet.Status.Conditions).To(BeNil())
+			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
+			Expect(createdFleet.Status.Conditions).To(BeEmpty())
 			Expect(*createdFleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*createdFleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
@@ -374,7 +379,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(createdFleet2.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(createdFleet2.Kind).To(Equal(model.FleetKind))
 			Expect(createdFleet2.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
-			Expect(createdFleet2.Status.Conditions).To(BeNil())
+			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
+			Expect(createdFleet2.Status.Conditions).To(BeEmpty())
 			Expect(*createdFleet2.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*createdFleet2.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 		})
@@ -412,16 +418,16 @@ var _ = Describe("FleetStore create", func() {
 		It("UpdateStatus", func() {
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
-				LastTransitionTime: util.TimeToPtr(time.Now()),
+				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
-				Reason:             util.StrToPtr("reason"),
-				Message:            util.StrToPtr("message"),
+				Reason:             "reason",
+				Message:            "message",
 			}
 
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
-			fleet.Status = &api.FleetStatus{Conditions: &[]api.Condition{condition}}
+			fleet.Status = &api.FleetStatus{Conditions: []api.Condition{condition}}
 
 			_, err = storeInst.Fleet().UpdateStatus(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
@@ -430,8 +436,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
-			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
-			Expect((*updatedFleet.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 
 		It("List with owner param", func() {
@@ -477,8 +483,8 @@ var _ = Describe("FleetStore create", func() {
 				{
 					Type:    api.EnrollmentRequestApproved,
 					Status:  api.ConditionStatusFalse,
-					Reason:  util.StrToPtr("reason"),
-					Message: util.StrToPtr("message"),
+					Reason:  "reason",
+					Message: "message",
 				},
 			}
 
@@ -486,9 +492,9 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
-			Expect((*updatedFleet.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
-			Expect((*updatedFleet.Status.Conditions)[0].Status).To(Equal(api.ConditionStatusFalse))
+			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(updatedFleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
 		})
 
 		It("OverwriteRepositoryRefs", func() {

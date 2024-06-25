@@ -35,7 +35,7 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) *ResourceSync {
 		return &ResourceSync{}
 	}
 
-	var status api.ResourceSyncStatus
+	status := api.ResourceSyncStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -59,7 +59,7 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 		spec = r.Spec.Data
 	}
 
-	var status api.ResourceSyncStatus
+	status := api.ResourceSyncStatus{Conditions: []api.Condition{}}
 	if r.Status != nil {
 		status = r.Status.Data
 	}
@@ -113,7 +113,7 @@ func (rs *ResourceSync) NeedsSyncToHash(hash string) bool {
 		return true
 	}
 
-	if api.IsStatusConditionFalse(*rs.Status.Data.Conditions, api.ResourceSyncSynced) {
+	if api.IsStatusConditionFalse(rs.Status.Data.Conditions, api.ResourceSyncSynced) {
 		return true
 	}
 
@@ -129,18 +129,18 @@ func (rs *ResourceSync) ensureConditionsNotNil() {
 	if rs.Status == nil {
 		rs.Status = &JSONField[api.ResourceSyncStatus]{
 			Data: api.ResourceSyncStatus{
-				Conditions: &[]api.Condition{},
+				Conditions: []api.Condition{},
 			},
 		}
 	}
 	if rs.Status.Data.Conditions == nil {
-		rs.Status.Data.Conditions = &[]api.Condition{}
+		rs.Status.Data.Conditions = []api.Condition{}
 	}
 }
 
 func (rs *ResourceSync) SetCondition(conditionType api.ConditionType, okReason, failReason string, err error) bool {
 	rs.ensureConditionsNotNil()
-	return api.SetStatusConditionByError(rs.Status.Data.Conditions, conditionType, okReason, failReason, err)
+	return api.SetStatusConditionByError(&rs.Status.Data.Conditions, conditionType, okReason, failReason, err)
 }
 
 func (rs *ResourceSync) AddRepoNotFoundCondition(err error) {

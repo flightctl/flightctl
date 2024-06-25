@@ -308,14 +308,10 @@ func printRepositoriesTable(w *tabwriter.Writer, response *apiclient.ListReposit
 		accessible := "-"
 		reason := ""
 		message := ""
-		if f.Status != nil && f.Status.Conditions != nil && len(*f.Status.Conditions) > 0 {
-			accessible = string((*f.Status.Conditions)[0].Status)
-			if (*f.Status.Conditions)[0].Reason != nil {
-				reason = *(*f.Status.Conditions)[0].Reason
-			}
-			if (*f.Status.Conditions)[0].Message != nil {
-				message = *(*f.Status.Conditions)[0].Message
-			}
+		if f.Status != nil && len(f.Status.Conditions) > 0 {
+			accessible = string(f.Status.Conditions[0].Status)
+			reason = f.Status.Conditions[0].Reason
+			message = f.Status.Conditions[0].Message
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", *f.Metadata.Name, accessible, reason, message)
 	}

@@ -58,16 +58,16 @@ const (
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
-	LastTransitionTime *time.Time `json:"lastTransitionTime,omitempty"`
+	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
 	// Message Human readable message indicating details about last transition.
-	Message *string `json:"message,omitempty"`
+	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
 	// Reason (brief) reason for the condition's last transition.
-	Reason *string         `json:"reason,omitempty"`
+	Reason string          `json:"reason"`
 	Status ConditionStatus `json:"status"`
 	Type   ConditionType   `json:"type"`
 }
@@ -154,7 +154,7 @@ type DeviceSpec_Config_Item struct {
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
 type DeviceStatus struct {
 	// Conditions Current state of the device.
-	Conditions *[]Condition `json:"conditions,omitempty"`
+	Conditions []Condition `json:"conditions"`
 
 	// Containers Statuses of containers in the device.
 	Containers *[]ContainerStatus `json:"containers,omitempty"`
@@ -265,7 +265,7 @@ type EnrollmentRequestStatus struct {
 	Certificate *string `json:"certificate,omitempty"`
 
 	// Conditions Current state of the EnrollmentRequest.
-	Conditions *[]Condition `json:"conditions,omitempty"`
+	Conditions []Condition `json:"conditions"`
 }
 
 // Error defines model for Error.
@@ -321,7 +321,7 @@ type FleetSpec struct {
 // FleetStatus FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
-	Conditions *[]Condition `json:"conditions,omitempty"`
+	Conditions []Condition `json:"conditions"`
 }
 
 // GenericConfigSpec defines model for GenericConfigSpec.
@@ -519,7 +519,7 @@ type RepositorySpec struct {
 // RepositoryStatus RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
 type RepositoryStatus struct {
 	// Conditions Current state of the repository.
-	Conditions *[]Condition `json:"conditions,omitempty"`
+	Conditions []Condition `json:"conditions"`
 }
 
 // ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
@@ -571,7 +571,7 @@ type ResourceSyncSpec struct {
 // ResourceSyncStatus ResourceSyncStatus represents information about the status of a resourcesync
 type ResourceSyncStatus struct {
 	// Conditions Current state of a resourcesync.
-	Conditions *[]Condition `json:"conditions,omitempty"`
+	Conditions []Condition `json:"conditions"`
 
 	// ObservedCommit The last commit hash that was synced
 	ObservedCommit *string `json:"observedCommit,omitempty"`
@@ -633,7 +633,7 @@ type TemplateVersionSpec struct {
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
 	// Conditions Current state of the device.
-	Conditions *[]Condition `json:"conditions,omitempty"`
+	Conditions []Condition `json:"conditions"`
 
 	// Config List of config resources.
 	Config     *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`

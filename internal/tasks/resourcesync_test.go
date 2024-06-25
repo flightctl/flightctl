@@ -230,7 +230,7 @@ func testResourceSync() model.ResourceSync {
 		},
 		Status: &model.JSONField[api.ResourceSyncStatus]{
 			Data: api.ResourceSyncStatus{
-				Conditions: &[]api.Condition{},
+				Conditions: []api.Condition{},
 			},
 		},
 	}

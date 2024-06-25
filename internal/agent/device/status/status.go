@@ -39,7 +39,7 @@ type StatusManager struct {
 	managementClient *client.Management
 	exporters        []Exporter
 	log              *log.PrefixLogger
-	conditions       *[]v1alpha1.Condition
+	conditions       []v1alpha1.Condition
 }
 
 type Exporter interface {
@@ -74,7 +74,7 @@ func (m *StatusManager) Get(ctx context.Context) (*v1alpha1.DeviceStatus, error)
 }
 
 func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.DeviceStatus, error) {
-	deviceStatus := v1alpha1.DeviceStatus{Conditions: &[]v1alpha1.Condition{}}
+	deviceStatus := v1alpha1.DeviceStatus{Conditions: []v1alpha1.Condition{}}
 	for _, exporter := range m.exporters {
 		err := exporter.Export(ctx, &deviceStatus)
 		if err != nil {
@@ -135,7 +135,7 @@ func (m *StatusManager) UpdateCondition(
 		return fmt.Errorf("status conditions not set")
 	}
 
-	if SetProgressingCondition(status.Conditions, conditionType, conditionStatus, reason, message) {
+	if SetProgressingCondition(&status.Conditions, conditionType, conditionStatus, reason, message) {
 		// log condition change
 		m.log.Infof("Set progressing condition: %s", reason)
 	}
@@ -157,7 +157,7 @@ func (m *StatusManager) UpdateConditionError(ctx context.Context, reason string,
 		return fmt.Errorf("status conditions not set")
 	}
 
-	if SetDegradedConditionByError(status.Conditions, reason, serr) {
+	if SetDegradedConditionByError(&status.Conditions, reason, serr) {
 		// log condition change
 		m.log.Infof("Set degraded condition by error: %v", serr)
 	}

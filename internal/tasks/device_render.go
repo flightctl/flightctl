@@ -11,7 +11,6 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -96,11 +95,11 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 
 	if renderErr == nil {
 		condition.Status = api.ConditionStatusTrue
-		condition.Reason = util.StrToPtr("Valid")
+		condition.Reason = "Valid"
 	} else {
 		condition.Status = api.ConditionStatusFalse
-		condition.Reason = util.StrToPtr("Invalid")
-		condition.Message = util.StrToPtr(renderErr.Error())
+		condition.Reason = "Invalid"
+		condition.Message = renderErr.Error()
 	}
 
 	err := t.store.Device().SetServiceConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, []api.Condition{condition})

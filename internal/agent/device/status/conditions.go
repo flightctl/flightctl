@@ -2,7 +2,6 @@ package status
 
 import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 )
 
 var (
@@ -10,22 +9,22 @@ var (
 	DeviceConditionExpectedReason  string = "AsExpected"
 )
 
-func DefaultConditions() *[]v1alpha1.Condition {
-	return &[]v1alpha1.Condition{
+func DefaultConditions() []v1alpha1.Condition {
+	return []v1alpha1.Condition{
 		{
 			Type:   v1alpha1.DeviceProgressing,
 			Status: v1alpha1.ConditionStatusTrue,
-			Reason: &DeviceConditionBootstrapReason,
+			Reason: DeviceConditionBootstrapReason,
 		},
 		{
 			Type:   v1alpha1.DeviceAvailable,
 			Status: v1alpha1.ConditionStatusFalse,
-			Reason: &DeviceConditionBootstrapReason,
+			Reason: DeviceConditionBootstrapReason,
 		},
 		{
 			Type:   v1alpha1.DeviceDegraded,
 			Status: v1alpha1.ConditionStatusFalse,
-			Reason: &DeviceConditionExpectedReason,
+			Reason: DeviceConditionExpectedReason,
 		},
 	}
 
@@ -36,12 +35,12 @@ func SetDegradedConditionByError(conditions *[]v1alpha1.Condition, reason string
 	condition := v1alpha1.Condition{Type: v1alpha1.DeviceDegraded}
 	if err != nil {
 		condition.Status = v1alpha1.ConditionStatusTrue
-		condition.Reason = util.StrToPtr(reason)
-		condition.Message = util.StrToPtr(err.Error())
+		condition.Reason = reason
+		condition.Message = err.Error()
 	} else {
 		condition.Status = v1alpha1.ConditionStatusFalse
-		condition.Reason = &DeviceConditionExpectedReason
-		condition.Message = util.StrToPtr("All is well")
+		condition.Reason = DeviceConditionExpectedReason
+		condition.Message = "All is well"
 	}
 
 	return v1alpha1.SetStatusCondition(conditions, condition)
@@ -52,8 +51,8 @@ func SetProgressingCondition(conditions *[]v1alpha1.Condition, conditionType v1a
 	// TODO: ensure condition exists.
 	condition := v1alpha1.Condition{Type: conditionType}
 	condition.Status = conditionStatus
-	condition.Reason = util.StrToPtr(reason)
-	condition.Message = util.StrToPtr(message)
+	condition.Reason = reason
+	condition.Message = message
 
 	return v1alpha1.SetStatusCondition(conditions, condition)
 }
