@@ -132,8 +132,7 @@ func getDeviceWithStatusSystemInfo(harness *e2e.Harness, enrollmentID string) *c
 	device, err := harness.Client.ReadDeviceWithResponse(harness.Context, enrollmentID)
 	Expect(err).NotTo(HaveOccurred())
 	// we keep waiting for a 200 response, with filled in Status.SystemInfo
-	if device.JSON200 == nil || device.JSON200.Status == nil ||
-		device.JSON200.Status.SystemInfo == nil {
+	if device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.SystemInfo.OperatingSystem == "" {
 		return nil
 	}
 	return device

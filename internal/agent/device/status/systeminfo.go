@@ -17,7 +17,6 @@ var _ Exporter = (*SystemInfo)(nil)
 // SystemInfo collects system information.
 type SystemInfo struct {
 	tpmChannel *tpm.TPM
-	systemInfo *v1alpha1.DeviceSystemInfo
 }
 
 func newSystemInfo(tpmChannel *tpm.TPM) *SystemInfo {
@@ -25,17 +24,10 @@ func newSystemInfo(tpmChannel *tpm.TPM) *SystemInfo {
 }
 
 func (c *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	if c.systemInfo != nil {
-		status.SystemInfo = c.systemInfo
-		return nil
-	}
-
 	// collect what we can and use previous values on error
 	// retry until completed
-	systemInfo := &v1alpha1.DeviceSystemInfo{
-		Architecture:    runtime.GOARCH,
-		OperatingSystem: runtime.GOOS,
-	}
+	status.SystemInfo.Architecture = runtime.GOARCH
+	status.SystemInfo.OperatingSystem = runtime.GOOS
 
 	sysFs := sysfs.NewRealSysFs()
 	fsInfo, err := fs.NewFsInfo(fs.Context{})
@@ -47,16 +39,14 @@ func (c *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) 
 	if err != nil {
 		return fmt.Errorf("getting machine info: %w", err)
 	}
-	systemInfo.BootID = info.BootID
-	systemInfo.MachineID = info.MachineID
-	systemInfo.Measurements = map[string]string{}
-	err = c.tpmChannel.GetPCRValues(systemInfo.Measurements)
+	status.SystemInfo.BootID = info.BootID
+	status.SystemInfo.MachineID = info.MachineID
+
+	status.SystemInfo.Measurements = make(map[string]string)
+	err = c.tpmChannel.GetPCRValues(status.SystemInfo.Measurements)
 	if err != nil {
 		return fmt.Errorf("getting PCR values: %w", err)
 	}
-
-	c.systemInfo = systemInfo
-	status.SystemInfo = c.systemInfo
 
 	return nil
 }

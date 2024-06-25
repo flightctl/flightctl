@@ -11,6 +11,24 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ApplicationStatusType.
+const (
+	ApplicationStatusCompleted ApplicationStatusType = "Completed"
+	ApplicationStatusError     ApplicationStatusType = "Error"
+	ApplicationStatusPreparing ApplicationStatusType = "Preparing"
+	ApplicationStatusRunning   ApplicationStatusType = "Running"
+	ApplicationStatusStarting  ApplicationStatusType = "Starting"
+	ApplicationStatusUnknown   ApplicationStatusType = "Unknown"
+)
+
+// Defines values for ApplicationsSummaryStatusType.
+const (
+	ApplicationsSummaryStatusDegraded ApplicationsSummaryStatusType = "Degraded"
+	ApplicationsSummaryStatusError    ApplicationsSummaryStatusType = "Error"
+	ApplicationsSummaryStatusHealthy  ApplicationsSummaryStatusType = "Healthy"
+	ApplicationsSummaryStatusUnknown  ApplicationsSummaryStatusType = "Unknown"
+)
+
 // Defines values for ConditionStatus.
 const (
 	ConditionStatusFalse   ConditionStatus = "False"
@@ -41,6 +59,40 @@ const (
 	TemplateVersionValid       ConditionType = "Valid"
 )
 
+// Defines values for DeviceIntegrityStatusSummaryType.
+const (
+	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
+	DeviceIntegrityStatusPassed      DeviceIntegrityStatusSummaryType = "Passed"
+	DeviceIntegrityStatusUnknown     DeviceIntegrityStatusSummaryType = "Unknown"
+	DeviceIntegrityStatusUnsupported DeviceIntegrityStatusSummaryType = "Unsupported"
+)
+
+// Defines values for DeviceResourceStatusType.
+const (
+	DeviceResourceStatusCritical DeviceResourceStatusType = "Critical"
+	DeviceResourceStatusHealthy  DeviceResourceStatusType = "Healthy"
+	DeviceResourceStatusUnknown  DeviceResourceStatusType = "Unknown"
+	DeviceResourceStatusWarning  DeviceResourceStatusType = "Warning"
+)
+
+// Defines values for DeviceSummaryStatusType.
+const (
+	DeviceSummaryStatusDegraded   DeviceSummaryStatusType = "Degraded"
+	DeviceSummaryStatusError      DeviceSummaryStatusType = "Error"
+	DeviceSummaryStatusOnline     DeviceSummaryStatusType = "Online"
+	DeviceSummaryStatusPoweredOff DeviceSummaryStatusType = "PoweredOff"
+	DeviceSummaryStatusRebooting  DeviceSummaryStatusType = "Rebooting"
+	DeviceSummaryStatusUnknown    DeviceSummaryStatusType = "Unknown"
+)
+
+// Defines values for DeviceUpdatedStatusType.
+const (
+	DeviceUpdatedStatusOutOfDate DeviceUpdatedStatusType = "OutOfDate"
+	DeviceUpdatedStatusUnknown   DeviceUpdatedStatusType = "Unknown"
+	DeviceUpdatedStatusUpToDate  DeviceUpdatedStatusType = "UpToDate"
+	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
@@ -54,6 +106,32 @@ const (
 	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
+
+// ApplicationStatus defines model for ApplicationStatus.
+type ApplicationStatus struct {
+	// Name Human readable name of the application.
+	Name string `json:"name"`
+
+	// Ready The number of containers which are ready in the application.
+	Ready string `json:"ready"`
+
+	// Restarts Number of restarts observed for the application.
+	Restarts int                   `json:"restarts"`
+	Status   ApplicationStatusType `json:"status"`
+}
+
+// ApplicationStatusType defines model for ApplicationStatusType.
+type ApplicationStatusType string
+
+// ApplicationsSummaryStatus defines model for ApplicationsSummaryStatus.
+type ApplicationsSummaryStatus struct {
+	// Info Human readable information detailing the last system application transition.
+	Info   *string                       `json:"info,omitempty"`
+	Status ApplicationsSummaryStatusType `json:"status"`
+}
+
+// ApplicationsSummaryStatusType defines model for ApplicationsSummaryStatusType.
+type ApplicationsSummaryStatusType string
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
@@ -108,9 +186,37 @@ type Device struct {
 	Metadata ObjectMeta  `json:"metadata"`
 	Spec     *DeviceSpec `json:"spec,omitempty"`
 
-	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
+	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	Status *DeviceStatus `json:"status,omitempty"`
 }
+
+// DeviceApplicationsStatus defines model for DeviceApplicationsStatus.
+type DeviceApplicationsStatus struct {
+	// Data Map of system application statuses.
+	Data    map[string]ApplicationStatus `json:"data"`
+	Summary ApplicationsSummaryStatus    `json:"summary"`
+}
+
+// DeviceConfigStatus defines model for DeviceConfigStatus.
+type DeviceConfigStatus struct {
+	// RenderedVersion Version of the device rendered config.
+	RenderedVersion string `json:"renderedVersion"`
+}
+
+// DeviceIntegrityStatus defines model for DeviceIntegrityStatus.
+type DeviceIntegrityStatus struct {
+	Summary DeviceIntegrityStatusSummary `json:"summary"`
+}
+
+// DeviceIntegrityStatusSummary defines model for DeviceIntegrityStatusSummary.
+type DeviceIntegrityStatusSummary struct {
+	// Info Human readable information about the last integrity transition.
+	Info   *string                          `json:"info,omitempty"`
+	Status DeviceIntegrityStatusSummaryType `json:"status"`
+}
+
+// DeviceIntegrityStatusSummaryType defines model for DeviceIntegrityStatusSummaryType.
+type DeviceIntegrityStatusSummaryType string
 
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
@@ -133,6 +239,22 @@ type DeviceOSSpec struct {
 	Image string `json:"image"`
 }
 
+// DeviceOSStatus defines model for DeviceOSStatus.
+type DeviceOSStatus struct {
+	// Image Version of the OS image.
+	Image string `json:"image"`
+}
+
+// DeviceResourceStatus defines model for DeviceResourceStatus.
+type DeviceResourceStatus struct {
+	Cpu    *DeviceResourceStatusType `json:"cpu,omitempty"`
+	Disk   *DeviceResourceStatusType `json:"disk,omitempty"`
+	Memory *DeviceResourceStatusType `json:"memory,omitempty"`
+}
+
+// DeviceResourceStatusType defines model for DeviceResourceStatusType.
+type DeviceResourceStatusType string
+
 // DeviceSpec defines model for DeviceSpec.
 type DeviceSpec struct {
 	// Config List of config resources.
@@ -151,21 +273,39 @@ type DeviceSpec_Config_Item struct {
 	union json.RawMessage
 }
 
-// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
+// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 type DeviceStatus struct {
+	Applications DeviceApplicationsStatus `json:"applications"`
+
 	// Conditions Current state of the device.
-	Conditions []Condition `json:"conditions"`
+	Conditions []Condition        `json:"conditions"`
+	Config     DeviceConfigStatus `json:"config"`
 
 	// Containers Statuses of containers in the device.
-	Containers *[]ContainerStatus `json:"containers,omitempty"`
+	Containers *[]ContainerStatus    `json:"containers,omitempty"`
+	Integrity  DeviceIntegrityStatus `json:"integrity"`
+	Os         DeviceOSStatus        `json:"os"`
+	Resource   DeviceResourceStatus  `json:"resource"`
+	Summary    DeviceSummaryStatus   `json:"summary"`
 
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
-	SystemInfo *DeviceSystemInfo `json:"systemInfo,omitempty"`
+	SystemInfo DeviceSystemInfo `json:"systemInfo"`
 
 	// SystemdUnits Current state of systemd units on the device.
 	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
-	UpdatedAt    *time.Time                 `json:"updatedAt,omitempty"`
+	Updated      DeviceUpdatedStatus        `json:"updated"`
+	UpdatedAt    time.Time                  `json:"updatedAt"`
 }
+
+// DeviceSummaryStatus defines model for DeviceSummaryStatus.
+type DeviceSummaryStatus struct {
+	// Info Human readable information detailing the last device status transition.
+	Info   *string                 `json:"info,omitempty"`
+	Status DeviceSummaryStatusType `json:"status"`
+}
+
+// DeviceSummaryStatusType defines model for DeviceSummaryStatusType.
+type DeviceSummaryStatusType string
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 type DeviceSystemInfo struct {
@@ -196,6 +336,16 @@ type DeviceSystemdUnitStatus struct {
 	// Name The name of the systemd unit.
 	Name interface{} `json:"name"`
 }
+
+// DeviceUpdatedStatus defines model for DeviceUpdatedStatus.
+type DeviceUpdatedStatus struct {
+	// Info Human readable information about the last device update transition.
+	Info   *string                 `json:"info,omitempty"`
+	Status DeviceUpdatedStatusType `json:"status"`
+}
+
+// DeviceUpdatedStatusType defines model for DeviceUpdatedStatusType.
+type DeviceUpdatedStatusType string
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
@@ -253,7 +403,7 @@ type EnrollmentRequestSpec struct {
 	// Csr csr is a PEM-encoded PKCS#10 certificate signing request.
 	Csr string `json:"csr"`
 
-	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
+	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
 }
 
