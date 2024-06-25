@@ -1994,30 +1994,60 @@ components:
         - image
     DeviceStatus:
       type: object
+      required:
+        - conditions
+        - systemInfo
+        - applications
+        - resource
+        - integrity
+        - config
+        - os
+        - updated
+        - summary
+        - updatedAt
       properties:
-        updatedAt:
-          type: string
-          format: date-time
         conditions:
           type: array
           description: 'Current state of the device.'
           items:
             $ref: '#/components/schemas/Condition'
         systemInfo:
-          $ref: '#/components/schemas/DeviceSystemInfo'
-        containers:
+          $ref: "#/components/schemas/DeviceSystemInfo"
+        containers: # deprecated
           type: array
           description: Statuses of containers in the device.
           items:
-            $ref: '#/components/schemas/ContainerStatus'
-        systemdUnits:
+            $ref: "#/components/schemas/ContainerStatus"
+        systemdUnits: # deprecated
           type: array
-          description: 'Current state of systemd units on the device.'
+          description: "Current state of systemd units on the device."
           items:
-            $ref: '#/components/schemas/DeviceSystemdUnitStatus'
-      required:
-        - conditions
-      description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
+            $ref: "#/components/schemas/DeviceSystemdUnitStatus"
+        applications:
+          $ref: "#/components/schemas/DeviceApplicationsStatus"
+          description: "Current status of the system applications."
+        resource:
+          $ref: "#/components/schemas/DeviceResourceStatus"
+          description: "Current status of the resources of the device."
+        integrity:
+          $ref: "#/components/schemas/DeviceIntegrityStatus"
+          description: "Current status of the integrity of the device."
+        config:
+          $ref: "#/components/schemas/DeviceConfigStatus"
+          description: "Current status of the device config."
+        os:
+          $ref: "#/components/schemas/DeviceOSStatus"
+          description: "Current status of the device OS."
+        updated:
+          $ref: "#/components/schemas/DeviceUpdatedStatus"
+          description: "Current status of the device update."
+        summary:
+          $ref: "#/components/schemas/DeviceSummaryStatus"
+          description: "Summary status of the device."
+        updatedAt:
+          type: string
+          format: date-time
+      description: "DeviceStatus represents information about the status of a device. Status may trail the actual state of a device."
     DeviceSystemInfo:
       required:
         - architecture
@@ -2033,18 +2063,18 @@ components:
         bootID:
           type: string
           description: Boot ID reported by the device.
-        machineID:
+        machineID: # deprecated
           type: string
           description: 'MachineID reported by the device.'
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
-        measurements:
+        measurements: # deprecated
           type: object
           additionalProperties:
             type: string
           description: The integrity measurements of the system.
-      description: DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+      description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
     ContainerStatus:
       required:
         - id
@@ -2085,6 +2115,200 @@ components:
           type: string
           description: The active state of the systemd unit.
       description: The status of the systemd unit.
+    DeviceApplicationsStatus:
+      type: object
+      required:
+        - data
+        - summary
+      properties:
+        data:
+          type: object
+          description: "Map of system application statuses."
+          additionalProperties:
+            $ref: "#/components/schemas/ApplicationStatus"
+        summary:
+          $ref: "#/components/schemas/ApplicationsSummaryStatus"
+          description: "Summary status of system applications."
+    ApplicationStatus:
+      type: object
+      required:
+        - name
+        - ready
+        - restarts
+        - status
+      properties:
+        name:
+          type: string
+          description: "Human readable name of the application."
+        ready:
+          type: string
+          description: "The number of containers which are ready in the application."
+        restarts:
+          type: integer
+          description: "Number of restarts observed for the application."
+        status:
+          $ref: "#/components/schemas/ApplicationStatusType"
+          description: "Status of the application."
+    ApplicationsSummaryStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/ApplicationsSummaryStatusType"
+          description: "Summary status of the system applications."
+        info:
+          type: string
+          description: "Human readable information detailing the last system application transition."
+    ApplicationsSummaryStatusType:
+      type: string
+      enum:
+        - "Healthy"
+        - "Degraded"
+        - "Error"
+        - "Unknown"
+      x-enum-varnames:
+        - "ApplicationsSummaryStatusHealthy"
+        - "ApplicationsSummaryStatusDegraded"
+        - "ApplicationsSummaryStatusError"
+        - "ApplicationsSummaryStatusUnknown"
+    ApplicationStatusType:
+      type: string
+      enum:
+        - "Preparing"
+        - "Starting"
+        - "Running"
+        - "Error"
+        - "Unknown"
+        - "Completed"
+      x-enum-varnames:
+        - "ApplicationStatusPreparing"
+        - "ApplicationStatusStarting"
+        - "ApplicationStatusRunning"
+        - "ApplicationStatusError"
+        - "ApplicationStatusUnknown"
+        - "ApplicationStatusCompleted"
+    DeviceOSStatus:
+      type: object
+      required:
+        - image
+      properties:
+        image:
+          type: string
+          description: "Version of the OS image."
+    DeviceConfigStatus:
+      type: object
+      required:
+        - renderedVersion
+      properties:
+        renderedVersion:
+          type: string
+          description: "Version of the device rendered config."
+    DeviceSummaryStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceSummaryStatusType"
+          description: "Summary status of the device."
+        info:
+          type: string
+          description: "Human readable information detailing the last device status transition."
+    DeviceSummaryStatusType:
+      type: string
+      enum:
+        - "Online"
+        - "Degraded"
+        - "Error"
+        - "Rebooting"
+        - "PoweredOff"
+        - "Unknown"
+      x-enum-varnames:
+        - "DeviceSummaryStatusOnline"
+        - "DeviceSummaryStatusDegraded"
+        - "DeviceSummaryStatusError"
+        - "DeviceSummaryStatusRebooting"
+        - "DeviceSummaryStatusPoweredOff"
+        - "DeviceSummaryStatusUnknown"
+    DeviceUpdatedStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceUpdatedStatusType"
+          description: "Status type of the device update."
+        info:
+          type: string
+          description: "Human readable information about the last device update transition."
+    DeviceUpdatedStatusType:
+      type: string
+      enum:
+        - "UpToDate"
+        - "OutOfDate"
+        - "Updating"
+        - "Unknown"
+      x-enum-varnames:
+        - "DeviceUpdatedStatusUpToDate"
+        - "DeviceUpdatedStatusOutOfDate"
+        - "DeviceUpdatedStatusUpdating"
+        - "DeviceUpdatedStatusUnknown"
+    DeviceIntegrityStatus:
+      type: object
+      required:
+        - summary
+      properties:
+        summary:
+          $ref: "#/components/schemas/DeviceIntegrityStatusSummary"
+          description: "Summary status of the integrity of the device."
+    DeviceIntegrityStatusSummary:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceIntegrityStatusSummaryType"
+          description: "Summary status of the integrity of the device."
+        info:
+          type: string
+          description: "Human readable information about the last integrity transition."
+    DeviceIntegrityStatusSummaryType:
+      type: string
+      enum:
+        - "Passed"
+        - "Failed"
+        - "Unknown"
+        - "Unsupported"
+      x-enum-varnames:
+        - "DeviceIntegrityStatusPassed"
+        - "DeviceIntegrityStatusFailed"
+        - "DeviceIntegrityStatusUnknown"
+        - "DeviceIntegrityStatusUnsupported"
+    DeviceResourceStatus:
+      type: object
+      properties:
+        cpu:
+          $ref: "#/components/schemas/DeviceResourceStatusType"
+          description: "Status of the device CPU resources."
+        memory:
+          $ref: "#/components/schemas/DeviceResourceStatusType"
+          description: "Status of the device memory resources."
+        disk:
+          $ref: "#/components/schemas/DeviceResourceStatusType"
+          description: "Status of the device disk resources."
+    DeviceResourceStatusType:
+      type: string
+      enum:
+        - "Healthy"
+        - "Warning"
+        - "Critical"
+        - "Unknown"
+      x-enum-varnames:
+        - "DeviceResourceStatusHealthy"
+        - "DeviceResourceStatusWarning"
+        - "DeviceResourceStatusCritical"
+        - "DeviceResourceStatusUnknown"
 
     EnrollmentRequestApproval:
       type: object
