@@ -35,7 +35,7 @@ func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) *Enrol
 		return &EnrollmentRequest{}
 	}
 
-	var status api.EnrollmentRequestStatus
+	status := api.EnrollmentRequestStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -54,7 +54,7 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 		return api.EnrollmentRequest{}
 	}
 
-	var status api.EnrollmentRequestStatus
+	status := api.EnrollmentRequestStatus{Conditions: []api.Condition{}}
 	if e.Status != nil {
 		status = e.Status.Data
 	}

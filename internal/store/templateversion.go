@@ -51,8 +51,8 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	templateVersion := model.NewTemplateVersionFromApiResource(resource)
 	templateVersion.OrgID = orgId
 	templateVersion.Generation = util.Int64ToPtr(1)
-	status := api.TemplateVersionStatus{Conditions: &[]api.Condition{}}
-	api.SetStatusCondition(status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
+	status := api.TemplateVersionStatus{Conditions: []api.Condition{}}
+	api.SetStatusCondition(&status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
 	templateVersion.Status = model.MakeJSONField(status)
 	apiResource := templateVersion.ToApiResource()
 

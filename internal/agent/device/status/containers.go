@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 )
 
@@ -103,17 +102,17 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 
 	if notRunning == 0 {
 		runningCondition.Status = v1alpha1.ConditionStatusTrue
-		runningCondition.Reason = util.StrToPtr("Running")
+		runningCondition.Reason = "Running"
 	} else {
 		runningCondition.Status = v1alpha1.ConditionStatusFalse
-		runningCondition.Reason = util.StrToPtr("NotRunning")
+		runningCondition.Reason = "NotRunning"
 		containerStr := "container"
 		if notRunning > 1 {
 			containerStr = "containers"
 		}
-		runningCondition.Message = util.StrToPtr(fmt.Sprintf("%d %s not running", notRunning, containerStr))
+		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, containerStr)
 	}
-	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
+	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
 	status.Containers = &deviceContainerStatus
 	c.notRunning = notRunning
 
@@ -160,18 +159,18 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 
 	if notRunning == 0 {
 		runningCondition.Status = v1alpha1.ConditionStatusTrue
-		runningCondition.Reason = util.StrToPtr("Running")
+		runningCondition.Reason = "Running"
 	} else {
 		runningCondition.Status = v1alpha1.ConditionStatusFalse
-		runningCondition.Reason = util.StrToPtr("NotRunning")
+		runningCondition.Reason = "NotRunning"
 		containerStr := "container"
 		if notRunning > 1 {
 			containerStr = "containers"
 		}
-		runningCondition.Message = util.StrToPtr(fmt.Sprintf("%d %s not running", notRunning, containerStr))
+		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, containerStr)
 	}
 
-	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
+	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
 	if status.Containers == nil {
 		status.Containers = &deviceContainerStatus
 	} else {

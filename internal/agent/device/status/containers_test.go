@@ -174,7 +174,7 @@ var _ = Describe("containers exporter", func() {
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
-		deviceStatus = v1alpha1.DeviceStatus{Conditions: &[]v1alpha1.Condition{}}
+		deviceStatus = v1alpha1.DeviceStatus{Conditions: []v1alpha1.Condition{}}
 		execMock = executer.NewMockExecuter(ctrl)
 		container = newContainer(execMock)
 	})
@@ -201,11 +201,11 @@ var _ = Describe("containers exporter", func() {
 			Expect((*deviceStatus.Containers)[1].Status).To(Equal("paused"))
 			Expect((*deviceStatus.Containers)[1].Engine).To(Equal("podman"))
 
-			Expect(*deviceStatus.Conditions).To(HaveLen(1))
-			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
-			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
-			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
-			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
+			Expect(deviceStatus.Conditions).To(HaveLen(1))
+			Expect(deviceStatus.Conditions[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
+			Expect(deviceStatus.Conditions[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
+			Expect(deviceStatus.Conditions[0].Reason).To(Equal("NotRunning"))
+			Expect(deviceStatus.Conditions[0].Message).To(Equal("1 container not running"))
 
 		})
 
@@ -230,11 +230,11 @@ var _ = Describe("containers exporter", func() {
 			Expect((*deviceStatus.Containers)[1].Status).To(Equal("CONTAINER_EXITED"))
 			Expect((*deviceStatus.Containers)[1].Engine).To(Equal("crio"))
 
-			Expect(*deviceStatus.Conditions).To(HaveLen(1))
-			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
-			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
-			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
-			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("1 container not running"))
+			Expect(deviceStatus.Conditions).To(HaveLen(1))
+			Expect(deviceStatus.Conditions[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
+			Expect(deviceStatus.Conditions[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
+			Expect(deviceStatus.Conditions[0].Reason).To(Equal("NotRunning"))
+			Expect(deviceStatus.Conditions[0].Message).To(Equal("1 container not running"))
 		})
 
 		It("list both podman and crio containers", func() {
@@ -276,11 +276,11 @@ var _ = Describe("containers exporter", func() {
 			Expect((*deviceStatus.Containers)[3].Status).To(Equal("CONTAINER_EXITED"))
 			Expect((*deviceStatus.Containers)[3].Engine).To(Equal("crio"))
 
-			Expect(*deviceStatus.Conditions).To(HaveLen(1))
-			Expect((*deviceStatus.Conditions)[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
-			Expect((*deviceStatus.Conditions)[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
-			Expect(*(*deviceStatus.Conditions)[0].Reason).To(Equal("NotRunning"))
-			Expect(*(*deviceStatus.Conditions)[0].Message).To(Equal("2 containers not running"))
+			Expect(deviceStatus.Conditions).To(HaveLen(1))
+			Expect(deviceStatus.Conditions[0].Type).To(Equal(v1alpha1.DeviceContainersRunning))
+			Expect(deviceStatus.Conditions[0].Status).To(Equal(v1alpha1.ConditionStatusFalse))
+			Expect(deviceStatus.Conditions[0].Reason).To(Equal("NotRunning"))
+			Expect(deviceStatus.Conditions[0].Message).To(Equal("2 containers not running"))
 		})
 	})
 })

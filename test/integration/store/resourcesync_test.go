@@ -260,7 +260,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(rs.Kind).To(Equal(model.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/path"))
-			Expect(rs.Status.Conditions).To(BeNil())
+			Expect(rs.Status.Conditions).ToNot(BeNil())
+			Expect(rs.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateResourceSync update mode", func() {
@@ -281,7 +282,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(rs.Kind).To(Equal(model.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myotherrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/other/path"))
-			Expect(rs.Status.Conditions).To(BeNil())
+			Expect(rs.Status.Conditions).ToNot(BeNil())
+			Expect(rs.Status.Conditions).To(BeEmpty())
 		})
 	})
 })

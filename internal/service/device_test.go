@@ -56,7 +56,8 @@ func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (
 			Os: &v1alpha1.DeviceOSSpec{Image: "img"},
 		},
 		Status: &v1alpha1.DeviceStatus{
-			UpdatedAt: util.TimeToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)),
+			UpdatedAt:  util.TimeToPtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)),
+			Conditions: []v1alpha1.Condition{},
 		},
 	}
 	serviceHandler := ServiceHandler{

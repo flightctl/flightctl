@@ -1853,6 +1853,8 @@ components:
           description: 'Current state of the repository.'
           items:
             $ref: '#/components/schemas/Condition'
+      required:
+        - conditions
       description: RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
     RepositoryList:
       type: object
@@ -2013,6 +2015,8 @@ components:
           description: 'Current state of systemd units on the device.'
           items:
             $ref: '#/components/schemas/DeviceSystemdUnitStatus'
+      required:
+        - conditions
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device, especially if the device has not contacted the management service in a while.
     DeviceSystemInfo:
       required:
@@ -2172,6 +2176,8 @@ components:
             $ref: '#/components/schemas/Condition'
         approval:
           $ref: '#/components/schemas/EnrollmentRequestApproval'
+      required:
+        - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 
     ResourceSync:
@@ -2233,6 +2239,8 @@ components:
           description: 'Current state of a resourcesync.'
           items:
             $ref: '#/components/schemas/Condition'
+      required:
+        - conditions
       description: ResourceSyncStatus represents information about the status of a resourcesync
     ResourceSyncList:
       type: object
@@ -2381,6 +2389,8 @@ components:
           description: 'Current state of the fleet.'
           items:
             $ref: '#/components/schemas/Condition'
+      required:
+        - conditions
       description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
     TemplateVersion:
       type: object
@@ -2424,6 +2434,8 @@ components:
               description: 'Current state of the device.'
               items:
                 $ref: '#/components/schemas/Condition'
+          required:
+            - conditions
           description: TemplateVersionStatus represents information about the status of a template version.
     TemplateVersionList:
       type: object
@@ -2523,8 +2535,11 @@ components:
           description: Error message
     Condition:
       required:
-        - status
         - type
+        - status
+        - lastTransitionTime
+        - reason
+        - message
       type: object
       properties:
         type:

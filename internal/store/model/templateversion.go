@@ -52,7 +52,7 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) *TemplateV
 		return &TemplateVersion{}
 	}
 
-	var status api.TemplateVersionStatus
+	status := api.TemplateVersionStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -79,7 +79,7 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 		spec = t.Spec.Data
 	}
 
-	var status api.TemplateVersionStatus
+	status := api.TemplateVersionStatus{Conditions: []api.Condition{}}
 	if t.Status != nil {
 		status = t.Status.Data
 	}

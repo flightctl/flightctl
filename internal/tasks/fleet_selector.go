@@ -399,7 +399,7 @@ func (f FleetSelectorMatchingLogic) HandleOrgwideUpdate(ctx context.Context) err
 		fleet := fleets.Items[fleetIndex]
 		_, ok := overlappingFleets[*fleet.Metadata.Name]
 		if ok {
-			if api.IsStatusConditionFalse(*fleet.Status.Conditions, api.FleetOverlappingSelectors) {
+			if api.IsStatusConditionFalse(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
 				condErr := f.setOverlappingFleetConditionTrue(ctx, *fleet.Metadata.Name)
 				if condErr != nil {
 					f.log.Errorf("failed setting overlapping selector condition on fleet %s/%s: %v", f.resourceRef.OrgID, *fleet.Metadata.Name, err)
@@ -407,7 +407,7 @@ func (f FleetSelectorMatchingLogic) HandleOrgwideUpdate(ctx context.Context) err
 				}
 			}
 		} else {
-			if api.IsStatusConditionTrue(*fleet.Status.Conditions, api.FleetOverlappingSelectors) {
+			if api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
 				condErr := f.setOverlappingFleetConditionFalse(ctx, *fleet.Metadata.Name)
 				if condErr != nil {
 					f.log.Errorf("failed unsetting overlapping selector condition on fleet %s/%s: %v", f.resourceRef.OrgID, *fleet.Metadata.Name, err)
@@ -524,10 +524,10 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllDevices(ctx context.Context) 
 			fleet := fleets.Items[fleetIndex]
 			changed := false
 			if fleet.Status.Conditions != nil {
-				changed = api.SetStatusCondition(fleet.Status.Conditions, condition)
+				changed = api.SetStatusCondition(&fleet.Status.Conditions, condition)
 			}
 			if changed {
-				err = f.fleetStore.UpdateConditions(ctx, f.resourceRef.OrgID, *fleet.Metadata.Name, *fleet.Status.Conditions)
+				err = f.fleetStore.UpdateConditions(ctx, f.resourceRef.OrgID, *fleet.Metadata.Name, fleet.Status.Conditions)
 				if err != nil {
 					f.log.Errorf("failed to update conditions for fleet %s/%s: %v", f.resourceRef.OrgID, *fleet.Metadata.Name, err)
 					errors++
@@ -640,8 +640,8 @@ func (f FleetSelectorMatchingLogic) setOverlappingFleetConditionTrue(ctx context
 	condition := api.Condition{
 		Type:    api.FleetOverlappingSelectors,
 		Status:  api.ConditionStatusTrue,
-		Reason:  util.StrToPtr("Overlapping selectors"),
-		Message: util.StrToPtr("Fleet's selector overlaps with at least one other fleet, causing ambiguous device ownership"),
+		Reason:  "Overlapping selectors",
+		Message: "Fleet's selector overlaps with at least one other fleet, causing ambiguous device ownership",
 	}
 	return f.fleetStore.UpdateConditions(ctx, f.resourceRef.OrgID, fleetName, []api.Condition{condition})
 }
