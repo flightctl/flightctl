@@ -9,8 +9,8 @@ var (
 	DeviceConditionExpectedReason  string = "AsExpected"
 )
 
-func DefaultConditions() *[]v1alpha1.Condition {
-	return &[]v1alpha1.Condition{
+func DefaultConditions() []v1alpha1.Condition {
+	return []v1alpha1.Condition{
 		{
 			Type:   v1alpha1.DeviceProgressing,
 			Status: v1alpha1.ConditionStatusTrue,

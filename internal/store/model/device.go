@@ -57,7 +57,7 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 		spec = *resource.Spec
 	}
 
-	var status api.DeviceStatus
+	status := api.DeviceStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -85,16 +85,16 @@ func (d *Device) ToApiResource() api.Device {
 		spec = d.Spec.Data
 	}
 
-	var status api.DeviceStatus
+	status := api.DeviceStatus{Conditions: []api.Condition{}}
 	if d.Status != nil {
 		status = d.Status.Data
 	}
 
 	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
 		if status.Conditions == nil {
-			status.Conditions = &[]api.Condition{}
+			status.Conditions = []api.Condition{}
 		}
-		*status.Conditions = append(*status.Conditions, *d.ServiceConditions.Data.Conditions...)
+		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 	}
 
 	metadataLabels := util.LabelArrayToMap(d.Resource.Labels)

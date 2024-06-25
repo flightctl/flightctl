@@ -92,7 +92,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(2))
 			for _, fleet := range fleets.Items {
-				cond := api.IsStatusConditionTrue(*fleet.Status.Conditions, api.FleetOverlappingSelectors)
+				cond := api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors)
 				Expect(cond).To(BeTrue())
 			}
 		})
@@ -154,10 +154,10 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {
-				fleet.Status.Conditions = &[]api.Condition{}
-				cond := api.SetStatusCondition(fleet.Status.Conditions, condition)
+				fleet.Status.Conditions = []api.Condition{}
+				cond := api.SetStatusCondition(&fleet.Status.Conditions, condition)
 				Expect(cond).To(BeTrue())
-				err = fleetStore.UpdateConditions(ctx, orgId, *fleet.Metadata.Name, *fleet.Status.Conditions)
+				err = fleetStore.UpdateConditions(ctx, orgId, *fleet.Metadata.Name, fleet.Status.Conditions)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -193,7 +193,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {
-				condTrue := api.IsStatusConditionTrue(*fleet.Status.Conditions, api.FleetOverlappingSelectors)
+				condTrue := api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors)
 				switch *fleet.Metadata.Name {
 				case "fleet":
 					Expect(condTrue).To(BeFalse())
@@ -307,7 +307,7 @@ var _ = Describe("FleetSelector", func() {
 				if fleet.Status.Conditions == nil {
 					continue
 				}
-				condTrue := api.IsStatusConditionTrue(*fleet.Status.Conditions, api.FleetOverlappingSelectors)
+				condTrue := api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors)
 				Expect(condTrue).To(BeFalse())
 			}
 		})

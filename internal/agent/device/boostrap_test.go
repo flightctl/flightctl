@@ -329,7 +329,7 @@ func createMockEnrollmentServer(t *testing.T, approved bool) *httptest.Server {
 			}
 
 			status := v1alpha1.EnrollmentRequestStatus{
-				Conditions:  &conditions,
+				Conditions:  conditions,
 				Certificate: certificate,
 			}
 

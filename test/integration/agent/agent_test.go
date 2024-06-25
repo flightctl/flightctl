@@ -61,9 +61,9 @@ var _ = Describe("Device Agent behavior", func() {
 				// verify that the enrollment request is marked as approved
 				er, err := h.Client.ReadEnrollmentRequestWithResponse(h.Context, deviceName)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(er.JSON200.Status.Conditions).ToNot(BeNil())
+				Expect(er.JSON200.Status.Conditions).ToNot(BeEmpty())
 
-				Expect(v1alpha1.IsStatusConditionTrue(*er.JSON200.Status.Conditions, "Approved")).To(BeTrue())
+				Expect(v1alpha1.IsStatusConditionTrue(er.JSON200.Status.Conditions, "Approved")).To(BeTrue())
 
 			})
 
