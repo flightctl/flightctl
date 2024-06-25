@@ -201,8 +201,8 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, err error)
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
 	}
-	t.templateVersion.Status.Conditions = &[]api.Condition{}
-	api.SetStatusConditionByError(t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", err)
+	t.templateVersion.Status.Conditions = []api.Condition{}
+	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", err)
 
 	return t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(err == nil), t.taskManager.TemplateVersionValidatedCallback)
 }

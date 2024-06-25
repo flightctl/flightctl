@@ -67,7 +67,7 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 			},
 		},
 		Status: &v1alpha1.FleetStatus{
-			Conditions: &[]v1alpha1.Condition{
+			Conditions: []v1alpha1.Condition{
 				{
 					Type:   "Approved",
 					Status: "True",

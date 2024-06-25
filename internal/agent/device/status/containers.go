@@ -112,7 +112,7 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 		}
 		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, containerStr)
 	}
-	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
+	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
 	status.Containers = &deviceContainerStatus
 	c.notRunning = notRunning
 
@@ -170,7 +170,7 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, containerStr)
 	}
 
-	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
+	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
 	if status.Containers == nil {
 		status.Containers = &deviceContainerStatus
 	} else {

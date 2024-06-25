@@ -43,7 +43,7 @@ func SetStatusCondition(conditions *[]Condition, newCondition Condition) (change
 
 	if existingCondition.Status != newCondition.Status {
 		existingCondition.Status = newCondition.Status
-		if newCondition.LastTransitionTime.IsZero() {
+		if !newCondition.LastTransitionTime.IsZero() {
 			existingCondition.LastTransitionTime = newCondition.LastTransitionTime
 		} else {
 			existingCondition.LastTransitionTime = time.Now()

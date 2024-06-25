@@ -179,7 +179,8 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.ApiVersion).To(Equal(model.EnrollmentRequestAPI))
 			Expect(dev.Kind).To(Equal(model.EnrollmentRequestKind))
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
-			Expect(dev.Status.Conditions).To(BeNil())
+			Expect(dev.Status.Conditions).ToNot(BeNil())
+			Expect(dev.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateEnrollmentRequest update mode", func() {
@@ -198,7 +199,8 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.ApiVersion).To(Equal(model.EnrollmentRequestAPI))
 			Expect(dev.Kind).To(Equal(model.EnrollmentRequestKind))
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
-			Expect(dev.Status.Conditions).To(BeNil())
+			Expect(dev.Status.Conditions).ToNot(BeNil())
+			Expect(dev.Status.Conditions).To(BeEmpty())
 		})
 
 		It("UpdateEnrollmentRequestStatus", func() {
@@ -217,7 +219,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Csr: "different csr string",
 				},
 				Status: &api.EnrollmentRequestStatus{
-					Conditions: &[]api.Condition{condition},
+					Conditions: []api.Condition{condition},
 				},
 			}
 			_, err := storeInst.EnrollmentRequest().UpdateStatus(ctx, orgId, &enrollmentrequest)
@@ -228,7 +230,8 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.Kind).To(Equal(model.EnrollmentRequestKind))
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(dev.Status.Conditions).ToNot(BeEmpty())
+			Expect(dev.Status.Conditions[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 	})
 })

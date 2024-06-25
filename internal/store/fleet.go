@@ -381,11 +381,11 @@ func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name
 			existingRecord.Status = model.MakeJSONField(api.FleetStatus{})
 		}
 		if existingRecord.Status.Data.Conditions == nil {
-			existingRecord.Status.Data.Conditions = &[]api.Condition{}
+			existingRecord.Status.Data.Conditions = []api.Condition{}
 		}
 		changed := false
 		for _, condition := range conditions {
-			changed = api.SetStatusCondition(existingRecord.Status.Data.Conditions, condition)
+			changed = api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
 		}
 		if !changed {
 			return nil

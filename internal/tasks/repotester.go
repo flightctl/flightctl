@@ -93,12 +93,12 @@ func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
 
 func (r *RepoTester) SetAccessCondition(repository model.Repository, err error) error {
 	if repository.Status == nil {
-		repository.Status = model.MakeJSONField(api.RepositoryStatus{Conditions: &[]api.Condition{}})
+		repository.Status = model.MakeJSONField(api.RepositoryStatus{Conditions: []api.Condition{}})
 	}
 	if repository.Status.Data.Conditions == nil {
-		repository.Status.Data.Conditions = &[]api.Condition{}
+		repository.Status.Data.Conditions = []api.Condition{}
 	}
-	changed := api.SetStatusConditionByError(repository.Status.Data.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
+	changed := api.SetStatusConditionByError(&repository.Status.Data.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
 	if changed {
 		return r.repoStore.UpdateStatusIgnoreOrg(&repository)
 	}
