@@ -193,9 +193,7 @@ var _ = Describe("DeviceStore create", func() {
 						Image: "newos",
 					},
 				},
-				Status: &api.DeviceStatus{
-					Conditions: []api.Condition{},
-				},
+				Status: testutil.NewTestDeviceStatus(),
 			}
 			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 			Expect(err).ToNot(HaveOccurred())
@@ -238,10 +236,9 @@ var _ = Describe("DeviceStore create", func() {
 				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOSSpec{Image: "newos"},
 				},
-				Status: &api.DeviceStatus{
-					Conditions: []api.Condition{condition},
-				},
+				Status: testutil.NewTestDeviceStatus(),
 			}
+			device.Status.Conditions = append(device.Status.Conditions, condition)
 			_, err := devStore.UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
