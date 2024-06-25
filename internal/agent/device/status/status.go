@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -74,7 +75,7 @@ func (m *StatusManager) Get(ctx context.Context) (*v1alpha1.DeviceStatus, error)
 }
 
 func (m *StatusManager) aggregateDeviceStatus(ctx context.Context) (*v1alpha1.DeviceStatus, error) {
-	deviceStatus := v1alpha1.DeviceStatus{Conditions: []v1alpha1.Condition{}}
+	deviceStatus := newDeviceStatus()
 	for _, exporter := range m.exporters {
 		err := exporter.Export(ctx, &deviceStatus)
 		if err != nil {
@@ -168,5 +169,32 @@ func (m *StatusManager) UpdateConditionError(ctx context.Context, reason string,
 func (m *StatusManager) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
 	for _, exporter := range m.exporters {
 		exporter.SetProperties(spec)
+	}
+}
+
+func newDeviceStatus() v1alpha1.DeviceStatus {
+	return v1alpha1.DeviceStatus{
+		UpdatedAt:  time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+		Conditions: []v1alpha1.Condition{},
+		SystemInfo: v1alpha1.DeviceSystemInfo{
+			Measurements: map[string]string{},
+		},
+		Applications: v1alpha1.DeviceApplicationsStatus{
+			Data: map[string]v1alpha1.ApplicationStatus{},
+			Summary: v1alpha1.ApplicationsSummaryStatus{
+				Status: v1alpha1.ApplicationsSummaryStatusUnknown,
+			},
+		},
+		Integrity: v1alpha1.DeviceIntegrityStatus{
+			Summary: v1alpha1.DeviceIntegrityStatusSummary{
+				Status: v1alpha1.DeviceIntegrityStatusUnknown,
+			},
+		},
+		Updated: v1alpha1.DeviceUpdatedStatus{
+			Status: v1alpha1.DeviceUpdatedStatusUnknown,
+		},
+		Summary: v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusUnknown,
+		},
 	}
 }

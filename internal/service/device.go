@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -179,7 +178,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	orgId := store.NullOrgId
 
 	device := request.Body
-	device.Status.UpdatedAt = util.TimeToPtr(time.Now())
+	device.Status.UpdatedAt = time.Now()
 
 	result, err := h.store.Device().UpdateStatus(ctx, orgId, device)
 	switch err {
