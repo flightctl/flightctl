@@ -90,7 +90,7 @@ func (c *SystemD) Export(ctx context.Context, status *v1alpha1.DeviceStatus) err
 		}
 		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, unitStr)
 	}
-	v1alpha1.SetStatusCondition(status.Conditions, runningCondition)
+	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
 
 	status.SystemdUnits = &deviceSystemdUnitStatus
 	return nil

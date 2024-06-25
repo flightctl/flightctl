@@ -23,7 +23,7 @@ func validateAndCompleteEnrollmentRequest(enrollmentRequest *v1alpha1.Enrollment
 	if enrollmentRequest.Status == nil {
 		enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
 			Certificate: nil,
-			Conditions:  &[]v1alpha1.Condition{},
+			Conditions:  []v1alpha1.Condition{},
 		}
 	}
 	return nil
@@ -44,7 +44,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 	}
 	enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
 		Certificate: util.StrToPtr(string(certData)),
-		Conditions:  &[]v1alpha1.Condition{},
+		Conditions:  []v1alpha1.Condition{},
 		Approval:    approval,
 	}
 	condition := v1alpha1.Condition{
@@ -53,7 +53,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		Reason:  "ManuallyApproved",
 		Message: "Approved by " + *approval.ApprovedBy,
 	}
-	v1alpha1.SetStatusCondition(enrollmentRequest.Status.Conditions, condition)
+	v1alpha1.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
 	return nil
 }
 

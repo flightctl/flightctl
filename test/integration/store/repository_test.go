@@ -175,7 +175,8 @@ var _ = Describe("RepositoryStore create", func() {
 			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Repo).To(Equal("myrepo"))
-			Expect(repo.Status.Conditions).To(BeNil())
+			Expect(repo.Status.Conditions).ToNot(BeNil())
+			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateRepository update mode", func() {
@@ -200,7 +201,8 @@ var _ = Describe("RepositoryStore create", func() {
 			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
-			Expect(repo.Status.Conditions).To(BeNil())
+			Expect(repo.Status.Conditions).ToNot(BeNil())
+			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
 		It("Delete repo with fleet association", func() {

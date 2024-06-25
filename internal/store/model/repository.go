@@ -41,7 +41,7 @@ func NewRepositoryFromApiResource(resource *api.Repository) *Repository {
 		return &Repository{}
 	}
 
-	var status api.RepositoryStatus
+	status := api.RepositoryStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -71,7 +71,7 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 		spec = f.Spec.Data
 	}
 
-	var status api.RepositoryStatus
+	status := api.RepositoryStatus{Conditions: []api.Condition{}}
 	if f.Status != nil {
 		status = f.Status.Data
 	}

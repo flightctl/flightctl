@@ -179,7 +179,8 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal(imageName))
-			Expect(dev.Status.Conditions).To(BeNil())
+			Expect(dev.Status.Conditions).ToNot(BeNil())
+			Expect(dev.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateDevice update mode", func() {
@@ -193,7 +194,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					Conditions: nil,
+					Conditions: []api.Condition{},
 				},
 			}
 			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
@@ -202,7 +203,8 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("newos"))
-			Expect(dev.Status.Conditions).To(BeNil())
+			Expect(dev.Status.Conditions).ToNot(BeNil())
+			Expect(dev.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateDevice update owned from API", func() {
@@ -237,7 +239,7 @@ var _ = Describe("DeviceStore create", func() {
 					Os: &api.DeviceOSSpec{Image: "newos"},
 				},
 				Status: &api.DeviceStatus{
-					Conditions: &[]api.Condition{condition},
+					Conditions: []api.Condition{condition},
 				},
 			}
 			_, err := devStore.UpdateStatus(ctx, orgId, &device)
@@ -247,8 +249,8 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("os"))
-			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect((*dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(dev.Status.Conditions).ToNot(BeEmpty())
+			Expect((dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 
 		It("UpdateOwner", func() {

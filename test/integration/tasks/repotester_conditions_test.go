@@ -3,6 +3,7 @@ package tasks_test
 import (
 	"context"
 	"errors"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -100,29 +101,26 @@ var _ = Describe("RepoTester", func() {
 			repo, err = stores.Repository().Get(ctx, orgId, "nil-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
-			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
-			cond := (*repo.Status.Conditions)[0]
-			Expect(cond.Type).To(Equal(api.RepositoryAccessible))
-			Expect(cond.Status).To(Equal(api.ConditionStatusTrue))
-			Expect(cond.LastTransitionTime).ToNot(BeNil())
+			Expect(repo.Status.Conditions).To(HaveLen(1))
+			Expect(repo.Status.Conditions[0].Type).To(Equal(api.RepositoryAccessible))
+			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
+			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
-			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
-			cond = (*repo.Status.Conditions)[0]
-			Expect(cond.Type).To(Equal(api.RepositoryAccessible))
-			Expect(cond.Status).To(Equal(api.ConditionStatusTrue))
-			Expect(cond.LastTransitionTime).ToNot(BeNil())
+			Expect(repo.Status.Conditions).To(HaveLen(1))
+			Expect(repo.Status.Conditions[0].Type).To(Equal(api.RepositoryAccessible))
+			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
+			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
-			Expect(len(*(repo.Status.Conditions))).To(Equal(1))
-			cond = (*repo.Status.Conditions)[0]
-			Expect(cond.Type).To(Equal(api.RepositoryAccessible))
-			Expect(cond.Status).To(Equal(api.ConditionStatusFalse))
-			Expect(cond.LastTransitionTime).ToNot(BeNil())
+			Expect(repo.Status.Conditions).To(HaveLen(1))
+			Expect(repo.Status.Conditions[0].Type).To(Equal(api.RepositoryAccessible))
+			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
+			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 		})
 	})
 })

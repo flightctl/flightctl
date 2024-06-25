@@ -166,7 +166,7 @@ func (t TaskManager) FleetUpdatedCallback(before *model.Fleet, after *model.Flee
 	}
 	if selectorUpdated {
 		op := FleetSelectorMatchOpUpdate
-		if fleet.Status != nil && fleet.Status.Data.Conditions != nil && api.IsStatusConditionTrue(*fleet.Status.Data.Conditions, api.FleetOverlappingSelectors) {
+		if fleet.Status != nil && fleet.Status.Data.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Data.Conditions, api.FleetOverlappingSelectors) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.SubmitTask(ChannelFleetSelectorMatch, ref, op)

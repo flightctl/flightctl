@@ -235,7 +235,7 @@ func (b *Bootstrap) verifyEnrollment(ctx context.Context) (bool, error) {
 	}
 
 	approved := false
-	for _, cond := range *enrollmentRequest.Status.Conditions {
+	for _, cond := range enrollmentRequest.Status.Conditions {
 		if cond.Type == "Denied" {
 			return false, fmt.Errorf("enrollment request is denied, reason: %v, message: %v", cond.Reason, cond.Message)
 		}
