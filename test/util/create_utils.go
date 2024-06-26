@@ -42,9 +42,10 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 
 func CreateTestDevices(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool) {
 	for i := 1; i <= numDevices; i++ {
-		labels := map[string]string{"key": fmt.Sprintf("value-%d", i), "otherkey": "othervalue"}
+		labels := map[string]string{"key": fmt.Sprintf("value-%d", i), "otherkey": "othervalue", "version": fmt.Sprintf("%d", i)}
 		if sameVals {
 			labels["key"] = "value"
+			labels["version"] = "1"
 		}
 
 		CreateTestDevice(ctx, deviceStore, orgId, fmt.Sprintf("mydevice-%d", i), owner, nil, &labels)

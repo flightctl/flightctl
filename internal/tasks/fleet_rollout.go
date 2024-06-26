@@ -178,13 +178,28 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 	err := f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed updating templateVersion annotation: %w", err)
 	}
 
 	device.Spec.Config = &[]api.DeviceSpec_Config_Item{}
 	if templateVersion.Status.Config != nil {
 		for _, configItem := range *templateVersion.Status.Config {
-			*device.Spec.Config = append(*device.Spec.Config, api.DeviceSpec_Config_Item(configItem))
+			cfgJson, err := configItem.MarshalJSON()
+			if err != nil {
+				return fmt.Errorf("failed converting configuration to json: %w", err)
+			}
+
+			cfgJson, err = ReplaceParameters(cfgJson, device.Metadata.Labels)
+			if err != nil {
+				return fmt.Errorf("failed replacing parameters: %w", err)
+			}
+
+			var newConfigItem api.DeviceSpec_Config_Item
+			err = newConfigItem.UnmarshalJSON(cfgJson)
+			if err != nil {
+				return fmt.Errorf("failed converting configuration from json: %w", err)
+			}
+			*device.Spec.Config = append(*device.Spec.Config, newConfigItem)
 		}
 		device.Spec.Containers = templateVersion.Status.Containers
 		device.Spec.Os = templateVersion.Status.Os
