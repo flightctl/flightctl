@@ -69,10 +69,10 @@ func NewDefault() *Config {
 			Password: "adminpass",
 		},
 		Service: &svcConfig{
-			Address:              ":3333",
+			Address:              ":3443",
 			AgentEndpointAddress: ":7443",
 			CertStore:            CertificateDir(),
-			BaseUrl:              "https://localhost:3333",
+			BaseUrl:              "https://localhost:3443",
 			BaseAgentEndpointUrl: "https://localhost:7443",
 			LogLevel:             "info",
 		},
