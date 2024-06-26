@@ -30,7 +30,7 @@ const (
 	// DefaultCertsDir is the default directory where the device's certificates are stored
 	DefaultCertsDirName = "certs"
 	// DefaultManagementEndpoint is the default address of the device management server
-	DefaultManagementEndpoint = "https://localhost:3333"
+	DefaultManagementEndpoint = "https://localhost:3443"
 	// name of the CA bundle file
 	CacertFile = "ca.crt"
 	// GeneratedCertFile is the name of the cert file which is generated as the result of enrollment

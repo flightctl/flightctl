@@ -12,8 +12,8 @@ spec:
   {{ end }}
   ports:
     - name: "flightctl-api"
-      port: 3333
-      targetPort: 3333
+      port: 3443
+      targetPort: 3443
       {{ if .Values.flightctl.server.nodePort }}
       nodePort: {{ .Values.flightctl.server.nodePort }}
       {{ end }}

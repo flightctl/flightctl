@@ -6,7 +6,7 @@ flightctl:
     image: localhost/flightctl-server:latest
     imagePullPolicy: IfNotPresent
     hostName: localhost
-    nodePort: 3333 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+    nodePort: 3443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentNodePort: 7443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
 
 storageClassName: standard
