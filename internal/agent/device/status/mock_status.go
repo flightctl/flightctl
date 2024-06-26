@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
-	client "github.com/flightctl/flightctl/internal/client"
+	client "github.com/flightctl/flightctl/internal/agent/client"
 	gomock "go.uber.org/mock/gomock"
 )
 

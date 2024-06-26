@@ -12,9 +12,12 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/client"
+	agentclient "github.com/flightctl/flightctl/internal/api/client/agent"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/server"
+	"github.com/flightctl/flightctl/internal/server/agentserver"
+	"github.com/flightctl/flightctl/internal/server/middleware"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -40,12 +43,29 @@ func NewTestServer(log logrus.FieldLogger, cfg *config.Config, store store.Store
 	}
 
 	// create a listener using the next available port
-	listener, err := server.NewTLSListener("", tlsConfig)
+	listener, err := middleware.NewTLSListener("", tlsConfig)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
 	return server.New(log, cfg, store, ca, listener), listener, nil
+}
+
+// NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
+func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*agentserver.AgentServer, net.Listener, error) {
+	// create a listener using the next available port
+	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
+	}
+
+	// create a listener using the next available port
+	listener, err := middleware.NewTLSListener("", tlsConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
+	}
+
+	return agentserver.New(log, cfg, store, ca, listener), listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
@@ -117,6 +137,16 @@ func NewClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateConfig
 	}
 
 	return client.NewClientWithResponses(serverUrl, client.WithHTTPClient(httpClient))
+}
+
+// NewClient creates a new client with the given server URL and certificates. If the certs are nil a http client will be created.
+func NewAgentClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateConfig) (*agentclient.ClientWithResponses, error) {
+	httpClient, err := NewBareHTTPsClient(caCert, clientCert)
+	if err != nil {
+		return nil, fmt.Errorf("creating TLS config: %v", err)
+	}
+
+	return agentclient.NewClientWithResponses(serverUrl, agentclient.WithHTTPClient(httpClient))
 }
 
 func NewBareHTTPsClient(caCert, clientCert *crypto.TLSCertificateConfig) (*http.Client, error) {

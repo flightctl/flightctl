@@ -4,18 +4,18 @@ kind: Service
 metadata:
   labels:
     flightctl.service: flightctl-server
-  name: flightctl-server
+  name: flightctl-server-agent
   namespace: {{ .Values.flightctl.server.namespace }}
 spec:
-  {{ if .Values.flightctl.server.nodePort }}
+  {{ if .Values.flightctl.server.agentNodePort }}
   type: NodePort
   {{ end }}
   ports:
-    - name: "flightctl-api"
-      port: 3333
-      targetPort: 3333
-      {{ if .Values.flightctl.server.nodePort }}
-      nodePort: {{ .Values.flightctl.server.nodePort }}
+    - name: "flightctl-agent-api"
+      port: 7443
+      targetPort: 7443
+      {{ if .Values.flightctl.server.agentNodePort }}
+      nodePort: {{ .Values.flightctl.server.agentNodePort }}
       {{ end }}
   selector:
     flightctl.service: flightctl-server

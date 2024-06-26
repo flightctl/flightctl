@@ -29,15 +29,17 @@ type dbConfig struct {
 }
 
 type svcConfig struct {
-	Address     string   `json:"address,omitempty"`
-	CertStore   string   `json:"cert,omitempty"`
-	BaseUrl     string   `json:"baseUrl,omitempty"`
-	CaCertFile  string   `json:"caCertFile,omitempty"`
-	CaKeyFile   string   `json:"caKeyFile,omitempty"`
-	SrvCertFile string   `json:"srvCertFile,omitempty"`
-	SrvKeyFile  string   `json:"srvKeyFile,omitempty"`
-	AltNames    []string `json:"altNames,omitempty"`
-	LogLevel    string   `json:"logLevel,omitempty"`
+	Address              string   `json:"address,omitempty"`
+	AgentEndpointAddress string   `json:"agentEndpointAddress,omitempty"`
+	CertStore            string   `json:"cert,omitempty"`
+	BaseUrl              string   `json:"baseUrl,omitempty"`
+	BaseAgentEndpointUrl string   `json:"baseAgentEndpointUrl,omitempty"`
+	CaCertFile           string   `json:"caCertFile,omitempty"`
+	CaKeyFile            string   `json:"caKeyFile,omitempty"`
+	SrvCertFile          string   `json:"srvCertFile,omitempty"`
+	SrvKeyFile           string   `json:"srvKeyFile,omitempty"`
+	AltNames             []string `json:"altNames,omitempty"`
+	LogLevel             string   `json:"logLevel,omitempty"`
 }
 
 func ConfigDir() string {
@@ -67,10 +69,12 @@ func NewDefault() *Config {
 			Password: "adminpass",
 		},
 		Service: &svcConfig{
-			Address:   ":3333",
-			CertStore: CertificateDir(),
-			BaseUrl:   "https://localhost:3333",
-			LogLevel:  "info",
+			Address:              ":3333",
+			AgentEndpointAddress: ":7443",
+			CertStore:            CertificateDir(),
+			BaseUrl:              "https://localhost:3333",
+			BaseAgentEndpointUrl: "https://localhost:7443",
+			LogLevel:             "info",
 		},
 	}
 	return c

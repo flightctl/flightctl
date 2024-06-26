@@ -1,4 +1,4 @@
-package server
+package middleware
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/sirupsen/logrus"
 )
 
@@ -53,4 +54,18 @@ func NewTLSListener(address string, tlsConfig *tls.Config) (net.Listener, error)
 		return nil, err
 	}
 	return tls.NewListener(ln, tlsConfig), nil
+}
+
+func AdminTLSValidator(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		cn, ok := r.Context().Value(TLSCommonNameContextKey).(string)
+		if !ok || cn != crypto.AdminCommonName {
+			http.Error(w, "AdminTLSValidatorMiddleware: Invalid client certificate", http.StatusUnauthorized)
+			return
+		}
+
+		// all good, it shall pass
+		next.ServeHTTP(w, r)
+	})
 }
