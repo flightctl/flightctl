@@ -37,10 +37,10 @@ func TestValidConfig(t *testing.T) {
 		name   string
 		config Config
 	}{
-		{name: "only server", config: Config{Service: Service{Server: "https://localhost:3333"}}},
-		{name: "server with CA cert data", config: Config{Service: Service{Server: "https://localhost:3333", CertificateAuthorityData: []byte(certData)}, testRootDir: testRootDir}},
-		{name: "server with absolute path to CA file", config: Config{Service: Service{Server: "https://localhost:3333", CertificateAuthority: filepath.Join(configDir, certsDir, certFile)}, testRootDir: testRootDir}},
-		{name: "server with relative path to CA file", config: Config{Service: Service{Server: "https://localhost:3333", CertificateAuthority: filepath.Join(certsDir, certFile)}, baseDir: configDir, testRootDir: testRootDir}},
+		{name: "only server", config: Config{Service: Service{Server: "https://localhost:3443"}}},
+		{name: "server with CA cert data", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthorityData: []byte(certData)}, testRootDir: testRootDir}},
+		{name: "server with absolute path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(configDir, certsDir, certFile)}, testRootDir: testRootDir}},
+		{name: "server with relative path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(certsDir, certFile)}, baseDir: configDir, testRootDir: testRootDir}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -100,9 +100,9 @@ func TestClientConfig(t *testing.T) {
 	}{
 		{
 			name:           "local service",
-			server:         "https://localhost:3333",
+			server:         "https://localhost:3443",
 			serverName:     "",
-			serverWant:     "https://localhost:3333/",
+			serverWant:     "https://localhost:3443/",
 			serverNameWant: "localhost",
 		},
 		{
