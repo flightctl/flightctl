@@ -1,5 +1,5 @@
 
-cluster: bin/e2e-certs/ca.pem
+cluster: bin/e2e-certs/ca.pem kubectl
 	test/scripts/install_kind.sh
 	kind get clusters | grep kind || test/scripts/create_cluster.sh
 
@@ -8,7 +8,7 @@ clean-cluster:
 
 deploy: cluster deploy-helm prepare-agent-config
 
-deploy-helm: git-server-container flightctl-server-container
+deploy-helm: git-server-container flightctl-server-container kubectl
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh
@@ -30,5 +30,8 @@ deploy-db:
 
 kill-db:
 	cd deploy/podman && podman-compose down flightctl-db
+
+kubectl:
+	test/scripts/install_kubectl.sh
 
 .PHONY: deploy-db deploy cluster run-db-container kill-db-container
