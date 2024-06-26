@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/client"
+	client "github.com/flightctl/flightctl/internal/api/client/agent"
 )
 
 func NewEnrollment(

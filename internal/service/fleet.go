@@ -12,7 +12,9 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -31,9 +33,9 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 	if request.Body.Spec.Template.Metadata != nil {
-		NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+		common.NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
 	}
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
@@ -128,9 +130,9 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 	if request.Body.Spec.Template.Metadata != nil {
-		NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+		common.NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
 	}
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
@@ -280,8 +282,14 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		return server.PatchFleet400JSONResponse{Message: "status is immutable"}, nil
 	}
 
-	NilOutManagedObjectMetaProperties(&newObj.Metadata)
-	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, h.taskManager.FleetUpdatedCallback)
+	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+
+	var updateCallback func(before *model.Fleet, after *model.Fleet)
+
+	if h.taskManager != nil {
+		updateCallback = h.taskManager.FleetUpdatedCallback
+	}
+	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
 
 	switch err {
 	case nil:

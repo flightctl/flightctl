@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
@@ -19,25 +20,29 @@ import (
 
 const ClientCertExpiryDays = 365
 
-func validateAndCompleteEnrollmentRequest(enrollmentRequest *v1alpha1.EnrollmentRequest) error {
-	if enrollmentRequest.Status == nil {
-		enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
-			Certificate: nil,
-			Conditions:  []v1alpha1.Condition{},
-		}
-	}
-	return nil
-}
-
 func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
-	csrPEM := enrollmentRequest.Spec.Csr
-	csr, err := crypto.ParseCSR([]byte(csrPEM))
-	if err != nil {
-		return err
+	if enrollmentRequest == nil {
+		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
+
+	if enrollmentRequest.Metadata.Name == nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: enrollment request is missing metadata.name")
+	}
+
+	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
+	if err != nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
+	}
+
+	csr.Subject.CommonName, err = crypto.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
+	if err != nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
+	}
+
 	if err := csr.CheckSignature(); err != nil {
 		return err
 	}
+
 	certData, err := ca.IssueRequestedClientCertificate(csr, ClientCertExpiryDays)
 	if err != nil {
 		return err
@@ -76,35 +81,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 // (POST /api/v1/enrollmentrequests)
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
-	orgId := store.NullOrgId
-
-	// don't set fields that are managed by the service
-	request.Body.Status = nil
-	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
-	}
-
-	// verify if the enrollment request already exists, and return it with a 208 status code if it does
-	if enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, *request.Body.Metadata.Name); err == nil {
-		return server.CreateEnrollmentRequest208JSONResponse(*enrollmentReq), nil
-	}
-
-	// if the enrollment request does not exist, create it
-	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
-		return nil, err
-	}
-
-	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, request.Body)
-	switch err {
-	case nil:
-		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.CreateEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	default:
-		return nil, err
-	}
+	return common.CreateEnrollmentRequest(ctx, h.store, request)
 }
 
 // (GET /api/v1/enrollmentrequests)
@@ -161,17 +138,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request s
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
-	orgId := store.NullOrgId
-
-	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
-		return server.ReadEnrollmentRequest200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReadEnrollmentRequest404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	return common.ReadEnrollmentRequest(ctx, h.store, request)
 }
 
 // (PUT /api/v1/enrollmentrequests/{name})
@@ -185,7 +152,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 		return server.ReplaceEnrollmentRequest400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
+	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
 
@@ -293,7 +260,7 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
 	orgId := store.NullOrgId
 
-	if err := validateAndCompleteEnrollmentRequest(request.Body); err != nil {
+	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
 
