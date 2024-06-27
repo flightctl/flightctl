@@ -29,7 +29,7 @@ type Device interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error
-	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string) (*api.RenderedDeviceSpec, error)
+	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
@@ -337,7 +337,7 @@ func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name 
 	})
 }
 
-func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string) (*api.RenderedDeviceSpec, error) {
+func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error) {
 	device := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
@@ -352,6 +352,15 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		return nil, flterrors.ErrNoRenderedVersion
 	}
 
+	var console *api.DeviceConsole
+
+	if val, ok := annotations["flightctl.io/console"]; ok {
+		console = &api.DeviceConsole{
+			GRPCEndpoint: consoleGrpcEndpoint,
+			SessionID:    val,
+		}
+	}
+
 	if knownRenderedVersion != nil && renderedVersion == *knownRenderedVersion {
 		return nil, nil
 	}
@@ -362,6 +371,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Containers:      device.Spec.Data.Containers,
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,
+		Console:         console,
 	}
 
 	return &renderedConfig, nil

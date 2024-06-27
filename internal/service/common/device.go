@@ -30,10 +30,10 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, request server.Rep
 	}
 }
 
-func GetRenderedDeviceSpec(ctx context.Context, st store.Store, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
+func GetRenderedDeviceSpec(ctx context.Context, st store.Store, request server.GetRenderedDeviceSpecRequestObject, consoleGrpcEndpoint string) (server.GetRenderedDeviceSpecResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := st.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion)
+	result, err := st.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion, consoleGrpcEndpoint)
 	switch err {
 	case nil:
 		if result == nil {
