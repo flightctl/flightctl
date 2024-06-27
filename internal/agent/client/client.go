@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -24,6 +25,10 @@ func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, erro
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+}
+
+func NewGRPCClientFromConfig(config *baseclient.Config, endpoint string) (grpc_v1.RouterServiceClient, error) {
+	return baseclient.NewGRPCClientFromConfig(config, endpoint)
 }
 
 type Config = baseclient.Config

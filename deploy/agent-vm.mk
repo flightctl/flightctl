@@ -10,6 +10,7 @@ agent-vm: bin/output/qcow2/disk.qcow2
 	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
 	sudo chown libvirt:libvirt $(VMDISK) 2>/dev/null || true
 	sudo virt-install --name $(VMNAME) \
+		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
 					  --vcpus $(VMCPUS) \
 					  --memory $(VMRAM) \
 					  --import --disk $(VMDISK),format=qcow2 \

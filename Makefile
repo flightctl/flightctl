@@ -55,6 +55,7 @@ publish: build-containers
 generate:
 	go generate -v $(shell go list ./...)
 	hack/mockgen.sh
+	hack/grpcgen.sh
 
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
@@ -103,6 +104,11 @@ build-containers: flightctl-api-container flightctl-worker-container flightctl-p
 .PHONY: build-containers
 
 
+update-server-container: bin/.flightctl-server-container
+	kind load docker-image localhost/flightctl-server:latest
+	kubectl delete pod -l flightctl.service=flightctl-server -n flightctl-external
+	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s 
+	kubectl logs -l flightctl.service=flightctl-server -n flightctl-external -f
 bin:
 	mkdir -p bin
 

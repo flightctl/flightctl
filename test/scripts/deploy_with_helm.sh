@@ -64,7 +64,11 @@ if [ ! -z "$PGSQL_IMAGE" ]; then
   DB_IMG="--set flightctl.db.image=${DB_IMG}"
 fi
 
-helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml --set flightctl.api.hostName=${IP}  ${ONLY_DB} ${NO_AUTH} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
+helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml \
+                  --set flightctl.api.hostName=${IP} \
+                  --set flightctl.api.agentAPIHostName=${IP} \
+                  --set flightctl.api.agentGrpcHostName=${IP} \
+                   ${ONLY_DB} ${NO_AUTH} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s

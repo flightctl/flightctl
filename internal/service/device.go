@@ -201,7 +201,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	return common.GetRenderedDeviceSpec(ctx, h.store, request)
+	return common.GetRenderedDeviceSpec(ctx, h.store, request, h.consoleGrpcEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
