@@ -15,6 +15,9 @@ nodes:
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
     protocol: TCP
+  - containerPort: 7444 # flightctl agent grpc endpoint API
+    hostPort: 7444
+    protocol: TCP
   - containerPort: 5432 # postgresql DB
     hostPort: 5432
     protocol: TCP

@@ -76,7 +76,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	)
 
-	h := service.NewAgentServiceHandler(s.store, s.ca, s.log)
+	h := service.NewAgentServiceHandler(s.store, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
 	srv := tlsmiddleware.NewHTTPServerWithTLSContext(router, s.log, s.cfg.Service.AgentEndpointAddress)

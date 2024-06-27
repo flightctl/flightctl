@@ -15,6 +15,7 @@ flightctl:
     imagePullPolicy: Always
     hostName: api.flightctl.example.com
     # agentAPIHostName: agent-api.flightctl.example.com # optional, will use hostName otherwise
+    # agentGrpcHostName: agent-grpc.flightctl.example.com # optional, will use hostName otherwise
 
 storageClassName: aws-ebs
 storageClassNameRWM: aws-efs-tier-c4

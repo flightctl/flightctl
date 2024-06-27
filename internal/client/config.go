@@ -10,11 +10,15 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
+	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/middleware"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/homedir"
@@ -213,6 +217,54 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	return httpClient, nil
 }
 
+// NewGRPCClientFromConfig returns a new gRPC Client from the given config.
+func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.RouterServiceClient, error) {
+	config = config.DeepCopy()
+	if err := config.Flatten(); err != nil {
+		return nil, err
+	}
+
+	caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+	if err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+	}
+
+	u, err := url.Parse(grpcEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+	}
+	tlsServerName := u.Hostname()
+
+	clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
+	if err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
+	}
+
+	tlsConfig := tls.Config{
+		RootCAs:      caPool,
+		ServerName:   tlsServerName,
+		Certificates: []tls.Certificate{clientCert},
+		MinVersion:   tls.VersionTLS13,
+	}
+
+	if strings.HasPrefix(grpcEndpoint, "grpcs://") {
+		grpcEndpoint = grpcEndpoint[8:]
+	}
+	if strings.HasPrefix(grpcEndpoint, "grpc://") {
+		grpcEndpoint = grpcEndpoint[7:]
+	}
+	client, err := grpc.NewClient(grpcEndpoint,
+		grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)))
+
+	if err != nil {
+		return nil, fmt.Errorf("NewGRPCClientFromConfig: creating gRPC client: %w", err)
+	}
+
+	router := grpc_v1.NewRouterServiceClient(client)
+
+	return router, nil
+}
+
 // DefaultFlightctlClientConfigPath returns the default path to the FlightCtl client config file.
 func DefaultFlightctlClientConfigPath() string {
 	return filepath.Join(homedir.HomeDir(), ".flightctl", "client.yaml")
@@ -236,6 +288,26 @@ func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 		return nil, err
 	}
 	return NewFromConfig(config)
+}
+
+// NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
+func NewGrpcClientFromConfigFile(filename string, endpoint string) (grpc_v1.RouterServiceClient, error) {
+	contents, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("reading config: %v", err)
+	}
+	config := NewDefault()
+	if err := yaml.Unmarshal(contents, config); err != nil {
+		return nil, fmt.Errorf("decoding config: %v", err)
+	}
+	config.SetBaseDir(filepath.Dir(filename))
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	if err := config.Flatten(); err != nil {
+		return nil, err
+	}
+	return NewGRPCClientFromConfig(config, endpoint)
 }
 
 // WriteConfig writes a client config file using the given parameters.

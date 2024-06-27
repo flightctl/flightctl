@@ -16,16 +16,25 @@ data:
     service:
         address: :3443
         agentEndpointAddress: :7443
+        agentGrpcAddress: :7444
         baseUrl: https://{{ .Values.flightctl.server.hostName }}:3443/
         {{ if .Values.flightctl.server.agentAPIHostName }}
         baseAgentEndpointUrl:  https://{{ .Values.flightctl.server.agentAPIHostName }}:7443/
         {{ else }}
         baseAgentEndpointUrl:  https://{{ .Values.flightctl.server.hostName }}:7443/
         {{ end }}
+        {{ if .Values.flightctl.server.agentGrpcHostName }}
+        baseAgentGrpcUrl:  grpcs://{{ .Values.flightctl.server.agentGrpcHostName }}:7444/
+        {{ else }}
+        baseAgentGrpcUrl:  grpcs://{{ .Values.flightctl.server.hostName }}:7444/
+        {{ end }}
         altNames:
           - {{ .Values.flightctl.server.hostName }}
           {{ if .Values.flightctl.server.agentAPIHostName }}
           - {{ .Values.flightctl.server.agentAPIHostName }}
+          {{ end }}
+          {{ if .Values.flightctl.server.agentGrpcHostName }}
+          - {{ .Values.flightctl.server.agentGrpcHostName }}
           {{ end }}
           - flightctl-server
           - flightctl-server.{{ .Values.flightctl.server.namespace }}

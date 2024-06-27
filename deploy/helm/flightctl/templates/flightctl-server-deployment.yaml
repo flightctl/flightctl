@@ -32,6 +32,9 @@ spec:
             - containerPort: 7443
               name: agent-api
               protocol: TCP
+            - containerPort: 7444
+              name: agent-grpc
+              protocol: TCP
           volumeMounts:
             - mountPath: /root/.flightctl/
               name: flightctl-server-certs

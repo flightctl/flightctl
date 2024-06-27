@@ -29,6 +29,7 @@ help:
 generate:
 	go generate -v $(shell go list ./...)
 	hack/mockgen.sh
+	hack/grpcgen.sh
 
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
@@ -46,6 +47,10 @@ bin/.flightctl-server-container: bin Containerfile go.mod go.sum $(shell find ./
 	touch bin/.flightctl-server-container
 
 flightctl-server-container: bin/.flightctl-server-container
+
+update-server-container: bin/.flightctl-server-container
+	kind load docker-image localhost/flightctl-server:latest
+	kubectl delete pod -l flightctl.service=flightctl-server -n flightctl-external
 
 bin:
 	mkdir -p bin
