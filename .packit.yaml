@@ -25,8 +25,10 @@ jobs:
     preserve_project: True
     enable_net: True # this is necessary for go modules to download the sources
     targets:
-      - fedora-39-aarch64
-      - fedora-39-x86_64
+      - fedora-40-aarch64
+      - fedora-40-x86_64
+      - fedora-rawhide-aarch64
+      - fedora-rawhide-x86_64
       - fedora-eln-aarch64
       - fedora-eln-x86_64
       - centos-stream-9-x86_64
@@ -42,8 +44,10 @@ jobs:
     preserve_project: True
     enable_net: True # this is necessary for go modules to download the sources
     targets:
-      - fedora-39-aarch64
-      - fedora-39-x86_64
+      - fedora-40-aarch64
+      - fedora-40-x86_64
+      - fedora-rawhide-aarch64
+      - fedora-rawhide-x86_64
       - fedora-eln-aarch64
       - fedora-eln-x86_64
       - centos-stream-9-x86_64
