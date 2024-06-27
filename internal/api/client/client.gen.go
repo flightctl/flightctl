@@ -117,6 +117,9 @@ type ClientInterface interface {
 
 	ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RequestConsole request
+	RequestConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetRenderedDeviceSpec request
 	GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -381,6 +384,18 @@ func (c *Client) ReplaceDeviceWithBody(ctx context.Context, name string, content
 
 func (c *Client) ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceDeviceRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RequestConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestConsoleRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1401,6 +1416,40 @@ func NewReplaceDeviceRequestWithBody(server string, name string, contentType str
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRequestConsoleRequest generates requests for RequestConsole
+func NewRequestConsoleRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/console", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -3303,6 +3352,9 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceWithResponse(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceResponse, error)
 
+	// RequestConsoleWithResponse request
+	RequestConsoleWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*RequestConsoleResponse, error)
+
 	// GetRenderedDeviceSpecWithResponse request
 	GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error)
 
@@ -3624,6 +3676,30 @@ func (r ReplaceDeviceResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type RequestConsoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DeviceConsole
+	JSON401      *Error
+	JSON404      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestConsoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestConsoleResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -4712,6 +4788,15 @@ func (c *ClientWithResponses) ReplaceDeviceWithResponse(ctx context.Context, nam
 	return ParseReplaceDeviceResponse(rsp)
 }
 
+// RequestConsoleWithResponse request returning *RequestConsoleResponse
+func (c *ClientWithResponses) RequestConsoleWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*RequestConsoleResponse, error) {
+	rsp, err := c.RequestConsole(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestConsoleResponse(rsp)
+}
+
 // GetRenderedDeviceSpecWithResponse request returning *GetRenderedDeviceSpecResponse
 func (c *ClientWithResponses) GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error) {
 	rsp, err := c.GetRenderedDeviceSpec(ctx, name, params, reqEditors...)
@@ -5510,6 +5595,46 @@ func ParseReplaceDeviceResponse(rsp *http.Response) (*ReplaceDeviceResponse, err
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRequestConsoleResponse parses an HTTP response from a RequestConsoleWithResponse call
+func ParseRequestConsoleResponse(rsp *http.Response) (*RequestConsoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestConsoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceConsole
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	}
 

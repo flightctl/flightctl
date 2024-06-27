@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
@@ -149,6 +150,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
+	// create the gRPC client
+	grpcClient, err := newGrpcClient(a.config)
+	if err != nil {
+		a.log.Warnf("Failed to create gRPC client: %v", err)
+	}
+
 	statusManager.SetClient(managementClient)
 
 	// create spec manager
@@ -182,6 +189,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create console controller
+	consoleController := device.NewConsoleController(
+		grpcClient,
+		deviceName,
+		a.log,
+	)
+
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
@@ -193,6 +207,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		configController,
 		osImageController,
 		resourceController,
+		consoleController,
 		a.log,
 	)
 
@@ -215,6 +230,17 @@ func newManagementClient(cfg *Config) (client.Management, error) {
 		return nil, err
 	}
 	return client.NewManagement(httpClient), nil
+}
+
+func newGrpcClient(cfg *Config) (grpc_v1.RouterServiceClient, error) {
+	if cfg.GrpcManagementEndpoint == "" {
+		return nil, fmt.Errorf("no gRPC endpoint, disabling console functionality")
+	}
+	client, err := client.NewGRPCClientFromConfig(&cfg.ManagementService.Config, cfg.GrpcManagementEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("creating gRPC client: %w", err)
+	}
+	return client, nil
 }
 
 func initializeFileIO(cfg *Config) (*fileio.Writer, *fileio.Reader) {

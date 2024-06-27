@@ -1,0 +1,25 @@
+{{ if and (.Values.flightctl.api.enabled) (not .Values.flightctl.api.nodePort) }}
+
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  labels:
+    external-exposed: "true"
+    paas.redhat.com/appcode: {{ .Values.appCode }}
+    shard: external
+  name: flightctl-api-route-agent-grpc
+  namespace: {{ .Values.flightctl.api.namespace }}
+spec:
+  host: {{ .Values.flightctl.api.agentGrpcHostName }}
+  port:
+    targetPort: 7444
+  tls:
+    termination: passthrough # the service is responsible for terminating TLS and authenticating devices through TLSs
+    insecureEdgeTerminationPolicy: None
+  to:
+    kind: Service
+    name: flightctl-api-agent-grpc
+    weight: 100
+  wildcardPolicy: None
+
+{{ end }}
