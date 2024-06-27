@@ -203,6 +203,12 @@ type DeviceConfigStatus struct {
 	RenderedVersion string `json:"renderedVersion"`
 }
 
+// DeviceConsole defines model for DeviceConsole.
+type DeviceConsole struct {
+	GRPCEndpoint string `json:"gRPCEndpoint"`
+	SessionID    string `json:"sessionID"`
+}
+
 // DeviceIntegrityStatus defines model for DeviceIntegrityStatus.
 type DeviceIntegrityStatus struct {
 	Summary DeviceIntegrityStatusSummary `json:"summary"`
@@ -619,7 +625,8 @@ type PatchRequestOp string
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
-	Config     *string `json:"config,omitempty"`
+	Config     *string        `json:"config,omitempty"`
+	Console    *DeviceConsole `json:"console,omitempty"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`

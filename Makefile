@@ -29,6 +29,7 @@ help:
 generate:
 	go generate -v $(shell go list ./...)
 	hack/mockgen.sh
+	hack/grpcgen.sh
 
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'

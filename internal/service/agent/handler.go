@@ -14,9 +14,10 @@ import (
 )
 
 type AgentServiceHandler struct {
-	store store.Store
-	ca    *crypto.CA
-	log   logrus.FieldLogger
+	store             store.Store
+	ca                *crypto.CA
+	log               logrus.FieldLogger
+	agentGrpcEndpoint string
 }
 
 // Make sure we conform to servers Service interface
@@ -51,11 +52,12 @@ func ValidateEnrollmentAccessFromContext(ctx context.Context, log logrus.FieldLo
 	return nil
 }
 
-func NewAgentServiceHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger) *AgentServiceHandler {
+func NewAgentServiceHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger, agentGrpcEndpoint string) *AgentServiceHandler {
 	return &AgentServiceHandler{
-		store: store,
-		ca:    ca,
-		log:   log,
+		store:             store,
+		ca:                ca,
+		log:               log,
+		agentGrpcEndpoint: agentGrpcEndpoint,
 	}
 }
 
@@ -72,7 +74,7 @@ func (s *AgentServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request
 		Name:   request.Name,
 		Params: request.Params,
 	}
-	return common.GetRenderedDeviceSpec(ctx, s.store, serverRequest)
+	return common.GetRenderedDeviceSpec(ctx, s.store, serverRequest, s.agentGrpcEndpoint)
 }
 
 // (PUT /api/v1/devices/{name}/status)
