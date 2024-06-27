@@ -19,6 +19,21 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(callbackManager, log, store, *resourceRef)
+	if resourceRef.Op == DeviceRenderOpUpdate {
+		err := logic.RenderDevice(ctx)
+		if err != nil {
+			log.Errorf("failed rendering device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+		} else {
+			log.Infof("completed rendering device %s/%s", resourceRef.OrgID, resourceRef.Name)
+		}
+	} else {
+		log.Errorf("DeviceRender called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
+	}
+	return nil
+}
+
 func DeviceRender(taskManager TaskManager) {
 	for {
 		select {
@@ -45,14 +60,14 @@ func DeviceRender(taskManager TaskManager) {
 }
 
 type DeviceRenderLogic struct {
-	taskManager TaskManager
-	log         logrus.FieldLogger
-	store       store.Store
-	resourceRef ResourceReference
+	callbackManager CallbackManager
+	log             logrus.FieldLogger
+	store           store.Store
+	resourceRef     ResourceReference
 }
 
-func NewDeviceRenderLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) DeviceRenderLogic {
-	return DeviceRenderLogic{taskManager: taskManager, log: log, store: store, resourceRef: resourceRef}
+func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) DeviceRenderLogic {
+	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {

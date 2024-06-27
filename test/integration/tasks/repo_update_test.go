@@ -11,22 +11,57 @@ import (
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/mock/gomock"
 )
+
+type resourceReferenceMatcher struct {
+	taskName string
+	name     string
+}
+
+func newResourceReferenceMatcher(taskName, name string) gomock.Matcher {
+	return &resourceReferenceMatcher{
+		taskName: taskName,
+		name:     name,
+	}
+}
+
+func (r *resourceReferenceMatcher) Matches(param any) bool {
+	b, ok := param.([]byte)
+	if !ok {
+		return false
+	}
+	var reference tasks.ResourceReference
+	if err := json.Unmarshal(b, &reference); err != nil {
+		return false
+	}
+	if r.taskName != reference.TaskName {
+		return false
+	}
+	return r.name == reference.Name || r.name == ""
+}
+
+func (r *resourceReferenceMatcher) String() string {
+	return "resource-reference-matcher"
+}
 
 var _ = Describe("RepoUpdate", func() {
 	var (
-		log         *logrus.Logger
-		ctx         context.Context
-		orgId       uuid.UUID
-		storeInst   store.Store
-		cfg         *config.Config
-		dbName      string
-		taskManager tasks.TaskManager
+		log             *logrus.Logger
+		ctx             context.Context
+		orgId           uuid.UUID
+		storeInst       store.Store
+		cfg             *config.Config
+		dbName          string
+		callbackManager tasks.CallbackManager
+		ctrl            *gomock.Controller
+		mockPublisher   *queues.MockPublisher
 	)
 
 	BeforeEach(func() {
@@ -34,7 +69,9 @@ var _ = Describe("RepoUpdate", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
-		taskManager = tasks.Init(log, storeInst)
+		ctrl = gomock.NewController(GinkgoT())
+		mockPublisher = queues.NewMockPublisher(ctrl)
+		callbackManager = tasks.NewCallbackManager(mockPublisher, log)
 
 		// Create 2 git config items, each to a different repo
 		err := testutil.CreateRepositories(ctx, 2, storeInst, orgId)
@@ -128,39 +165,31 @@ var _ = Describe("RepoUpdate", func() {
 	})
 
 	AfterEach(func() {
+		ctrl.Finish()
 		store.DeleteTestDB(cfg, storeInst, dbName)
 	})
 
 	When("a Repository definition is updated", func() {
 		It("refreshes relevant fleets and devices", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: model.RepositoryKind}
-			logic := tasks.NewRepositoryUpdateLogic(taskManager, log, storeInst, resourceRef)
+			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "fleet1")).Times(1)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "device1")).Times(1)
 			err := logic.HandleRepositoryUpdate(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleetRef := taskManager.GetTask(tasks.ChannelFleetValidate)
-			Expect(fleetRef.Name).To(Equal("fleet1"))
-			Expect(taskManager.HasTasks(tasks.ChannelFleetValidate)).To(BeFalse())
-			devRef := taskManager.GetTask(tasks.ChannelDeviceRender)
-			Expect(devRef.Name).To(Equal("device1"))
-			Expect(taskManager.HasTasks(tasks.ChannelDeviceRender)).To(BeFalse())
 		})
 	})
 
 	When("all Repository definitions are deleted", func() {
 		It("refreshes relevant fleets and devices", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}
-			logic := tasks.NewRepositoryUpdateLogic(taskManager, log, storeInst, resourceRef)
+			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "")).Times(2)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "")).Times(2)
 			err := logic.HandleAllRepositoriesDeleted(ctx, log)
 			Expect(err).ToNot(HaveOccurred())
 
-			// both fleets and both devices
-			_ = taskManager.GetTask(tasks.ChannelFleetValidate)
-			_ = taskManager.GetTask(tasks.ChannelFleetValidate)
-			Expect(taskManager.HasTasks(tasks.ChannelFleetValidate)).To(BeFalse())
-			_ = taskManager.GetTask(tasks.ChannelDeviceRender)
-			_ = taskManager.GetTask(tasks.ChannelDeviceRender)
-			Expect(taskManager.HasTasks(tasks.ChannelDeviceRender)).To(BeFalse())
 		})
 	})
 })

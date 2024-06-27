@@ -22,9 +22,9 @@ import (
 )
 
 type ResourceSync struct {
-	log         logrus.FieldLogger
-	store       store.Store
-	taskManager TaskManager
+	log             logrus.FieldLogger
+	store           store.Store
+	callbackManager CallbackManager
 }
 
 type genericResourceMap map[string]interface{}
@@ -32,11 +32,11 @@ type genericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{model.FleetKind}
 
-func NewResourceSync(taskManager TaskManager) *ResourceSync {
+func NewResourceSync(callbackManager CallbackManager, store store.Store, log logrus.FieldLogger) *ResourceSync {
 	return &ResourceSync{
-		log:         taskManager.log,
-		store:       taskManager.store,
-		taskManager: taskManager,
+		log:             log,
+		store:           store,
+		callbackManager: callbackManager,
 	}
 }
 
@@ -117,13 +117,13 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	fleetsToRemove := fleetsDelta(fleetsPreOwned, fleets)
 
 	r.log.Infof("resourcesync/%s: applying #%d fleets ", rs.Name, len(fleets))
-	err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, r.taskManager.FleetUpdatedCallback, fleets...)
+	err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, r.callbackManager.FleetUpdatedCallback, fleets...)
 	if err == flterrors.ErrUpdatingResourceWithOwnerNotAllowed {
 		err = fmt.Errorf("one or more fleets are managed by a different resource. %w", err)
 	}
 	if len(fleetsToRemove) > 0 {
 		r.log.Infof("resourcesync/%s: found #%d fleets to remove. removing\n", rs.Name, len(fleetsToRemove))
-		err := r.store.Fleet().Delete(ctx, rs.OrgID, r.taskManager.FleetUpdatedCallback, fleetsToRemove...)
+		err := r.store.Fleet().Delete(ctx, rs.OrgID, r.callbackManager.FleetUpdatedCallback, fleetsToRemove...)
 		if err != nil {
 			log.Errorf("resourcesync/%s: failed to remove old fleets. error: %s", rs.Name, err.Error())
 			return err

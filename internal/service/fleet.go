@@ -45,7 +45,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
-	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
+	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateFleet201JSONResponse(*result), nil
@@ -100,7 +100,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Fleet().DeleteAll(ctx, orgId, h.taskManager.AllFleetsDeletedCallback)
+	err := h.store.Fleet().DeleteAll(ctx, orgId, h.callbackManager.AllFleetsDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteFleets200JSONResponse{}, nil
@@ -145,7 +145,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.FleetUpdatedCallback)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -179,7 +179,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 		return server.DeleteFleet409JSONResponse{Message: "could not delete fleet because it is owned by another resource"}, nil
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, h.taskManager.FleetUpdatedCallback, request.Name)
+	err = h.store.Fleet().Delete(ctx, orgId, h.callbackManager.FleetUpdatedCallback, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil
@@ -286,8 +286,8 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 
 	var updateCallback func(before *model.Fleet, after *model.Fleet)
 
-	if h.taskManager != nil {
-		updateCallback = h.taskManager.FleetUpdatedCallback
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
 	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
 
