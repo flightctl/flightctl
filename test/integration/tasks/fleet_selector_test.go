@@ -10,25 +10,27 @@ import (
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/mock/gomock"
 )
 
 var _ = Describe("FleetSelector", func() {
 	var (
-		log         *logrus.Logger
-		ctx         context.Context
-		orgId       uuid.UUID
-		deviceStore store.Device
-		fleetStore  store.Fleet
-		storeInst   store.Store
-		cfg         *config.Config
-		dbName      string
-		taskManager tasks.TaskManager
-		logic       tasks.FleetSelectorMatchingLogic
+		log             *logrus.Logger
+		ctx             context.Context
+		orgId           uuid.UUID
+		deviceStore     store.Device
+		fleetStore      store.Fleet
+		storeInst       store.Store
+		cfg             *config.Config
+		dbName          string
+		callbackManager tasks.CallbackManager
+		logic           tasks.FleetSelectorMatchingLogic
 	)
 
 	BeforeEach(func() {
@@ -38,8 +40,11 @@ var _ = Describe("FleetSelector", func() {
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
-		taskManager = tasks.Init(log, storeInst)
-		logic = tasks.NewFleetSelectorMatchingLogic(taskManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "fleet", Kind: model.FleetKind})
+		ctrl := gomock.NewController(GinkgoT())
+		publisher := queues.NewMockPublisher(ctrl)
+		publisher.EXPECT().Publish(gomock.Any()).Return(nil).AnyTimes()
+		callbackManager = tasks.NewCallbackManager(publisher, log)
+		logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "fleet", Kind: model.FleetKind})
 		logic.SetItemsPerPage(2)
 	})
 
@@ -252,7 +257,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(5))
 			for _, device := range devices.Items {
 				resourceRef := tasks.ResourceReference{OrgID: orgId, Name: *device.Metadata.Name, Kind: model.DeviceKind}
-				logic = tasks.NewFleetSelectorMatchingLogic(taskManager, log, storeInst, resourceRef)
+				logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, storeInst, resourceRef)
 				logic.SetItemsPerPage(2)
 
 				err = logic.CompareFleetsAndSetDeviceOwner(ctx)

@@ -28,7 +28,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 		return server.CreateDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 
-	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
+	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
@@ -84,7 +84,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Device().DeleteAll(ctx, orgId, h.taskManager.AllDevicesDeletedCallback)
+	err := h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevices200JSONResponse{}, nil
@@ -123,7 +123,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.taskManager.DeviceUpdatedCallback)
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -148,7 +148,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Device().Delete(ctx, orgId, request.Name, h.taskManager.DeviceUpdatedCallback)
+	err := h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil
@@ -224,8 +224,8 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 
 	var updateCallback func(before *model.Device, after *model.Device)
 
-	if h.taskManager != nil {
-		updateCallback = h.taskManager.DeviceUpdatedCallback
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
 	// create
 	result, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, newObj, nil, true, updateCallback)

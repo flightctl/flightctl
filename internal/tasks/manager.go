@@ -17,11 +17,12 @@ import (
 )
 
 type ResourceReference struct {
-	Op    string
-	OrgID uuid.UUID
-	Kind  string
-	Name  string
-	Owner string
+	TaskName string
+	Op       string
+	OrgID    uuid.UUID
+	Kind     string
+	Name     string
+	Owner    string
 }
 
 type TaskManager struct {
@@ -99,7 +100,7 @@ func (t TaskManager) Start() {
 	go DeviceRender(t)
 	go RepositoryUpdate(t)
 
-	resourceSync := NewResourceSync(t)
+	resourceSync := NewResourceSync(t, t.store, t.log)
 	resourceSyncThread := thread.New(
 		t.log.WithField("pkg", "resourcesync"), "ResourceSync", threadIntervalMinute(2), resourceSync.Poll)
 	resourceSyncThread.Start()

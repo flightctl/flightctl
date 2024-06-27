@@ -75,7 +75,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 		}
 		(*apiResource.Metadata.Labels)["region"] = *enrollmentRequest.Status.Approval.Region
 	}
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.taskManager.DeviceUpdatedCallback)
+	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback)
 	return err
 }
 
