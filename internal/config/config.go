@@ -18,6 +18,7 @@ type Config struct {
 	Database *dbConfig    `json:"database,omitempty"`
 	Service  *svcConfig   `json:"service,omitempty"`
 	Queue    *queueConfig `json:"queue,omitempty"`
+	Auth     *authConfig  `json:"auth,omitempty"`
 }
 
 type dbConfig struct {
@@ -45,6 +46,10 @@ type svcConfig struct {
 
 type queueConfig struct {
 	AmqpURL string `json:"amqpUrl,omitempty"`
+}
+
+type authConfig struct {
+	K8sApiUrl string `json:"k8sApiUrl,omitempty"`
 }
 
 func ConfigDir() string {
