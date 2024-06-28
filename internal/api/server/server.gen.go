@@ -155,6 +155,12 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/resourcesyncs/{name})
 	ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/token/request)
+	TokenRequest(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/token/validate)
+	TokenValidate(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -388,6 +394,16 @@ func (_ Unimplemented) PatchResourceSync(w http.ResponseWriter, r *http.Request,
 
 // (PUT /api/v1/resourcesyncs/{name})
 func (_ Unimplemented) ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/token/request)
+func (_ Unimplemented) TokenRequest(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/token/validate)
+func (_ Unimplemented) TokenValidate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1656,6 +1672,36 @@ func (siw *ServerInterfaceWrapper) ReplaceResourceSync(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// TokenRequest operation middleware
+func (siw *ServerInterfaceWrapper) TokenRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TokenRequest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// TokenValidate operation middleware
+func (siw *ServerInterfaceWrapper) TokenValidate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TokenValidate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1906,6 +1952,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/resourcesyncs/{name}", wrapper.ReplaceResourceSync)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/token/request", wrapper.TokenRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/token/validate", wrapper.TokenValidate)
 	})
 
 	return r
@@ -3739,6 +3791,66 @@ func (response ReplaceResourceSync404JSONResponse) VisitReplaceResourceSyncRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type TokenRequestRequestObject struct {
+}
+
+type TokenRequestResponseObject interface {
+	VisitTokenRequestResponse(w http.ResponseWriter) error
+}
+
+type TokenRequest301ResponseHeaders struct {
+	Location interface{}
+}
+
+type TokenRequest301Response struct {
+	Headers TokenRequest301ResponseHeaders
+}
+
+func (response TokenRequest301Response) VisitTokenRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(301)
+	return nil
+}
+
+type TokenRequest418Response struct {
+}
+
+func (response TokenRequest418Response) VisitTokenRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(418)
+	return nil
+}
+
+type TokenValidateRequestObject struct {
+}
+
+type TokenValidateResponseObject interface {
+	VisitTokenValidateResponse(w http.ResponseWriter) error
+}
+
+type TokenValidate200Response struct {
+}
+
+func (response TokenValidate200Response) VisitTokenValidateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type TokenValidate401Response struct {
+}
+
+func (response TokenValidate401Response) VisitTokenValidateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type TokenValidate418Response struct {
+}
+
+func (response TokenValidate418Response) VisitTokenValidateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(418)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -3879,6 +3991,12 @@ type StrictServerInterface interface {
 
 	// (PUT /api/v1/resourcesyncs/{name})
 	ReplaceResourceSync(ctx context.Context, request ReplaceResourceSyncRequestObject) (ReplaceResourceSyncResponseObject, error)
+
+	// (GET /api/v1/token/request)
+	TokenRequest(ctx context.Context, request TokenRequestRequestObject) (TokenRequestResponseObject, error)
+
+	// (GET /api/v1/token/validate)
+	TokenValidate(ctx context.Context, request TokenValidateRequestObject) (TokenValidateResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -5209,6 +5327,54 @@ func (sh *strictHandler) ReplaceResourceSync(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceResourceSyncResponseObject); ok {
 		if err := validResponse.VisitReplaceResourceSyncResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TokenRequest operation middleware
+func (sh *strictHandler) TokenRequest(w http.ResponseWriter, r *http.Request) {
+	var request TokenRequestRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TokenRequest(ctx, request.(TokenRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TokenRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TokenRequestResponseObject); ok {
+		if err := validResponse.VisitTokenRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TokenValidate operation middleware
+func (sh *strictHandler) TokenValidate(w http.ResponseWriter, r *http.Request) {
+	var request TokenValidateRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TokenValidate(ctx, request.(TokenValidateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TokenValidate")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TokenValidateResponseObject); ok {
+		if err := validResponse.VisitTokenValidateResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

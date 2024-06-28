@@ -84,7 +84,7 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.Logger,
 		middleware.Recoverer,
 		tlsmiddleware.AdminTLSValidator,
-		authMiddleware.AuthHandler,
+		authMiddleware,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	)
 

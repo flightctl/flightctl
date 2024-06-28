@@ -42,7 +42,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 
 // (GET /api/v1/devices)
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
-	allowed, err := auth.GetAuth().CheckPermission(ctx, "devices", "list")
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "list")
 	if err != nil {
 		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
 	}
