@@ -116,3 +116,7 @@ func (r ResourceSync) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateString(&r.Spec.Path, "spec.path", 0, 2048, nil, "")...)
 	return allErrs
 }
+
+func (d *DeviceSystemInfo) IsEmpty() bool {
+	return *d == DeviceSystemInfo{}
+}

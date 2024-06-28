@@ -53,7 +53,7 @@ var _ = Describe("Device Agent behavior", func() {
 		})
 
 		When("an enrollment request is approved", func() {
-			It("should mark enrollment resquest as approved", func() {
+			It("should mark enrollment request as approved", func() {
 				deviceName := ""
 				Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
 				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())

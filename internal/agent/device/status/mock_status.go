@@ -91,12 +91,11 @@ func (m *MockCollector) EXPECT() *MockCollectorMockRecorder {
 }
 
 // Get mocks base method.
-func (m *MockCollector) Get(arg0 context.Context) (*v1alpha1.DeviceStatus, error) {
+func (m *MockCollector) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0)
 	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	return ret0
 }
 
 // Get indicates an expected call of Get.
@@ -129,12 +128,11 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // Get mocks base method.
-func (m *MockManager) Get(arg0 context.Context) (*v1alpha1.DeviceStatus, error) {
+func (m *MockManager) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0)
 	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	return ret0
 }
 
 // Get indicates an expected call of Get.
@@ -167,44 +165,50 @@ func (mr *MockManagerMockRecorder) SetProperties(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProperties", reflect.TypeOf((*MockManager)(nil).SetProperties), arg0)
 }
 
-// Update mocks base method.
-func (m *MockManager) Update(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
+// Sync mocks base method.
+func (m *MockManager) Sync(arg0 context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", arg0, arg1)
+	ret := m.ctrl.Call(m, "Sync", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Update indicates an expected call of Update.
-func (mr *MockManagerMockRecorder) Update(arg0, arg1 any) *gomock.Call {
+// Sync indicates an expected call of Sync.
+func (mr *MockManagerMockRecorder) Sync(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockManager)(nil).Sync), arg0)
+}
+
+// Update mocks base method.
+func (m *MockManager) Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1alpha1.DeviceStatus, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range updateFuncs {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Update", varargs...)
+	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockManagerMockRecorder) Update(ctx any, updateFuncs ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, updateFuncs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), varargs...)
 }
 
 // UpdateCondition mocks base method.
-func (m *MockManager) UpdateCondition(ctx context.Context, conditionType v1alpha1.ConditionType, conditionStatus v1alpha1.ConditionStatus, reason, message string) error {
+func (m *MockManager) UpdateCondition(arg0 context.Context, arg1 v1alpha1.Condition) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateCondition", ctx, conditionType, conditionStatus, reason, message)
+	ret := m.ctrl.Call(m, "UpdateCondition", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateCondition indicates an expected call of UpdateCondition.
-func (mr *MockManagerMockRecorder) UpdateCondition(ctx, conditionType, conditionStatus, reason, message any) *gomock.Call {
+func (mr *MockManagerMockRecorder) UpdateCondition(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCondition", reflect.TypeOf((*MockManager)(nil).UpdateCondition), ctx, conditionType, conditionStatus, reason, message)
-}
-
-// UpdateConditionError mocks base method.
-func (m *MockManager) UpdateConditionError(ctx context.Context, reason string, err error) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateConditionError", ctx, reason, err)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateConditionError indicates an expected call of UpdateConditionError.
-func (mr *MockManagerMockRecorder) UpdateConditionError(ctx, reason, err any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateConditionError", reflect.TypeOf((*MockManager)(nil).UpdateConditionError), ctx, reason, err)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCondition", reflect.TypeOf((*MockManager)(nil).UpdateCondition), arg0, arg1)
 }
