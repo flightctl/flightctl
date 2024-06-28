@@ -1,0 +1,41 @@
+---
+kind: OpenTelemetryCollector
+apiVersion: opentelemetry.io/v1beta1
+metadata:
+  name: gateway
+  namespace: edge-observability
+spec:
+  replicas: 3
+  # ingress:
+  #   type: route
+  #   route:
+  #     termination: "edge" # TODO: forward mTLS connections
+  config:
+    exporters:
+      otlphttp:
+        metrics_endpoint: "http://edge-monitoring-stack-prometheus:9090/api/v1/otlp/v1/metrics"
+        tls:
+          insecure: true
+    processors: # NOTE: Workaround, https://github.com/open-telemetry/opentelemetry-operator/issues/3081
+      resourcedetection/env:
+        detectors:
+          - env
+        override: false
+        timeout: 2s
+    receivers:
+      otlp:
+        protocols:
+          http: {} # TODO: add mTLS
+      prometheus/self:
+        config:
+          scrape_configs:
+            - job_name: 'self'
+              scrape_interval: 10s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp, prometheus/self]
+          processors: [resourcedetection/env]
+          exporters: [otlphttp]
