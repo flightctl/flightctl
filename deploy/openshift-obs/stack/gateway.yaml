@@ -5,11 +5,7 @@ metadata:
   name: gateway
   namespace: edge-observability
 spec:
-  replicas: 3
-  # ingress:
-  #   type: route
-  #   route:
-  #     termination: "edge" # TODO: forward mTLS connections
+  mode: sidecar
   config:
     exporters:
       otlphttp:
@@ -25,7 +21,8 @@ spec:
     receivers:
       otlp:
         protocols:
-          http: {} # TODO: add mTLS
+          http:
+            endpoint: localhost:8318
       prometheus/self:
         config:
           scrape_configs:

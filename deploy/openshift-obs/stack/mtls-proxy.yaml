@@ -1,0 +1,80 @@
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: otel-gateway
+  namespace: edge-observability
+spec:
+  to:
+    kind: Service
+    name: otel-mtls-proxy
+  port:
+    targetPort: 443
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-mtls-proxy
+  namespace: edge-observability
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: otel-mtls-proxy
+spec:
+  ports:
+    - port: 443
+      targetPort: 4318
+  selector:
+    app: otel-gateway
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ca-inject
+  namespace: edge-observability
+  labels:
+    config.openshift.io/inject-trusted-cabundle: "true"
+data: {}
+---
+# NOTE: setup manually - oc create secret tls my-custom-tls --cert=server.crt --key=server.key
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-mtls-proxy
+  namespace: edge-observability
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: otel-gateway
+  template:
+    metadata:
+      annotations:
+        sidecar.opentelemetry.io/inject: "true"
+      labels:
+        app: otel-gateway
+    spec:
+      containers:
+        - name: otel-mtls-proxy
+          image: ghcr.io/frzifus/otel-mtls-proxy:latest
+          command: ["/otel-mtls-proxy"]
+          args: ["-root-ca", "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", "-key-file", "/etc/tls/private/tls.key",  "-cert-file", "etc/tls/private/tls.crt"]
+          volumeMounts:
+            - name: trusted-ca
+              mountPath: /etc/pki/ca-trust/extracted/pem
+              readOnly: true
+            - name: tls-certs
+              mountPath: /etc/tls/private
+              readOnly: true
+      volumes:
+        - name: trusted-ca
+          configMap:
+            name: ca-inject
+            items:
+              - key: ca-bundle.crt
+                path: tls-ca-bundle.pem
+        - name: tls-certs
+          secret:
+            secretName: otel-mtls-proxy
