@@ -83,6 +83,17 @@ func StrToPtrWithNilDefault(s string) *string {
 	return &s
 }
 
+func SliceToPtrWithNilDefault(s []string) *[]string {
+	var defaultSlice []string
+	if len(s) == 0 {
+		return nil
+	}
+	if len(s) == len(defaultSlice) {
+		return nil
+	}
+	return &s
+}
+
 func TimeStampStringPtr() *string {
 	return StrToPtr(time.Now().Format(time.RFC3339))
 }
