@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	tlsmiddleware "github.com/flightctl/flightctl/internal/server/middleware"
@@ -73,12 +74,17 @@ func (s *Server) Run(ctx context.Context) error {
 		ErrorHandler: oapiErrorHandler,
 	}
 
+	authMiddleware, err := auth.CreateAuthMiddleware(s.cfg, s.log)
+	if err != nil {
+		return err
+	}
 	router := chi.NewRouter()
 	router.Use(
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		tlsmiddleware.AdminTLSValidator,
+		authMiddleware.AuthHandler,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	)
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -41,6 +42,14 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 
 // (GET /api/v1/devices)
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
+	allowed, err := auth.GetAuth().CheckPermission(ctx, "devices", "list")
+	if err != nil {
+		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ListDevices403JSONResponse{Message: "cannot list devices"}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	labelSelector := ""

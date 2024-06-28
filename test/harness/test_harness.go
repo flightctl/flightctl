@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/server"
@@ -92,6 +93,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 
 	// start main api server
 	go func() {
+		os.Setenv(auth.DisableAuthEnvKey, "true")
 		err := server.Run(ctx)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling

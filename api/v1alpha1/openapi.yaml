@@ -569,6 +569,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - device

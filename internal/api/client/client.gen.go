@@ -3381,6 +3381,7 @@ type ListDevicesResponse struct {
 	JSON200      *DeviceList
 	JSON400      *Error
 	JSON401      *Error
+	JSON403      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5102,6 +5103,13 @@ func ParseListDevicesResponse(rsp *http.Response) (*ListDevicesResponse, error) 
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 

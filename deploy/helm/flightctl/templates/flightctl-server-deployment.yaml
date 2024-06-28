@@ -25,6 +25,8 @@ spec:
           env:
             - name: HOME
               value: "/root"
+            - name: FLIGHTCTL_DISABLE_AUTH
+              value: "true"
           ports:
             - containerPort: 3443
               name: service-api
