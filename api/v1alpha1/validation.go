@@ -97,12 +97,31 @@ func (r Repository) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	repoSpec, err := r.Spec.GetGitGenericRepoSpec()
-	if err != nil {
-		allErrs = append(allErrs, fmt.Errorf("invalid repository type: %s", err))
-	} else {
-		allErrs = append(allErrs, validation.ValidateString(&repoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
+
+	// Validate GitGenericRepoSpec
+	gitGenericRepoSpec, genericErr := r.Spec.GetGitGenericRepoSpec()
+	if genericErr == nil {
+		allErrs = append(allErrs, validation.ValidateString(&gitGenericRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
 	}
+
+	// Validate GitHttpRepoSpec
+	gitHttpRepoSpec, httpErr := r.Spec.GetGitHttpRepoSpec()
+	if httpErr == nil {
+		allErrs = append(allErrs, validation.ValidateString(&gitHttpRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
+		// TODO: Validate httpRepoSpec
+	}
+
+	// Validate GitSshRepoSpec
+	gitSshRepoSpec, sshErr := r.Spec.GetGitSshRepoSpec()
+	if sshErr == nil {
+		allErrs = append(allErrs, validation.ValidateString(&gitSshRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
+		// TODO: Validate sshRepoSpec
+	}
+
+	if genericErr != nil && httpErr != nil && sshErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid repository type: no valid spec found"))
+	}
+
 	return allErrs
 }
 
