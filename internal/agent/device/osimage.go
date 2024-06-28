@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -41,10 +42,7 @@ func (c *OSImageController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 
 	err := c.ensureImage(ctx, desired)
 	if err != nil {
-		if updateErr := c.statusManager.UpdateConditionError(ctx, OsImageDegradedReason, err); updateErr != nil {
-			c.log.Errorf("Failed to update condition: %v", updateErr)
-		}
-		return err
+		return fmt.Errorf("failed to update os image: %w", err)
 	}
 
 	return nil
@@ -73,11 +71,25 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 		return err
 	}
 
-	// Update the status to progressing
-	if err := c.statusManager.UpdateCondition(ctx, v1alpha1.DeviceProgressing, v1alpha1.ConditionStatusTrue, RebootingReason, fmt.Sprintf("Rebooting into new os image: %s", image)); err != nil {
-		return err
+	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", image)
+	_, updateErr := c.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+		Status: v1alpha1.DeviceSummaryStatusRebooting,
+		Info:   util.StrToPtr(infoMsg),
+	}))
+	if updateErr != nil {
+		c.log.Warnf("Failed setting status: %v", err)
 	}
 
-	c.log.Infof("Os image switch complete - rebooting into new image")
+	updateErr = c.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceUpdating,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  "Rebooting",
+		Message: infoMsg,
+	})
+	if updateErr != nil {
+		c.log.Warnf("Failed setting status: %v", err)
+	}
+
+	c.log.Info(infoMsg)
 	return c.bootc.Apply(ctx)
 }

@@ -24,7 +24,7 @@ type Device struct {
 	Spec *JSONField[api.DeviceSpec]
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.DeviceStatus]
+	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
 
 	// Conditions set by the service, as opposed to the agent.
 	ServiceConditions *JSONField[ServiceConditions]
@@ -57,9 +57,15 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 		spec = *resource.Spec
 	}
 
-	status := api.DeviceStatus{Conditions: []api.Condition{}}
+	status := api.NewDeviceStatus()
 	if resource.Status != nil {
 		status = *resource.Status
+	}
+	if status.Applications.Data == nil {
+		status.Applications.Data = make(map[string]api.ApplicationStatus)
+	}
+	if status.Conditions == nil {
+		status.Conditions = make(map[string]api.Condition)
 	}
 
 	return &Device{
@@ -85,16 +91,18 @@ func (d *Device) ToApiResource() api.Device {
 		spec = d.Spec.Data
 	}
 
-	status := api.DeviceStatus{Conditions: []api.Condition{}}
+	status := api.NewDeviceStatus()
 	if d.Status != nil {
 		status = d.Status.Data
 	}
 
 	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
 		if status.Conditions == nil {
-			status.Conditions = []api.Condition{}
+			status.Conditions = make(map[string]api.Condition)
 		}
-		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
+		for _, condition := range *d.ServiceConditions.Data.Conditions {
+			status.Conditions[string(condition.Type)] = condition
+		}
 	}
 
 	metadataLabels := util.LabelArrayToMap(d.Resource.Labels)

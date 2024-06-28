@@ -47,10 +47,19 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	if request.Params.LabelSelector != nil {
 		labelSelector = *request.Params.LabelSelector
 	}
+	statusFilter := []string{}
+	if request.Params.StatusFilter != nil {
+		statusFilter = *request.Params.StatusFilter
+	}
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
 		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
+	}
+
+	filterMap, err := ConvertStatusFilterParamsToMap(statusFilter)
+	if err != nil {
+		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
@@ -60,6 +69,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	listParams := store.ListParams{
 		Labels:   labelMap,
+		Filter:   filterMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
 		Owner:    request.Params.Owner,

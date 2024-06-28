@@ -19,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -100,27 +99,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// initialize the TPM
-	var tpmChannel *tpm.TPM
-	if len(a.config.TPMPath) > 0 {
-		tpmChannel, err = tpm.OpenTPM(a.config.TPMPath)
-		if err != nil {
-			return fmt.Errorf("opening TPM channel: %w", err)
-		}
-	} else {
-		tpmChannel, err = tpm.OpenTPMSimulator()
-		if err != nil {
-			return fmt.Errorf("opening TPM simulator channel: %w", err)
-		}
-	}
-	defer tpmChannel.Close()
-
 	executer := &executer.CommonExecuter{}
 
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
-		tpmChannel,
 		executer,
 		a.log,
 	)

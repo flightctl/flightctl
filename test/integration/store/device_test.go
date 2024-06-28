@@ -162,6 +162,18 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*devices.Items[0].Metadata.Name).To(Equal("mydevice-1"))
 		})
 
+		It("List with status field filter paging", func() {
+			listParams := store.ListParams{
+				Filter: map[string][]string{
+					"updated.status": {"Unknown", "Updating"},
+				},
+				Limit: 1000,
+			}
+			devices, err := devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(3))
+		})
+
 		It("CreateOrUpdateDevice create mode", func() {
 			imageName := "tv"
 			device := api.Device{
@@ -179,11 +191,10 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal(imageName))
-			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect(dev.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateDevice update mode", func() {
+			status := api.NewDeviceStatus()
 			device := api.Device{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("mydevice-1"),
@@ -193,7 +204,7 @@ var _ = Describe("DeviceStore create", func() {
 						Image: "newos",
 					},
 				},
-				Status: testutil.NewTestDeviceStatus(),
+				Status: &status,
 			}
 			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 			Expect(err).ToNot(HaveOccurred())
@@ -201,8 +212,6 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("newos"))
-			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect(dev.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateDevice update owned from API", func() {
@@ -222,6 +231,7 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("UpdateDeviceStatus", func() {
 			// Random Condition to make sure Conditions do get stored
+			status := api.NewDeviceStatus()
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,
 				LastTransitionTime: time.Now(),
@@ -236,9 +246,9 @@ var _ = Describe("DeviceStore create", func() {
 				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOSSpec{Image: "newos"},
 				},
-				Status: testutil.NewTestDeviceStatus(),
+				Status: &status,
 			}
-			device.Status.Conditions = append(device.Status.Conditions, condition)
+			device.Status.Conditions[string(api.EnrollmentRequestApproved)] = condition
 			_, err := devStore.UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
@@ -247,7 +257,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("os"))
 			Expect(dev.Status.Conditions).ToNot(BeEmpty())
-			Expect((dev.Status.Conditions)[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(dev.Status.Conditions[string(api.EnrollmentRequestApproved)].Type).To(Equal(api.EnrollmentRequestApproved))
 		})
 
 		It("UpdateOwner", func() {
