@@ -108,14 +108,14 @@ func (r Repository) Validate() []error {
 	gitHttpRepoSpec, httpErr := r.Spec.GetGitHttpRepoSpec()
 	if httpErr == nil {
 		allErrs = append(allErrs, validation.ValidateString(&gitHttpRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
-		// TODO: Validate httpRepoSpec
+		allErrs = append(allErrs, validateGitHttpConfig(&gitHttpRepoSpec.HttpConfig)...)
 	}
 
 	// Validate GitSshRepoSpec
 	gitSshRepoSpec, sshErr := r.Spec.GetGitSshRepoSpec()
 	if sshErr == nil {
 		allErrs = append(allErrs, validation.ValidateString(&gitSshRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
-		// TODO: Validate sshRepoSpec
+		allErrs = append(allErrs, validateGitSshConfig(&gitSshRepoSpec.SshConfig)...)
 	}
 
 	if genericErr != nil && httpErr != nil && sshErr != nil {
@@ -138,4 +138,53 @@ func (r ResourceSync) Validate() []error {
 
 func (d *DeviceSystemInfo) IsEmpty() bool {
 	return *d == DeviceSystemInfo{}
+}
+
+func validateGitHttpConfig(config *GitHttpConfig) []error {
+	var errs []error
+	if config != nil {
+		if config.CaCrt != nil {
+			if !validation.IsBase64(*config.CaCrt) {
+				errs = append(errs, fmt.Errorf("httpConfig.caCrt must be a valid base64 encoded string"))
+			}
+		}
+
+		if config.TlsCrt != nil {
+			if !validation.IsBase64(*config.TlsCrt) {
+				errs = append(errs, fmt.Errorf("httpConfig.tlsCrt must be a valid base64 encoded string"))
+			}
+		}
+
+		if config.TlsKey != nil {
+			if !validation.IsBase64(*config.TlsKey) {
+				errs = append(errs, fmt.Errorf("httpConfig.tlsKey must be a valid base64 encoded string"))
+			}
+		}
+
+		if config.Username != nil {
+			errs = append(errs, validation.ValidateString(config.Username, "httpConfig.username", 1, 256, nil, "")...)
+		}
+
+		if config.Password != nil {
+			errs = append(errs, validation.ValidateString(config.Password, "httpConfig.password", 1, 256, nil, "")...)
+		}
+	}
+	return errs
+}
+
+func validateGitSshConfig(config *GitSshConfig) []error {
+	var errs []error
+	if config != nil {
+		if config.PrivateKeyPassphrase != nil {
+			errs = append(errs, validation.ValidateString(config.PrivateKeyPassphrase, "sshConfig.privateKeyPassphrase", 1, 256, nil, "")...)
+		}
+
+		if config.SshPrivateKey != nil {
+			if !validation.IsBase64(*config.SshPrivateKey) {
+				errs = append(errs, fmt.Errorf("sshConfig.sshPrivateKey must be a valid base64 encoded string"))
+			}
+		}
+	}
+
+	return errs
 }
