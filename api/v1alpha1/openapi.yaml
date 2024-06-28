@@ -8,6 +8,34 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/token/request:
+    get:
+      description: token request
+      operationId: tokenRequest
+      responses:
+        "301":
+          description: Redirect
+          headers:
+            Location:
+              type: "string"
+        "418":
+          description: Auth not configured
+  /api/v1/token/validate:
+    get:
+      description: token validation
+      operationId: tokenValidate
+      parameters:
+        - in: header
+          name: Authentication
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token valid
+        "401":
+          description: Token invalid
+        "418":
+          description: Auth not configured
   /api/v1/resourcesyncs:
     get:
       tags:

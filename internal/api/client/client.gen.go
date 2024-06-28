@@ -263,6 +263,12 @@ type ClientInterface interface {
 	ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TokenRequest request
+	TokenRequest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TokenValidate request
+	TokenValidate(ctx context.Context, params *TokenValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -1023,6 +1029,30 @@ func (c *Client) ReplaceResourceSyncWithBody(ctx context.Context, name string, c
 
 func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceResourceSyncRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TokenRequest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTokenRequestRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TokenValidate(ctx context.Context, params *TokenValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTokenValidateRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3134,6 +3164,75 @@ func NewReplaceResourceSyncRequestWithBody(server string, name string, contentTy
 	return req, nil
 }
 
+// NewTokenRequestRequest generates requests for TokenRequest
+func NewTokenRequestRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/token/request")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewTokenValidateRequest generates requests for TokenValidate
+func NewTokenValidateRequest(server string, params *TokenValidateParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/token/validate")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authentication != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Authentication", runtime.ParamLocationHeader, *params.Authentication)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authentication", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -3350,6 +3449,12 @@ type ClientWithResponsesInterface interface {
 	ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
 
 	ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
+
+	// TokenRequestWithResponse request
+	TokenRequestWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*TokenRequestResponse, error)
+
+	// TokenValidateWithResponse request
+	TokenValidateWithResponse(ctx context.Context, params *TokenValidateParams, reqEditors ...RequestEditorFn) (*TokenValidateResponse, error)
 }
 
 type DeleteDevicesResponse struct {
@@ -4478,6 +4583,48 @@ func (r ReplaceResourceSyncResponse) StatusCode() int {
 	return 0
 }
 
+type TokenRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r TokenRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TokenRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type TokenValidateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r TokenValidateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TokenValidateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // DeleteDevicesWithResponse request returning *DeleteDevicesResponse
 func (c *ClientWithResponses) DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error) {
 	rsp, err := c.DeleteDevices(ctx, reqEditors...)
@@ -5034,6 +5181,24 @@ func (c *ClientWithResponses) ReplaceResourceSyncWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseReplaceResourceSyncResponse(rsp)
+}
+
+// TokenRequestWithResponse request returning *TokenRequestResponse
+func (c *ClientWithResponses) TokenRequestWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*TokenRequestResponse, error) {
+	rsp, err := c.TokenRequest(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTokenRequestResponse(rsp)
+}
+
+// TokenValidateWithResponse request returning *TokenValidateResponse
+func (c *ClientWithResponses) TokenValidateWithResponse(ctx context.Context, params *TokenValidateParams, reqEditors ...RequestEditorFn) (*TokenValidateResponse, error) {
+	rsp, err := c.TokenValidate(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTokenValidateResponse(rsp)
 }
 
 // ParseDeleteDevicesResponse parses an HTTP response from a DeleteDevicesWithResponse call
@@ -7025,6 +7190,38 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 		}
 		response.JSON404 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseTokenRequestResponse parses an HTTP response from a TokenRequestWithResponse call
+func ParseTokenRequestResponse(rsp *http.Response) (*TokenRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TokenRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseTokenValidateResponse parses an HTTP response from a TokenValidateWithResponse call
+func ParseTokenValidateResponse(rsp *http.Response) (*TokenValidateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TokenValidateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
 	}
 
 	return response, nil
