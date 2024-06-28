@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
@@ -68,6 +69,11 @@ func ValidateString(s *string, path string, minLen int, maxLen int, patternRegex
 		errs = append(errs, field.Invalid(fieldPathFor(path), *s, k8sutilvalidation.RegexError("Invalidpattern", patternFmt, patternExample...)))
 	}
 	return asErrors(errs)
+}
+
+func IsBase64(s string) bool {
+	_, err := base64.StdEncoding.DecodeString(s)
+	return err == nil
 }
 
 func fieldPathFor(path string) *field.Path {
