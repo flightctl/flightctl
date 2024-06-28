@@ -39,7 +39,7 @@ var _ = Describe("containers controller", func() {
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
-		deviceStatus = v1alpha1.DeviceStatus{Conditions: []v1alpha1.Condition{}}
+		deviceStatus = v1alpha1.NewDeviceStatus()
 		execMock = executer.NewMockExecuter(ctrl)
 		systemD = newSystemD(execMock)
 		systemD.matchPatterns = []string{"crio.service", "microshift.service"}
@@ -51,19 +51,7 @@ var _ = Describe("containers controller", func() {
 			err := systemD.Export(context.TODO(), &deviceStatus)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(*deviceStatus.SystemdUnits).ToNot(BeNil())
-			Expect(len(*deviceStatus.SystemdUnits)).To(Equal(2))
-			Expect((*deviceStatus.SystemdUnits)[0].Name).To(Equal("crio.service"))
-			Expect((*deviceStatus.SystemdUnits)[0].LoadState).To(Equal("loaded"))
-			Expect((*deviceStatus.SystemdUnits)[0].ActiveState).To(Equal("active"))
-			Expect((*deviceStatus.SystemdUnits)[1].Name).To(Equal("microshift.service"))
-			Expect((*deviceStatus.SystemdUnits)[1].LoadState).To(Equal("loaded"))
-			Expect((*deviceStatus.SystemdUnits)[1].ActiveState).To(Equal("active"))
-
-			Expect(deviceStatus.Conditions).To(HaveLen(1))
-			Expect(deviceStatus.Conditions[0].Type).To(Equal(v1alpha1.DeviceSystemdUnitsRunning))
-			Expect(deviceStatus.Conditions[0].Status).To(Equal(v1alpha1.ConditionStatusTrue))
-			Expect(deviceStatus.Conditions[0].Reason).To(Equal("Running"))
+			Expect(len(deviceStatus.Applications.Data)).To(Equal(2))
 		})
 	})
 })

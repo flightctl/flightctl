@@ -38,17 +38,8 @@ const (
 
 // Defines values for ConditionType.
 const (
-	DeviceAvailable            ConditionType = "Available"
-	DeviceCPUPressure          ConditionType = "CPUPressure"
-	DeviceContainersRunning    ConditionType = "ContainersRunning"
-	DeviceDegraded             ConditionType = "Degraded"
-	DeviceDiskPressure         ConditionType = "DiskPressure"
-	DeviceMemoryPressure       ConditionType = "MemoryPressure"
-	DevicePIDPressure          ConditionType = "PIDPressure"
-	DeviceProgressing          ConditionType = "Progressing"
-	DeviceReady                ConditionType = "Ready"
 	DeviceSpecValid            ConditionType = "SpecValid"
-	DeviceSystemdUnitsRunning  ConditionType = "SystemdUnitsRunning"
+	DeviceUpdating             ConditionType = "Updating"
 	EnrollmentRequestApproved  ConditionType = "Approved"
 	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
 	FleetValid                 ConditionType = "Valid"
@@ -156,24 +147,6 @@ type ConditionStatus string
 // ConditionType defines model for ConditionType.
 type ConditionType string
 
-// ContainerStatus defines model for ContainerStatus.
-type ContainerStatus struct {
-	// Engine Engine running the container (e.g., podman, crio, etc).
-	Engine string `json:"engine"`
-
-	// Id ID of the container.
-	Id string `json:"id"`
-
-	// Image Image of the container.
-	Image string `json:"image"`
-
-	// Name Name of the container.
-	Name string `json:"name"`
-
-	// Status Status of the container (e.g., running, stopped, etc.).
-	Status string `json:"status"`
-}
-
 // Device Device represents a physical device.
 type Device struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -247,9 +220,9 @@ type DeviceOSStatus struct {
 
 // DeviceResourceStatus defines model for DeviceResourceStatus.
 type DeviceResourceStatus struct {
-	Cpu    *DeviceResourceStatusType `json:"cpu,omitempty"`
-	Disk   *DeviceResourceStatusType `json:"disk,omitempty"`
-	Memory *DeviceResourceStatusType `json:"memory,omitempty"`
+	Cpu    DeviceResourceStatusType `json:"cpu"`
+	Disk   DeviceResourceStatusType `json:"disk"`
+	Memory DeviceResourceStatusType `json:"memory"`
 }
 
 // DeviceResourceStatusType defines model for DeviceResourceStatusType.
@@ -277,24 +250,18 @@ type DeviceSpec_Config_Item struct {
 type DeviceStatus struct {
 	Applications DeviceApplicationsStatus `json:"applications"`
 
-	// Conditions Current state of the device.
-	Conditions []Condition        `json:"conditions"`
-	Config     DeviceConfigStatus `json:"config"`
-
-	// Containers Statuses of containers in the device.
-	Containers *[]ContainerStatus    `json:"containers,omitempty"`
+	// Conditions Conditions represent the observations of a the current state of a device.
+	Conditions map[string]Condition  `json:"conditions"`
+	Config     DeviceConfigStatus    `json:"config"`
 	Integrity  DeviceIntegrityStatus `json:"integrity"`
 	Os         DeviceOSStatus        `json:"os"`
-	Resource   DeviceResourceStatus  `json:"resource"`
+	Resources  DeviceResourceStatus  `json:"resources"`
 	Summary    DeviceSummaryStatus   `json:"summary"`
 
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
-	SystemInfo DeviceSystemInfo `json:"systemInfo"`
-
-	// SystemdUnits Current state of systemd units on the device.
-	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
-	Updated      DeviceUpdatedStatus        `json:"updated"`
-	UpdatedAt    time.Time                  `json:"updatedAt"`
+	SystemInfo DeviceSystemInfo    `json:"systemInfo"`
+	Updated    DeviceUpdatedStatus `json:"updated"`
+	UpdatedAt  time.Time           `json:"updatedAt"`
 }
 
 // DeviceSummaryStatus defines model for DeviceSummaryStatus.
@@ -315,26 +282,8 @@ type DeviceSystemInfo struct {
 	// BootID Boot ID reported by the device.
 	BootID string `json:"bootID"`
 
-	// MachineID MachineID reported by the device.
-	MachineID string `json:"machineID"`
-
-	// Measurements The integrity measurements of the system.
-	Measurements map[string]string `json:"measurements"`
-
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem string `json:"operatingSystem"`
-}
-
-// DeviceSystemdUnitStatus The status of the systemd unit.
-type DeviceSystemdUnitStatus struct {
-	// ActiveState The active state of the systemd unit.
-	ActiveState string `json:"activeState"`
-
-	// LoadState The load state of the systemd unit.
-	LoadState string `json:"loadState"`
-
-	// Name The name of the systemd unit.
-	Name interface{} `json:"name"`
 }
 
 // DeviceUpdatedStatus defines model for DeviceUpdatedStatus.
@@ -809,6 +758,9 @@ type ListDevicesParams struct {
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
+	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`

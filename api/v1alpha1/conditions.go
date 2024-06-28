@@ -4,6 +4,10 @@ import (
 	"time"
 )
 
+const (
+	DeviceConditionBootstrapReason = "Bootstrapping"
+)
+
 // Adapted from apimachinery
 
 func SetStatusConditionByError(conditions *[]Condition, conditionType ConditionType, okReason string, failReason string, err error) (changed bool) {

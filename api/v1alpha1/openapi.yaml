@@ -530,6 +530,13 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: statusFilter
+          in: query
+          description: A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
+          schema:
+            type: array
+            items:
+              type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1998,7 +2005,7 @@ components:
         - conditions
         - systemInfo
         - applications
-        - resource
+        - resources
         - integrity
         - config
         - os
@@ -2007,26 +2014,16 @@ components:
         - updatedAt
       properties:
         conditions:
-          type: array
-          description: 'Current state of the device.'
-          items:
+          type: object
+          description: "Conditions represent the observations of a the current state of a device."
+          additionalProperties:
             $ref: '#/components/schemas/Condition'
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
-        containers: # deprecated
-          type: array
-          description: Statuses of containers in the device.
-          items:
-            $ref: "#/components/schemas/ContainerStatus"
-        systemdUnits: # deprecated
-          type: array
-          description: "Current state of systemd units on the device."
-          items:
-            $ref: "#/components/schemas/DeviceSystemdUnitStatus"
         applications:
           $ref: "#/components/schemas/DeviceApplicationsStatus"
           description: "Current status of the system applications."
-        resource:
+        resources:
           $ref: "#/components/schemas/DeviceResourceStatus"
           description: "Current status of the resources of the device."
         integrity:
@@ -2052,9 +2049,7 @@ components:
       required:
         - architecture
         - bootID
-        - machineID
         - operatingSystem
-        - measurements
       type: object
       properties:
         architecture:
@@ -2063,58 +2058,10 @@ components:
         bootID:
           type: string
           description: Boot ID reported by the device.
-        machineID: # deprecated
-          type: string
-          description: 'MachineID reported by the device.'
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
-        measurements: # deprecated
-          type: object
-          additionalProperties:
-            type: string
-          description: The integrity measurements of the system.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
-    ContainerStatus:
-      required:
-        - id
-        - image
-        - name
-        - status
-        - engine
-      type: object
-      properties:
-        name:
-          type: string
-          description: Name of the container.
-        id:
-          type: string
-          description: ID of the container.
-        status:
-          type: string
-          description: Status of the container (e.g., running, stopped, etc.).
-        image:
-          type: string
-          description: Image of the container.
-        engine:
-          type: string
-          description: Engine running the container (e.g., podman, crio, etc).
-    DeviceSystemdUnitStatus:
-      required:
-        - name
-        - loadState
-        - activeState
-      type: object
-      properties:
-        name:
-          description: The name of the systemd unit.
-        loadState:
-          type: string
-          description: The load state of the systemd unit.
-        activeState:
-          type: string
-          description: The active state of the systemd unit.
-      description: The status of the systemd unit.
     DeviceApplicationsStatus:
       type: object
       required:
@@ -2287,6 +2234,10 @@ components:
         - "DeviceIntegrityStatusUnsupported"
     DeviceResourceStatus:
       type: object
+      required:
+        - cpu
+        - memory
+        - disk
       properties:
         cpu:
           $ref: "#/components/schemas/DeviceResourceStatusType"
@@ -2797,16 +2748,7 @@ components:
       - 'Synced'               # ResourceSync
       - 'OverlappingSelectors' # Fleet
       - 'Valid'                # Fleet
-      - 'Ready'                # Device
-      - 'DiskPressure'         # Device
-      - 'MemoryPressure'       # Device
-      - 'PIDPressure'          # Device
-      - 'CPUPressure'          # Device
-      - 'Available'            # Device
-      - 'Progressing'          # Device
-      - 'Degraded'             # Device
-      - 'SystemdUnitsRunning'  # Device
-      - 'ContainersRunning'    # Device
+      - 'Updating'             # Device
       - 'SpecValid'            # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
@@ -2817,16 +2759,7 @@ components:
       - ResourceSyncSynced
       - FleetOverlappingSelectors
       - FleetValid
-      - DeviceReady
-      - DeviceDiskPressure
-      - DeviceMemoryPressure
-      - DevicePIDPressure
-      - DeviceCPUPressure
-      - DeviceAvailable
-      - DeviceProgressing
-      - DeviceDegraded
-      - DeviceSystemdUnitsRunning
-      - DeviceContainersRunning
+      - DeviceUpdating
       - DeviceSpecValid
       - TemplateVersionValid
     ConditionStatus:

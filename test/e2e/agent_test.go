@@ -74,7 +74,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 		})
 
-		It("should be reporting tpm info on enrollment request as well as device status", func() {
+		It("should be reporting device status on enrollment request", func() {
 			// Get the enrollment Request ID from the console output
 			enrollmentID := harness.GetEnrollmentIDFromConsole()
 			logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
@@ -83,56 +83,26 @@ var _ = Describe("VM Agent behavior", func() {
 			enrollmentRequest := harness.WaitForEnrollmentRequest(enrollmentID)
 			Expect(enrollmentRequest.Spec).ToNot(BeNil())
 			Expect(enrollmentRequest.Spec.DeviceStatus).ToNot(BeNil())
-			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo).ToNot(BeNil())
-			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo.Measurements).ToNot(BeNil())
-			verifyPCRRegistersNotEmpty(enrollmentRequest.Spec.DeviceStatus.SystemInfo.Measurements)
+			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo.IsEmpty()).NotTo(BeTrue())
 
 			// Approve the enrollment and wait for the device details to be populated by the agent
 			harness.ApproveEnrollment(enrollmentID, testutil.TestEnrollmentApproval())
 			logrus.Infof("Waiting for device %s to report status so we can check TPM PCRs again", enrollmentID)
 
 			// wait for the device to pickup enrollment and report measurements on device status
-			Eventually(getDeviceWithStatusSystemInfo, TIMEOUT, POLLING).WithArguments(
+			Eventually(getDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
 				harness, enrollmentID).ShouldNot(BeNil())
-
-			device := getDeviceWithStatusSystemInfo(harness, enrollmentID)
-
-			// make sure that the PCR registers aren't empty
-			verifyPCRRegistersNotEmpty(device.JSON200.Status.SystemInfo.Measurements)
-
-			// verify that the measurements are the same as the ones we saw in the enrollment request
-			Expect(device.JSON200.Status.SystemInfo.Measurements).To(Equal(enrollmentRequest.Spec.DeviceStatus.SystemInfo.Measurements))
 		})
 	})
 
 })
 
-// PCR registers are initialized to a string of 00's at boot. Later on as
-// measurements are taken during boot steps, the PCR registers are updated inside the
-// TPM with: update_pcr(n, new_measurement){ pcr[n] = SHAx(pcr[n] || new_measurement) }
-// This means that the PCR registers should not be empty or all 0's after boot.
-// More details about the specific registers can be found here:
-// https://uapi-group.org/specifications/specs/linux_tpm_pcr_registry/
-func verifyPCRRegistersNotEmpty(measurements map[string]string) {
-	Expect(measurements).ToNot(BeNil())
-	for i := 1; i < 10; i++ {
-		pcrReg := fmt.Sprintf("pcr%02d", i)
-		pcr := measurements[pcrReg]
-		Expect(pcr).ToNot(BeNil())
-		// the length of the mesaurement will be different depending on the TPM
-		// sha algorithm so we just check that it's not empty or all 0's, we remove all
-		// 0's to make sure that the measurement isn't just a bunch of 0's
-		pcrRemove0x := strings.ReplaceAll(pcr, "0", "")
-		Expect(pcrRemove0x).ToNot(BeEmpty(), "PCR %s is empty or all 0's, is the VM booting in EFI secure boot?", pcrReg)
-	}
-}
-
 // get device from API, and return only devices that have a Status.SystemInfo
-func getDeviceWithStatusSystemInfo(harness *e2e.Harness, enrollmentID string) *client.ReadDeviceResponse {
+func getDeviceWithStatusSystem(harness *e2e.Harness, enrollmentID string) *client.ReadDeviceResponse {
 	device, err := harness.Client.ReadDeviceWithResponse(harness.Context, enrollmentID)
 	Expect(err).NotTo(HaveOccurred())
 	// we keep waiting for a 200 response, with filled in Status.SystemInfo
-	if device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.SystemInfo.OperatingSystem == "" {
+	if device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.SystemInfo.IsEmpty() {
 		return nil
 	}
 	return device

@@ -82,39 +82,13 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 		return fmt.Errorf("failed unmarshalling podman containers: %s", err)
 	}
 
-	notRunning := c.notRunning
-	runningCondition := v1alpha1.Condition{
-		Type: v1alpha1.DeviceContainersRunning,
-	}
-
-	deviceContainerStatus := make([]v1alpha1.ContainerStatus, len(containers))
-	for i, c := range containers {
-		deviceContainerStatus[i].Name = c.Names[0]
-		deviceContainerStatus[i].Status = c.State
-		deviceContainerStatus[i].Image = c.Image
-		deviceContainerStatus[i].Id = c.Id
-		deviceContainerStatus[i].Engine = PodmanEngine
-
-		if c.State != podmanContainerRunning {
-			notRunning++
+	// TODO: handle removed containers and use appropriate status
+	for _, c := range containers {
+		status.Applications.Data[c.Names[0]] = v1alpha1.ApplicationStatus{
+			Name:   c.Names[0],
+			Status: v1alpha1.ApplicationStatusUnknown,
 		}
 	}
-
-	if notRunning == 0 {
-		runningCondition.Status = v1alpha1.ConditionStatusTrue
-		runningCondition.Reason = "Running"
-	} else {
-		runningCondition.Status = v1alpha1.ConditionStatusFalse
-		runningCondition.Reason = "NotRunning"
-		containerStr := "container"
-		if notRunning > 1 {
-			containerStr = "containers"
-		}
-		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, containerStr)
-	}
-	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
-	status.Containers = &deviceContainerStatus
-	c.notRunning = notRunning
 
 	return nil
 }
@@ -139,44 +113,14 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 		return fmt.Errorf("failed unmarshalling crio containers: %s", err)
 	}
 
-	notRunning := c.notRunning
-	runningCondition := v1alpha1.Condition{
-		Type: v1alpha1.DeviceContainersRunning,
-	}
-
-	deviceContainerStatus := make([]v1alpha1.ContainerStatus, len(containers.Containers))
-	for i, c := range containers.Containers {
-		deviceContainerStatus[i].Name = c.Metadata.Name
-		deviceContainerStatus[i].Status = c.State
-		deviceContainerStatus[i].Image = c.Image
-		deviceContainerStatus[i].Id = c.Id
-		deviceContainerStatus[i].Engine = CrioEngine
-
-		if c.State != crioContainerRunning {
-			notRunning++
+	// TODO: handle removed containers and use appropriate status
+	for _, c := range containers.Containers {
+		name := c.Metadata.Name
+		status.Applications.Data[name] = v1alpha1.ApplicationStatus{
+			Name:   name,
+			Status: v1alpha1.ApplicationStatusUnknown,
 		}
 	}
-
-	if notRunning == 0 {
-		runningCondition.Status = v1alpha1.ConditionStatusTrue
-		runningCondition.Reason = "Running"
-	} else {
-		runningCondition.Status = v1alpha1.ConditionStatusFalse
-		runningCondition.Reason = "NotRunning"
-		containerStr := "container"
-		if notRunning > 1 {
-			containerStr = "containers"
-		}
-		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, containerStr)
-	}
-
-	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
-	if status.Containers == nil {
-		status.Containers = &deviceContainerStatus
-	} else {
-		*status.Containers = append(*status.Containers, deviceContainerStatus...)
-	}
-	c.notRunning = notRunning
 
 	return nil
 }

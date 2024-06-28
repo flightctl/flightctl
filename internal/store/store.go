@@ -106,6 +106,7 @@ func (s *DataStore) Close() error {
 
 type ListParams struct {
 	Labels       map[string]string
+	Filter       map[string][]string
 	InvertLabels *bool
 	Owner        *string
 	Limit        int

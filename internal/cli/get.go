@@ -31,6 +31,7 @@ var (
 type GetOptions struct {
 	Owner         string
 	LabelSelector string
+	StatusFilter  []string
 	Output        string
 	Limit         int32
 	Continue      string
@@ -39,7 +40,12 @@ type GetOptions struct {
 }
 
 func NewCmdGet() *cobra.Command {
-	o := &GetOptions{LabelSelector: "", Limit: 0, Continue: ""}
+	o := &GetOptions{
+		LabelSelector: "",
+		StatusFilter:  []string{},
+		Limit:         0,
+		Continue:      "",
+	}
 
 	cmd := &cobra.Command{
 		Use:   "get (TYPE | TYPE/NAME)",
@@ -59,6 +65,7 @@ func NewCmdGet() *cobra.Command {
 
 	cmd.Flags().StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
 	cmd.Flags().StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, as a comma-separated list of key=value.")
+	cmd.Flags().StringSliceVar(&o.StatusFilter, "status-filter", o.StatusFilter, "Filter the results by status field path using key-value pairs. Example: --status-filter=updated.status=UpToDate")
 	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
 	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
 	cmd.Flags().StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
@@ -134,6 +141,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		params := api.ListDevicesParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			StatusFilter:  util.SliceToPtrWithNilDefault(o.StatusFilter),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
