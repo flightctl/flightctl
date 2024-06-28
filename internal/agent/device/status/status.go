@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -15,6 +16,7 @@ var _ Manager = (*StatusManager)(nil)
 // NewManager creates a new device status manager.
 func NewManager(
 	deviceName string,
+	resourceManager resource.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
@@ -22,6 +24,7 @@ func NewManager(
 		newSystemD(executer),
 		newContainer(executer),
 		newSystemInfo(),
+		newResources(resourceManager),
 	}
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{

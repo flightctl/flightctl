@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -101,9 +102,26 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	executer := &executer.CommonExecuter{}
 
+	// TODO: expose through config
+	fsAlertThreshold := 10
+	fsWarnThreshold := 20
+	fsPaths := []string{"/"}
+	fsSyncDuration := time.Minute
+	fsTimeoutDuration := time.Second * 5
+
+	resourceManager := resource.NewManager(
+		a.log,
+		fsAlertThreshold,
+		fsWarnThreshold,
+		fsPaths,
+		fsSyncDuration,
+		fsTimeoutDuration,
+	)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
+		resourceManager,
 		executer,
 		a.log,
 	)
@@ -182,6 +200,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		osImageController,
 		a.log,
 	)
+
+	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
