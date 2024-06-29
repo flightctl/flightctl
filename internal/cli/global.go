@@ -17,18 +17,22 @@ const (
 
 type GlobalOptions struct {
 	ConfigFilePath string
+	Context        string
 }
 
 func DefaultGlobalOptions() GlobalOptions {
 	return GlobalOptions{
-		ConfigFilePath: ConfigFilePath(),
+		ConfigFilePath: ConfigFilePath(""),
+		Context:        "",
 	}
 }
 
 func (o *GlobalOptions) Bind(fs *pflag.FlagSet) {
+	fs.StringVarP(&o.Context, "context", "c", o.Context, "Read client config from 'client_<context>.yaml' instead of 'client.yaml'.")
 }
 
 func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
+	o.ConfigFilePath = ConfigFilePath(o.Context)
 	return nil
 }
 
@@ -36,7 +40,10 @@ func (o *GlobalOptions) Validate(args []string) error {
 	return nil
 }
 
-func ConfigFilePath() string {
+func ConfigFilePath(context string) string {
+	if len(context) > 0 && context != "default" {
+		return filepath.Join(ConfigDir(), defaultConfigFileName+"_"+context+"."+defaultConfigFileExt)
+	}
 	return filepath.Join(ConfigDir(), defaultConfigFileName+"."+defaultConfigFileExt)
 }
 
