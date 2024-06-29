@@ -73,7 +73,7 @@ func (o *DeleteOptions) Validate(args []string) error {
 }
 
 func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
-	c, err := client.NewFromConfigFile(defaultClientConfigFile)
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
