@@ -34,6 +34,9 @@ jobs:
       - name: Make the cmdline tool
         run: make build
 
+      - name: Copy the client.yaml into the right location
+        run: mkdir -p $HOME/.config/flightctl && cp $HOME/.flightctl/client.yaml $HOME/.config/flightctl/client.yaml
+
       - name: Apply device
         run: bin/flightctl apply -f examples/device.yaml
 

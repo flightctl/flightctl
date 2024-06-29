@@ -144,7 +144,7 @@ func (o *GetOptions) Validate(args []string) error {
 }
 
 func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
-	c, err := client.NewFromConfigFile(defaultClientConfigFile)
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}

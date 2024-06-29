@@ -101,7 +101,7 @@ func (o *ApplyOptions) Validate(args []string) error {
 }
 
 func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
-	client, err := client.NewFromConfigFile(defaultClientConfigFile)
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -110,7 +110,7 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 	for _, filename := range o.Filenames {
 		switch {
 		case filename == "-":
-			errs = append(errs, applyFromReader(ctx, client, "<stdin>", os.Stdin, o.DryRun)...)
+			errs = append(errs, applyFromReader(ctx, c, "<stdin>", os.Stdin, o.DryRun)...)
 		default:
 			expandedFilenames, err := expandIfFilePattern(filename)
 			if err != nil {
@@ -148,7 +148,7 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 						return nil
 					}
 					defer r.Close()
-					errs = append(errs, applyFromReader(ctx, client, path, r, o.DryRun)...)
+					errs = append(errs, applyFromReader(ctx, c, path, r, o.DryRun)...)
 					return nil
 				})
 				if err != nil {
