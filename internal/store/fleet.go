@@ -196,14 +196,20 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 				return flterrors.ErrorFromGormError(result.Error)
 			}
 		} else {
+			if resource.Metadata.ResourceVersion != nil {
+				if *resource.Metadata.ResourceVersion != *model.GetResourceVersion(existingRecord.UpdatedAt) {
+					return flterrors.ErrResourceVersionConflict
+				}
+			}
+
 			// Compare owners
 			// To delete / modify owner - use a different func
 			resourceOwner := util.DefaultIfNil(resource.Metadata.Owner, "")
 			if existingRecord.Owner != nil && *existingRecord.Owner != resourceOwner {
 				return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 			}
-			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, fleet.Spec.Data)
-			sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
+			sameSpec := (existingRecord.Spec == nil && fleet.Spec == nil) || (existingRecord.Spec != nil && fleet.Spec != nil && reflect.DeepEqual(existingRecord.Spec.Data, fleet.Spec.Data))
+			sameTemplateSpec := (existingRecord.Spec == nil && fleet.Spec == nil) || (existingRecord.Spec != nil && fleet.Spec != nil && reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec))
 			where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
 
 			// Update the generation if the template was updated
@@ -231,6 +237,11 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 			}
 			fleet.Owner = resource.Metadata.Owner
 			result = innerTx.Model(where).Updates(&fleet)
+			if result.Error != nil {
+				return flterrors.ErrorFromGormError(result.Error)
+			}
+
+			result = innerTx.First(&fleet)
 			if result.Error != nil {
 				return flterrors.ErrorFromGormError(result.Error)
 			}

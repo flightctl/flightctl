@@ -285,5 +285,22 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(rs.Status.Conditions).ToNot(BeNil())
 			Expect(rs.Status.Conditions).To(BeEmpty())
 		})
+
+		It("CreateOrUpdateResourceSync update mode bad resourceversion", func() {
+			resourcesync := api.ResourceSync{
+				Metadata: api.ObjectMeta{
+					Name:            util.StrToPtr("myresourcesync-1"),
+					ResourceVersion: util.StrToPtr("badrv"),
+				},
+				Spec: api.ResourceSyncSpec{
+					Repository: "myotherrepo",
+					Path:       "my/other/path",
+				},
+				Status: nil,
+			}
+			_, _, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceVersionConflict))
+		})
 	})
 })

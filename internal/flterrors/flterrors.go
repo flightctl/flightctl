@@ -7,12 +7,13 @@ import (
 )
 
 var (
-	ErrResourceIsNil                       = errors.New("resource is nil")
+	ErrResourceIsNil                       = errors.New("object is nil")
 	ErrResourceNameIsNil                   = errors.New("metadata.name is not set")
 	ErrResourceOwnerIsNil                  = errors.New("metadata.owner not set")
-	ErrResourceNotFound                    = errors.New("resource not found")
-	ErrUpdatingResourceWithOwnerNotAllowed = errors.New("updating the resource is not allowed because it has an owner")
-	ErrDuplicateName                       = errors.New("a resource with this name already exists")
+	ErrResourceNotFound                    = errors.New("object not found")
+	ErrUpdatingResourceWithOwnerNotAllowed = errors.New("updating the object is not allowed because it has an owner")
+	ErrDuplicateName                       = errors.New("an object with this name already exists")
+	ErrResourceVersionConflict             = errors.New("the object has been modified; please apply your changes to the latest version and try again")
 
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")

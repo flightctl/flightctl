@@ -203,6 +203,22 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.Status.Conditions).To(BeEmpty())
 		})
 
+		It("CreateOrUpdateEnrollmentRequest update mode invalid resourceVersion", func() {
+			enrollmentrequest := api.EnrollmentRequest{
+				Metadata: api.ObjectMeta{
+					Name:            util.StrToPtr("myenrollmentrequest-1"),
+					ResourceVersion: util.StrToPtr("badrv"),
+				},
+				Spec: api.EnrollmentRequestSpec{
+					Csr: "csr string",
+				},
+				Status: nil,
+			}
+			_, _, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceVersionConflict))
+		})
+
 		It("UpdateEnrollmentRequestStatus", func() {
 			condition := api.Condition{
 				Type:               api.EnrollmentRequestApproved,

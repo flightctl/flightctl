@@ -205,6 +205,25 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
+		It("CreateOrUpdateRepository update mode with bad resourceversion", func() {
+			spec := api.RepositorySpec{}
+			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+				Repo: "myotherrepo",
+			})
+			Expect(err).ToNot(HaveOccurred())
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:            util.StrToPtr("myrepository-1"),
+					ResourceVersion: util.StrToPtr("badrv"),
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+			_, _, err = storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceVersionConflict))
+		})
+
 		It("Delete repo with fleet association", func() {
 			testutil.CreateTestFleets(ctx, 1, storeInst.Fleet(), orgId, "myfleet", false, nil)
 

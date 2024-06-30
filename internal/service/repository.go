@@ -136,6 +136,8 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 		return server.ReplaceRepository400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceRepository404JSONResponse{}, nil
+	case flterrors.ErrResourceVersionConflict:
+		return server.ReplaceRepository409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}

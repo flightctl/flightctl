@@ -170,6 +170,8 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
+	case flterrors.ErrResourceVersionConflict:
+		return server.ReplaceEnrollmentRequest409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
