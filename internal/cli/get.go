@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
@@ -299,29 +300,55 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 }
 
 func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesResponse) {
-	fmt.Fprintln(w, "NAME\tOWNER")
+	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range response.JSON200.Items {
-		fmt.Fprintf(w, "%s\t%s\n", *d.Metadata.Name, util.DefaultIfNil(d.Metadata.Owner, "<None>"))
+		lastSeen := "<never>"
+		if !d.Status.UpdatedAt.IsZero() {
+			lastSeen = humanize.Time(d.Status.UpdatedAt)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			*d.Metadata.Name,
+			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
+			d.Status.Summary.Status,
+			d.Status.Updated.Status,
+			d.Status.Applications.Summary.Status,
+			lastSeen,
+		)
 	}
 }
 
 func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListEnrollmentRequestsResponse) {
-	fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
+	fmt.Fprintln(w, "NAME\tAPPROVAL\tAPPROVER\tAPPROVED LABELS")
 	for _, e := range response.JSON200.Items {
-		approved := ""
-		region := ""
+		approval, approver, approvedLabels := "Pending", "<none>", ""
 		if e.Status.Approval != nil {
-			approved = fmt.Sprintf("%t", e.Status.Approval.Approved)
-			region = *e.Status.Approval.Region
+			approval = util.BoolToStr(e.Status.Approval.Approved, "Approved", "Denied")
+			if e.Status.Approval.ApprovedBy != nil {
+				approver = *e.Status.Approval.ApprovedBy
+			}
+			approvedLabels = strings.Join(util.LabelMapToArray(e.Status.Approval.Labels), ",")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", *e.Metadata.Name, approved, region)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+			*e.Metadata.Name,
+			approval,
+			approver,
+			approvedLabels,
+		)
 	}
 }
 
 func printFleetsTable(w *tabwriter.Writer, response *apiclient.ListFleetsResponse) {
-	fmt.Fprintln(w, "NAME\tOWNER")
+	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR")
 	for _, f := range response.JSON200.Items {
-		fmt.Fprintf(w, "%s\t%s\n", *f.Metadata.Name, util.DefaultIfNil(f.Metadata.Owner, "<None>"))
+		selector := "<none>"
+		if f.Spec.Selector != nil {
+			selector = strings.Join(util.LabelMapToArray(&f.Spec.Selector.MatchLabels), ",")
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n",
+			*f.Metadata.Name,
+			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
+			selector,
+		)
 	}
 }
 
@@ -333,27 +360,47 @@ func printTemplateVersionsTable(w *tabwriter.Writer, response *apiclient.ListTem
 }
 
 func printRepositoriesTable(w *tabwriter.Writer, response *apiclient.ListRepositoriesResponse) {
-	fmt.Fprintln(w, "NAME\tACCESSIBLE\tREASON\tMESSAGE")
-
+	fmt.Fprintln(w, "NAME\tREPOSITORY URL\tACCESSIBLE")
 	for _, f := range response.JSON200.Items {
-		accessible := "-"
-		reason := ""
-		message := ""
-		if f.Status != nil && len(f.Status.Conditions) > 0 {
-			accessible = string(f.Status.Conditions[0].Status)
-			reason = f.Status.Conditions[0].Reason
-			message = f.Status.Conditions[0].Message
+		accessible := "Unknown"
+		if f.Status != nil {
+			condition := api.FindStatusCondition(f.Status.Conditions, api.RepositoryAccessible)
+			if condition != nil {
+				accessible = string(condition.Status)
+			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", *f.Metadata.Name, accessible, reason, message)
+		fmt.Fprintf(w, "%s\t%s\t%s\n",
+			*f.Metadata.Name,
+			util.DefaultIfError(f.Spec.GetRepoURL, ""),
+			accessible,
+		)
 	}
 }
 
 func printResourceSyncsTable(w *tabwriter.Writer, response *apiclient.ListResourceSyncResponse) {
-	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH")
+	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH\tREVISION\tACCESSIBLE\tSYNCED\tLAST SYNC")
 
 	for _, f := range response.JSON200.Items {
-		reponame := f.Spec.Repository
-		path := f.Spec.Path
-		fmt.Fprintf(w, "%s\t%s\t%s\n", *f.Metadata.Name, reponame, path)
+		accessible, synced, lastSynced := "Unknown", "Unknown", "Unknown"
+		if f.Status != nil {
+			condition := api.FindStatusCondition(f.Status.Conditions, api.ResourceSyncAccessible)
+			if condition != nil {
+				accessible = string(condition.Status)
+			}
+			condition = api.FindStatusCondition(f.Status.Conditions, api.ResourceSyncSynced)
+			if condition != nil {
+				synced = string(condition.Status)
+				lastSynced = humanize.Time(condition.LastTransitionTime)
+			}
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			*f.Metadata.Name,
+			f.Spec.Repository,
+			f.Spec.Path,
+			f.Spec.TargetRevision,
+			accessible,
+			synced,
+			lastSynced,
+		)
 	}
 }
