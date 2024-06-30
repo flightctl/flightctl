@@ -24,7 +24,7 @@ func NewManager(
 		newSystemD(executer),
 		newContainer(executer),
 		newSystemInfo(),
-		newResources(resourceManager),
+		newResources(log, resourceManager),
 	}
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{

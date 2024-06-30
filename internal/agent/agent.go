@@ -103,16 +103,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	executer := &executer.CommonExecuter{}
 
 	// TODO: expose through config
-	fsAlertThreshold := 10
-	fsWarnThreshold := 20
+	diskAlertFreeCapacityThreshold := 10
+	diskWarnFreeCapacityThreshold := 20
 	fsPaths := []string{"/"}
 	fsSyncDuration := time.Minute
 	fsTimeoutDuration := time.Second * 5
 
 	resourceManager := resource.NewManager(
 		a.log,
-		fsAlertThreshold,
-		fsWarnThreshold,
+		diskAlertFreeCapacityThreshold,
+		diskWarnFreeCapacityThreshold,
 		fsPaths,
 		fsSyncDuration,
 		fsTimeoutDuration,

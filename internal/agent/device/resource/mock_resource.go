@@ -52,12 +52,11 @@ func (mr *MockManagerMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Usage mocks base method.
-func (m *MockManager) Usage() (*Usage, error) {
+func (m *MockManager) Usage() *Usage {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Usage")
 	ret0, _ := ret[0].(*Usage)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	return ret0
 }
 
 // Usage indicates an expected call of Usage.
@@ -66,43 +65,43 @@ func (mr *MockManagerMockRecorder) Usage() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Usage", reflect.TypeOf((*MockManager)(nil).Usage))
 }
 
-// MockCollector is a mock of Collector interface.
-type MockCollector[T any] struct {
+// MockMonitor is a mock of Monitor interface.
+type MockMonitor[T any] struct {
 	ctrl     *gomock.Controller
-	recorder *MockCollectorMockRecorder[T]
+	recorder *MockMonitorMockRecorder[T]
 }
 
-// MockCollectorMockRecorder is the mock recorder for MockCollector.
-type MockCollectorMockRecorder[T any] struct {
-	mock *MockCollector[T]
+// MockMonitorMockRecorder is the mock recorder for MockMonitor.
+type MockMonitorMockRecorder[T any] struct {
+	mock *MockMonitor[T]
 }
 
-// NewMockCollector creates a new mock instance.
-func NewMockCollector[T any](ctrl *gomock.Controller) *MockCollector[T] {
-	mock := &MockCollector[T]{ctrl: ctrl}
-	mock.recorder = &MockCollectorMockRecorder[T]{mock}
+// NewMockMonitor creates a new mock instance.
+func NewMockMonitor[T any](ctrl *gomock.Controller) *MockMonitor[T] {
+	mock := &MockMonitor[T]{ctrl: ctrl}
+	mock.recorder = &MockMonitorMockRecorder[T]{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockCollector[T]) EXPECT() *MockCollectorMockRecorder[T] {
+func (m *MockMonitor[T]) EXPECT() *MockMonitorMockRecorder[T] {
 	return m.recorder
 }
 
 // Run mocks base method.
-func (m *MockCollector[T]) Run(ctx context.Context) {
+func (m *MockMonitor[T]) Run(ctx context.Context) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Run", ctx)
 }
 
 // Run indicates an expected call of Run.
-func (mr *MockCollectorMockRecorder[T]) Run(ctx any) *gomock.Call {
+func (mr *MockMonitorMockRecorder[T]) Run(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockCollector[T])(nil).Run), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockMonitor[T])(nil).Run), ctx)
 }
 
 // Usage mocks base method.
-func (m *MockCollector[T]) Usage() *T {
+func (m *MockMonitor[T]) Usage() *T {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Usage")
 	ret0, _ := ret[0].(*T)
@@ -110,7 +109,7 @@ func (m *MockCollector[T]) Usage() *T {
 }
 
 // Usage indicates an expected call of Usage.
-func (mr *MockCollectorMockRecorder[T]) Usage() *gomock.Call {
+func (mr *MockMonitorMockRecorder[T]) Usage() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Usage", reflect.TypeOf((*MockCollector[T])(nil).Usage))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Usage", reflect.TypeOf((*MockMonitor[T])(nil).Usage))
 }

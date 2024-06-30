@@ -2,41 +2,50 @@ package status
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 var _ Exporter = (*Resources)(nil)
 
 type Resources struct {
 	manager resource.Manager
+	log     *log.PrefixLogger
 }
 
-func newResources(manager resource.Manager) *Resources {
+func newResources(log *log.PrefixLogger, manager resource.Manager) *Resources {
 	return &Resources{
 		manager: manager,
+		log:     log,
 	}
 }
 
 func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	usage, err := r.manager.Usage()
+	resource := r.manager.Usage()
+	diskStatus, err := diskUsageStatus(resource.DiskUsage)
 	if err != nil {
-		status.Resources.Disk = v1alpha1.DeviceResourceStatusUnknown
-		return fmt.Errorf("getting resource usage: %w", err)
+		// TODO: add error to status
+		r.log.Errorf("Error getting disk usage status: %v", err)
 	}
 
-	switch {
-	case usage.FsUsage.IsAlert():
-		status.Resources.Disk = v1alpha1.DeviceResourceStatusCritical
-	case usage.FsUsage.IsWarn():
-		status.Resources.Disk = v1alpha1.DeviceResourceStatusWarning
-	default:
-		status.Resources.Disk = v1alpha1.DeviceResourceStatusHealthy
-	}
+	status.Resources.Disk = diskStatus
 
 	return nil
+}
+
+func diskUsageStatus(usage *resource.DiskUsage) (v1alpha1.DeviceResourceStatusType, error) {
+	switch {
+	case usage.Error() != nil:
+		return v1alpha1.DeviceResourceStatusError, usage.Error()
+	case usage.IsAlert():
+		return v1alpha1.DeviceResourceStatusCritical, nil
+	case usage.IsWarn():
+		return v1alpha1.DeviceResourceStatusWarning, nil
+	default:
+		return v1alpha1.DeviceResourceStatusHealthy, nil
+	}
 }
 
 func (r *Resources) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
