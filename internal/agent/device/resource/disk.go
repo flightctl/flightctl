@@ -17,16 +17,16 @@ type DiskMonitor struct {
 	syncDuration               time.Duration
 	syncTimeout                time.Duration
 	diskPaths                  []string
-	warnFreeCapacityThreshold  int
-	alertFreeCapacityThreshold int
+	warnFreeCapacityThreshold  int64
+	alertFreeCapacityThreshold int64
 	usage                      *DiskUsage
 	log                        *log.PrefixLogger
 }
 
 func NewDiskMonitor(
 	log *log.PrefixLogger,
-	alertFreeCapacityThreshold int,
-	warnFreeCapacityThreshold int,
+	alertFreeCapacityThreshold int64,
+	warnFreeCapacityThreshold int64,
 	syncDuration,
 	syncTimeout time.Duration,
 	paths []string,
@@ -43,9 +43,6 @@ func NewDiskMonitor(
 }
 
 func (m *DiskMonitor) Run(ctx context.Context) {
-	m.log.Infof("Starting disk monitor...")
-	defer m.log.Infof("Disk monitor stopped")
-
 	ticker := time.NewTicker(m.syncDuration)
 	defer ticker.Stop()
 
@@ -55,8 +52,8 @@ func (m *DiskMonitor) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			usage := DiskUsage{
-				warnThreshold:  m.warnFreeCapacityThreshold,
-				alertThreshold: m.alertFreeCapacityThreshold,
+				warnFreeCapacityThreshold:  m.warnFreeCapacityThreshold,
+				alertFreeCapacityThreshold: m.alertFreeCapacityThreshold,
 			}
 			m.sync(ctx, &usage)
 			m.update(&usage)
@@ -91,7 +88,7 @@ func (m *DiskMonitor) sync(ctx context.Context, usage *DiskUsage) {
 		}
 	}
 
-	usage.PercentAvailable = percentageAvailable(usage.Free, usage.Total)
+	usage.AvailablePercent = percentageAvailable(usage.Free, usage.Total)
 }
 
 func (m *DiskMonitor) update(usage *DiskUsage) {
@@ -115,12 +112,12 @@ func getDirUsage(dir string) (*DiskUsage, error) {
 	}, nil
 }
 
-func percentageAvailable(free, total uint64) int {
+func percentageAvailable(free, total uint64) int64 {
 	if total == 0 {
 		return 0
 	}
 	percentage := (float64(free) / float64(total)) * 100
-	return int(math.Round(percentage))
+	return int64(math.Round(percentage))
 }
 
 type DiskUsage struct {
@@ -128,19 +125,19 @@ type DiskUsage struct {
 	Total            uint64
 	Free             uint64
 	Used             uint64
-	PercentAvailable int
+	AvailablePercent int64
 
-	warnThreshold  int
-	alertThreshold int
-	err            error
+	warnFreeCapacityThreshold  int64
+	alertFreeCapacityThreshold int64
+	err                        error
 }
 
 func (u *DiskUsage) IsAlert() bool {
-	return u.PercentAvailable < u.alertThreshold
+	return u.AvailablePercent < u.alertFreeCapacityThreshold
 }
 
 func (u *DiskUsage) IsWarn() bool {
-	return u.PercentAvailable < u.warnThreshold
+	return u.AvailablePercent < u.warnFreeCapacityThreshold
 }
 
 func (u *DiskUsage) Error() error {

@@ -103,19 +103,28 @@ func (a *Agent) Run(ctx context.Context) error {
 	executer := &executer.CommonExecuter{}
 
 	// TODO: expose through config
-	diskAlertFreeCapacityThreshold := 10
-	diskWarnFreeCapacityThreshold := 20
-	fsPaths := []string{"/"}
-	fsSyncDuration := time.Minute
-	fsTimeoutDuration := time.Second * 5
+	diskAlertFreeCapacityThreshold := int64(10)
+	diskWarnFreeCapacityThreshold := int64(20)
+	diskPaths := []string{"/"}
+	diskSyncDuration := time.Minute
+	diskTimeoutDuration := time.Second * 5
+
+	cpuAlertFreeCapacityThreshold := int64(10)
+	cpuWarnFreeCapacityThreshold := int64(20)
+	cpuSyncDuration := time.Minute
+	cpuTimeoutDuration := time.Second * 5
 
 	resourceManager := resource.NewManager(
 		a.log,
 		diskAlertFreeCapacityThreshold,
 		diskWarnFreeCapacityThreshold,
-		fsPaths,
-		fsSyncDuration,
-		fsTimeoutDuration,
+		diskPaths,
+		diskSyncDuration,
+		diskTimeoutDuration,
+		cpuAlertFreeCapacityThreshold,
+		cpuWarnFreeCapacityThreshold,
+		cpuSyncDuration,
+		cpuTimeoutDuration,
 	)
 
 	// create status manager

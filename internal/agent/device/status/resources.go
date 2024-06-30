@@ -24,18 +24,40 @@ func newResources(log *log.PrefixLogger, manager resource.Manager) *Resources {
 
 func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
 	resource := r.manager.Usage()
+
+	// disk
 	diskStatus, err := diskUsageStatus(resource.DiskUsage)
 	if err != nil {
 		// TODO: add error to status
 		r.log.Errorf("Error getting disk usage status: %v", err)
 	}
-
 	status.Resources.Disk = diskStatus
+
+	// cpu
+	cpuStatus, err := cpuUsageStatus(resource.CPUUsage)
+	if err != nil {
+		r.log.Errorf("Error getting cpu usage status: %v", err)
+	}
+	status.Resources.Cpu = cpuStatus
 
 	return nil
 }
 
+// TODO: make generic
 func diskUsageStatus(usage *resource.DiskUsage) (v1alpha1.DeviceResourceStatusType, error) {
+	switch {
+	case usage.Error() != nil:
+		return v1alpha1.DeviceResourceStatusError, usage.Error()
+	case usage.IsAlert():
+		return v1alpha1.DeviceResourceStatusCritical, nil
+	case usage.IsWarn():
+		return v1alpha1.DeviceResourceStatusWarning, nil
+	default:
+		return v1alpha1.DeviceResourceStatusHealthy, nil
+	}
+}
+
+func cpuUsageStatus(usage *resource.CPUUsage) (v1alpha1.DeviceResourceStatusType, error) {
 	switch {
 	case usage.Error() != nil:
 		return v1alpha1.DeviceResourceStatusError, usage.Error()
