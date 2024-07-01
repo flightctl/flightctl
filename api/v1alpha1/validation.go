@@ -6,6 +6,8 @@ import (
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
+const maxBase64CertificateLength = 20 * 1024 * 1024
+
 type Validator interface {
 	Validate() []error
 }
@@ -144,29 +146,33 @@ func validateGitHttpConfig(config *GitHttpConfig) []error {
 	var errs []error
 	if config != nil {
 		if config.CaCrt != nil {
-			if !validation.IsBase64(*config.CaCrt) {
-				errs = append(errs, fmt.Errorf("httpConfig.caCrt must be a valid base64 encoded string"))
+			err := validation.ValidateBase64Field(config.CaCrt, "spec.httpConfig.CaCrt", maxBase64CertificateLength)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("spec.httpConfig.caCrt must be a valid base64 encoded string: %v", err))
 			}
 		}
 
-		if config.TlsCrt != nil {
-			if !validation.IsBase64(*config.TlsCrt) {
-				errs = append(errs, fmt.Errorf("httpConfig.tlsCrt must be a valid base64 encoded string"))
+		if (config.Username != nil && config.Password == nil) || (config.Username == nil && config.Password != nil) {
+			errs = append(errs, fmt.Errorf("both username and password must be provided together"))
+		}
+		if (config.TlsCrt != nil && config.TlsKey == nil) || (config.TlsCrt == nil && config.TlsKey != nil) {
+			errs = append(errs, fmt.Errorf("both tlsCrt and tlsKey must be provided together"))
+		}
+
+		if config.Username != nil && config.Password != nil {
+			errs = append(errs, validation.ValidateString(config.Username, "spec.httpConfig.username", 1, 256, nil, "")...)
+			errs = append(errs, validation.ValidateString(config.Password, "spec.httpConfig.password", 1, 256, nil, "")...)
+		}
+
+		if config.TlsCrt != nil && config.TlsKey != nil {
+			tlsCrtErr := validation.ValidateBase64Field(config.TlsCrt, "spec.httpConfig.TlsCrt", maxBase64CertificateLength)
+			tlsKeyErr := validation.ValidateBase64Field(config.TlsKey, "spec.httpConfig.TlsKey", maxBase64CertificateLength)
+			if tlsCrtErr != nil {
+				errs = append(errs, fmt.Errorf("spec.httpConfig.tlsCrt must be a valid base64 encoded string: %v", tlsCrtErr))
 			}
-		}
-
-		if config.TlsKey != nil {
-			if !validation.IsBase64(*config.TlsKey) {
-				errs = append(errs, fmt.Errorf("httpConfig.tlsKey must be a valid base64 encoded string"))
+			if tlsKeyErr != nil {
+				errs = append(errs, fmt.Errorf("spec.httpConfig.tlsKey must be a valid base64 encoded string: %v", tlsKeyErr))
 			}
-		}
-
-		if config.Username != nil {
-			errs = append(errs, validation.ValidateString(config.Username, "httpConfig.username", 1, 256, nil, "")...)
-		}
-
-		if config.Password != nil {
-			errs = append(errs, validation.ValidateString(config.Password, "httpConfig.password", 1, 256, nil, "")...)
 		}
 	}
 	return errs
@@ -175,13 +181,18 @@ func validateGitHttpConfig(config *GitHttpConfig) []error {
 func validateGitSshConfig(config *GitSshConfig) []error {
 	var errs []error
 	if config != nil {
-		if config.PrivateKeyPassphrase != nil {
-			errs = append(errs, validation.ValidateString(config.PrivateKeyPassphrase, "sshConfig.privateKeyPassphrase", 1, 256, nil, "")...)
+		// Check if passphrase is specified without private key
+		if config.PrivateKeyPassphrase != nil && config.SshPrivateKey == nil {
+			errs = append(errs, fmt.Errorf("spec.sshConfig.privateKeyPassphrase cannot be specified without sshConfig.sshPrivateKey"))
 		}
 
+		if config.PrivateKeyPassphrase != nil {
+			errs = append(errs, validation.ValidateString(config.PrivateKeyPassphrase, "spec.sshConfig.privateKeyPassphrase", 1, 256, nil, "")...)
+		}
 		if config.SshPrivateKey != nil {
-			if !validation.IsBase64(*config.SshPrivateKey) {
-				errs = append(errs, fmt.Errorf("sshConfig.sshPrivateKey must be a valid base64 encoded string"))
+			err := validation.ValidateBase64Field(config.SshPrivateKey, "spec.sshConfig.SshPrivateKey", maxBase64CertificateLength)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("spec.sshConfig.sshPrivateKey must be a valid base64 encoded string: %v", err))
 			}
 		}
 	}
