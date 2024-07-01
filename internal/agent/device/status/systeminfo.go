@@ -6,6 +6,8 @@ import (
 	"runtime"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/google/cadvisor/fs"
 	"github.com/google/cadvisor/machine"
 	"github.com/google/cadvisor/utils/sysfs"
@@ -15,12 +17,14 @@ var _ Exporter = (*SystemInfo)(nil)
 
 // SystemInfo collects system information.
 type SystemInfo struct {
-	sysFs sysfs.SysFs
+	sysFs       sysfs.SysFs
+	bootcClient *container.BootcCmd
 }
 
-func newSystemInfo() *SystemInfo {
+func newSystemInfo(exec executer.Executer) *SystemInfo {
 	return &SystemInfo{
-		sysFs: sysfs.NewRealSysFs(),
+		sysFs:       sysfs.NewRealSysFs(),
+		bootcClient: container.NewBootcCmd(exec),
 	}
 }
 
@@ -44,6 +48,18 @@ func (s *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) 
 		OperatingSystem: runtime.GOOS,
 		BootID:          info.BootID,
 	}
+
+	bootcInfo, err := s.bootcClient.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("getting bootc status: %w", err)
+	}
+
+	osImage := container.GetImage(bootcInfo)
+	if osImage == "" {
+		return fmt.Errorf("getting os image: %w", err)
+	}
+
+	status.Os.Image = osImage
 
 	return nil
 }

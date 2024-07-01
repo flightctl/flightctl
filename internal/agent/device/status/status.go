@@ -23,7 +23,7 @@ func NewManager(
 	exporters := []Exporter{
 		newSystemD(executer),
 		newContainer(executer),
-		newSystemInfo(),
+		newSystemInfo(executer),
 		newResources(log, resourceManager),
 	}
 	status := v1alpha1.NewDeviceStatus()
