@@ -33,6 +33,7 @@ type Server struct {
 	store    store.Store
 	ca       *crypto.CA
 	listener net.Listener
+	provider queues.Provider
 }
 
 // New returns a new instance of a flightctl server.
@@ -42,6 +43,7 @@ func New(
 	store store.Store,
 	ca *crypto.CA,
 	listener net.Listener,
+	provider queues.Provider,
 ) *Server {
 	return &Server{
 		log:      log,
@@ -49,6 +51,7 @@ func New(
 		store:    store,
 		ca:       ca,
 		listener: listener,
+		provider: provider,
 	}
 }
 
@@ -58,8 +61,7 @@ func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	provider := queues.NewAmqpProvider(s.cfg.Queue.AmqpURL, s.log)
-	publisher, err := tasks.TaskQueuePublisher(provider)
+	publisher, err := tasks.TaskQueuePublisher(s.provider)
 	if err != nil {
 		return err
 	}
@@ -99,8 +101,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
-		provider.Stop()
-		provider.Wait()
+		s.provider.Stop()
+		s.provider.Wait()
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())

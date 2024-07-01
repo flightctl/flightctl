@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
 
@@ -93,6 +94,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
+	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
@@ -101,7 +103,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 
-		server := apiserver.New(log, cfg, store, ca, listener)
+		server := apiserver.New(log, cfg, store, ca, listener, provider)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}

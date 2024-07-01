@@ -8,9 +8,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
@@ -32,36 +29,6 @@ func repositoryUpdate(ctx context.Context, resourceRef *ResourceReference, store
 		log.Errorf("RepositoryUpdate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 	}
 	return nil
-}
-
-func RepositoryUpdate(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelRepositoryUpdates]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := NewRepositoryUpdateLogic(taskManager, log, taskManager.store, resourceRef)
-
-			switch {
-			case resourceRef.Op == RepositoryUpdateOpUpdate && resourceRef.Kind == model.RepositoryKind:
-				err := logic.HandleRepositoryUpdate(ctx)
-				if err != nil {
-					log.Errorf("failed to notify associated resources of update to repository %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				}
-			case resourceRef.Op == RepositoryUpdateOpDeleteAll && resourceRef.Kind == model.RepositoryKind:
-				err := logic.HandleAllRepositoriesDeleted(ctx, log)
-				if err != nil {
-					log.Errorf("failed to notify associated resources deletion of all repositories in org %s: %v", resourceRef.OrgID, err)
-				}
-			default:
-				log.Errorf("RepositoryUpdate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
-			}
-		}
-	}
 }
 
 type RepositoryUpdateLogic struct {

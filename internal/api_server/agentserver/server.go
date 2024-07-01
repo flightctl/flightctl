@@ -10,9 +10,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
+	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	tlsmiddleware "github.com/flightctl/flightctl/internal/server/middleware"
 	service "github.com/flightctl/flightctl/internal/service/agent"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"

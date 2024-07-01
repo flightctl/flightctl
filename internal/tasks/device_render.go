@@ -11,9 +11,6 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
@@ -32,31 +29,6 @@ func deviceRender(ctx context.Context, resourceRef *ResourceReference, store sto
 		log.Errorf("DeviceRender called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 	}
 	return nil
-}
-
-func DeviceRender(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelDeviceRender]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := NewDeviceRenderLogic(taskManager, log, taskManager.store, resourceRef)
-			if resourceRef.Op == DeviceRenderOpUpdate {
-				err := logic.RenderDevice(ctx)
-				if err != nil {
-					log.Errorf("failed rendering device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				} else {
-					log.Infof("completed rendering device %s/%s", resourceRef.OrgID, resourceRef.Name)
-				}
-			} else {
-				log.Errorf("DeviceRender called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
-			}
-		}
-	}
 }
 
 type DeviceRenderLogic struct {
