@@ -4,3 +4,6 @@ description: A helm chart for flightctl
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+dependencies:
+  - name: keycloak
+    condition: keycloak.enabled
