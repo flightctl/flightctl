@@ -1,0 +1,16 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: keycloak-db
+  namespace: {{ .Values.keycloak.db.namespace }}
+  annotations:
+{{ toYaml .Values.keycloak.db.pvc.annotations | indent 4 }}
+  labels:
+{{ toYaml .Values.keycloak.db.pvc.labels | indent 4 }}
+spec:
+  accessModes: {{ toYaml .Values.keycloak.db.pvc.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.keycloak.db.pvc.size }}
+  storageClassName: {{ .Values.keycloak.db.pvc.storageClassName }}
+  volumeMode: {{ .Values.keycloak.db.pvc.volumeMode }}
