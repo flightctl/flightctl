@@ -27,6 +27,12 @@ spec:
                   mode: 0600
                   overwrite: true
                   path: "/etc/motd"
+        - name: kubernetes-secret
+          configType: KubernetesSecretProviderSpec
+          secretRef:
+            name: secret
+            namespace: secret-namespace
+            mountPath: /etc/secret/secretMountPath
       systemd:
         matchPatterns:
           - chronyd.service

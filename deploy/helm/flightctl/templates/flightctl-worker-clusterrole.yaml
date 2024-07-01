@@ -1,0 +1,11 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    flightctl.service: flightctl-worker
+  name: flightctl-worker
+  namespace: {{ .Values.flightctl.worker.namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]

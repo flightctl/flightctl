@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -9,10 +10,14 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -112,6 +117,17 @@ var _ = Describe("Device Agent behavior", func() {
 
 		When("updating the agent device spec", func() {
 			It("should write any files to the device", func() {
+				const (
+					firstSecretKey    = "first-secret"
+					firstSecretValue  = "This is the first secret"
+					secondSecretKey   = "second-secret"
+					secondSecretValue = "Second secret"
+				)
+				secrets := map[string]string{
+					firstSecretKey:  firstSecretValue,
+					secondSecretKey: secondSecretValue,
+				}
+				mockSecret(h.GetMockK8sClient(), secrets)
 				resp, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resp.HTTPResponse.StatusCode).To(Equal(http.StatusCreated))
@@ -146,6 +162,22 @@ var _ = Describe("Device Agent behavior", func() {
 				}, TIMEOUT, POLLING).Should(BeTrue())
 
 				Expect(fileInfo.Mode()).To(Equal(os.FileMode(0600)))
+
+				for key, value := range secrets {
+					fname := filepath.Join("/etc/secret/secretMountPath", key)
+					GinkgoWriter.Printf(
+						"Waiting for %s file to be created on the device %s, with testDirPath: %s\n",
+						fname, *dev.Metadata.Name, h.TestDirPath)
+					Eventually(func() bool {
+						fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, fname))
+						if err != nil && os.IsNotExist(err) {
+							return false
+						}
+						return true
+					}, TIMEOUT, POLLING).Should(BeTrue())
+					Expect(os.ReadFile(filepath.Join(h.TestDirPath, fname))).To(Equal([]byte(value)))
+					Expect(fileInfo.Mode()).To(Equal(os.FileMode(0o644)))
+				}
 			})
 		})
 
@@ -212,4 +244,17 @@ func getTestFleet(fleetYaml string) v1alpha1.Fleet {
 	Expect(err).ToNot(HaveOccurred())
 
 	return fleet
+}
+
+func mockSecret(mockK8sClient *k8sclient.MockK8SClient, secrets map[string]string) {
+	mockK8sClient.EXPECT().GetSecret("secret-namespace", "secret").
+		Return(&v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "secret",
+				Namespace: "secret-namespace",
+			},
+			Data: lo.MapValues(secrets, func(v, _ string) []byte {
+				return []byte(base64.StdEncoding.EncodeToString([]byte(v)))
+			}),
+		}, nil).AnyTimes()
 }

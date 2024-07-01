@@ -94,7 +94,7 @@ var _ = Describe("TVPopulate", func() {
 
 			owner := util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Op: tasks.TemplateVersionPopulateOpCreated, Name: "tv", Kind: model.TemplateVersionKind, Owner: *owner}
-			logic := tasks.NewTemplateVersionPopulateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewTemplateVersionPopulateLogic(callbackManager, log, storeInst, nil, resourceRef)
 			err = logic.SyncFleetTemplateToTemplateVersion(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -132,7 +132,7 @@ var _ = Describe("TVPopulate", func() {
 
 			owner := util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Op: tasks.TemplateVersionPopulateOpCreated, Name: "tv", Kind: model.TemplateVersionKind, Owner: *owner}
-			logic := tasks.NewTemplateVersionPopulateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewTemplateVersionPopulateLogic(callbackManager, log, storeInst, nil, resourceRef)
 			err = logic.SyncFleetTemplateToTemplateVersion(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
