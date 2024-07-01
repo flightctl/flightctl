@@ -219,7 +219,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = util.StrToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -227,6 +227,22 @@ var _ = Describe("DeviceStore create", func() {
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, callback)
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+		})
+
+		It("CreateOrUpdateDevice stale resourceVersion", func() {
+			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			dev.Metadata.Owner = util.StrToPtr("newowner")
+			dev.Spec.Os.Image = "oldos"
+			// Update but don't save the new device, so we still have the old resourceVersion
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+
+			dev.Spec.Os.Image = "newos"
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, callback)
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceVersionConflict))
 		})
 
 		It("UpdateDeviceStatus", func() {

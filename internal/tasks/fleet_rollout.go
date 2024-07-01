@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
@@ -190,45 +191,65 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		}
 	}
 
-	if currentVersion == *templateVersion.Metadata.Name {
+	deviceConfig, err := f.getDeviceConfig(device, templateVersion)
+	if err != nil {
+		return err
+	}
+	newDeviceSpec := api.DeviceSpec{
+		Config:     deviceConfig,
+		Containers: templateVersion.Status.Containers,
+		Os:         templateVersion.Status.Os,
+		Systemd:    templateVersion.Status.Systemd,
+	}
+
+	if currentVersion == *templateVersion.Metadata.Name && reflect.DeepEqual(newDeviceSpec, *device.Spec) {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
 		return nil
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
 
+	device.Spec = &newDeviceSpec
+	_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
+	if err != nil {
+		return fmt.Errorf("failed updating device spec: %w", err)
+	}
+
 	annotations := map[string]string{
 		model.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
 	}
-	err := f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
+	err = f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
 	if err != nil {
 		return fmt.Errorf("failed updating templateVersion annotation: %w", err)
 	}
 
-	device.Spec.Config = &[]api.DeviceSpec_Config_Item{}
-	if templateVersion.Status.Config != nil {
-		for _, configItem := range *templateVersion.Status.Config {
-			cfgJson, err := configItem.MarshalJSON()
-			if err != nil {
-				return fmt.Errorf("failed converting configuration to json: %w", err)
-			}
-
-			cfgJson, err = ReplaceParameters(cfgJson, device.Metadata.Labels)
-			if err != nil {
-				return fmt.Errorf("failed replacing parameters: %w", err)
-			}
-
-			var newConfigItem api.DeviceSpec_Config_Item
-			err = newConfigItem.UnmarshalJSON(cfgJson)
-			if err != nil {
-				return fmt.Errorf("failed converting configuration from json: %w", err)
-			}
-			*device.Spec.Config = append(*device.Spec.Config, newConfigItem)
-		}
-		device.Spec.Containers = templateVersion.Status.Containers
-		device.Spec.Os = templateVersion.Status.Os
-		device.Spec.Systemd = templateVersion.Status.Systemd
-	}
-	_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
 	return err
+}
+
+func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.DeviceSpec_Config_Item, error) {
+	if templateVersion.Status.Config == nil {
+		return nil, nil
+	}
+
+	deviceConfig := []api.DeviceSpec_Config_Item{}
+	for _, configItem := range *templateVersion.Status.Config {
+		cfgJson, err := configItem.MarshalJSON()
+		if err != nil {
+			return nil, fmt.Errorf("failed converting configuration to json: %w", err)
+		}
+
+		cfgJson, err = ReplaceParameters(cfgJson, device.Metadata.Labels)
+		if err != nil {
+			return nil, fmt.Errorf("failed replacing parameters: %w", err)
+		}
+
+		var newConfigItem api.DeviceSpec_Config_Item
+		err = newConfigItem.UnmarshalJSON(cfgJson)
+		if err != nil {
+			return nil, fmt.Errorf("failed converting configuration from json: %w", err)
+		}
+		deviceConfig = append(deviceConfig, newConfigItem)
+	}
+
+	return &deviceConfig, nil
 }

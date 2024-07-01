@@ -250,6 +250,19 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*updatedFleet.Spec.Template.Metadata.Generation).To(Equal(int64(2)))
 		})
 
+		It("CreateOrUpdate update mode bad resourceversion", func() {
+			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
+			fleet.Status = nil
+			fleet.Metadata.ResourceVersion = util.StrToPtr("badrv")
+
+			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, callback)
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceVersionConflict))
+		})
+
 		It("CreateOrUpdate wrong owner", func() {
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())

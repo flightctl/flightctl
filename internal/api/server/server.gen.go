@@ -2572,6 +2572,15 @@ func (response ReplaceEnrollmentRequest404JSONResponse) VisitReplaceEnrollmentRe
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ReplaceEnrollmentRequest409JSONResponse Error
+
+func (response ReplaceEnrollmentRequest409JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type CreateEnrollmentRequestApprovalRequestObject struct {
 	Name string `json:"name"`
 	Body *CreateEnrollmentRequestApprovalJSONRequestBody
@@ -3462,6 +3471,15 @@ type ReplaceRepository404JSONResponse Error
 func (response ReplaceRepository404JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceRepository409JSONResponse Error
+
+func (response ReplaceRepository409JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }

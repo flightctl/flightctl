@@ -5,10 +5,12 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
+	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -164,31 +166,82 @@ func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 	repository.OrgID = orgId
 
 	created := false
-	findRepository := model.Repository{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
-	}
-	result := s.db.First(&findRepository)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			created = true
-		} else {
-			return nil, false, flterrors.ErrorFromGormError(result.Error)
+	var existingRecord *model.Repository
+
+	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+		existingRecord = &model.Repository{Resource: model.Resource{OrgID: orgId, Name: repository.Name}}
+		result := innerTx.First(existingRecord)
+
+		repoExists := true
+
+		// NotFound is OK because in that case we will create the record, anything else is a real error
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				repoExists = false
+			} else {
+				return flterrors.ErrorFromGormError(result.Error)
+			}
 		}
+
+		if !repoExists {
+			created = true
+			repository.Generation = util.Int64ToPtr(1)
+
+			result = innerTx.Create(repository)
+			if result.Error != nil {
+				return flterrors.ErrorFromGormError(result.Error)
+			}
+		} else {
+			if resource.Metadata.ResourceVersion != nil {
+				if *resource.Metadata.ResourceVersion != *model.GetResourceVersion(existingRecord.UpdatedAt) {
+					return flterrors.ErrResourceVersionConflict
+				}
+			}
+
+			// Update the generation if the spec was updated
+			sameSpec := (existingRecord.Spec == nil && repository.Spec == nil) || (existingRecord.Spec != nil && repository.Spec != nil && reflect.DeepEqual(existingRecord.Spec.Data, repository.Spec.Data))
+			if !sameSpec {
+				if existingRecord.Generation == nil {
+					repository.Generation = util.Int64ToPtr(1)
+				} else {
+					repository.Generation = util.Int64ToPtr(*existingRecord.Generation + 1)
+				}
+			} else {
+				repository.Generation = existingRecord.Generation
+			}
+
+			where := model.Repository{Resource: model.Resource{OrgID: orgId, Name: repository.Name}}
+			query := innerTx.Model(where)
+
+			selectFields := []string{"spec"}
+			selectFields = append(selectFields, GetNonNilFieldsFromResource(repository.Resource)...)
+			query = query.Select(selectFields)
+			result := query.Updates(&repository)
+			if result.Error != nil {
+				return flterrors.ErrorFromGormError(result.Error)
+			}
+
+			result = innerTx.First(&repository)
+			if result.Error != nil {
+				return flterrors.ErrorFromGormError(result.Error)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, false, err
 	}
 
-	var updatedRepository model.Repository
-	where := model.Repository{Resource: model.Resource{OrgID: repository.OrgID, Name: repository.Name}}
-	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedRepository)
+	callback(repository)
 
-	updatedResource, toApiErr := updatedRepository.ToApiResource()
-	if result.Error == nil {
-		callback(repository)
+	updatedResource, err := repository.ToApiResource()
+	if err != nil {
+		return nil, false, err
 	}
-	err := flterrors.ErrorFromGormError(result.Error)
-	if err == nil {
-		err = toApiErr
-	}
-	return &updatedResource, created, err
+
+	return &updatedResource, created, nil
 }
 
 func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) error {

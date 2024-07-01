@@ -195,7 +195,7 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 				return flterrors.ErrorFromGormError(result.Error)
 			}
 		}
-		// We returned
+
 		if !deviceExists {
 			created = true
 			device.Generation = util.Int64ToPtr(1)
@@ -205,9 +205,14 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 				return flterrors.ErrorFromGormError(result.Error)
 			}
 		} else {
-			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, device.Spec.Data)
+			if resource.Metadata.ResourceVersion != nil {
+				if *resource.Metadata.ResourceVersion != *model.GetResourceVersion(existingRecord.UpdatedAt) {
+					return flterrors.ErrResourceVersionConflict
+				}
+			}
 
 			// Update the generation if the spec was updated
+			sameSpec := (existingRecord.Spec == nil && device.Spec == nil) || (existingRecord.Spec != nil && device.Spec != nil && reflect.DeepEqual(existingRecord.Spec.Data, device.Spec.Data))
 			if !sameSpec {
 				if fromAPI && existingRecord.Owner != nil && len(*existingRecord.Owner) != 0 {
 					return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
@@ -232,6 +237,11 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 			}
 			query = query.Select(selectFields)
 			result := query.Updates(&device)
+			if result.Error != nil {
+				return flterrors.ErrorFromGormError(result.Error)
+			}
+
+			result = innerTx.First(&device)
 			if result.Error != nil {
 				return flterrors.ErrorFromGormError(result.Error)
 			}

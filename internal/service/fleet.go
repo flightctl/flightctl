@@ -161,6 +161,8 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet404JSONResponse{}, nil
 	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
 		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceVersionConflict:
+		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}

@@ -121,6 +121,9 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 	}
 
 	for _, device := range devices.Items {
+		if device.Spec == nil {
+			continue
+		}
 		hasReference, err := t.doesConfigReferenceAnyRepo(*device.Spec.Config)
 		if err != nil {
 			log.Errorf("failed checking if device %s/%s references any repo: %v", t.resourceRef.OrgID, *device.Metadata.Name, err)

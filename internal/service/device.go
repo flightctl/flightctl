@@ -158,6 +158,8 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice404JSONResponse{}, nil
 	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
 		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceVersionConflict:
+		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
