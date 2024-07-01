@@ -98,6 +98,13 @@ func TimeStampStringPtr() *string {
 	return StrToPtr(time.Now().Format(time.RFC3339))
 }
 
+func BoolToStr(b bool, ifTrue string, ifFalse string) string {
+	if b {
+		return ifTrue
+	}
+	return ifFalse
+}
+
 func SingleQuote(input []string) []string {
 	output := make([]string, len(input))
 	for i, val := range input {
