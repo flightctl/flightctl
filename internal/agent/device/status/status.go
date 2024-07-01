@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -103,6 +104,11 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 	if m.managementClient == nil {
 		return fmt.Errorf("management client not set")
 	}
+
+	if condition.LastTransitionTime.IsZero() {
+		condition.LastTransitionTime = time.Now()
+	}
+
 	m.device.Status.Conditions[string(condition.Type)] = condition
 
 	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
