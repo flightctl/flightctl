@@ -45,6 +45,12 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (AuthNMidd
 		return authn.K8sAuthN{}, nil
 	}
 
+	if cfg.Auth != nil && cfg.Auth.JwksUrl != "" {
+		log.Println("jwt auth enabled")
+		auth = authn.JWTAuth{JwksUrl: cfg.Auth.JwksUrl}
+		return authn.JWTAuth{}, nil
+	}
+
 	return nil, errors.New("no auth provider defined")
 }
 
