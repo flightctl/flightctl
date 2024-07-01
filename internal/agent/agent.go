@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -101,9 +102,35 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	executer := &executer.CommonExecuter{}
 
+	// TODO: expose through config
+	diskAlertFreeCapacityThreshold := int64(10)
+	diskWarnFreeCapacityThreshold := int64(20)
+	diskPaths := []string{"/"}
+	diskSyncDuration := time.Minute
+	diskTimeoutDuration := time.Second * 5
+
+	cpuAlertFreeCapacityThreshold := int64(10)
+	cpuWarnFreeCapacityThreshold := int64(20)
+	cpuSyncDuration := time.Minute
+	cpuTimeoutDuration := time.Second * 5
+
+	resourceManager := resource.NewManager(
+		a.log,
+		diskAlertFreeCapacityThreshold,
+		diskWarnFreeCapacityThreshold,
+		diskPaths,
+		diskSyncDuration,
+		diskTimeoutDuration,
+		cpuAlertFreeCapacityThreshold,
+		cpuWarnFreeCapacityThreshold,
+		cpuSyncDuration,
+		cpuTimeoutDuration,
+	)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
+		resourceManager,
 		executer,
 		a.log,
 	)
@@ -182,6 +209,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		osImageController,
 		a.log,
 	)
+
+	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
