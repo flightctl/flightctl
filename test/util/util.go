@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -8,17 +9,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	agentclient "github.com/flightctl/flightctl/internal/api/client/agent"
+	apiserver "github.com/flightctl/flightctl/internal/api_server"
+	"github.com/flightctl/flightctl/internal/api_server/agentserver"
+	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/server"
-	"github.com/flightctl/flightctl/internal/server/agentserver"
-	"github.com/flightctl/flightctl/internal/server/middleware"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -33,8 +37,70 @@ const (
 	clientBootstrapCertName     = "client-enrollment"
 )
 
+type testProvider struct {
+	queue   chan []byte
+	stopped atomic.Bool
+	wg      *sync.WaitGroup
+}
+
+func NewTestProvider() queues.Provider {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	return &testProvider{
+		queue: make(chan []byte, 20),
+		wg:    &wg,
+	}
+}
+
+func (t *testProvider) NewPublisher(_ string) (queues.Publisher, error) {
+	return t, nil
+}
+
+func (t *testProvider) NewConsumer(_ string) (queues.Consumer, error) {
+	return t, nil
+}
+
+func (t *testProvider) Stop() {
+	if !t.stopped.Swap(true) {
+		t.wg.Done()
+		close(t.queue)
+	}
+}
+
+func (t *testProvider) Wait() {
+	t.wg.Wait()
+}
+
+func (t *testProvider) Publish(b []byte) error {
+	t.queue <- b
+	return nil
+}
+
+func (t *testProvider) Close() {
+}
+
+func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandler) error {
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		log := logrus.New()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case b, ok := <-t.queue:
+				if !ok {
+					return
+				}
+				_ = handler(ctx, b, log)
+			}
+		}
+	}()
+	return nil
+}
+
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*server.Server, net.Listener, error) {
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig, provider queues.Provider) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port
 	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
@@ -47,7 +113,7 @@ func NewTestServer(log logrus.FieldLogger, cfg *config.Config, store store.Store
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return server.New(log, cfg, store, ca, listener), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, provider), listener, nil
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
