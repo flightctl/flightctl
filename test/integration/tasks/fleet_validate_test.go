@@ -114,7 +114,7 @@ var _ = Describe("FleetValidate", func() {
 	When("a Fleet has a valid configuration", func() {
 		It("creates a new TemplateVersion", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
-			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.DeviceSpec_Config_Item{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -158,7 +158,7 @@ var _ = Describe("FleetValidate", func() {
 	When("a Fleet has an invalid git configuration", func() {
 		It("sets an error Condition", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
-			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.DeviceSpec_Config_Item{}
 			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
@@ -202,7 +202,7 @@ var _ = Describe("FleetValidate", func() {
 	When("a Fleet has an invalid inline configuration", func() {
 		It("sets an error Condition", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
-			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.DeviceSpec_Config_Item{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -246,7 +246,7 @@ var _ = Describe("FleetValidate", func() {
 	When("a Fleet has an invalid configuration type", func() {
 		It("sets an error Condition", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
-			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.DeviceSpec_Config_Item{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)

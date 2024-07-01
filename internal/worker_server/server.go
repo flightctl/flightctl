@@ -9,15 +9,17 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
-	cfg      *config.Config
-	log      logrus.FieldLogger
-	store    store.Store
-	provider queues.Provider
+	cfg       *config.Config
+	log       logrus.FieldLogger
+	store     store.Store
+	provider  queues.Provider
+	k8sClient k8sclient.K8SClient
 }
 
 // New returns a new instance of a flightctl server.
@@ -26,12 +28,14 @@ func New(
 	log logrus.FieldLogger,
 	store store.Store,
 	provider queues.Provider,
+	k8sClient k8sclient.K8SClient,
 ) *Server {
 	return &Server{
-		cfg:      cfg,
-		log:      log,
-		store:    store,
-		provider: provider,
+		cfg:       cfg,
+		log:       log,
+		store:     store,
+		provider:  provider,
+		k8sClient: k8sClient,
 	}
 }
 
@@ -43,7 +47,7 @@ func (s *Server) Run() error {
 		return err
 	}
 	callbackManager := tasks.NewCallbackManager(publisher, s.log)
-	if err = tasks.LaunchConsumers(context.Background(), s.provider, s.store, callbackManager, 1, 1); err != nil {
+	if err = tasks.LaunchConsumers(context.Background(), s.provider, s.store, callbackManager, s.k8sClient, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

@@ -18,9 +18,12 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/mock/gomock"
 )
 
 type TestHarness struct {
@@ -37,6 +40,10 @@ type TestHarness struct {
 
 	// internals for client context
 	cancelCtx context.CancelFunc
+
+	// K8S client mock
+	mockK8sClient *k8sclient.MockK8SClient
+	ctrl          *gomock.Controller
 
 	// attributes for the test harness
 	Context     context.Context
@@ -76,7 +83,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
-	provider := testutil.NewTestProvider()
+	provider := testutil.NewTestProvider(serverLog)
 	// create server
 
 	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
@@ -84,7 +91,9 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
-	workerServer := workerserver.New(&serverCfg, serverLog, store, provider)
+	ctrl := gomock.NewController(GinkgoT())
+	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
+	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient)
 
 	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts)
 	if err != nil {
@@ -169,6 +178,8 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		Server:                apiServer,
 		Client:                client,
 		Store:                 &store,
+		mockK8sClient:         mockK8sClient,
+		ctrl:                  ctrl,
 		TestDirPath:           testDirPath}
 
 	testHarness.StartAgent()
@@ -182,6 +193,7 @@ func (h *TestHarness) Cleanup() {
 	h.cancelCtx()
 	// unset env var for the test dir path
 	os.Unsetenv(agent.TestRootDirEnvKey)
+	h.ctrl.Finish()
 }
 
 func (h *TestHarness) AgentDownloadedCertificate() bool {
@@ -213,6 +225,10 @@ func (h *TestHarness) StartAgent() {
 	}()
 
 	h.cancelAgentCtx = cancel
+}
+
+func (h *TestHarness) GetMockK8sClient() *k8sclient.MockK8SClient {
+	return h.mockK8sClient
 }
 
 func (h *TestHarness) RestartAgent() {
