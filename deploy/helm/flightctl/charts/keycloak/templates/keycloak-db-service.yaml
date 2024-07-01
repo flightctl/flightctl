@@ -1,0 +1,15 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: keycloak-db
+  namespace: {{ .Values.keycloak.db.namespace }}
+  labels:
+    app: keycloak-db
+spec:
+  ports:
+    - name: 5432-tcp
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: keycloak-db

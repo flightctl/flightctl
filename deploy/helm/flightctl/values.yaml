@@ -22,3 +22,6 @@ storageClassNameRWM: aws-efs-tier-c4
 
 # This is only related to deployment in Red Hat's PAAS
 appCode: MYAPP
+
+keycloak:
+  enabled: false
