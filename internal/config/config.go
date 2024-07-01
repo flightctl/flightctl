@@ -49,7 +49,9 @@ type queueConfig struct {
 }
 
 type authConfig struct {
-	K8sApiUrl string `json:"k8sApiUrl,omitempty"`
+	K8sApiUrl        string `json:"k8sApiUrl,omitempty"`
+	JwksUrl          string `json:"jwksUrl,omitempty"`
+	OidcDiscoveryUrl string `json:"oidcDiscoveryUrl,omitempty"`
 }
 
 func ConfigDir() string {
