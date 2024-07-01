@@ -12,7 +12,7 @@ import (
 
 const TaskQueue = "task-queue"
 
-func DispatchCallbacks(store store.Store, callbackManager CallbackManager) queues.ConsumeHandler {
+func dispatchTasks(store store.Store, callbackManager CallbackManager) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
 		var reference ResourceReference
 		if err := json.Unmarshal(payload, &reference); err != nil {
@@ -49,7 +49,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, DispatchCallbacks(store, callbackManager)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(store, callbackManager)); err != nil {
 				return err
 			}
 		}
