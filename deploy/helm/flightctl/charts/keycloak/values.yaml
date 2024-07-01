@@ -1,0 +1,37 @@
+keycloak:
+  rootUrl: https://flightctl.example.com:443
+  redirectUris:
+    - https://flightctl.example.com:443/*
+  authority: http://keycloak:8080/realms/flightctl
+  clientid: flightctl-ui
+  redirect: https://ui.flightctl.example.com:443
+  secret: CHANGE_ME
+  namespace: flightctl
+  image: quay.io/keycloak/keycloak:latest
+  keycloakAdmin: admin
+  keycloakAdminPassword: 12345678-1234-1234-1234-1234
+  db:
+    namespace: flightctl-ui
+    image: quay.io/cloudservices/postgresql-rds:12-9ee2984
+    pvc:
+      labels: {
+        app: keycloak,
+      }
+      annotations: {
+        kubernetes.io/reclaimPolicy: Delete
+      }
+      accessModes: 
+        - ReadWriteOnce
+      size: 1Gi
+      storageClassName: standard
+      volumeMode: Filesystem
+    PGPASSWORD: CHANGE_ME
+    postgresqlDatabase: keycloak
+    postgresqlMasterPassword: CHANGE_ME
+    postgresqlMasterUser: admin
+    postgresqlPassword: CHANGE_ME
+    postgresqlUser: keycloak
+    dbAddr: jdbc:postgresql://keycloak-db/keycloak
+    dbVendor: postgres
+
+  
