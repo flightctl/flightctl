@@ -1975,118 +1975,83 @@ components:
               additionalProperties: true
           required:
           - inline
-    ResourceCPUConfigSpec:
+    ResourceMonitorSpec:
       type: object
-      required:
-        - alertRules
-        - frequency
       properties:
+        monitorType:
+          type: string
         alertRules:
           type: array
           items:
-            type: object
-            properties:
-              severity:
-                type: string
-                description: 'Severity of the alert.'
-                enum:
-                  - 'warning'
-                  - 'critical'
-              duration:
-                type: string
-                pattern: '^\d+[smhd]$'
-                description: "Duration is the time over which the average CPU load is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-              percentage:
-                type: number
-                description: 'The amount of CPU load that triggers the alert, as a percentage.'
-              description:
-                type: string
-                description: 'A human-readable description of the alert.'
-            required:
-              - severity
-              - duration
-              - percentage
-          description: "Array of alert rules. Only one alert per severity is allowed."
-        frequency:
+            $ref: '#/components/schemas/ResourceAlertRule'
+          description: "Array of alert rules. Only one alert per severity is allowed." 
+        samplingInterval:
           type: string
           pattern: '^\d+[smhd]$'
-          description: "Frequency is the time between disk usage checks. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-    ResourceMemoryConfigSpec:
-      type: object
+          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+      discriminator:
+        propertyName: monitorType
       required:
+        - monitorType
         - alertRules
         - frequency
-      properties:
-        alertRules:
-          type: array
-          items:
-            type: object
-            properties:
-              severity:
-                type: string
-                description: 'Severity of the alert.'
-                enum:
-                  - 'warning'
-                  - 'critical'
-              duration:
-                type: string
-                pattern: '^\d+[smhd]$'
-                description: "Duration is the time over which the average memory usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-              percentage:
-                type: number
-                description: 'The percentage of memory usage that triggers the alert.'
-              description:
-                type: string
-                description: 'A human-readable description of the alert.'
-            required:
-              - severity
-              - duration
-              - percentage
-          description: "Array of alert rules. Only one alert per severity is allowed."
-        frequency:
-          type: string
-          pattern: '^\d+[smhd]$'
-          description: "Frequency is the time between memory usage checks. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-    ResourceDiskConfigSpec:
+    CPUResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+          type: object
+          description: "Specification for monitoring CPU resource load."
+    MemoryResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+          type: object
+          description: "Specification for monitoring Memory resource usage."
+    DiskResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - type: object
+          description: "Specification for monitoring disk usage."
+          required:
+            - path
+          properties:
+            path:
+              type: string
+              description: "The directory path to monitor for disk usage."
+    CustomResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - type: object
+          description: "Specification for monitoring custom resources."
+    ResourceAlertRule:
       type: object
-      required:
-        - alertRules
-        - frequency
-        - path
       properties:
-        alertRules:
-          type: array
-          items:
-            type: object
-            properties:
-              severity:
-                type: string
-                description: 'Severity of the alert.'
-                enum:
-                  - 'warning'
-                  - 'critical'
-              duration:
-                type: string
-                pattern: '^\d+[smhd]$'
-                description: "Duration is the time over which the average disk usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-              percentage:
-                type: number
-                description: 'The percentage of disk usage that triggers the alert.'
-              description:
-                type: string
-                description: 'A human-readable description of the alert.'
-            required:
-              - severity
-              - duration
-              - percentage
-        frequency:
+        severity:
+          $ref: '#/components/schemas/ResourceAlertSeverityType'
+          description: "Severity of the alert."          
+        duration:
           type: string
           pattern: '^\d+[smhd]$'
-          description: "Frequency is the time between disk usage checks. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-        path:
+          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+        percentage:
+          type: number
+          description: 'The percentage of usage that triggers the alert.'
+        description:
           type: string
-          description: "The directory path to monitor for disk usage."
-      description: "Array of alert rules. Only one alert per severity is allowed."
+          description: 'A human-readable description of the alert.'
+      required:
+        - severity
+        - duration
+        - percentage
+        - description
+    ResourceAlertSeverityType:
+      type: string
+      enum:
+        - "Warning"
+        - "Critical"
+        - "Info"
+      x-enum-varnames:
+        - "ResourceAlertSeverityTypeWarning"
+        - "ResourceAlertSeverityTypeCritical"
+        - "ResourceAlertSeverityTypeInfo"
     DeviceList:
       type: object
       properties:
@@ -2642,17 +2607,17 @@ components:
               items:
                 type: string
         resources:
-          type: object
-          properties:
-            cpu:
-              $ref: '#/components/schemas/ResourceCPUConfigSpec'
-              description: 'CPU resource monitor configuration.'
-            memory:
-              $ref: '#/components/schemas/ResourceMemoryConfigSpec'
-              description: 'Memory resource monitor configuration.'
-            disk:
-              $ref: '#/components/schemas/ResourceDiskConfigSpec'
-              description: 'Disk resource monitor configuration.'
+          type: array
+          description: 'Array of resource monitor configurations.'
+          items:
+            type: object
+            oneOf:
+              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
+              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
+              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
+            discriminator:
+              propertyName: monitorType
       required:
         - renderedVersion
         - resources
@@ -2690,15 +2655,17 @@ components:
                 pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
                 maxLength: 256
         resources:
-          type: object
-          properties:
-            cpu:
-              $ref: '#/components/schemas/ResourceCPUConfigSpec'
-            memory:
-              $ref: '#/components/schemas/ResourceMemoryConfigSpec'
-            disk:
-              $ref: '#/components/schemas/ResourceDiskConfigSpec'
-   
+          type: array
+          description: 'Array of resource monitor configurations.'
+          items:
+            type: object
+            oneOf:
+              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
+              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
+              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
+            discriminator:
+              propertyName: monitorType
     FleetStatus:
       type: object
       properties:
