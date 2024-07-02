@@ -1975,6 +1975,67 @@ components:
               additionalProperties: true
           required:
           - inline
+    ResourceMonitorConfigSpec:
+      type: object
+      properties:
+        monitorType:
+          type: string
+        alertRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceAlertRule'
+          description: "Array of alert rules. Only one alert per severity is allowed." 
+        frequency:
+          type: string
+          pattern: '^\d+[smhd]$'
+          description: "Frequency is the time between usage checks. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+      discriminator:
+        propertyName: monitorType
+      required:
+        - monitorType
+        - alertRules
+        - frequency
+    ResourceCPUConfigSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorConfigSpec'
+          type: object
+    ResourceMemoryConfigSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorConfigSpec'
+          type: object
+    ResourceDiskConfigSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorConfigSpec'
+          type: object
+      type: object
+      properties:
+        path:
+          type: string
+          description: "The directory path to monitor for disk usage."
+      description: "Array of alert rules. Only one alert per severity is allowed."
+    ResourceAlertRule:
+      type: object
+      properties:
+        severity:
+          type: string
+          description: 'Severity of the alert.'
+          enum:
+            - 'warning'
+            - 'critical'
+        duration:
+          type: string
+          pattern: '^\d+[smhd]$'
+          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+        percentage:
+          type: number
+          description: 'The percentage of usage that triggers the alert.'
+        description:
+          type: string
+          description: 'A human-readable description of the alert.'
+      required:
+        - severity
+        - duration
+        - percentage
     DeviceList:
       type: object
       properties:
@@ -2529,8 +2590,20 @@ components:
               type: array
               items:
                 type: string
+        resources:
+          type: array
+          description: 'Array of resource monitor configurations.'
+          items:
+            type: object
+            oneOf:
+              - $ref: '#/components/schemas/ResourceCPUConfigSpec'
+              - $ref: '#/components/schemas/ResourceMemoryConfigSpec'
+              - $ref: '#/components/schemas/ResourceDiskConfigSpec'
+            discriminator:
+              propertyName: monitorType
       required:
         - renderedVersion
+        - resources
     DeviceSpec:
       type: object
       properties:
@@ -2564,6 +2637,17 @@ components:
                 type: string
                 pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
                 maxLength: 256
+        resources:
+          type: array
+          description: 'Array of resource monitor configurations.'
+          items:
+            type: object
+            oneOf:
+              - $ref: '#/components/schemas/ResourceCPUConfigSpec'
+              - $ref: '#/components/schemas/ResourceMemoryConfigSpec'
+              - $ref: '#/components/schemas/ResourceDiskConfigSpec'
+            discriminator:
+              propertyName: monitorType
     FleetStatus:
       type: object
       properties:
