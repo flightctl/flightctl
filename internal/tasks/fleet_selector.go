@@ -11,9 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
@@ -69,50 +66,6 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, 
 		log.Errorf("failed checking device ownership %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 	}
 	return err
-}
-
-func FleetSelectorMatching(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelFleetSelectorMatch]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := FleetSelectorMatchingLogic{
-				callbackManager: taskManager,
-				log:             log,
-				fleetStore:      taskManager.store.Fleet(),
-				devStore:        taskManager.store.Device(),
-				resourceRef:     resourceRef,
-			}
-
-			var err error
-
-			switch {
-			case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.FleetKind:
-				err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.FleetKind:
-				err = logic.HandleOrgwideUpdate(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.FleetKind:
-				err = logic.HandleDeleteAllFleets(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.DeviceKind:
-				err = logic.CompareFleetsAndSetDeviceOwner(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.DeviceKind:
-				err = logic.HandleOrgwideUpdate(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.DeviceKind:
-				err = logic.HandleDeleteAllDevices(ctx)
-			default:
-				err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
-			}
-
-			if err != nil {
-				taskManager.log.Errorf("failed checking device ownership %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-			}
-		}
-	}
 }
 
 type FleetSelectorMatchingLogic struct {

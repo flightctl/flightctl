@@ -1,4 +1,4 @@
-{{ if .Values.flightctl.server.enabled }}
+{{ if .Values.flightctl.api.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -6,8 +6,8 @@ metadata:
     kubernetes.io/reclaimPolicy: Delete
   labels:
     paas.redhat.com/appcode: {{ .Values.appCode }}
-  name: flightctl-server-certs
-  namespace: {{ .Values.flightctl.server.namespace }}
+  name: flightctl-api-certs
+  namespace: {{ .Values.flightctl.api.namespace }}
 spec:
   #this is how we would do RWM for multiple pods...
   #storageClassName: {{ .Values.storageClassNameRWM }}

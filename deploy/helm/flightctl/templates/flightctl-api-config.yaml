@@ -1,0 +1,35 @@
+{{ if .Values.flightctl.api.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-api-config
+  namespace: {{ .Values.flightctl.api.namespace }}
+data:
+  config.yaml: |-
+    database:
+        hostname: flightctl-db.{{ .Values.flightctl.db.namespace }}.svc.cluster.local
+        type: pgsql
+        port: 5432
+        name: flightctl
+        user: {{ .Values.flightctl.db.masterUser }}
+        password: {{ .Values.flightctl.db.masterPassword }}   # we should funnel this via secrets instead
+    service:
+        address: :3443
+        agentEndpointAddress: :7443
+        baseUrl: https://{{ .Values.flightctl.api.hostName }}:3443/
+        {{ if .Values.flightctl.api.agentAPIHostName }}
+        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.agentAPIHostName }}:7443/
+        {{ else }}
+        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.hostName }}:7443/
+        {{ end }}
+        altNames:
+          - {{ .Values.flightctl.api.hostName }}
+           {{ if .Values.flightctl.api.agentAPIHostName }}
+          - {{ .Values.flightctl.api.agentAPIHostName }}
+          {{ end }}
+          - flightctl-api
+          - flightctl-api.{{ .Values.flightctl.api.namespace }}
+          - flightctl-api.{{ .Values.flightctl.api.namespace }}.svc.cluster.local
+    queue:
+        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@{{ .Values.flightctl.rabbitmq.name }}.{{ .Values.flightctl.rabbitmq.namespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
+{{ end }}

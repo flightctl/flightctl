@@ -1,0 +1,46 @@
+{{ if .Values.flightctl.rabbitmq.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.flightctl.rabbitmq.name }}
+  namespace: {{ .Values.flightctl.rabbitmq.namespace }}
+  labels:
+    flightctl.service: {{ .Values.flightctl.rabbitmq.name }}
+spec:
+  serviceName: {{ .Values.flightctl.rabbitmq.name }}
+  replicas: {{ .Values.flightctl.rabbitmq.replicaCount }}
+  selector:
+    matchLabels:
+      flightctl.service: {{ .Values.flightctl.rabbitmq.name }}
+  template:
+    metadata:
+      labels:
+        flightctl.service: {{ .Values.flightctl.rabbitmq.name }}
+    spec:
+      containers:
+        - name: rabbitmq
+          image: {{ .Values.flightctl.rabbitmq.image }}
+          imagePullPolicy: {{ .Values.flightctl.rabbitmq.imagePullPolicy }}
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: "{{ .Values.flightctl.rabbitmq.auth.username }}"
+            - name: RABBITMQ_DEFAULT_PASS
+              value: "{{ .Values.flightctl.rabbitmq.auth.password }}"
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes:
+          - {{ .Values.flightctl.rabbitmq.persistence.accessMode }}
+        resources:
+          requests:
+            storage: {{ .Values.flightctl.rabbitmq.persistence.size }}
+  {{ end }}

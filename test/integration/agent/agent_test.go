@@ -125,7 +125,7 @@ var _ = Describe("Device Agent behavior", func() {
 				dev := enrollAndWaitForDevice(h, approval)
 
 				GinkgoWriter.Printf(
-					"Waiting for /etc/motd file to be created on the device %s, with testDirPath: %s\n",
+					"Waiting for /var/lib/flightctl/certs/agent.crt file to be created on the device %s, with testDirPath: %s\n",
 					*dev.Metadata.Name, h.TestDirPath)
 
 				var fileInfo fs.FileInfo
@@ -138,6 +138,9 @@ var _ = Describe("Device Agent behavior", func() {
 					return true
 				}, TIMEOUT, POLLING).Should(BeTrue())
 
+				GinkgoWriter.Printf(
+					"Waiting for /etc/motd file to be created on the device %s, with testDirPath: %s\n",
+					*dev.Metadata.Name, h.TestDirPath)
 				Eventually(func() bool {
 					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/etc/motd"))
 					if err != nil && os.IsNotExist(err) {

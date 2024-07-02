@@ -6,8 +6,8 @@ import (
 
 	"github.com/flightctl/flightctl/internal/api/server"
 	agentServer "github.com/flightctl/flightctl/internal/api/server/agent"
+	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/server/middleware"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/sirupsen/logrus"

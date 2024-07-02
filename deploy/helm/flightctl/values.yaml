@@ -8,13 +8,46 @@ flightctl:
     masterUser: admin
     user: demouser
     userPassword: demopass
-  server:
+  api:
     enabled: true
     namespace: flightctl-external
-    image: quay.io/flightctl/flightctl-server:latest
+    image: quay.io/flightctl/flightctl-api:latest
     imagePullPolicy: Always
     hostName: api.flightctl.example.com
     # agentAPIHostName: agent-api.flightctl.example.com # optional, will use hostName otherwise
+  worker:
+    enabled: true
+    namespace: flightctl-internal
+    image: quay.io/flightctl/flightctl-worker:latest
+    imagePullPolicy: Always
+    hostName: worker.flightctl.example.com
+  periodic:
+    enabled: true
+    namespace: flightctl-internal
+    image: quay.io/flightctl/flightctl-periodic:latest
+    imagePullPolicy: Always
+    hostName: periodic.flightctl.example.com
+  rabbitmq:
+    enabled: true
+    name: flightctl-rabbitmq
+    namespace: flightctl-internal
+    replicaCount: 1
+    image: docker.io/library/rabbitmq:3.13-management
+    imagePullPolicy: IfNotPresent
+    ports:
+      amqp: 5672
+      management: 15672
+    persistence:
+      enabled: true
+      accessMode: ReadWriteOnce
+      size: 10Gi
+    auth:
+      username: user
+      password: password
+    service:
+      type: ClusterIP
+      amqpPort: 5672
+      managementPort: 15672
 
 storageClassName: aws-ebs
 storageClassNameRWM: aws-efs-tier-c4

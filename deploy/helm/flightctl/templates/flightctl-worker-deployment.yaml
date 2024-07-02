@@ -1,0 +1,39 @@
+{{ if .Values.flightctl.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-worker
+  name: flightctl-worker
+  namespace: {{ .Values.flightctl.worker.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-worker
+    spec:
+      containers:
+        - name: flightctl-worker
+          image: {{ .Values.flightctl.worker.image }}
+          imagePullPolicy: {{ .Values.flightctl.worker.imagePullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-worker-config
+              subPath: config.yaml
+              readOnly: true
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-worker-config
+          configMap:
+            name: flightctl-worker-config
+{{ end }}

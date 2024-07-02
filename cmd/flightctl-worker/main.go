@@ -5,6 +5,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,7 +35,8 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
-	server := workerserver.New(cfg, log, store)
+	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
+	server := workerserver.New(cfg, log, store, provider)
 	if err := server.Run(); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
