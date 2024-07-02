@@ -16,6 +16,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
 
@@ -25,13 +26,24 @@ var (
 )
 
 type ApplyOptions struct {
+	GlobalOptions
+
 	Filenames []string
 	DryRun    bool
 	Recursive bool
 }
 
+func DefaultApplyOptions() *ApplyOptions {
+	return &ApplyOptions{
+		GlobalOptions: DefaultGlobalOptions(),
+		Filenames:     []string{},
+		DryRun:        false,
+		Recursive:     false,
+	}
+}
+
 func NewCmdApply() *cobra.Command {
-	o := &ApplyOptions{Filenames: []string{}, DryRun: false, Recursive: false}
+	o := DefaultApplyOptions()
 	cmd := &cobra.Command{
 		Use:   "apply -f FILENAME",
 		Short: "Apply a configuration to a resource by file name or stdin.",
@@ -46,28 +58,39 @@ func NewCmdApply() *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
+	o.Bind(cmd.Flags())
+	return cmd
+}
 
-	flags := cmd.Flags()
-	flags.StringSliceVarP(&o.Filenames, "filename", "f", o.Filenames, "The files or directory that contain the resources to apply.")
+func (o *ApplyOptions) Bind(fs *pflag.FlagSet) {
+	o.GlobalOptions.Bind(fs)
+
+	fs.StringSliceVarP(&o.Filenames, "filename", "f", o.Filenames, "The files or directory that contain the resources to apply.")
 	annotations := make([]string, 0, len(fileExtensions))
 	for _, ext := range fileExtensions {
 		annotations = append(annotations, strings.TrimLeft(ext, "."))
 	}
-	err := flags.SetAnnotation("filename", cobra.BashCompFilenameExt, annotations)
+	err := fs.SetAnnotation("filename", cobra.BashCompFilenameExt, annotations)
 	if err != nil {
 		log.Fatalf("setting filename flag annotation: %v", err)
 	}
-	flags.BoolVarP(&o.DryRun, "dry-run", "", o.DryRun, "Only print the object that would be sent, without sending it.")
-	flags.BoolVarP(&o.Recursive, "recursive", "R", o.Recursive, "Process the directory used in -f, --filename recursively.")
-
-	return cmd
+	fs.BoolVarP(&o.DryRun, "dry-run", "", o.DryRun, "Only print the object that would be sent, without sending it.")
+	fs.BoolVarP(&o.Recursive, "recursive", "R", o.Recursive, "Process the directory used in -f, --filename recursively.")
 }
 
 func (o *ApplyOptions) Complete(cmd *cobra.Command, args []string) error {
+	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (o *ApplyOptions) Validate(args []string) error {
+	if err := o.GlobalOptions.Validate(args); err != nil {
+		return err
+	}
+
 	if len(o.Filenames) == 0 {
 		return fmt.Errorf("must specify -f FILENAME")
 	}
@@ -78,7 +101,7 @@ func (o *ApplyOptions) Validate(args []string) error {
 }
 
 func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
-	client, err := client.NewFromConfigFile(defaultClientConfigFile)
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -87,7 +110,7 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 	for _, filename := range o.Filenames {
 		switch {
 		case filename == "-":
-			errs = append(errs, applyFromReader(ctx, client, "<stdin>", os.Stdin, o.DryRun)...)
+			errs = append(errs, applyFromReader(ctx, c, "<stdin>", os.Stdin, o.DryRun)...)
 		default:
 			expandedFilenames, err := expandIfFilePattern(filename)
 			if err != nil {
@@ -125,7 +148,7 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 						return nil
 					}
 					defer r.Close()
-					errs = append(errs, applyFromReader(ctx, client, path, r, o.DryRun)...)
+					errs = append(errs, applyFromReader(ctx, c, path, r, o.DryRun)...)
 					return nil
 				})
 				if err != nil {

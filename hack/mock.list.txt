@@ -1,4 +1,5 @@
 pkg/executer/executer.go=pkg/executer/mock_executer.go
 pkg/queues/provider.go=pkg/queues/mock_provider.go
 internal/agent/device/status/status.go=internal/agent/device/status/mock_status.go
+internal/agent/device/resource/resource.go=internal/agent/device/resource/mock_resource.go
 internal/tasks/callback_manager.go=internal/tasks/mock_callback_manager.go

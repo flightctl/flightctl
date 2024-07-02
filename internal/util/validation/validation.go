@@ -71,15 +71,15 @@ func ValidateString(s *string, path string, minLen int, maxLen int, patternRegex
 	return asErrors(errs)
 }
 
-func ValidateBase64Field(s *string, path string, maxLen int) []error {
+func ValidateBase64Field(s string, path string, maxLen int) []error {
 	errs := field.ErrorList{}
 
-	if len(*s) > maxLen {
+	if len(s) > maxLen {
 		errs = append(errs, field.TooLong(fieldPathFor(path), s, maxLen))
 	}
-	_, err := base64.StdEncoding.DecodeString(*s)
+	_, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		errs = append(errs, field.Invalid(fieldPathFor(path), *s, "must be a valid base64 encoded string"))
+		errs = append(errs, field.Invalid(fieldPathFor(path), s, "must be a valid base64 encoded string"))
 	}
 
 	return asErrors(errs)

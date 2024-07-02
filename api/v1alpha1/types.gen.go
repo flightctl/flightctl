@@ -61,6 +61,7 @@ const (
 // Defines values for DeviceResourceStatusType.
 const (
 	DeviceResourceStatusCritical DeviceResourceStatusType = "Critical"
+	DeviceResourceStatusError    DeviceResourceStatusType = "Error"
 	DeviceResourceStatusHealthy  DeviceResourceStatusType = "Healthy"
 	DeviceResourceStatusUnknown  DeviceResourceStatusType = "Unknown"
 	DeviceResourceStatusWarning  DeviceResourceStatusType = "Warning"

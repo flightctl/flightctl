@@ -2260,11 +2260,13 @@ components:
         - "Healthy"
         - "Warning"
         - "Critical"
+        - "Error"
         - "Unknown"
       x-enum-varnames:
         - "DeviceResourceStatusHealthy"
         - "DeviceResourceStatusWarning"
         - "DeviceResourceStatusCritical"
+        - "DeviceResourceStatusError"
         - "DeviceResourceStatusUnknown"
 
     EnrollmentRequestApproval:

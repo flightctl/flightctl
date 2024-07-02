@@ -31,6 +31,7 @@ type Bootstrap struct {
 	enrollmentClient     *client.Enrollment
 	enrollmentUIEndpoint string
 	statusManager        status.Manager
+	bootcClient          *container.BootcCmd
 	backoff              wait.Backoff
 
 	currentRenderedFile string
@@ -68,6 +69,7 @@ func NewBootstrap(
 		enrollmentClient:        enrollmentClient,
 		enrollmentUIEndpoint:    enrollmentUIEndpoint,
 		managementServiceConfig: managementServiceConfig,
+		bootcClient:             container.NewBootcCmd(executer),
 		backoff:                 backoff,
 		currentRenderedFile:     currentRenderedFile,
 		desiredRenderedFile:     desiredRenderedFile,
@@ -143,8 +145,7 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 		return nil
 	}
 
-	bootcCmd := container.NewBootcCmd(b.executer)
-	bootcHost, err := bootcCmd.Status(ctx)
+	bootcHost, err := b.bootcClient.Status(ctx)
 	if err != nil {
 		return fmt.Errorf("getting current bootc status: %w", err)
 	}

@@ -3,8 +3,6 @@ package cli
 import (
 	"fmt"
 	"strings"
-
-	"github.com/flightctl/flightctl/internal/client"
 )
 
 const (
@@ -17,8 +15,7 @@ const (
 )
 
 var (
-	defaultClientConfigFile string
-	resourceKinds           = map[string]string{
+	resourceKinds = map[string]string{
 		DeviceKind:            "devices",
 		EnrollmentRequestKind: "enrollmentrequests",
 		FleetKind:             "fleets",
@@ -27,10 +24,6 @@ var (
 		TemplateVersionKind:   "templateversions",
 	}
 )
-
-func init() {
-	defaultClientConfigFile = client.DefaultFlightctlClientConfigPath()
-}
 
 func parseAndValidateKindName(arg string) (string, string, error) {
 	kind, name, _ := strings.Cut(arg, "/")

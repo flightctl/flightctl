@@ -146,7 +146,7 @@ func validateGitHttpConfig(config *GitHttpConfig) []error {
 	var errs []error
 	if config != nil {
 		if config.CaCrt != nil {
-			err := validation.ValidateBase64Field(config.CaCrt, "spec.httpConfig.CaCrt", maxBase64CertificateLength)
+			err := validation.ValidateBase64Field(*config.CaCrt, "spec.httpConfig.CaCrt", maxBase64CertificateLength)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("spec.httpConfig.caCrt must be a valid base64 encoded string: %v", err))
 			}
@@ -165,14 +165,8 @@ func validateGitHttpConfig(config *GitHttpConfig) []error {
 		}
 
 		if config.TlsCrt != nil && config.TlsKey != nil {
-			tlsCrtErr := validation.ValidateBase64Field(config.TlsCrt, "spec.httpConfig.TlsCrt", maxBase64CertificateLength)
-			tlsKeyErr := validation.ValidateBase64Field(config.TlsKey, "spec.httpConfig.TlsKey", maxBase64CertificateLength)
-			if tlsCrtErr != nil {
-				errs = append(errs, fmt.Errorf("spec.httpConfig.tlsCrt must be a valid base64 encoded string: %v", tlsCrtErr))
-			}
-			if tlsKeyErr != nil {
-				errs = append(errs, fmt.Errorf("spec.httpConfig.tlsKey must be a valid base64 encoded string: %v", tlsKeyErr))
-			}
+			errs = append(errs, validation.ValidateBase64Field(*config.TlsCrt, "spec.httpConfig.TlsCrt", maxBase64CertificateLength)...)
+			errs = append(errs, validation.ValidateBase64Field(*config.TlsKey, "spec.httpConfig.TlsKey", maxBase64CertificateLength)...)
 		}
 	}
 	return errs
@@ -190,10 +184,7 @@ func validateGitSshConfig(config *GitSshConfig) []error {
 			errs = append(errs, validation.ValidateString(config.PrivateKeyPassphrase, "spec.sshConfig.privateKeyPassphrase", 1, 256, nil, "")...)
 		}
 		if config.SshPrivateKey != nil {
-			err := validation.ValidateBase64Field(config.SshPrivateKey, "spec.sshConfig.SshPrivateKey", maxBase64CertificateLength)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("spec.sshConfig.sshPrivateKey must be a valid base64 encoded string: %v", err))
-			}
+			errs = append(errs, validation.ValidateBase64Field(*config.SshPrivateKey, "spec.sshConfig.SshPrivateKey", maxBase64CertificateLength)...)
 		}
 	}
 

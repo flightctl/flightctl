@@ -3,9 +3,11 @@ package status
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -15,13 +17,15 @@ var _ Manager = (*StatusManager)(nil)
 // NewManager creates a new device status manager.
 func NewManager(
 	deviceName string,
+	resourceManager resource.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
 	exporters := []Exporter{
 		newSystemD(executer),
 		newContainer(executer),
-		newSystemInfo(),
+		newSystemInfo(executer),
+		newResources(log, resourceManager),
 	}
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{
@@ -100,6 +104,11 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 	if m.managementClient == nil {
 		return fmt.Errorf("management client not set")
 	}
+
+	if condition.LastTransitionTime.IsZero() {
+		condition.LastTransitionTime = time.Now()
+	}
+
 	m.device.Status.Conditions[string(condition.Type)] = condition
 
 	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
