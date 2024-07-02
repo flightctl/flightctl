@@ -92,6 +92,24 @@ const (
 	Replace PatchRequestOp = "replace"
 )
 
+// Defines values for ResourceCPUConfigSpecAlertRulesSeverity.
+const (
+	ResourceCPUConfigSpecAlertRulesSeverityCritical ResourceCPUConfigSpecAlertRulesSeverity = "critical"
+	ResourceCPUConfigSpecAlertRulesSeverityWarning  ResourceCPUConfigSpecAlertRulesSeverity = "warning"
+)
+
+// Defines values for ResourceDiskConfigSpecAlertRulesSeverity.
+const (
+	ResourceDiskConfigSpecAlertRulesSeverityCritical ResourceDiskConfigSpecAlertRulesSeverity = "critical"
+	ResourceDiskConfigSpecAlertRulesSeverityWarning  ResourceDiskConfigSpecAlertRulesSeverity = "warning"
+)
+
+// Defines values for ResourceMemoryConfigSpecAlertRulesSeverity.
+const (
+	Critical ResourceMemoryConfigSpecAlertRulesSeverity = "critical"
+	Warning  ResourceMemoryConfigSpecAlertRulesSeverity = "warning"
+)
+
 // Defines values for TemplateDiscriminators.
 const (
 	TemplateDiscriminatorGitConfig     TemplateDiscriminators = "GitConfigProviderSpec"
@@ -236,7 +254,14 @@ type DeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
+	Os        *DeviceOSSpec `json:"os,omitempty"`
+	Resources *struct {
+		Cpu *ResourceCPUConfigSpec `json:"cpu,omitempty"`
+
+		// Disk Array of alert rules. Only one alert per severity is allowed.
+		Disk   *ResourceDiskConfigSpec   `json:"disk,omitempty"`
+		Memory *ResourceMemoryConfigSpec `json:"memory,omitempty"`
+	} `json:"resources,omitempty"`
 	Systemd *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
@@ -575,7 +600,14 @@ type RenderedDeviceSpec struct {
 	} `json:"containers,omitempty"`
 	Os              *DeviceOSSpec `json:"os,omitempty"`
 	RenderedVersion string        `json:"renderedVersion"`
-	Systemd         *struct {
+	Resources       struct {
+		Cpu *ResourceCPUConfigSpec `json:"cpu,omitempty"`
+
+		// Disk Array of alert rules. Only one alert per severity is allowed.
+		Disk   *ResourceDiskConfigSpec   `json:"disk,omitempty"`
+		Memory *ResourceMemoryConfigSpec `json:"memory,omitempty"`
+	} `json:"resources"`
+	Systemd *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
 }
@@ -621,6 +653,80 @@ type RepositoryStatus struct {
 	// Conditions Current state of the repository.
 	Conditions []Condition `json:"conditions"`
 }
+
+// ResourceCPUConfigSpec defines model for ResourceCPUConfigSpec.
+type ResourceCPUConfigSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules []struct {
+		// Description A human-readable description of the alert.
+		Description *string `json:"description,omitempty"`
+
+		// Duration Duration is the time over which the average CPU load is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+		Duration string `json:"duration"`
+
+		// Percentage The amount of CPU load that triggers the alert, as a percentage.
+		Percentage float32 `json:"percentage"`
+
+		// Severity Severity of the alert.
+		Severity ResourceCPUConfigSpecAlertRulesSeverity `json:"severity"`
+	} `json:"alertRules"`
+
+	// Frequency Frequency is the time between disk usage checks. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	Frequency string `json:"frequency"`
+}
+
+// ResourceCPUConfigSpecAlertRulesSeverity Severity of the alert.
+type ResourceCPUConfigSpecAlertRulesSeverity string
+
+// ResourceDiskConfigSpec Array of alert rules. Only one alert per severity is allowed.
+type ResourceDiskConfigSpec struct {
+	AlertRules []struct {
+		// Description A human-readable description of the alert.
+		Description *string `json:"description,omitempty"`
+
+		// Duration Duration is the time over which the average disk usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+		Duration string `json:"duration"`
+
+		// Percentage The percentage of disk usage that triggers the alert.
+		Percentage float32 `json:"percentage"`
+
+		// Severity Severity of the alert.
+		Severity ResourceDiskConfigSpecAlertRulesSeverity `json:"severity"`
+	} `json:"alertRules"`
+
+	// Frequency Frequency is the time between disk usage checks. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	Frequency string `json:"frequency"`
+
+	// Path The directory path to monitor for disk usage.
+	Path string `json:"path"`
+}
+
+// ResourceDiskConfigSpecAlertRulesSeverity Severity of the alert.
+type ResourceDiskConfigSpecAlertRulesSeverity string
+
+// ResourceMemoryConfigSpec defines model for ResourceMemoryConfigSpec.
+type ResourceMemoryConfigSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules []struct {
+		// Description A human-readable description of the alert.
+		Description *string `json:"description,omitempty"`
+
+		// Duration Duration is the time over which the average memory usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+		Duration string `json:"duration"`
+
+		// Percentage The percentage of memory usage that triggers the alert.
+		Percentage float32 `json:"percentage"`
+
+		// Severity Severity of the alert.
+		Severity ResourceMemoryConfigSpecAlertRulesSeverity `json:"severity"`
+	} `json:"alertRules"`
+
+	// Frequency Frequency is the time between memory usage checks. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	Frequency string `json:"frequency"`
+}
+
+// ResourceMemoryConfigSpecAlertRulesSeverity Severity of the alert.
+type ResourceMemoryConfigSpecAlertRulesSeverity string
 
 // ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
 type ResourceSync struct {
@@ -740,7 +846,14 @@ type TemplateVersionStatus struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
+	Os        *DeviceOSSpec `json:"os,omitempty"`
+	Resources *struct {
+		Cpu *ResourceCPUConfigSpec `json:"cpu,omitempty"`
+
+		// Disk Array of alert rules. Only one alert per severity is allowed.
+		Disk   *ResourceDiskConfigSpec   `json:"disk,omitempty"`
+		Memory *ResourceMemoryConfigSpec `json:"memory,omitempty"`
+	} `json:"resources,omitempty"`
 	Systemd *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
