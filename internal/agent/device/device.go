@@ -80,6 +80,7 @@ func (a *Agent) Run(ctx context.Context) error {
 					a.log.Errorf("Failed to update device status: %v", updateErr)
 				}
 				a.log.Error(infoMsg)
+				continue
 			}
 
 			_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{

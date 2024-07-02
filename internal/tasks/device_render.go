@@ -134,7 +134,11 @@ type renderConfigArgs struct {
 
 func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, config *[]api.DeviceSpec_Config_Item, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
 	args := renderConfigArgs{}
-	emptyIgnitionConfig, _, _ := config_latest.ParseCompatibleVersion([]byte("{\"ignition\": {\"version\": \"3.4.0\"}"))
+	emptyIgnitionConfig := config_latest_types.Config{
+		Ignition: config_latest_types.Ignition{
+			Version: config_latest_types.MaxVersion.String(),
+		},
+	}
 	args.ignitionConfig = &emptyIgnitionConfig
 	args.validateOnly = validateOnly
 	args.orgId = orgId
