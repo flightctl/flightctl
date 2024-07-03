@@ -925,6 +925,11 @@ type ListResourceSyncParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// TokenValidateParams defines parameters for TokenValidate.
+type TokenValidateParams struct {
+	Authentication *string `json:"Authentication,omitempty"`
+}
+
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
