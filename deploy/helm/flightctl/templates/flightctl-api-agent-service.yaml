@@ -1,0 +1,22 @@
+{{ if .Values.flightctl.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api-agent
+  namespace: {{ .Values.flightctl.api.namespace }}
+spec:
+  {{ if .Values.flightctl.api.agentNodePort }}
+  type: NodePort
+  {{ end }}
+  ports:
+    - name: "flightctl-agent-api"
+      port: 7443
+      targetPort: 7443
+      {{ if .Values.flightctl.api.agentNodePort }}
+      nodePort: {{ .Values.flightctl.api.agentNodePort }}
+      {{ end }}
+  selector:
+    flightctl.service: flightctl-api
+{{ end }}

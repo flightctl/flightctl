@@ -8,9 +8,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,31 +23,6 @@ func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store st
 		log.Errorf("FleetValidate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 	}
 	return nil
-}
-
-func FleetValidate(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelFleetValidate]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := NewFleetValidateLogic(taskManager, log, taskManager.store, resourceRef)
-
-			switch {
-			case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == model.FleetKind:
-				err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
-				if err != nil {
-					log.Errorf("failed validating fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				}
-			default:
-				log.Errorf("FleetValidate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
-			}
-		}
-	}
 }
 
 type FleetValidateLogic struct {
