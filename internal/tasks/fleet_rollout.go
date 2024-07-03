@@ -8,9 +8,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,40 +32,6 @@ func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store sto
 		return err
 	default:
 		return fmt.Errorf("FleetRollouts called with incorrect resource kind %s", resourceRef.Kind)
-	}
-}
-
-// Wait to be notified via channel about fleet template updates, exit upon ctx.Done()
-func FleetRollouts(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelFleetRollout]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := NewFleetRolloutsLogic(taskManager, log, taskManager.store, resourceRef)
-
-			if resourceRef.Op != FleetRolloutOpUpdate {
-				taskManager.log.Errorf("received unknown op %s", resourceRef.Op)
-				break
-			}
-			if resourceRef.Kind == model.FleetKind {
-				err := logic.RolloutFleet(ctx)
-				if err != nil {
-					taskManager.log.Errorf("failed rolling out fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				}
-			} else if resourceRef.Kind == model.DeviceKind {
-				err := logic.RolloutDevice(ctx)
-				if err != nil {
-					taskManager.log.Errorf("failed rolling out device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				}
-			} else {
-				taskManager.log.Errorf("FleetRollouts called with incorrect resource kind %s", resourceRef.Kind)
-			}
-		}
 	}
 }
 

@@ -1,27 +1,27 @@
-{{ if .Values.flightctl.server.enabled }}
+{{ if .Values.flightctl.api.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    flightctl.service: flightctl-server
-  name: flightctl-server
-  namespace: {{ .Values.flightctl.server.namespace }}
+    flightctl.service: flightctl-api
+  name: flightctl-api
+  namespace: {{ .Values.flightctl.api.namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      flightctl.service: flightctl-server
+      flightctl.service: flightctl-api
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        flightctl.service: flightctl-server
+        flightctl.service: flightctl-api
     spec:
       containers:
-        - name: flightctl-server
-          image: {{ .Values.flightctl.server.image }}
-          imagePullPolicy: {{ .Values.flightctl.server.imagePullPolicy }}
+        - name: flightctl-api
+          image: {{ .Values.flightctl.api.image }}
+          imagePullPolicy: {{ .Values.flightctl.api.imagePullPolicy }}
           env:
             - name: HOME
               value: "/root"
@@ -36,18 +36,18 @@ spec:
               protocol: TCP
           volumeMounts:
             - mountPath: /root/.flightctl/
-              name: flightctl-server-certs
+              name: flightctl-api-certs
             - mountPath: /root/.flightctl/config.yaml
-              name: flightctl-server-config
+              name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
 
       restartPolicy: Always
       volumes:
-        - name: flightctl-server-certs
+        - name: flightctl-api-certs
           persistentVolumeClaim:
-            claimName: flightctl-server-certs
-        - name: flightctl-server-config
+            claimName: flightctl-api-certs
+        - name: flightctl-api-config
           configMap:
-            name: flightctl-server-config
+            name: flightctl-api-config
 {{ end }}

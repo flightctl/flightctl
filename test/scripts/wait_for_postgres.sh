@@ -18,7 +18,7 @@ else
     echo "Waiting for postgress deployment to be ready"
     kubectl rollout status deployment flightctl-db -n ${DB_NAMESPACE} -w --timeout=300s
 
-    DB_POD=$(kubectl get pod -n ${DB_NAMESPACE} -L flightctl.service=flightctl-db --no-headers -o custom-columns=":metadata.name" --context kind-kind )
+    DB_POD=$(kubectl get pod -n ${DB_NAMESPACE} -l flightctl.service=flightctl-db --no-headers -o custom-columns=":metadata.name" --context kind-kind )
     set -x
     until kubectl exec --context kind-kind -n ${DB_NAMESPACE} ${DB_POD} -- psql -h ${PG_HOST} -U ${PG_USER} -d ${PG_DATABASE} -c "select 1" > /dev/null 2>&1;
     do

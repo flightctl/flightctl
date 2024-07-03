@@ -14,9 +14,10 @@ import (
 )
 
 type Server struct {
-	cfg   *config.Config
-	log   logrus.FieldLogger
-	store store.Store
+	cfg      *config.Config
+	log      logrus.FieldLogger
+	store    store.Store
+	provider queues.Provider
 }
 
 // New returns a new instance of a flightctl server.
@@ -24,24 +25,25 @@ func New(
 	cfg *config.Config,
 	log logrus.FieldLogger,
 	store store.Store,
+	provider queues.Provider,
 ) *Server {
 	return &Server{
-		cfg:   cfg,
-		log:   log,
-		store: store,
+		cfg:      cfg,
+		log:      log,
+		store:    store,
+		provider: provider,
 	}
 }
 
 func (s *Server) Run() error {
 	s.log.Println("Initializing async jobs")
-	provider := queues.NewAmqpProvider(s.cfg.Queue.AmqpURL, s.log)
-	publisher, err := tasks.TaskQueuePublisher(provider)
+	publisher, err := tasks.TaskQueuePublisher(s.provider)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create fleet queue publisher")
 		return err
 	}
 	callbackManager := tasks.NewCallbackManager(publisher, s.log)
-	if err = tasks.LaunchConsumers(context.Background(), provider, s.store, callbackManager, 1, 1); err != nil {
+	if err = tasks.LaunchConsumers(context.Background(), s.provider, s.store, callbackManager, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}
@@ -50,9 +52,9 @@ func (s *Server) Run() error {
 	go func() {
 		<-sigShutdown
 		s.log.Println("Shutdown signal received")
-		provider.Stop()
+		s.provider.Stop()
 	}()
-	provider.Wait()
+	s.provider.Wait()
 
 	return nil
 }

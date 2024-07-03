@@ -11,25 +11,29 @@ import (
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/mock/gomock"
 )
 
 var _ = Describe("TVPopulate", func() {
 	var (
-		log           *logrus.Logger
-		ctx           context.Context
-		orgId         uuid.UUID
-		storeInst     store.Store
-		cfg           *config.Config
-		dbName        string
-		taskManager   tasks.TaskManager
-		fleet         *api.Fleet
-		tv            *api.TemplateVersion
-		fleetCallback store.FleetStoreCallback
+		log             *logrus.Logger
+		ctx             context.Context
+		orgId           uuid.UUID
+		storeInst       store.Store
+		cfg             *config.Config
+		dbName          string
+		callbackManager tasks.CallbackManager
+		fleet           *api.Fleet
+		tv              *api.TemplateVersion
+		fleetCallback   store.FleetStoreCallback
+		ctrl            *gomock.Controller
+		publisher       *queues.MockPublisher
 	)
 
 	BeforeEach(func() {
@@ -37,8 +41,11 @@ var _ = Describe("TVPopulate", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
-		taskManager = tasks.Init(log, storeInst)
-		fleetCallback = store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+		ctrl = gomock.NewController(GinkgoT())
+		publisher = queues.NewMockPublisher(ctrl)
+		publisher.EXPECT().Publish(gomock.Any()).AnyTimes()
+		callbackManager = tasks.NewCallbackManager(publisher, log)
+		fleetCallback = func(before *model.Fleet, after *model.Fleet) {}
 
 		fleet = &api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet")},
@@ -62,6 +69,7 @@ var _ = Describe("TVPopulate", func() {
 	})
 
 	AfterEach(func() {
+		ctrl.Finish()
 		store.DeleteTestDB(cfg, storeInst, dbName)
 	})
 
@@ -86,7 +94,7 @@ var _ = Describe("TVPopulate", func() {
 
 			owner := util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Op: tasks.TemplateVersionPopulateOpCreated, Name: "tv", Kind: model.TemplateVersionKind, Owner: *owner}
-			logic := tasks.NewTemplateVersionPopulateLogic(taskManager, log, storeInst, resourceRef)
+			logic := tasks.NewTemplateVersionPopulateLogic(callbackManager, log, storeInst, resourceRef)
 			err = logic.SyncFleetTemplateToTemplateVersion(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -124,7 +132,7 @@ var _ = Describe("TVPopulate", func() {
 
 			owner := util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Op: tasks.TemplateVersionPopulateOpCreated, Name: "tv", Kind: model.TemplateVersionKind, Owner: *owner}
-			logic := tasks.NewTemplateVersionPopulateLogic(taskManager, log, storeInst, resourceRef)
+			logic := tasks.NewTemplateVersionPopulateLogic(callbackManager, log, storeInst, resourceRef)
 			err = logic.SyncFleetTemplateToTemplateVersion(ctx)
 			Expect(err).ToNot(HaveOccurred())
 

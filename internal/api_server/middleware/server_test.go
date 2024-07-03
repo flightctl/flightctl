@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/server/middleware"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
