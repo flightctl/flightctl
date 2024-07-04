@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -73,23 +72,20 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 
 			It("should create a device, with the approval labels", func() {
-				// craft some specific labels and region we will test for in the device
+				// craft some specific labels we will test for in the device
 				approval := testutil.TestEnrollmentApproval()
 				const (
 					TEST_LABEL_1 = "label-1"
 					TEST_VALUE_1 = "value-1"
 					TEST_LABEL_2 = "label-2"
 					TEST_VALUE_2 = "value-2"
-					REGION       = "somewhere"
 				)
 				approval.Labels = &map[string]string{TEST_LABEL_1: TEST_VALUE_1, TEST_LABEL_2: TEST_VALUE_2}
-				approval.Region = util.StrToPtr(REGION)
 
 				dev := enrollAndWaitForDevice(h, approval)
 
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_1, TEST_VALUE_1))
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_2, TEST_VALUE_2))
-				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue("region", REGION))
 			})
 
 			It("should write the agent.crt to the device", func() {

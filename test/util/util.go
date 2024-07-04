@@ -21,7 +21,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -236,7 +235,6 @@ func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {
 	return &v1alpha1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
-		Region:   util.StrToPtr("region"),
 	}
 }
 

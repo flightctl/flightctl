@@ -70,10 +70,6 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	}
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
-		if apiResource.Metadata.Labels == nil {
-			apiResource.Metadata.Labels = &map[string]string{}
-		}
-		(*apiResource.Metadata.Labels)["region"] = *enrollmentRequest.Status.Approval.Region
 	}
 	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback)
 	return err
