@@ -152,7 +152,7 @@ func GetAuth(repository *model.Repository) (transport.AuthMethod, error) {
 	return nil, nil
 }
 
-func configureRepoHTTPSClient(httpConfig api.GitHttpConfig) error {
+func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
 	tlsConfig := tls.Config{} //nolint:gosec
 	if httpConfig.SkipServerVerification != nil {
 		tlsConfig.InsecureSkipVerify = *httpConfig.SkipServerVerification //nolint:gosec
