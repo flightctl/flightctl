@@ -2382,9 +2382,6 @@ components:
           additionalProperties:
             type: string
           description: 'labels is a set of labels to apply to the device.'
-        region:
-          type: string
-          description: 'region is the region in which the device should be enrolled.'
         approved:
           type: boolean
           description: 'approved indicates whether the request has been approved.'
