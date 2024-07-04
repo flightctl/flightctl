@@ -14,19 +14,17 @@ flightctl:
     image: quay.io/flightctl/flightctl-api:latest
     imagePullPolicy: Always
     hostName: api.flightctl.example.com
-    # agentAPIHostName: agent-api.flightctl.example.com # optional, will use hostName otherwise
+    agentAPIHostName: agent-api.flightctl.example.com
   worker:
     enabled: true
     namespace: flightctl-internal
     image: quay.io/flightctl/flightctl-worker:latest
     imagePullPolicy: Always
-    hostName: worker.flightctl.example.com
   periodic:
     enabled: true
     namespace: flightctl-internal
     image: quay.io/flightctl/flightctl-periodic:latest
     imagePullPolicy: Always
-    hostName: periodic.flightctl.example.com
   rabbitmq:
     enabled: true
     name: flightctl-rabbitmq

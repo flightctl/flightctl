@@ -37,7 +37,12 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: rabbitmq-data
+        annotations:
+          kubernetes.io/reclaimPolicy: Delete
+        labels:
+          paas.redhat.com/appcode: {{ .Values.appCode }}
       spec:
+        storageClassName: {{ .Values.storageClassName }}
         accessModes:
           - {{ .Values.flightctl.rabbitmq.persistence.accessMode }}
         resources:
