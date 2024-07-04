@@ -3,13 +3,14 @@ GOBIN=$(GOBASE)/bin
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
 GO_FILES := $(shell find ./ -name ".go" -not -path "./bin" -not -path "./packaging/*")
+GO_CACHE := -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -v $${HOME}/go/flightctl-go-cache/.cache:/opt/app-root/src/.cache:Z
 TIMEOUT ?= 30m
 
 VERBOSE ?= false
 
 .EXPORT_ALL_VARIABLES:
 
-all: build
+all: build build-containers
 
 help:
 	@echo "Targets:"
@@ -26,6 +27,11 @@ help:
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    rpm/deb:         generate rpm or debian packages"
+
+publish: build-containers
+	hack/publish_containers.sh
+
+.PHONY: publish
 
 generate:
 	go generate -v $(shell go list ./...)
@@ -52,18 +58,18 @@ build-periodic: bin
 
 # rebuild container only on source changes
 bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache
-	podman build -f Containerfile.api -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-api:latest
+	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+	podman build -f Containerfile.api $(GO_CACHE) -t flightctl-api:latest
 	touch bin/.flightctl-api-container
 
 bin/.flightctl-worker-container: bin Containerfile.worker go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache
-	podman build -f Containerfile.worker -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-worker:latest
+	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+	podman build -f Containerfile.worker $(GO_CACHE) -t flightctl-worker:latest
 	touch bin/.flightctl-worker-container
 
 bin/.flightctl-periodic-container: bin Containerfile.periodic go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache
-	podman build -f Containerfile.periodic -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-periodic:latest
+	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+	podman build -f Containerfile.periodic $(GO_CACHE) -t flightctl-periodic:latest
 	touch bin/.flightctl-periodic-container
 
 flightctl-api-container: bin/.flightctl-api-container
@@ -71,6 +77,12 @@ flightctl-api-container: bin/.flightctl-api-container
 flightctl-worker-container: bin/.flightctl-worker-container
 
 flightctl-periodic-container: bin/.flightctl-periodic-container
+
+
+build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container 
+
+.PHONY: build-containers
+
 
 bin:
 	mkdir -p bin
