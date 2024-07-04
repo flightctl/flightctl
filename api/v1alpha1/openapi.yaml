@@ -1865,6 +1865,10 @@ components:
         skipServerVerification:
           type: boolean
           description: 'Skip remote server verification'
+        token:
+          type: string
+          description: 'The token for auth with HTTP transport'
+          format: password
     HttpRepoSpec:
       type: object
       additionalProperties: false
@@ -2062,13 +2066,21 @@ components:
                   type: string
                   description: |
                     The name of the repository resource to use as the sync source
+                suffix:
+                  type: string
+                  description: |
+                    The endpoint to fetch the config from
                 filePath:
                   type: string
                   description: |
                     The path to the file to land the body of the response
+              required:
+              - repository
+              - filePath
           required:
           - url
           - filePath
+          - httpRef
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'

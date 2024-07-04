@@ -506,6 +506,9 @@ type HttpConfig struct {
 	// TlsKey Base64 encoded TLS cert key
 	TlsKey *string `json:"tls.key,omitempty"`
 
+	// Token The token for auth with HTTP transport
+	Token *string `json:"token,omitempty"`
+
 	// Username The username for auth with HTTP transport
 	Username *string `json:"username,omitempty"`
 }
@@ -513,13 +516,16 @@ type HttpConfig struct {
 // HttpConfigProviderSpec defines model for HttpConfigProviderSpec.
 type HttpConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
-	HttpRef    *struct {
+	HttpRef    struct {
 		// FilePath The path to the file to land the body of the response
-		FilePath *string `json:"filePath,omitempty"`
+		FilePath string `json:"filePath"`
 
 		// Repository The name of the repository resource to use as the sync source
-		Repository *string `json:"repository,omitempty"`
-	} `json:"httpRef,omitempty"`
+		Repository string `json:"repository"`
+
+		// Suffix The endpoint to fetch the config from
+		Suffix *string `json:"suffix,omitempty"`
+	} `json:"httpRef"`
 	Name string `json:"name"`
 }
 
