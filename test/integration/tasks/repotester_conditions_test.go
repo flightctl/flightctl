@@ -30,7 +30,7 @@ func (r *MockRepoTester) TestAccess(repository *model.Repository) error {
 
 func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
 	spec := api.RepositorySpec{}
-	err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 		Repo: "myrepourl",
 	})
 	if err != nil {

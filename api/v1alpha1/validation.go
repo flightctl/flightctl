@@ -71,6 +71,15 @@ func (c InlineConfigProviderSpec) Validate() []error {
 	return allErrs
 }
 
+func (h HttpConfigProviderSpec) Validate() []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateGenericName(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
+	allErrs = append(allErrs, validation.ValidateString(&h.HttpRef.FilePath, "spec.config[].httpRef.path", 0, 2048, nil, "")...)
+
+	return allErrs
+}
+
 func (r EnrollmentRequest) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
@@ -118,23 +127,23 @@ func (r Repository) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 
 	// Validate GitGenericRepoSpec
-	gitGenericRepoSpec, genericErr := r.Spec.GetGitGenericRepoSpec()
+	gitGenericRepoSpec, genericErr := r.Spec.GetGenericRepoSpec()
 	if genericErr == nil {
 		allErrs = append(allErrs, validation.ValidateString(&gitGenericRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
 	}
 
 	// Validate GitHttpRepoSpec
-	gitHttpRepoSpec, httpErr := r.Spec.GetGitHttpRepoSpec()
+	gitHttpRepoSpec, httpErr := r.Spec.GetHttpRepoSpec()
 	if httpErr == nil {
 		allErrs = append(allErrs, validation.ValidateString(&gitHttpRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
-		allErrs = append(allErrs, validateGitHttpConfig(&gitHttpRepoSpec.HttpConfig)...)
+		allErrs = append(allErrs, validateHttpConfig(&gitHttpRepoSpec.HttpConfig)...)
 	}
 
 	// Validate GitSshRepoSpec
-	gitSshRepoSpec, sshErr := r.Spec.GetGitSshRepoSpec()
+	gitSshRepoSpec, sshErr := r.Spec.GetSshRepoSpec()
 	if sshErr == nil {
 		allErrs = append(allErrs, validation.ValidateString(&gitSshRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
-		allErrs = append(allErrs, validateGitSshConfig(&gitSshRepoSpec.SshConfig)...)
+		allErrs = append(allErrs, validateSshConfig(&gitSshRepoSpec.SshConfig)...)
 	}
 
 	if genericErr != nil && httpErr != nil && sshErr != nil {
@@ -159,7 +168,7 @@ func (d *DeviceSystemInfo) IsEmpty() bool {
 	return *d == DeviceSystemInfo{}
 }
 
-func validateGitHttpConfig(config *GitHttpConfig) []error {
+func validateHttpConfig(config *HttpConfig) []error {
 	var errs []error
 	if config != nil {
 		if config.CaCrt != nil {
@@ -189,7 +198,7 @@ func validateGitHttpConfig(config *GitHttpConfig) []error {
 	return errs
 }
 
-func validateGitSshConfig(config *GitSshConfig) []error {
+func validateSshConfig(config *SshConfig) []error {
 	var errs []error
 	if config != nil {
 		// Check if passphrase is specified without private key

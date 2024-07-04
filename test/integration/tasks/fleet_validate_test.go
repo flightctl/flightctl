@@ -49,7 +49,7 @@ var _ = Describe("FleetValidate", func() {
 		callbackManager = tasks.NewCallbackManager(publisher, log)
 
 		spec := api.RepositorySpec{}
-		err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+		err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 			Repo: "repo-url",
 		})
 		Expect(err).ToNot(HaveOccurred())

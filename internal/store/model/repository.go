@@ -88,23 +88,23 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 		status = f.Status.Data
 	}
 
-	_, err := spec.GetGitGenericRepoSpec()
+	_, err := spec.GetGenericRepoSpec()
 	if err != nil {
-		gitHttpSpec, err := spec.GetGitHttpRepoSpec()
+		gitHttpSpec, err := spec.GetHttpRepoSpec()
 		if err == nil {
 			hideValue(gitHttpSpec.HttpConfig.Password)
 			hideValue(gitHttpSpec.HttpConfig.TlsKey)
 			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
-			if err := spec.FromGitHttpRepoSpec(gitHttpSpec); err != nil {
+			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
 				return api.Repository{}, err
 			}
 
 		} else {
-			gitSshRepoSpec, err := spec.GetGitSshRepoSpec()
+			gitSshRepoSpec, err := spec.GetSshRepoSpec()
 			if err == nil {
 				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
 				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
-				if err := spec.FromGitSshRepoSpec(gitSshRepoSpec); err != nil {
+				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
 					return api.Repository{}, err
 				}
 			}

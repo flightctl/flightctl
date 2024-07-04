@@ -90,11 +90,11 @@ func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.F
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
 func GetAuth(repository *model.Repository) (transport.AuthMethod, error) {
-	_, err := repository.Spec.Data.GetGitGenericRepoSpec()
+	_, err := repository.Spec.Data.GetGenericRepoSpec()
 	if err == nil {
 		return nil, nil
 	}
-	sshSpec, err := repository.Spec.Data.GetGitSshRepoSpec()
+	sshSpec, err := repository.Spec.Data.GetSshRepoSpec()
 	if err == nil {
 		var auth *gitssh.PublicKeys
 		if sshSpec.SshConfig.SshPrivateKey != nil {
@@ -132,7 +132,7 @@ func GetAuth(repository *model.Repository) (transport.AuthMethod, error) {
 		}
 		return auth, nil
 	} else {
-		httpSpec, err := repository.Spec.Data.GetGitHttpRepoSpec()
+		httpSpec, err := repository.Spec.Data.GetHttpRepoSpec()
 		if err == nil {
 			if strings.HasPrefix(httpSpec.Repo, "https") {
 				err := configureRepoHTTPSClient(httpSpec.HttpConfig)

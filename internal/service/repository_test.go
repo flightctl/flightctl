@@ -45,7 +45,7 @@ func verifyRepoPatchFailed(require *require.Assertions, resp server.PatchReposit
 
 func testRepositoryPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchRepositoryResponseObject, v1alpha1.Repository) {
 	spec := v1alpha1.RepositorySpec{}
-	err := spec.FromGitGenericRepoSpec(v1alpha1.GitGenericRepoSpec{
+	err := spec.FromGenericRepoSpec(v1alpha1.GenericRepoSpec{
 		Repo: "foo",
 	})
 	require.NoError(err)
