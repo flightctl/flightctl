@@ -1840,7 +1840,7 @@ components:
         - metadata
         - spec
       description: Repository represents a git repository
-    GitHttpConfig:
+    HttpConfig:
       type: object
       additionalProperties: false
       properties:
@@ -1865,7 +1865,7 @@ components:
         skipServerVerification:
           type: boolean
           description: 'Skip remote server verification'
-    GitHttpRepoSpec:
+    HttpRepoSpec:
       type: object
       additionalProperties: false
       properties:
@@ -1873,11 +1873,11 @@ components:
           type: string
           description: 'The HTTP Git repository URL to clone from'
         httpConfig:
-          $ref: "#/components/schemas/GitHttpConfig"
+          $ref: "#/components/schemas/HttpConfig"
       required:
         - repo
         - httpConfig
-    GitSshConfig:
+    SshConfig:
       type: object
       additionalProperties: false
       properties:
@@ -1892,7 +1892,7 @@ components:
         skipServerVerification:
           type: boolean
           description: 'Skip remote server verification'
-    GitSshRepoSpec:
+    SshRepoSpec:
       type: object
       additionalProperties: false
       properties:
@@ -1900,11 +1900,11 @@ components:
           type: string
           description: 'The SSH Git repository URL to clone from'
         sshConfig:
-          $ref: "#/components/schemas/GitSshConfig"
+          $ref: "#/components/schemas/SshConfig"
       required:
         - repo
         - sshConfig
-    GitGenericRepoSpec:
+    GenericRepoSpec:
       type: object
       additionalProperties: false
       properties:
@@ -1916,9 +1916,9 @@ components:
     RepositorySpec:
       type: object
       oneOf:
-        - $ref: "#/components/schemas/GitGenericRepoSpec"
-        - $ref: "#/components/schemas/GitHttpRepoSpec"
-        - $ref: "#/components/schemas/GitSshRepoSpec"
+        - $ref: "#/components/schemas/GenericRepoSpec"
+        - $ref: "#/components/schemas/HttpRepoSpec"
+        - $ref: "#/components/schemas/SshRepoSpec"
     RepositoryStatus:
       type: object
       properties:
@@ -2050,6 +2050,25 @@ components:
               additionalProperties: true
           required:
           - inline
+    HttpConfigProviderSpec:
+      allOf:
+        - $ref: '#/components/schemas/GenericConfigSpec'
+        - type: object
+          properties:
+            httpRef:
+              type: object
+              properties:
+                repository:
+                  type: string
+                  description: |
+                    The name of the repository resource to use as the sync source
+                filePath:
+                  type: string
+                  description: |
+                    The path to the file to land the body of the response
+          required:
+          - url
+          - filePath
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'
@@ -2070,7 +2089,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResourceAlertRule'
-          description: "Array of alert rules. Only one alert per severity is allowed." 
+          description: "Array of alert rules. Only one alert per severity is allowed."
         samplingInterval:
           type: string
           pattern: '^[1-9]\d*[smhd]$'
@@ -2110,7 +2129,7 @@ components:
       properties:
         severity:
           $ref: '#/components/schemas/ResourceAlertSeverityType'
-          description: "Severity of the alert."          
+          description: "Severity of the alert."
         duration:
           type: string
           pattern: '^\d+[smhd]$'
@@ -2711,6 +2730,7 @@ components:
               - $ref: "#/components/schemas/GitConfigProviderSpec"
               - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
               - $ref: "#/components/schemas/InlineConfigProviderSpec"
+              - $ref: "#/components/schemas/HttpConfigProviderSpec"
             discriminator:
               propertyName: configType
         containers:
@@ -2957,7 +2977,9 @@ components:
       - 'GitConfigProviderSpec'
       - 'KubernetesSecretProviderSpec'
       - 'InlineConfigProviderSpec'
+      - 'HttpConfigProviderSpec'
       x-enum-varnames:
       - 'TemplateDiscriminatorGitConfig'
       - 'TemplateDiscriminatorKubernetesSec'
       - 'TemplateDiscriminatorInlineConfig'
+      - 'TemplateDiscriminatorHttpConfig'
