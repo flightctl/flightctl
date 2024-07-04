@@ -369,9 +369,6 @@ type EnrollmentRequestApproval struct {
 
 	// Labels labels is a set of labels to apply to the device.
 	Labels *map[string]string `json:"labels,omitempty"`
-
-	// Region region is the region in which the device should be enrolled.
-	Region *string `json:"region,omitempty"`
 }
 
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
