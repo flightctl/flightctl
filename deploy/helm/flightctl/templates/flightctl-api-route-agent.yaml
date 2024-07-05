@@ -7,18 +7,18 @@ metadata:
     external-exposed: "true"
     paas.redhat.com/appcode: {{ .Values.appCode }}
     shard: external
-  name: flightctl-api-route
+  name: flightctl-api-route-agent
   namespace: {{ .Values.flightctl.api.namespace }}
 spec:
-  host: {{ .Values.flightctl.api.hostName }}
+  host: {{ .Values.flightctl.api.agentAPIHostName }}
   port:
-    targetPort: 3443
+    targetPort: 7443
   tls:
     termination: passthrough # the service is responsible for terminating TLS and authenticating devices through TLSs
     insecureEdgeTerminationPolicy: None
   to:
     kind: Service
-    name: flightctl-api
+    name: flightctl-api-agent
     weight: 100
   wildcardPolicy: None
 
