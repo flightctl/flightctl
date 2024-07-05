@@ -41,9 +41,6 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.CreateFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
-	if err := validateDiscriminators(request.Body); err != nil {
-		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
-	}
 
 	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
 	switch err {
