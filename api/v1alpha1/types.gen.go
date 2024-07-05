@@ -38,17 +38,8 @@ const (
 
 // Defines values for ConditionType.
 const (
-	DeviceAvailable            ConditionType = "Available"
-	DeviceCPUPressure          ConditionType = "CPUPressure"
-	DeviceContainersRunning    ConditionType = "ContainersRunning"
-	DeviceDegraded             ConditionType = "Degraded"
-	DeviceDiskPressure         ConditionType = "DiskPressure"
-	DeviceMemoryPressure       ConditionType = "MemoryPressure"
-	DevicePIDPressure          ConditionType = "PIDPressure"
-	DeviceProgressing          ConditionType = "Progressing"
-	DeviceReady                ConditionType = "Ready"
 	DeviceSpecValid            ConditionType = "SpecValid"
-	DeviceSystemdUnitsRunning  ConditionType = "SystemdUnitsRunning"
+	DeviceUpdating             ConditionType = "Updating"
 	EnrollmentRequestApproved  ConditionType = "Approved"
 	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
 	FleetValid                 ConditionType = "Valid"
@@ -70,6 +61,7 @@ const (
 // Defines values for DeviceResourceStatusType.
 const (
 	DeviceResourceStatusCritical DeviceResourceStatusType = "Critical"
+	DeviceResourceStatusError    DeviceResourceStatusType = "Error"
 	DeviceResourceStatusHealthy  DeviceResourceStatusType = "Healthy"
 	DeviceResourceStatusUnknown  DeviceResourceStatusType = "Unknown"
 	DeviceResourceStatusWarning  DeviceResourceStatusType = "Warning"
@@ -98,6 +90,13 @@ const (
 	Add     PatchRequestOp = "add"
 	Remove  PatchRequestOp = "remove"
 	Replace PatchRequestOp = "replace"
+)
+
+// Defines values for ResourceAlertSeverityType.
+const (
+	ResourceAlertSeverityTypeCritical ResourceAlertSeverityType = "Critical"
+	ResourceAlertSeverityTypeInfo     ResourceAlertSeverityType = "Info"
+	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
 // Defines values for TemplateDiscriminators.
@@ -133,6 +132,9 @@ type ApplicationsSummaryStatus struct {
 // ApplicationsSummaryStatusType defines model for ApplicationsSummaryStatusType.
 type ApplicationsSummaryStatusType string
 
+// CPUResourceMonitorSpec defines model for CPUResourceMonitorSpec.
+type CPUResourceMonitorSpec = ResourceMonitorSpec
+
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
@@ -156,22 +158,14 @@ type ConditionStatus string
 // ConditionType defines model for ConditionType.
 type ConditionType string
 
-// ContainerStatus defines model for ContainerStatus.
-type ContainerStatus struct {
-	// Engine Engine running the container (e.g., podman, crio, etc).
-	Engine string `json:"engine"`
+// CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
+type CustomResourceMonitorSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules  []ResourceAlertRule `json:"alertRules"`
+	MonitorType string              `json:"monitorType"`
 
-	// Id ID of the container.
-	Id string `json:"id"`
-
-	// Image Image of the container.
-	Image string `json:"image"`
-
-	// Name Name of the container.
-	Name string `json:"name"`
-
-	// Status Status of the container (e.g., running, stopped, etc.).
-	Status string `json:"status"`
+	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	SamplingInterval *string `json:"samplingInterval,omitempty"`
 }
 
 // Device Device represents a physical device.
@@ -247,9 +241,9 @@ type DeviceOSStatus struct {
 
 // DeviceResourceStatus defines model for DeviceResourceStatus.
 type DeviceResourceStatus struct {
-	Cpu    *DeviceResourceStatusType `json:"cpu,omitempty"`
-	Disk   *DeviceResourceStatusType `json:"disk,omitempty"`
-	Memory *DeviceResourceStatusType `json:"memory,omitempty"`
+	Cpu    DeviceResourceStatusType `json:"cpu"`
+	Disk   DeviceResourceStatusType `json:"disk"`
+	Memory DeviceResourceStatusType `json:"memory"`
 }
 
 // DeviceResourceStatusType defines model for DeviceResourceStatusType.
@@ -262,8 +256,11 @@ type DeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
-	Systemd *struct {
+	Os *DeviceOSSpec `json:"os,omitempty"`
+
+	// Resources Array of resource monitor configurations.
+	Resources *[]DeviceSpec_Resources_Item `json:"resources,omitempty"`
+	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
 }
@@ -273,28 +270,27 @@ type DeviceSpec_Config_Item struct {
 	union json.RawMessage
 }
 
+// DeviceSpec_Resources_Item defines model for DeviceSpec.resources.Item.
+type DeviceSpec_Resources_Item struct {
+	union json.RawMessage
+}
+
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 type DeviceStatus struct {
 	Applications DeviceApplicationsStatus `json:"applications"`
 
-	// Conditions Current state of the device.
-	Conditions []Condition        `json:"conditions"`
-	Config     DeviceConfigStatus `json:"config"`
-
-	// Containers Statuses of containers in the device.
-	Containers *[]ContainerStatus    `json:"containers,omitempty"`
+	// Conditions Conditions represent the observations of a the current state of a device.
+	Conditions map[string]Condition  `json:"conditions"`
+	Config     DeviceConfigStatus    `json:"config"`
 	Integrity  DeviceIntegrityStatus `json:"integrity"`
 	Os         DeviceOSStatus        `json:"os"`
-	Resource   DeviceResourceStatus  `json:"resource"`
+	Resources  DeviceResourceStatus  `json:"resources"`
 	Summary    DeviceSummaryStatus   `json:"summary"`
 
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
-	SystemInfo DeviceSystemInfo `json:"systemInfo"`
-
-	// SystemdUnits Current state of systemd units on the device.
-	SystemdUnits *[]DeviceSystemdUnitStatus `json:"systemdUnits,omitempty"`
-	Updated      DeviceUpdatedStatus        `json:"updated"`
-	UpdatedAt    time.Time                  `json:"updatedAt"`
+	SystemInfo DeviceSystemInfo    `json:"systemInfo"`
+	Updated    DeviceUpdatedStatus `json:"updated"`
+	UpdatedAt  time.Time           `json:"updatedAt"`
 }
 
 // DeviceSummaryStatus defines model for DeviceSummaryStatus.
@@ -315,26 +311,8 @@ type DeviceSystemInfo struct {
 	// BootID Boot ID reported by the device.
 	BootID string `json:"bootID"`
 
-	// MachineID MachineID reported by the device.
-	MachineID string `json:"machineID"`
-
-	// Measurements The integrity measurements of the system.
-	Measurements map[string]string `json:"measurements"`
-
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem string `json:"operatingSystem"`
-}
-
-// DeviceSystemdUnitStatus The status of the systemd unit.
-type DeviceSystemdUnitStatus struct {
-	// ActiveState The active state of the systemd unit.
-	ActiveState string `json:"activeState"`
-
-	// LoadState The load state of the systemd unit.
-	LoadState string `json:"loadState"`
-
-	// Name The name of the systemd unit.
-	Name interface{} `json:"name"`
 }
 
 // DeviceUpdatedStatus defines model for DeviceUpdatedStatus.
@@ -346,6 +324,19 @@ type DeviceUpdatedStatus struct {
 
 // DeviceUpdatedStatusType defines model for DeviceUpdatedStatusType.
 type DeviceUpdatedStatusType string
+
+// DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
+type DiskResourceMonitorSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules  []ResourceAlertRule `json:"alertRules"`
+	MonitorType string              `json:"monitorType"`
+
+	// Path The directory path to monitor for disk usage.
+	Path string `json:"path"`
+
+	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	SamplingInterval *string `json:"samplingInterval,omitempty"`
+}
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
@@ -378,9 +369,6 @@ type EnrollmentRequestApproval struct {
 
 	// Labels labels is a set of labels to apply to the device.
 	Labels *map[string]string `json:"labels,omitempty"`
-
-	// Region region is the region in which the device should be enrolled.
-	Region *string `json:"region,omitempty"`
 }
 
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
@@ -579,6 +567,9 @@ type ListMeta struct {
 	RemainingItemCount *int64 `json:"remainingItemCount,omitempty"`
 }
 
+// MemoryResourceMonitorSpec defines model for MemoryResourceMonitorSpec.
+type MemoryResourceMonitorSpec = ResourceMonitorSpec
+
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
 	// Annotations Properties set by the service.
@@ -625,9 +616,17 @@ type RenderedDeviceSpec struct {
 	} `json:"containers,omitempty"`
 	Os              *DeviceOSSpec `json:"os,omitempty"`
 	RenderedVersion string        `json:"renderedVersion"`
-	Systemd         *struct {
+
+	// Resources Array of resource monitor configurations.
+	Resources []RenderedDeviceSpec_Resources_Item `json:"resources"`
+	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
+}
+
+// RenderedDeviceSpec_Resources_Item defines model for RenderedDeviceSpec.resources.Item.
+type RenderedDeviceSpec_Resources_Item struct {
+	union json.RawMessage
 }
 
 // Repository Repository represents a git repository
@@ -670,6 +669,32 @@ type RepositorySpec struct {
 type RepositoryStatus struct {
 	// Conditions Current state of the repository.
 	Conditions []Condition `json:"conditions"`
+}
+
+// ResourceAlertRule defines model for ResourceAlertRule.
+type ResourceAlertRule struct {
+	// Description A human-readable description of the alert.
+	Description string `json:"description"`
+
+	// Duration Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	Duration string `json:"duration"`
+
+	// Percentage The percentage of usage that triggers the alert.
+	Percentage float32                   `json:"percentage"`
+	Severity   ResourceAlertSeverityType `json:"severity"`
+}
+
+// ResourceAlertSeverityType defines model for ResourceAlertSeverityType.
+type ResourceAlertSeverityType string
+
+// ResourceMonitorSpec defines model for ResourceMonitorSpec.
+type ResourceMonitorSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules  []ResourceAlertRule `json:"alertRules"`
+	MonitorType string              `json:"monitorType"`
+
+	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	SamplingInterval *string `json:"samplingInterval,omitempty"`
 }
 
 // ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
@@ -790,8 +815,11 @@ type TemplateVersionStatus struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os      *DeviceOSSpec `json:"os,omitempty"`
-	Systemd *struct {
+	Os *DeviceOSSpec `json:"os,omitempty"`
+
+	// Resources Array of resource monitor configurations.
+	Resources *[]TemplateVersionStatus_Resources_Item `json:"resources,omitempty"`
+	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
@@ -802,6 +830,11 @@ type TemplateVersionStatus_Config_Item struct {
 	union json.RawMessage
 }
 
+// TemplateVersionStatus_Resources_Item defines model for TemplateVersionStatus.resources.Item.
+type TemplateVersionStatus_Resources_Item struct {
+	union json.RawMessage
+}
+
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -809,6 +842,9 @@ type ListDevicesParams struct {
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
+	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
@@ -884,6 +920,11 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// TokenValidateParams defines parameters for TokenValidate.
+type TokenValidateParams struct {
+	Authentication *string `json:"Authentication,omitempty"`
 }
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
@@ -1055,6 +1096,304 @@ func (t DeviceSpec_Config_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsCPUResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a CPUResourceMonitorSpec
+func (t DeviceSpec_Resources_Item) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
+	var body CPUResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCPUResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided CPUResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPUResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCPUResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided CPUResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPUResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMemoryResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a MemoryResourceMonitorSpec
+func (t DeviceSpec_Resources_Item) AsMemoryResourceMonitorSpec() (MemoryResourceMonitorSpec, error) {
+	var body MemoryResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided MemoryResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) FromMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "MemoryResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMemoryResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided MemoryResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) MergeMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "MemoryResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDiskResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a DiskResourceMonitorSpec
+func (t DeviceSpec_Resources_Item) AsDiskResourceMonitorSpec() (DiskResourceMonitorSpec, error) {
+	var body DiskResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDiskResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided DiskResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) FromDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "DiskResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDiskResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided DiskResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) MergeDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "DiskResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCustomResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a CustomResourceMonitorSpec
+func (t DeviceSpec_Resources_Item) AsCustomResourceMonitorSpec() (CustomResourceMonitorSpec, error) {
+	var body CustomResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCustomResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided CustomResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) FromCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
+	v.MonitorType = "CustomResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCustomResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided CustomResourceMonitorSpec
+func (t *DeviceSpec_Resources_Item) MergeCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
+	v.MonitorType = "CustomResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t DeviceSpec_Resources_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"monitorType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t DeviceSpec_Resources_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "CPUResourceMonitorSpec":
+		return t.AsCPUResourceMonitorSpec()
+	case "CustomResourceMonitorSpec":
+		return t.AsCustomResourceMonitorSpec()
+	case "DiskResourceMonitorSpec":
+		return t.AsDiskResourceMonitorSpec()
+	case "MemoryResourceMonitorSpec":
+		return t.AsMemoryResourceMonitorSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t DeviceSpec_Resources_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *DeviceSpec_Resources_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsCPUResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a CPUResourceMonitorSpec
+func (t RenderedDeviceSpec_Resources_Item) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
+	var body CPUResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCPUResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided CPUResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPUResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCPUResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided CPUResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPUResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMemoryResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a MemoryResourceMonitorSpec
+func (t RenderedDeviceSpec_Resources_Item) AsMemoryResourceMonitorSpec() (MemoryResourceMonitorSpec, error) {
+	var body MemoryResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided MemoryResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) FromMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "MemoryResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMemoryResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided MemoryResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) MergeMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "MemoryResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDiskResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a DiskResourceMonitorSpec
+func (t RenderedDeviceSpec_Resources_Item) AsDiskResourceMonitorSpec() (DiskResourceMonitorSpec, error) {
+	var body DiskResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDiskResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided DiskResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) FromDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "DiskResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDiskResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided DiskResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) MergeDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "DiskResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCustomResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a CustomResourceMonitorSpec
+func (t RenderedDeviceSpec_Resources_Item) AsCustomResourceMonitorSpec() (CustomResourceMonitorSpec, error) {
+	var body CustomResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCustomResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided CustomResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) FromCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
+	v.MonitorType = "CustomResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCustomResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided CustomResourceMonitorSpec
+func (t *RenderedDeviceSpec_Resources_Item) MergeCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
+	v.MonitorType = "CustomResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RenderedDeviceSpec_Resources_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"monitorType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RenderedDeviceSpec_Resources_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "CPUResourceMonitorSpec":
+		return t.AsCPUResourceMonitorSpec()
+	case "CustomResourceMonitorSpec":
+		return t.AsCustomResourceMonitorSpec()
+	case "DiskResourceMonitorSpec":
+		return t.AsDiskResourceMonitorSpec()
+	case "MemoryResourceMonitorSpec":
+		return t.AsMemoryResourceMonitorSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RenderedDeviceSpec_Resources_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RenderedDeviceSpec_Resources_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -1262,6 +1601,155 @@ func (t TemplateVersionStatus_Config_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *TemplateVersionStatus_Config_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsCPUResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a CPUResourceMonitorSpec
+func (t TemplateVersionStatus_Resources_Item) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
+	var body CPUResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCPUResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided CPUResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPUResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCPUResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided CPUResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPUResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMemoryResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a MemoryResourceMonitorSpec
+func (t TemplateVersionStatus_Resources_Item) AsMemoryResourceMonitorSpec() (MemoryResourceMonitorSpec, error) {
+	var body MemoryResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided MemoryResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) FromMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "MemoryResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMemoryResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided MemoryResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) MergeMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "MemoryResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDiskResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a DiskResourceMonitorSpec
+func (t TemplateVersionStatus_Resources_Item) AsDiskResourceMonitorSpec() (DiskResourceMonitorSpec, error) {
+	var body DiskResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDiskResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided DiskResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) FromDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "DiskResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDiskResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided DiskResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) MergeDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "DiskResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCustomResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a CustomResourceMonitorSpec
+func (t TemplateVersionStatus_Resources_Item) AsCustomResourceMonitorSpec() (CustomResourceMonitorSpec, error) {
+	var body CustomResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCustomResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided CustomResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) FromCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
+	v.MonitorType = "CustomResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCustomResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided CustomResourceMonitorSpec
+func (t *TemplateVersionStatus_Resources_Item) MergeCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
+	v.MonitorType = "CustomResourceMonitorSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TemplateVersionStatus_Resources_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"monitorType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t TemplateVersionStatus_Resources_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "CPUResourceMonitorSpec":
+		return t.AsCPUResourceMonitorSpec()
+	case "CustomResourceMonitorSpec":
+		return t.AsCustomResourceMonitorSpec()
+	case "DiskResourceMonitorSpec":
+		return t.AsDiskResourceMonitorSpec()
+	case "MemoryResourceMonitorSpec":
+		return t.AsMemoryResourceMonitorSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t TemplateVersionStatus_Resources_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TemplateVersionStatus_Resources_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

@@ -11,3 +11,6 @@ service:
   altNames:
     - my-host.abc.com
     - localhost
+queue:
+  amqpUrl: amqp://127.0.0.1:5672/
+  managementUrl: http://127.0.0.1:15672/

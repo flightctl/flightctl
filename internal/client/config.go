@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/middleware"
@@ -66,6 +68,9 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
+	// Bearer token for authentication
+	// +optional
+	Token string `json:"token,omitempty"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
@@ -169,6 +174,9 @@ func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
 	}
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
+		if config.AuthInfo.Token != "" {
+			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", config.AuthInfo.Token))
+		}
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
@@ -218,21 +226,26 @@ func DefaultFlightctlClientConfigPath() string {
 	return filepath.Join(homedir.HomeDir(), ".flightctl", "client.yaml")
 }
 
-// NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
-func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
+func ParseConfigFile(filename string) (*Config, error) {
 	contents, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("reading config: %v", err)
+		return nil, fmt.Errorf("reading config: %w", err)
 	}
 	config := NewDefault()
 	if err := yaml.Unmarshal(contents, config); err != nil {
-		return nil, fmt.Errorf("decoding config: %v", err)
+		return nil, fmt.Errorf("decoding config: %w", err)
 	}
 	config.SetBaseDir(filepath.Dir(filename))
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	if err := config.Flatten(); err != nil {
+	return config, config.Flatten()
+}
+
+// NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
+func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
+	config, err := ParseConfigFile(filename)
+	if err != nil {
 		return nil, err
 	}
 	return NewFromConfig(config)
@@ -242,11 +255,11 @@ func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 func WriteConfig(filename string, server string, tlsServerName string, ca *crypto.TLSCertificateConfig, client *crypto.TLSCertificateConfig) error {
 	caCertPEM, _, err := ca.GetPEMBytes()
 	if err != nil {
-		return fmt.Errorf("PEM-encoding CA certs: %v", err)
+		return fmt.Errorf("PEM-encoding CA certs: %w", err)
 	}
 	clientCertPEM, clientKeyPEM, err := client.GetPEMBytes()
 	if err != nil {
-		return fmt.Errorf("PEM-encoding client cert and key: %v", err)
+		return fmt.Errorf("PEM-encoding client cert and key: %w", err)
 	}
 
 	config := NewDefault()
@@ -260,12 +273,20 @@ func WriteConfig(filename string, server string, tlsServerName string, ca *crypt
 		ClientKeyData:         clientKeyPEM,
 	}
 
-	contents, err := yaml.Marshal(config)
+	return config.Persist(filename)
+}
+
+func (c *Config) Persist(filename string) error {
+	contents, err := yaml.Marshal(c)
 	if err != nil {
-		return fmt.Errorf("encoding config: %v", err)
+		return fmt.Errorf("encoding config: %w", err)
+	}
+	directory := filename[:strings.LastIndex(filename, "/")]
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return fmt.Errorf("writing config: %w", err)
 	}
 	if err := os.WriteFile(filename, contents, 0600); err != nil {
-		return fmt.Errorf("writing config: %v", err)
+		return fmt.Errorf("writing config: %w", err)
 	}
 	return nil
 }

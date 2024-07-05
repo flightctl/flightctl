@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -16,22 +16,21 @@ import (
 func BenchmarkAggregateDeviceStatus(b *testing.B) {
 	require := require.New(b)
 	log := log.NewPrefixLogger("test")
-	tpmChannel, err := tpm.OpenTPMSimulator()
-	require.NoError(err)
-	defer tpmChannel.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	ctrl := gomock.NewController(b)
 	execMock := executer.NewMockExecuter(ctrl)
+	resourceMock := resource.NewMockManager(ctrl)
 	execMock.EXPECT().LookPath("crictl").Return("/usr/bin/crictl", nil).AnyTimes()
 	execMock.EXPECT().LookPath("podman").Return("/usr/bin/podman", nil).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/crictl", "ps", "-a", "--output", "json").Return(crioListResult, "", 0).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json").Return(podmanListResult, "", 0).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "crio.service").Return(systemdUnitListResult, "", 0).AnyTimes()
+	resourceMock.EXPECT().Usage().Return(&resource.Usage{}, nil).AnyTimes()
 
-	manager := NewManager("test", tpmChannel, execMock, log)
+	manager := NewManager("test", resourceMock, execMock, log)
 	systemdPatterns := []string{"crio.service"}
 
 	spec := &v1alpha1.RenderedDeviceSpec{
@@ -45,8 +44,7 @@ func BenchmarkAggregateDeviceStatus(b *testing.B) {
 	manager.SetProperties(spec)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		status, err := manager.aggregateDeviceStatus(ctx)
-		require.NoError(err)
+		status := manager.Get(ctx)
 		require.NotNil(status)
 	}
 }

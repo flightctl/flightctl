@@ -11,11 +11,13 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	apiserver "github.com/flightctl/flightctl/internal/api_server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/server"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
+	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
@@ -38,7 +40,7 @@ type TestHarness struct {
 
 	// attributes for the test harness
 	Context     context.Context
-	Server      *server.Server
+	Server      *apiserver.Server
 	Agent       *agent.Agent
 	Client      *apiclient.ClientWithResponses
 	Store       *store.Store
@@ -74,11 +76,15 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
+	provider := testutil.NewTestProvider()
 	// create server
-	server, listener, err := testutil.NewTestServer(serverLog, &serverCfg, store, ca, serverCerts)
+
+	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
+
+	workerServer := workerserver.New(&serverCfg, serverLog, store, provider)
 
 	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts)
 	if err != nil {
@@ -92,10 +98,20 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 
 	// start main api server
 	go func() {
-		err := server.Run(ctx)
+		os.Setenv(auth.DisableAuthEnvKey, "true")
+		err := apiServer.Run(ctx)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
 			goRoutineErrorHandler(fmt.Errorf("error starting main api server: %w", err))
+		}
+		cancel()
+	}()
+
+	go func() {
+		err := workerServer.Run()
+		if err != nil {
+			// provide a wrapper to allow require.NoError or ginkgo handling
+			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))
 		}
 		cancel()
 	}()
@@ -105,7 +121,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		err := agentServer.Run(ctx)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
-			goRoutineErrorHandler(fmt.Errorf("error starting main api server: %w", err))
+			goRoutineErrorHandler(fmt.Errorf("error starting main agent api server: %w", err))
 		}
 		cancel()
 	}()
@@ -150,7 +166,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		goRoutineErrorHandler: goRoutineErrorHandler,
 		Context:               ctx,
 		cancelCtx:             cancel,
-		Server:                server,
+		Server:                apiServer,
 		Client:                client,
 		Store:                 &store,
 		TestDirPath:           testDirPath}

@@ -11,9 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
@@ -37,67 +34,57 @@ import (
 //
 // In addition, we have the cases where the user deleted all fleets or devices in an org
 
-func FleetSelectorMatching(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelFleetSelectorMatch]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := FleetSelectorMatchingLogic{
-				taskManager: taskManager,
-				log:         log,
-				fleetStore:  taskManager.store.Fleet(),
-				devStore:    taskManager.store.Device(),
-				resourceRef: resourceRef,
-			}
-
-			var err error
-
-			switch {
-			case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.FleetKind:
-				err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.FleetKind:
-				err = logic.HandleOrgwideUpdate(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.FleetKind:
-				err = logic.HandleDeleteAllFleets(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.DeviceKind:
-				err = logic.CompareFleetsAndSetDeviceOwner(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.DeviceKind:
-				err = logic.HandleOrgwideUpdate(ctx)
-			case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.DeviceKind:
-				err = logic.HandleDeleteAllDevices(ctx)
-			default:
-				err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
-			}
-
-			if err != nil {
-				taskManager.log.Errorf("failed checking device ownership %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-			}
-		}
+func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+	logic := FleetSelectorMatchingLogic{
+		callbackManager: callbackManager,
+		log:             log,
+		fleetStore:      store.Fleet(),
+		devStore:        store.Device(),
+		resourceRef:     *resourceRef,
 	}
+
+	var err error
+
+	switch {
+	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.FleetKind:
+		err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
+	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.FleetKind:
+		err = logic.HandleOrgwideUpdate(ctx)
+	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.FleetKind:
+		err = logic.HandleDeleteAllFleets(ctx)
+	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.DeviceKind:
+		err = logic.CompareFleetsAndSetDeviceOwner(ctx)
+	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.DeviceKind:
+		err = logic.HandleOrgwideUpdate(ctx)
+	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.DeviceKind:
+		err = logic.HandleDeleteAllDevices(ctx)
+	default:
+		err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
+	}
+
+	if err != nil {
+		log.Errorf("failed checking device ownership %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+	}
+	return err
 }
 
 type FleetSelectorMatchingLogic struct {
-	taskManager  TaskManager
-	log          logrus.FieldLogger
-	fleetStore   store.Fleet
-	devStore     store.Device
-	resourceRef  ResourceReference
-	itemsPerPage int
+	callbackManager CallbackManager
+	log             logrus.FieldLogger
+	fleetStore      store.Fleet
+	devStore        store.Device
+	resourceRef     ResourceReference
+	itemsPerPage    int
 }
 
-func NewFleetSelectorMatchingLogic(taskManager TaskManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetSelectorMatchingLogic {
+func NewFleetSelectorMatchingLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetSelectorMatchingLogic {
 	return FleetSelectorMatchingLogic{
-		taskManager:  taskManager,
-		log:          log,
-		fleetStore:   storeInst.Fleet(),
-		devStore:     storeInst.Device(),
-		resourceRef:  resourceRef,
-		itemsPerPage: ItemsPerPage,
+		callbackManager: callbackManager,
+		log:             log,
+		fleetStore:      storeInst.Fleet(),
+		devStore:        storeInst.Device(),
+		resourceRef:     resourceRef,
+		itemsPerPage:    ItemsPerPage,
 	}
 }
 
@@ -612,7 +599,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, _, err := f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.taskManager.DeviceUpdatedCallback)
+	_, _, err := f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.callbackManager.DeviceUpdatedCallback)
 	return err
 }
 

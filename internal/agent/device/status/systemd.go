@@ -62,37 +62,14 @@ func (c *SystemD) Export(ctx context.Context, status *v1alpha1.DeviceStatus) err
 		return fmt.Errorf("failed unmarshalling systemctl list-units output: %w", err)
 	}
 
-	notRunning := 0
-	runningCondition := v1alpha1.Condition{
-		Type: v1alpha1.DeviceSystemdUnitsRunning,
-	}
-
-	deviceSystemdUnitStatus := make([]v1alpha1.DeviceSystemdUnitStatus, len(units))
-	for i, u := range units {
-		deviceSystemdUnitStatus[i].Name = u.Unit
-		deviceSystemdUnitStatus[i].LoadState = u.LoadState
-		deviceSystemdUnitStatus[i].ActiveState = u.ActiveState
-
-		if u.LoadState != systemdUnitLoaded || u.ActiveState != systemdUnitActive {
-			notRunning++
+	// TODO: handle removed units and use appropriate status
+	for _, u := range units {
+		status.Applications.Data[u.Unit] = v1alpha1.ApplicationStatus{
+			Name:   u.Unit,
+			Status: v1alpha1.ApplicationStatusUnknown,
 		}
 	}
 
-	if notRunning == 0 {
-		runningCondition.Status = v1alpha1.ConditionStatusTrue
-		runningCondition.Reason = "Running"
-	} else {
-		runningCondition.Status = v1alpha1.ConditionStatusFalse
-		runningCondition.Reason = "NotRunning"
-		unitStr := "unit"
-		if notRunning > 1 {
-			unitStr = "units"
-		}
-		runningCondition.Message = fmt.Sprintf("%d %s not running", notRunning, unitStr)
-	}
-	v1alpha1.SetStatusCondition(&status.Conditions, runningCondition)
-
-	status.SystemdUnits = &deviceSystemdUnitStatus
 	return nil
 }
 

@@ -8,37 +8,24 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
-func TemplateVersionPopulate(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelTemplateVersionPopulate]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := NewTemplateVersionPopulateLogic(taskManager, log, taskManager.store, resourceRef)
-			if resourceRef.Op == TemplateVersionPopulateOpCreated {
-				err := logic.SyncFleetTemplateToTemplateVersion(ctx)
-				if err != nil {
-					log.Errorf("failed populating template version %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				}
-			} else {
-				log.Errorf("TemplateVersionPopulate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
-			}
+func templateVersionPopulate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+	logic := NewTemplateVersionPopulateLogic(callbackManager, log, store, *resourceRef)
+	if resourceRef.Op == TemplateVersionPopulateOpCreated {
+		err := logic.SyncFleetTemplateToTemplateVersion(ctx)
+		if err != nil {
+			log.Errorf("failed populating template version %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 		}
+	} else {
+		log.Errorf("TemplateVersionPopulate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 	}
+	return nil
 }
 
 type TemplateVersionPopulateLogic struct {
-	taskManager     TaskManager
+	callbackManager CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
 	resourceRef     ResourceReference
@@ -47,8 +34,8 @@ type TemplateVersionPopulateLogic struct {
 	frozenConfig    []api.TemplateVersionStatus_Config_Item
 }
 
-func NewTemplateVersionPopulateLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) TemplateVersionPopulateLogic {
-	return TemplateVersionPopulateLogic{taskManager: taskManager, log: log, store: store, resourceRef: resourceRef}
+func NewTemplateVersionPopulateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) TemplateVersionPopulateLogic {
+	return TemplateVersionPopulateLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
 }
 
 func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx context.Context) error {
@@ -195,7 +182,7 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 	t.templateVersion.Status.Conditions = []api.Condition{}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)
 
-	err := t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(validationErr == nil), t.taskManager.TemplateVersionValidatedCallback)
+	err := t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(validationErr == nil), t.callbackManager.TemplateVersionValidatedCallback)
 	if err != nil {
 		return fmt.Errorf("failed setting TemplateVersion status: %w", err)
 	}

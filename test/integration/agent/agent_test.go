@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -53,7 +52,7 @@ var _ = Describe("Device Agent behavior", func() {
 		})
 
 		When("an enrollment request is approved", func() {
-			It("should mark enrollment resquest as approved", func() {
+			It("should mark enrollment request as approved", func() {
 				deviceName := ""
 				Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
 				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
@@ -73,23 +72,20 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 
 			It("should create a device, with the approval labels", func() {
-				// craft some specific labels and region we will test for in the device
+				// craft some specific labels we will test for in the device
 				approval := testutil.TestEnrollmentApproval()
 				const (
 					TEST_LABEL_1 = "label-1"
 					TEST_VALUE_1 = "value-1"
 					TEST_LABEL_2 = "label-2"
 					TEST_VALUE_2 = "value-2"
-					REGION       = "somewhere"
 				)
 				approval.Labels = &map[string]string{TEST_LABEL_1: TEST_VALUE_1, TEST_LABEL_2: TEST_VALUE_2}
-				approval.Region = util.StrToPtr(REGION)
 
 				dev := enrollAndWaitForDevice(h, approval)
 
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_1, TEST_VALUE_1))
 				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue(TEST_LABEL_2, TEST_VALUE_2))
-				Expect(*dev.Metadata.Labels).To(HaveKeyWithValue("region", REGION))
 			})
 
 			It("should write the agent.crt to the device", func() {
@@ -125,7 +121,7 @@ var _ = Describe("Device Agent behavior", func() {
 				dev := enrollAndWaitForDevice(h, approval)
 
 				GinkgoWriter.Printf(
-					"Waiting for /etc/motd file to be created on the device %s, with testDirPath: %s\n",
+					"Waiting for /var/lib/flightctl/certs/agent.crt file to be created on the device %s, with testDirPath: %s\n",
 					*dev.Metadata.Name, h.TestDirPath)
 
 				var fileInfo fs.FileInfo
@@ -138,6 +134,9 @@ var _ = Describe("Device Agent behavior", func() {
 					return true
 				}, TIMEOUT, POLLING).Should(BeTrue())
 
+				GinkgoWriter.Printf(
+					"Waiting for /etc/motd file to be created on the device %s, with testDirPath: %s\n",
+					*dev.Metadata.Name, h.TestDirPath)
 				Eventually(func() bool {
 					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/etc/motd"))
 					if err != nil && os.IsNotExist(err) {

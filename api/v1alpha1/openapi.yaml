@@ -8,6 +8,34 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/token/request:
+    get:
+      description: token request
+      operationId: tokenRequest
+      responses:
+        "301":
+          description: Redirect
+          headers:
+            Location:
+              type: "string"
+        "418":
+          description: Auth not configured
+  /api/v1/token/validate:
+    get:
+      description: token validation
+      operationId: tokenValidate
+      parameters:
+        - in: header
+          name: Authentication
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token valid
+        "401":
+          description: Token invalid
+        "418":
+          description: Auth not configured
   /api/v1/resourcesyncs:
     get:
       tags:
@@ -530,6 +558,13 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: statusFilter
+          in: query
+          description: A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
+          schema:
+            type: array
+            items:
+              type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -558,6 +593,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not allowed
           content:
             application/json:
               schema:
@@ -1962,6 +2003,83 @@ components:
               additionalProperties: true
           required:
           - inline
+    ResourceMonitorSpec:
+      type: object
+      properties:
+        monitorType:
+          type: string
+        alertRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceAlertRule'
+          description: "Array of alert rules. Only one alert per severity is allowed." 
+        samplingInterval:
+          type: string
+          pattern: '^\d+[smhd]$'
+          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+      discriminator:
+        propertyName: monitorType
+      required:
+        - monitorType
+        - alertRules
+        - frequency
+    CPUResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+          type: object
+          description: "Specification for monitoring CPU resource load."
+    MemoryResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+          type: object
+          description: "Specification for monitoring Memory resource usage."
+    DiskResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - type: object
+          description: "Specification for monitoring disk usage."
+          required:
+            - path
+          properties:
+            path:
+              type: string
+              description: "The directory path to monitor for disk usage."
+    CustomResourceMonitorSpec:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - type: object
+          description: "Specification for monitoring custom resources."
+    ResourceAlertRule:
+      type: object
+      properties:
+        severity:
+          $ref: '#/components/schemas/ResourceAlertSeverityType'
+          description: "Severity of the alert."          
+        duration:
+          type: string
+          pattern: '^\d+[smhd]$'
+          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+        percentage:
+          type: number
+          description: 'The percentage of usage that triggers the alert.'
+        description:
+          type: string
+          description: 'A human-readable description of the alert.'
+      required:
+        - severity
+        - duration
+        - percentage
+        - description
+    ResourceAlertSeverityType:
+      type: string
+      enum:
+        - "Warning"
+        - "Critical"
+        - "Info"
+      x-enum-varnames:
+        - "ResourceAlertSeverityTypeWarning"
+        - "ResourceAlertSeverityTypeCritical"
+        - "ResourceAlertSeverityTypeInfo"
     DeviceList:
       type: object
       properties:
@@ -1998,7 +2116,7 @@ components:
         - conditions
         - systemInfo
         - applications
-        - resource
+        - resources
         - integrity
         - config
         - os
@@ -2007,26 +2125,16 @@ components:
         - updatedAt
       properties:
         conditions:
-          type: array
-          description: 'Current state of the device.'
-          items:
+          type: object
+          description: "Conditions represent the observations of a the current state of a device."
+          additionalProperties:
             $ref: '#/components/schemas/Condition'
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
-        containers: # deprecated
-          type: array
-          description: Statuses of containers in the device.
-          items:
-            $ref: "#/components/schemas/ContainerStatus"
-        systemdUnits: # deprecated
-          type: array
-          description: "Current state of systemd units on the device."
-          items:
-            $ref: "#/components/schemas/DeviceSystemdUnitStatus"
         applications:
           $ref: "#/components/schemas/DeviceApplicationsStatus"
           description: "Current status of the system applications."
-        resource:
+        resources:
           $ref: "#/components/schemas/DeviceResourceStatus"
           description: "Current status of the resources of the device."
         integrity:
@@ -2052,9 +2160,7 @@ components:
       required:
         - architecture
         - bootID
-        - machineID
         - operatingSystem
-        - measurements
       type: object
       properties:
         architecture:
@@ -2063,58 +2169,10 @@ components:
         bootID:
           type: string
           description: Boot ID reported by the device.
-        machineID: # deprecated
-          type: string
-          description: 'MachineID reported by the device.'
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
-        measurements: # deprecated
-          type: object
-          additionalProperties:
-            type: string
-          description: The integrity measurements of the system.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
-    ContainerStatus:
-      required:
-        - id
-        - image
-        - name
-        - status
-        - engine
-      type: object
-      properties:
-        name:
-          type: string
-          description: Name of the container.
-        id:
-          type: string
-          description: ID of the container.
-        status:
-          type: string
-          description: Status of the container (e.g., running, stopped, etc.).
-        image:
-          type: string
-          description: Image of the container.
-        engine:
-          type: string
-          description: Engine running the container (e.g., podman, crio, etc).
-    DeviceSystemdUnitStatus:
-      required:
-        - name
-        - loadState
-        - activeState
-      type: object
-      properties:
-        name:
-          description: The name of the systemd unit.
-        loadState:
-          type: string
-          description: The load state of the systemd unit.
-        activeState:
-          type: string
-          description: The active state of the systemd unit.
-      description: The status of the systemd unit.
     DeviceApplicationsStatus:
       type: object
       required:
@@ -2287,6 +2345,10 @@ components:
         - "DeviceIntegrityStatusUnsupported"
     DeviceResourceStatus:
       type: object
+      required:
+        - cpu
+        - memory
+        - disk
       properties:
         cpu:
           $ref: "#/components/schemas/DeviceResourceStatusType"
@@ -2303,11 +2365,13 @@ components:
         - "Healthy"
         - "Warning"
         - "Critical"
+        - "Error"
         - "Unknown"
       x-enum-varnames:
         - "DeviceResourceStatusHealthy"
         - "DeviceResourceStatusWarning"
         - "DeviceResourceStatusCritical"
+        - "DeviceResourceStatusError"
         - "DeviceResourceStatusUnknown"
 
     EnrollmentRequestApproval:
@@ -2318,9 +2382,6 @@ components:
           additionalProperties:
             type: string
           description: 'labels is a set of labels to apply to the device.'
-        region:
-          type: string
-          description: 'region is the region in which the device should be enrolled.'
         approved:
           type: boolean
           description: 'approved indicates whether the request has been approved.'
@@ -2570,8 +2631,21 @@ components:
               type: array
               items:
                 type: string
+        resources:
+          type: array
+          description: 'Array of resource monitor configurations.'
+          items:
+            type: object
+            oneOf:
+              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
+              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
+              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
+            discriminator:
+              propertyName: monitorType
       required:
         - renderedVersion
+        - resources
     DeviceSpec:
       type: object
       properties:
@@ -2605,6 +2679,18 @@ components:
                 type: string
                 pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
                 maxLength: 256
+        resources:
+          type: array
+          description: 'Array of resource monitor configurations.'
+          items:
+            type: object
+            oneOf:
+              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
+              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
+              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
+            discriminator:
+              propertyName: monitorType
     FleetStatus:
       type: object
       properties:
@@ -2797,16 +2883,7 @@ components:
       - 'Synced'               # ResourceSync
       - 'OverlappingSelectors' # Fleet
       - 'Valid'                # Fleet
-      - 'Ready'                # Device
-      - 'DiskPressure'         # Device
-      - 'MemoryPressure'       # Device
-      - 'PIDPressure'          # Device
-      - 'CPUPressure'          # Device
-      - 'Available'            # Device
-      - 'Progressing'          # Device
-      - 'Degraded'             # Device
-      - 'SystemdUnitsRunning'  # Device
-      - 'ContainersRunning'    # Device
+      - 'Updating'             # Device
       - 'SpecValid'            # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
@@ -2817,16 +2894,7 @@ components:
       - ResourceSyncSynced
       - FleetOverlappingSelectors
       - FleetValid
-      - DeviceReady
-      - DeviceDiskPressure
-      - DeviceMemoryPressure
-      - DevicePIDPressure
-      - DeviceCPUPressure
-      - DeviceAvailable
-      - DeviceProgressing
-      - DeviceDegraded
-      - DeviceSystemdUnitsRunning
-      - DeviceContainersRunning
+      - DeviceUpdating
       - DeviceSpecValid
       - TemplateVersionValid
     ConditionStatus:

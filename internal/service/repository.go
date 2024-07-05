@@ -28,7 +28,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 		return server.CreateRepository400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 
-	result, err := h.store.Repository().Create(ctx, orgId, request.Body, h.taskManager.RepositoryUpdatedCallback)
+	result, err := h.store.Repository().Create(ctx, orgId, request.Body, h.callbackManager.RepositoryUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateRepository201JSONResponse(*result), nil
@@ -83,7 +83,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.DeleteRepositoriesRequestObject) (server.DeleteRepositoriesResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().DeleteAll(ctx, orgId, h.taskManager.AllRepositoriesDeletedCallback)
+	err := h.store.Repository().DeleteAll(ctx, orgId, h.callbackManager.AllRepositoriesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteRepositories200JSONResponse{}, nil
@@ -122,7 +122,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 		return server.ReplaceRepository400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body, h.taskManager.RepositoryUpdatedCallback)
+	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body, h.callbackManager.RepositoryUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -145,7 +145,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.DeleteRepositoryRequestObject) (server.DeleteRepositoryResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().Delete(ctx, orgId, request.Name, h.taskManager.RepositoryUpdatedCallback)
+	err := h.store.Repository().Delete(ctx, orgId, request.Name, h.callbackManager.RepositoryUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteRepository200JSONResponse{}, nil
@@ -196,8 +196,8 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 
 	var updateCallback func(repo *model.Repository)
 
-	if h.taskManager != nil {
-		updateCallback = h.taskManager.RepositoryUpdatedCallback
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.RepositoryUpdatedCallback
 	}
 	result, _, err := h.store.Repository().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
 

@@ -6,13 +6,23 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
+
+func resourceSyncParams(t *testing.T) (CallbackManager, store.Store, logrus.FieldLogger) {
+	ctrl := gomock.NewController(t)
+	l := flightlog.InitLogs()
+	return NewCallbackManager(queues.NewMockPublisher(ctrl), l), nil, l
+}
 
 func TestIsValidFile_invalid(t *testing.T) {
 	require := require.New(t)
@@ -61,7 +71,7 @@ func TestParseAndValidate_already_in_sync(t *testing.T) {
 	rs := testResourceSync()
 	repo, err := testRepo()
 	require.NoError(err)
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	// Patch the status so we are already in sync
 	rs.Status.Data.ObservedCommit = &gitRepoCommit
@@ -78,7 +88,7 @@ func TestParseAndValidate_no_files(t *testing.T) {
 	rs := testResourceSync()
 	repo, err := testRepo()
 	require.NoError(err)
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	// Empty folder
 	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
@@ -90,7 +100,7 @@ func TestParseAndValidate_unsupportedFiles(t *testing.T) {
 	rs := testResourceSync()
 	repo, err := testRepo()
 	require.NoError(err)
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.Error(err)
@@ -101,7 +111,7 @@ func TestParseAndValidate_singleFile(t *testing.T) {
 	rs := testResourceSync()
 	repo, err := testRepo()
 	require.NoError(err)
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	rs.Spec.Data.Path = "/examples/fleet.yaml"
 	resources, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
@@ -116,7 +126,7 @@ func TestExtractResourceFromFile(t *testing.T) {
 	memfs := memfs.New()
 	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
 
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
 	require.NoError(err)
@@ -132,7 +142,7 @@ func TestExtractResourceFromDir(t *testing.T) {
 	writeCopy(memfs, "../../examples/fleet.yaml", "/fleets/fleet.yaml")
 	writeCopy(memfs, "../../examples/fleet-b.yaml", "/fleets/fleet-b.yaml")
 
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	genericResources, err := rsTask.extractResourcesFromDir(memfs, "/fleets/")
 	require.NoError(err)
@@ -148,7 +158,7 @@ func TestExtractResourceFromFile_incompatible(t *testing.T) {
 	memfs := memfs.New()
 	writeCopy(memfs, "../../examples/device.yaml", "/device.yaml")
 
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	_, err := rsTask.extractResourcesFromFile(memfs, "/device.yaml")
 	require.Error(err)
@@ -160,7 +170,7 @@ func TestParseFleet(t *testing.T) {
 	memfs := memfs.New()
 	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
 
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
 	require.NoError(err)
@@ -183,7 +193,7 @@ func TestParseFleet_invalid(t *testing.T) {
 	memfs := memfs.New()
 	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
 
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
 	require.NoError(err)
@@ -203,7 +213,7 @@ func TestParseFleet_multiple(t *testing.T) {
 	writeCopy(memfs, "../../examples/fleet.yaml", "/fleets/fleet.yaml")
 	writeCopy(memfs, "../../examples/fleet-b.yaml", "/fleets/fleet-b.yaml")
 
-	rsTask := NewResourceSync(TaskManager{log: flightlog.InitLogs()})
+	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	genericResources, err := rsTask.extractResourcesFromDir(memfs, "/fleets")
 	require.NoError(err)

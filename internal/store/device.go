@@ -65,7 +65,22 @@ func (s *DeviceStore) InitialMigration() error {
 				return err
 			}
 		} else {
-			return s.db.Migrator().CreateIndex(&model.Device{}, "Labels")
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for device status
+	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_status") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Status"); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -16,10 +16,10 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -100,27 +100,37 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// initialize the TPM
-	var tpmChannel *tpm.TPM
-	if len(a.config.TPMPath) > 0 {
-		tpmChannel, err = tpm.OpenTPM(a.config.TPMPath)
-		if err != nil {
-			return fmt.Errorf("opening TPM channel: %w", err)
-		}
-	} else {
-		tpmChannel, err = tpm.OpenTPMSimulator()
-		if err != nil {
-			return fmt.Errorf("opening TPM simulator channel: %w", err)
-		}
-	}
-	defer tpmChannel.Close()
-
 	executer := &executer.CommonExecuter{}
+
+	// TODO: expose through config
+	diskAlertFreeCapacityThreshold := int64(10)
+	diskWarnFreeCapacityThreshold := int64(20)
+	diskPaths := []string{"/"}
+	diskSyncDuration := time.Minute
+	diskTimeoutDuration := time.Second * 5
+
+	cpuAlertFreeCapacityThreshold := int64(10)
+	cpuWarnFreeCapacityThreshold := int64(20)
+	cpuSyncDuration := time.Minute
+	cpuTimeoutDuration := time.Second * 5
+
+	resourceManager := resource.NewManager(
+		a.log,
+		diskAlertFreeCapacityThreshold,
+		diskWarnFreeCapacityThreshold,
+		diskPaths,
+		diskSyncDuration,
+		diskTimeoutDuration,
+		cpuAlertFreeCapacityThreshold,
+		cpuWarnFreeCapacityThreshold,
+		cpuSyncDuration,
+		cpuTimeoutDuration,
+	)
 
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
-		tpmChannel,
+		resourceManager,
 		executer,
 		a.log,
 	)
@@ -199,6 +209,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		osImageController,
 		a.log,
 	)
+
+	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
 }

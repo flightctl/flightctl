@@ -10,11 +10,13 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/thoas/go-funk"
 	"sigs.k8s.io/yaml"
 )
@@ -29,8 +31,11 @@ var (
 )
 
 type GetOptions struct {
+	GlobalOptions
+
 	Owner         string
 	LabelSelector string
+	StatusFilter  []string
 	Output        string
 	Limit         int32
 	Continue      string
@@ -38,9 +43,21 @@ type GetOptions struct {
 	Rendered      bool
 }
 
-func NewCmdGet() *cobra.Command {
-	o := &GetOptions{LabelSelector: "", Limit: 0, Continue: ""}
+func DefaultGetOptions() *GetOptions {
+	return &GetOptions{
+		GlobalOptions: DefaultGlobalOptions(),
+		Owner:         "",
+		LabelSelector: "",
+		StatusFilter:  []string{},
+		Limit:         0,
+		Continue:      "",
+		FleetName:     "",
+		Rendered:      false,
+	}
+}
 
+func NewCmdGet() *cobra.Command {
+	o := DefaultGetOptions()
 	cmd := &cobra.Command{
 		Use:   "get (TYPE | TYPE/NAME)",
 		Short: "Display one or many resources.",
@@ -56,18 +73,28 @@ func NewCmdGet() *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
-
-	cmd.Flags().StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
-	cmd.Flags().StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, as a comma-separated list of key=value.")
-	cmd.Flags().StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
-	cmd.Flags().Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
-	cmd.Flags().StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
-	cmd.Flags().StringVar(&o.FleetName, "fleetname", o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
-	cmd.Flags().BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting devices).")
+	o.Bind(cmd.Flags())
 	return cmd
 }
 
+func (o *GetOptions) Bind(fs *pflag.FlagSet) {
+	o.GlobalOptions.Bind(fs)
+
+	fs.StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
+	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, as a comma-separated list of key=value.")
+	fs.StringSliceVar(&o.StatusFilter, "status-filter", o.StatusFilter, "Filter the results by status field path using key-value pairs. Example: --status-filter=updated.status=UpToDate")
+	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
+	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
+	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
+	fs.StringVar(&o.FleetName, "fleetname", o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
+	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting devices).")
+}
+
 func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
+	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
+		return err
+	}
+
 	// If a label selector is provided, ensure keys without value still have '=' appended
 	if len(o.LabelSelector) > 0 {
 		labels := strings.Split(o.LabelSelector, ",")
@@ -83,6 +110,10 @@ func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *GetOptions) Validate(args []string) error {
+	if err := o.GlobalOptions.Validate(args); err != nil {
+		return err
+	}
+
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
@@ -114,7 +145,7 @@ func (o *GetOptions) Validate(args []string) error {
 }
 
 func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
-	c, err := client.NewFromConfigFile(defaultClientConfigFile)
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -134,6 +165,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		params := api.ListDevicesParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			StatusFilter:  util.SliceToPtrWithNilDefault(o.StatusFilter),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
@@ -268,29 +300,55 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 }
 
 func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesResponse) {
-	fmt.Fprintln(w, "NAME\tOWNER")
+	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range response.JSON200.Items {
-		fmt.Fprintf(w, "%s\t%s\n", *d.Metadata.Name, util.DefaultIfNil(d.Metadata.Owner, "<None>"))
+		lastSeen := "<never>"
+		if !d.Status.UpdatedAt.IsZero() {
+			lastSeen = humanize.Time(d.Status.UpdatedAt)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			*d.Metadata.Name,
+			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
+			d.Status.Summary.Status,
+			d.Status.Updated.Status,
+			d.Status.Applications.Summary.Status,
+			lastSeen,
+		)
 	}
 }
 
 func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListEnrollmentRequestsResponse) {
-	fmt.Fprintln(w, "NAME\tAPPROVED\tREGION")
+	fmt.Fprintln(w, "NAME\tAPPROVAL\tAPPROVER\tAPPROVED LABELS")
 	for _, e := range response.JSON200.Items {
-		approved := ""
-		region := ""
+		approval, approver, approvedLabels := "Pending", "<none>", ""
 		if e.Status.Approval != nil {
-			approved = fmt.Sprintf("%t", e.Status.Approval.Approved)
-			region = *e.Status.Approval.Region
+			approval = util.BoolToStr(e.Status.Approval.Approved, "Approved", "Denied")
+			if e.Status.Approval.ApprovedBy != nil {
+				approver = *e.Status.Approval.ApprovedBy
+			}
+			approvedLabels = strings.Join(util.LabelMapToArray(e.Status.Approval.Labels), ",")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", *e.Metadata.Name, approved, region)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+			*e.Metadata.Name,
+			approval,
+			approver,
+			approvedLabels,
+		)
 	}
 }
 
 func printFleetsTable(w *tabwriter.Writer, response *apiclient.ListFleetsResponse) {
-	fmt.Fprintln(w, "NAME\tOWNER")
+	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR")
 	for _, f := range response.JSON200.Items {
-		fmt.Fprintf(w, "%s\t%s\n", *f.Metadata.Name, util.DefaultIfNil(f.Metadata.Owner, "<None>"))
+		selector := "<none>"
+		if f.Spec.Selector != nil {
+			selector = strings.Join(util.LabelMapToArray(&f.Spec.Selector.MatchLabels), ",")
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n",
+			*f.Metadata.Name,
+			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
+			selector,
+		)
 	}
 }
 
@@ -302,27 +360,47 @@ func printTemplateVersionsTable(w *tabwriter.Writer, response *apiclient.ListTem
 }
 
 func printRepositoriesTable(w *tabwriter.Writer, response *apiclient.ListRepositoriesResponse) {
-	fmt.Fprintln(w, "NAME\tACCESSIBLE\tREASON\tMESSAGE")
-
+	fmt.Fprintln(w, "NAME\tREPOSITORY URL\tACCESSIBLE")
 	for _, f := range response.JSON200.Items {
-		accessible := "-"
-		reason := ""
-		message := ""
-		if f.Status != nil && len(f.Status.Conditions) > 0 {
-			accessible = string(f.Status.Conditions[0].Status)
-			reason = f.Status.Conditions[0].Reason
-			message = f.Status.Conditions[0].Message
+		accessible := "Unknown"
+		if f.Status != nil {
+			condition := api.FindStatusCondition(f.Status.Conditions, api.RepositoryAccessible)
+			if condition != nil {
+				accessible = string(condition.Status)
+			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", *f.Metadata.Name, accessible, reason, message)
+		fmt.Fprintf(w, "%s\t%s\t%s\n",
+			*f.Metadata.Name,
+			util.DefaultIfError(f.Spec.GetRepoURL, ""),
+			accessible,
+		)
 	}
 }
 
 func printResourceSyncsTable(w *tabwriter.Writer, response *apiclient.ListResourceSyncResponse) {
-	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH")
+	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH\tREVISION\tACCESSIBLE\tSYNCED\tLAST SYNC")
 
 	for _, f := range response.JSON200.Items {
-		reponame := f.Spec.Repository
-		path := f.Spec.Path
-		fmt.Fprintf(w, "%s\t%s\t%s\n", *f.Metadata.Name, reponame, path)
+		accessible, synced, lastSynced := "Unknown", "Unknown", "Unknown"
+		if f.Status != nil {
+			condition := api.FindStatusCondition(f.Status.Conditions, api.ResourceSyncAccessible)
+			if condition != nil {
+				accessible = string(condition.Status)
+			}
+			condition = api.FindStatusCondition(f.Status.Conditions, api.ResourceSyncSynced)
+			if condition != nil {
+				synced = string(condition.Status)
+				lastSynced = humanize.Time(condition.LastTransitionTime)
+			}
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			*f.Metadata.Name,
+			f.Spec.Repository,
+			f.Spec.Path,
+			f.Spec.TargetRevision,
+			accessible,
+			synced,
+			lastSynced,
+		)
 	}
 }

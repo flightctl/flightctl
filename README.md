@@ -129,7 +129,7 @@ Then start the server:
 
 ```
 rm $HOME/.flightctl/client.yaml
-bin/flightctl-server
+FLIGHTCTL_DISABLE_AUTH=true bin/flightctl-server
 ```
 
 ## Metrics

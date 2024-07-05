@@ -80,7 +80,8 @@ func TestEnsureEnrollment(t *testing.T) {
 			defer ctrl.Finish()
 
 			statusManager := status.NewMockManager(ctrl)
-			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}, nil).Times(1)
+			statusManager.EXPECT().Sync(gomock.Any()).Return(nil).Times(1)
+			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}).Times(1)
 
 			log := flightlog.NewPrefixLogger("")
 
@@ -144,7 +145,6 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
-		//imageController = device.NewOSImageController(execMock, statusManager, log, "")
 
 		// initialize storage
 		tmpDir = GinkgoT().TempDir()
@@ -266,6 +266,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			hostJson, err := json.Marshal(bootcHost)
 			Expect(err).ToNot(HaveOccurred())
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
+			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
 
 			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -298,7 +299,21 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
 
-			statusManager.EXPECT().UpdateConditionError(gomock.Any(), BootedWithUnexpectedImage, fmt.Errorf("booted image image, expected newimage"))
+			summaryStatus := v1alpha1.DeviceSummaryStatusDegraded
+			infoMsg := fmt.Sprintf("Booted image %s, expected %s", container.GetImage(&bootcHost), desiredConfig.Os.Image)
+
+			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, fn status.UpdateStatusFn) (*v1alpha1.DeviceStatus, error) {
+					status := v1alpha1.NewDeviceStatus()
+					err := fn(&status)
+					Expect(err).To(BeNil())
+					Expect(status.Summary.Status).To(Equal(summaryStatus))
+					Expect(status.Summary.Info).To(Equal(&infoMsg))
+					return &status, nil
+				},
+			).Times(1)
+
+			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}).AnyTimes()
 
 			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
 			Expect(err).ToNot(HaveOccurred())

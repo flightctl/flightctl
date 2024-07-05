@@ -6,14 +6,24 @@ import (
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type DeleteOptions struct {
+	GlobalOptions
+
 	FleetName string
 }
 
+func DefaultDeleteOptions() *DeleteOptions {
+	return &DeleteOptions{
+		GlobalOptions: DefaultGlobalOptions(),
+		FleetName:     "",
+	}
+}
+
 func NewCmdDelete() *cobra.Command {
-	o := &DeleteOptions{}
+	o := DefaultDeleteOptions()
 	cmd := &cobra.Command{
 		Use:   "delete (TYPE | TYPE/NAME)",
 		Short: "Delete resources by resources or owner.",
@@ -29,15 +39,29 @@ func NewCmdDelete() *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
-	cmd.Flags().StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing templateversions.")
+	o.Bind(cmd.Flags())
 	return cmd
 }
 
+func (o *DeleteOptions) Bind(fs *pflag.FlagSet) {
+	o.GlobalOptions.Bind(fs)
+
+	fs.StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing templateversions.")
+}
+
 func (o *DeleteOptions) Complete(cmd *cobra.Command, args []string) error {
+	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (o *DeleteOptions) Validate(args []string) error {
+	if err := o.GlobalOptions.Validate(args); err != nil {
+		return err
+	}
+
 	kind, _, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
@@ -49,7 +73,7 @@ func (o *DeleteOptions) Validate(args []string) error {
 }
 
 func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
-	c, err := client.NewFromConfigFile(defaultClientConfigFile)
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}

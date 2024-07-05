@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
@@ -15,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 )
 
-// Agent is responsible for managing the workloads, configuration and status of the device.
+// Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	name              string
 	deviceWriter      *fileio.Writer
@@ -70,16 +71,28 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-fetchSpecTicker.C:
 			a.log.Debug("Fetching device spec")
 			if err := a.syncDevice(ctx); err != nil {
-				// TODO handle status updates
-				a.log.Errorf("Failed to ensure device: %v", err)
+				infoMsg := fmt.Sprintf("Failed to sync device: %v", err)
+				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+					Status: v1alpha1.DeviceSummaryStatusDegraded,
+					Info:   util.StrToPtr(infoMsg),
+				}))
+				if updateErr != nil {
+					a.log.Errorf("Failed to update device status: %v", updateErr)
+				}
+				a.log.Error(infoMsg)
+				continue
+			}
+
+			_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+				Status: v1alpha1.DeviceSummaryStatusOnline,
+				Info:   nil,
+			}))
+			if updateErr != nil {
+				a.log.Errorf("Failed to update device status: %v", updateErr)
 			}
 		case <-fetchStatusTicker.C:
 			a.log.Debug("Fetching device status")
-			status, err := a.statusManager.Get(ctx)
-			if err != nil {
-				a.log.Errorf("Failed to get device status: %v", err)
-			}
-			if err := a.statusManager.Update(ctx, status); err != nil {
+			if err := a.statusManager.Sync(ctx); err != nil {
 				a.log.Errorf("Failed to update device status: %v", err)
 			}
 
@@ -99,12 +112,22 @@ func (a *Agent) syncDevice(ctx context.Context) error {
 		return nil
 	}
 
+	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceUpdating,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  "Updating",
+		Message: fmt.Sprintf("The device is updating to renderedVersion: %s", desired.RenderedVersion),
+	})
+	if updateErr != nil {
+		a.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
 	if err := a.configController.Sync(&desired); err != nil {
 		return err
 	}
 
 	if err := a.osImageController.Sync(ctx, &desired); err != nil {
-		return fmt.Errorf("sync os image: %w", err)
+		return err
 	}
 
 	// set status collector properties based on new desired spec
@@ -112,5 +135,33 @@ func (a *Agent) syncDevice(ctx context.Context) error {
 
 	// write the desired spec to the current spec file
 	// this would only happen if there was no os image change as that requires a reboot
-	return a.specManager.WriteCurrentRendered(&desired)
+	if err := a.specManager.WriteCurrentRendered(&desired); err != nil {
+		return err
+	}
+
+	updateErr = a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceUpdating,
+		Status:  v1alpha1.ConditionStatusFalse,
+		Reason:  "Updated",
+		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.RenderedVersion),
+	})
+	if updateErr != nil {
+		a.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
+	updateFns := []status.UpdateStatusFn{
+		status.SetOSImage(v1alpha1.DeviceOSStatus{
+			Image: current.Os.Image,
+		}),
+		status.SetConfig(v1alpha1.DeviceConfigStatus{
+			RenderedVersion: current.RenderedVersion,
+		}),
+	}
+
+	_, updateErr = a.statusManager.Update(ctx, updateFns...)
+	if updateErr != nil {
+		a.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
+	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
@@ -30,6 +31,7 @@ type Bootstrap struct {
 	enrollmentClient     *client.Enrollment
 	enrollmentUIEndpoint string
 	statusManager        status.Manager
+	bootcClient          *container.BootcCmd
 	backoff              wait.Backoff
 
 	currentRenderedFile string
@@ -67,6 +69,7 @@ func NewBootstrap(
 		enrollmentClient:        enrollmentClient,
 		enrollmentUIEndpoint:    enrollmentUIEndpoint,
 		managementServiceConfig: managementServiceConfig,
+		bootcClient:             container.NewBootcCmd(executer),
 		backoff:                 backoff,
 		currentRenderedFile:     currentRenderedFile,
 		desiredRenderedFile:     desiredRenderedFile,
@@ -84,27 +87,38 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.ensureCurrentRenderedSpecUpToDate(ctx); err != nil {
-		return err
-	}
-
-	if err := b.ensureRenderedSpec(ctx); err != nil {
-		if updateErr := b.statusManager.UpdateConditionError(ctx, "BootstrapFailed", err); updateErr != nil {
-			b.log.Errorf("Failed to update condition: %v", updateErr)
+	if err := b.ensureBootstrap(ctx); err != nil {
+		infoMsg := fmt.Sprintf("Bootstrap failed: %v", err)
+		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusError,
+			Info:   util.StrToPtr(infoMsg),
+		}))
+		if updateErr != nil {
+			b.log.Warnf("Failed setting status: %v", updateErr)
 		}
+		b.log.Error(infoMsg)
+
 		return err
 	}
 
-	// TODO: allow multiple conditions to be set with retry
-	if err := b.statusManager.UpdateCondition(ctx, v1alpha1.DeviceAvailable, v1alpha1.ConditionStatusTrue, "AsExpected", "All is good"); err != nil {
-		b.log.Errorf("Failed to update condition: %v", err)
-	}
-	if err := b.statusManager.UpdateCondition(ctx, v1alpha1.DeviceProgressing, v1alpha1.ConditionStatusFalse, "AsExpected", "All is good"); err != nil {
-		b.log.Errorf("Failed to update condition: %v", err)
+	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+		Status: v1alpha1.DeviceSummaryStatusOnline,
+		Info:   util.StrToPtr("Bootstrap complete"),
+	}))
+	if updateErr != nil {
+		b.log.Warnf("Failed setting status: %v", updateErr)
 	}
 
 	b.log.Info("Bootstrap complete")
 	return nil
+}
+
+func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
+	if err := b.ensureCurrentRenderedSpecUpToDate(ctx); err != nil {
+		return err
+	}
+
+	return b.ensureRenderedSpec(ctx)
 }
 
 func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error {
@@ -131,8 +145,7 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 		return nil
 	}
 
-	bootcCmd := container.NewBootcCmd(b.executer)
-	bootcHost, err := bootcCmd.Status(ctx)
+	bootcHost, err := b.bootcClient.Status(ctx)
 	if err != nil {
 		return fmt.Errorf("getting current bootc status: %w", err)
 	}
@@ -142,13 +155,29 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 		if err != nil {
 			return fmt.Errorf("writing rendered spec to file: %w", err)
 		}
+
+		updateFns := []status.UpdateStatusFn{
+			status.SetOSImage(v1alpha1.DeviceOSStatus{
+				Image: desiredSpec.Os.Image,
+			}),
+			status.SetConfig(v1alpha1.DeviceConfigStatus{
+				RenderedVersion: desiredSpec.RenderedVersion,
+			}),
+		}
+
+		_, updateErr := b.statusManager.Update(ctx, updateFns...)
+		if updateErr != nil {
+			b.log.Warnf("Failed setting status: %v", updateErr)
+		}
 	} else {
 		// We rebooted without applying the new OS image - something went wrong
 		b.log.Warn("Started bootstrap with OS image not equal to desired image")
-		condErr := fmt.Errorf("booted image %s, expected %s", container.GetImage(bootcHost), desiredSpec.Os.Image)
-		err = b.statusManager.UpdateConditionError(ctx, BootedWithUnexpectedImage, condErr)
-		if err != nil {
-			b.log.Warnf("Failed setting error condition: %v", err)
+		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusDegraded,
+			Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", container.GetImage(bootcHost), desiredSpec.Os.Image)),
+		}))
+		if updateErr != nil {
+			b.log.Warnf("Failed setting status: %v", updateErr)
 		}
 		return nil
 	}
@@ -169,18 +198,7 @@ func isOsImageInTransition(current *v1alpha1.RenderedDeviceSpec, desired *v1alph
 }
 
 func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
-	if err := b.deviceReader.CheckPathExists(b.managementServiceConfig.GetClientCertificatePath()); err != nil {
-		return fmt.Errorf("generated cert: %q: %w", b.managementServiceConfig.GetClientCertificatePath(), err)
-	}
-
-	// create the management client
-	managementHTTPClient, err := client.NewFromConfig(b.managementServiceConfig)
-	if err != nil {
-		return fmt.Errorf("create management client: %w", err)
-	}
-	managementClient := client.NewManagement(managementHTTPClient)
-
-	_, err = spec.EnsureDesiredRenderedSpec(ctx, b.log, b.deviceWriter, b.deviceReader, managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
+	_, err := spec.EnsureDesiredRenderedSpec(ctx, b.log, b.deviceWriter, b.deviceReader, b.managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
 	if err != nil {
 		return fmt.Errorf("ensure desired rendered spec: %w", err)
 	}
@@ -324,11 +342,10 @@ func (b *Bootstrap) writeQRBanner(message, url string) error {
 }
 
 func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
-	status, err := b.statusManager.Get(ctx)
+	err := b.statusManager.Sync(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get device status: %w", err)
+		return fmt.Errorf("failed to sync system status: %w", err)
 	}
-
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
@@ -337,7 +354,7 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
 			Csr:          string(b.enrollmentCSR),
-			DeviceStatus: status,
+			DeviceStatus: b.statusManager.Get(ctx),
 		},
 	}
 

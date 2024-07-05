@@ -8,51 +8,38 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
-func RepositoryUpdate(taskManager TaskManager) {
-	for {
-		select {
-		case <-taskManager.ctx.Done():
-			taskManager.log.Info("Received ctx.Done(), stopping")
-			return
-		case resourceRef := <-taskManager.channels[ChannelRepositoryUpdates]:
-			requestID := reqid.NextRequestID()
-			ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
-			log := log.WithReqIDFromCtx(ctx, taskManager.log)
-			logic := NewRepositoryUpdateLogic(taskManager, log, taskManager.store, resourceRef)
+func repositoryUpdate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+	logic := NewRepositoryUpdateLogic(callbackManager, log, store, *resourceRef)
 
-			switch {
-			case resourceRef.Op == RepositoryUpdateOpUpdate && resourceRef.Kind == model.RepositoryKind:
-				err := logic.HandleRepositoryUpdate(ctx)
-				if err != nil {
-					log.Errorf("failed to notify associated resources of update to repository %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
-				}
-			case resourceRef.Op == RepositoryUpdateOpDeleteAll && resourceRef.Kind == model.RepositoryKind:
-				err := logic.HandleAllRepositoriesDeleted(ctx, log)
-				if err != nil {
-					log.Errorf("failed to notify associated resources deletion of all repositories in org %s: %v", resourceRef.OrgID, err)
-				}
-			default:
-				log.Errorf("RepositoryUpdate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
-			}
+	switch {
+	case resourceRef.Op == RepositoryUpdateOpUpdate && resourceRef.Kind == model.RepositoryKind:
+		err := logic.HandleRepositoryUpdate(ctx)
+		if err != nil {
+			log.Errorf("failed to notify associated resources of update to repository %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 		}
+	case resourceRef.Op == RepositoryUpdateOpDeleteAll && resourceRef.Kind == model.RepositoryKind:
+		err := logic.HandleAllRepositoriesDeleted(ctx, log)
+		if err != nil {
+			log.Errorf("failed to notify associated resources deletion of all repositories in org %s: %v", resourceRef.OrgID, err)
+		}
+	default:
+		log.Errorf("RepositoryUpdate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 	}
+	return nil
 }
 
 type RepositoryUpdateLogic struct {
-	taskManager TaskManager
-	log         logrus.FieldLogger
-	store       store.Store
-	resourceRef ResourceReference
+	callbackManager CallbackManager
+	log             logrus.FieldLogger
+	store           store.Store
+	resourceRef     ResourceReference
 }
 
-func NewRepositoryUpdateLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) RepositoryUpdateLogic {
-	return RepositoryUpdateLogic{taskManager: taskManager, log: log, store: store, resourceRef: resourceRef}
+func NewRepositoryUpdateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) RepositoryUpdateLogic {
+	return RepositoryUpdateLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
 }
 
 func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) error {
@@ -62,7 +49,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 	}
 
 	for _, fleet := range fleets.Items {
-		t.taskManager.FleetSourceUpdated(t.resourceRef.OrgID, *fleet.Metadata.Name)
+		t.callbackManager.FleetSourceUpdated(t.resourceRef.OrgID, *fleet.Metadata.Name)
 	}
 
 	devices, err := t.store.Repository().GetDeviceRefs(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
@@ -71,7 +58,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 	}
 
 	for _, device := range devices.Items {
-		t.taskManager.DeviceSourceUpdated(t.resourceRef.OrgID, *device.Metadata.Name)
+		t.callbackManager.DeviceSourceUpdated(t.resourceRef.OrgID, *device.Metadata.Name)
 	}
 
 	return nil
@@ -91,7 +78,7 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 		}
 
 		if hasReference {
-			t.taskManager.FleetSourceUpdated(t.resourceRef.OrgID, *fleet.Metadata.Name)
+			t.callbackManager.FleetSourceUpdated(t.resourceRef.OrgID, *fleet.Metadata.Name)
 		}
 	}
 
@@ -108,7 +95,7 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 		}
 
 		if hasReference {
-			t.taskManager.DeviceSourceUpdated(t.resourceRef.OrgID, *device.Metadata.Name)
+			t.callbackManager.DeviceSourceUpdated(t.resourceRef.OrgID, *device.Metadata.Name)
 		}
 	}
 

@@ -13,6 +13,8 @@ import (
 )
 
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
+	deviceStatus := api.NewDeviceStatus()
+	deviceStatus.Os.Image = "quay.io/flightctl/test-osimage:latest"
 	resource := api.Device{
 		Metadata: api.ObjectMeta{
 			Name:   &name,
@@ -24,13 +26,16 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 				Image: "os",
 			},
 		},
+		Status: &deviceStatus,
 	}
 
 	if tv != nil {
+		rv := *tv
 		annotations := map[string]string{
-			model.DeviceAnnotationTemplateVersion: *tv,
+			model.DeviceAnnotationTemplateVersion: rv,
 		}
 		resource.Metadata.Annotations = &annotations
+		deviceStatus.Config.RenderedVersion = rv
 	}
 
 	callback := store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {})

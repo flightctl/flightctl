@@ -59,7 +59,8 @@ func testRepositoryPatch(require *require.Assertions, patch v1alpha1.PatchReques
 		Spec: spec,
 	}
 	serviceHandler := ServiceHandler{
-		store: &RepositoryStore{RepositoryVal: repository},
+		store:           &RepositoryStore{RepositoryVal: repository},
+		callbackManager: dummyCallbackManager(),
 	}
 	resp, err := serviceHandler.PatchRepository(context.Background(), server.PatchRepositoryRequestObject{
 		Name: "foo",
