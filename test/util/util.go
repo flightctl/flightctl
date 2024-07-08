@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -247,4 +248,14 @@ func TestTempEnv(key, value string) func() {
 			os.Unsetenv(key)
 		}
 	}
+}
+
+// GetEnrollmentIdFromText returns the enrollment ID from the given text.
+// The enrollment ID is expected to be part of url path like https://example.com/enroll/1234
+func GetEnrollmentIdFromText(text string) string {
+	valuesRe := regexp.MustCompile(`/enroll/(\w+)`)
+	if valuesRe.MatchString(text) {
+		return valuesRe.FindStringSubmatch(text)[1]
+	}
+	return ""
 }
