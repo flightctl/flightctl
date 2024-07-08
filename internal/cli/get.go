@@ -300,7 +300,7 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 }
 
 func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesResponse) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+	fmt.Fprintln(w, "FINGERPRINT\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range response.JSON200.Items {
 		lastSeen := "<never>"
 		if !d.Status.UpdatedAt.IsZero() {
@@ -318,7 +318,7 @@ func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesRespo
 }
 
 func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListEnrollmentRequestsResponse) {
-	fmt.Fprintln(w, "NAME\tAPPROVAL\tAPPROVER\tAPPROVED LABELS")
+	fmt.Fprintln(w, "FINGERPRINT\tAPPROVAL\tAPPROVER\tAPPROVED LABELS")
 	for _, e := range response.JSON200.Items {
 		approval, approver, approvedLabels := "Pending", "<none>", ""
 		if e.Status.Approval != nil {
