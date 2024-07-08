@@ -5,7 +5,7 @@ COPY ./cmd cmd
 COPY ./deploy deploy
 COPY ./hack hack
 COPY ./internal internal
-COPY ./go.* .
+COPY ./go.* ./
 COPY ./pkg pkg
 COPY ./test test
 COPY ./Makefile .
