@@ -27,6 +27,9 @@ var (
 	ErrEnrollmentRequestDenied = fmt.Errorf("enrollment request denied")
 )
 
+// agent banner file
+const BannerFile = "/etc/issue.d/flightctl-banner.issue"
+
 type Bootstrap struct {
 	deviceName           string
 	executer             executer.Executer
@@ -360,7 +363,7 @@ func (b *Bootstrap) writeQRBanner(message, url string) error {
 	fmt.Fprintf(buffer, message, url)
 
 	// duplicate file to /etc/issue.d/flightctl-banner.issue
-	if err := b.deviceReadWriter.WriteFile("/etc/issue.d/flightctl-banner.issue", buffer.Bytes(), os.FileMode(0666)); err != nil {
+	if err := b.deviceReadWriter.WriteFile(BannerFile, buffer.Bytes(), os.FileMode(0666)); err != nil {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
