@@ -6,13 +6,14 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
 
 const TaskQueue = "task-queue"
 
-func dispatchTasks(store store.Store, callbackManager CallbackManager) queues.ConsumeHandler {
+func dispatchTasks(store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
 		var reference ResourceReference
 		if err := json.Unmarshal(payload, &reference); err != nil {
@@ -25,11 +26,11 @@ func dispatchTasks(store store.Store, callbackManager CallbackManager) queues.Co
 		case FleetSelectorMatchTask:
 			return fleetSelectorMatching(ctx, &reference, store, callbackManager, log)
 		case TemplateVersionPopulateTask:
-			return templateVersionPopulate(ctx, &reference, store, callbackManager, log)
+			return templateVersionPopulate(ctx, &reference, store, callbackManager, k8sClient, log)
 		case FleetValidateTask:
-			return fleetValidate(ctx, &reference, store, callbackManager, log)
+			return fleetValidate(ctx, &reference, store, callbackManager, k8sClient, log)
 		case DeviceRenderTask:
-			return deviceRender(ctx, &reference, store, callbackManager, log)
+			return deviceRender(ctx, &reference, store, callbackManager, k8sClient, log)
 		case RepositoryUpdatesTask:
 			return repositoryUpdate(ctx, &reference, store, callbackManager, log)
 		default:
@@ -42,6 +43,7 @@ func LaunchConsumers(ctx context.Context,
 	provider queues.Provider,
 	store store.Store,
 	callbackManager CallbackManager,
+	k8sClient k8sclient.K8SClient,
 	numConsumers, threadsPerConsumer int) error {
 	for i := 0; i != numConsumers; i++ {
 		consumer, err := provider.NewConsumer(TaskQueue)
@@ -49,7 +51,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(store, callbackManager)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(store, callbackManager, k8sClient)); err != nil {
 				return err
 			}
 		}

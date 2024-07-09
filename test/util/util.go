@@ -40,14 +40,16 @@ type testProvider struct {
 	queue   chan []byte
 	stopped atomic.Bool
 	wg      *sync.WaitGroup
+	log     logrus.FieldLogger
 }
 
-func NewTestProvider() queues.Provider {
+func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	return &testProvider{
 		queue: make(chan []byte, 20),
 		wg:    &wg,
+		log:   log,
 	}
 }
 
@@ -91,7 +93,9 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 				if !ok {
 					return
 				}
-				_ = handler(ctx, b, log)
+				if err := handler(ctx, b, log); err != nil {
+					log.WithError(err).Errorf("handling message: %s", string(b))
+				}
 			}
 		}
 	}()

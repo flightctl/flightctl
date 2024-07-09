@@ -2,22 +2,27 @@ package tasks
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/ignition"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 )
 
-func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(callbackManager, log, store, *resourceRef)
+func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, *resourceRef)
 	if resourceRef.Op == DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -35,11 +40,12 @@ type DeviceRenderLogic struct {
 	callbackManager CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
+	k8sClient       k8sclient.K8SClient
 	resourceRef     ResourceReference
 }
 
-func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) DeviceRenderLogic {
-	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
+func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) DeviceRenderLogic {
+	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
@@ -56,7 +62,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		config = device.Spec.Config
 	}
 
-	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, config, false)
+	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, config, false)
 
 	// Set the many-to-many relationship with the repos (we do this even if the render failed so that we will
 	// render the device again if the repository is updated, and then it might be fixed).
@@ -99,12 +105,13 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 type renderConfigArgs struct {
 	orgId          uuid.UUID
 	store          store.Store
+	k8sClient      k8sclient.K8SClient
 	ignitionConfig *config_latest_types.Config
 	repoNames      []string
 	validateOnly   bool
 }
 
-func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, config *[]api.DeviceSpec_Config_Item, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
+func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
 	args := renderConfigArgs{}
 	emptyIgnitionConfig := config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
@@ -115,6 +122,7 @@ func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, confi
 	args.validateOnly = validateOnly
 	args.orgId = orgId
 	args.store = store
+	args.k8sClient = k8sClient
 
 	err = renderConfigItems(ctx, config, &args)
 	if err != nil {
@@ -177,7 +185,7 @@ func renderConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Ite
 	case string(api.TemplateDiscriminatorGitConfig):
 		return renderGitConfig(ctx, configItem, args)
 	case string(api.TemplateDiscriminatorKubernetesSec):
-		return renderK8sConfig(configItem)
+		return renderK8sConfig(configItem, args)
 	case string(api.TemplateDiscriminatorInlineConfig):
 		return renderInlineConfig(configItem, args)
 	default:
@@ -222,14 +230,34 @@ func renderGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item
 	return gitSpec.Name, nil
 }
 
-// TODO: implement
-func renderK8sConfig(configItem *api.DeviceSpec_Config_Item) (string, error) {
+func renderK8sConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return "", fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-
-	return k8sSpec.Name, fmt.Errorf("kubernetes config type not yet supported")
+	if args.k8sClient == nil {
+		return k8sSpec.Name, errors.New("kubernetes API is not available")
+	}
+	secret, err := args.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+	if err != nil {
+		return k8sSpec.Name, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+	}
+	ignitionWrapper, err := ignition.NewWrapper()
+	if err != nil {
+		return k8sSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
+	}
+	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
+	for name, encodedContents := range secret.Data {
+		contents, err := base64.StdEncoding.DecodeString(string(encodedContents))
+		if err != nil {
+			return k8sSpec.Name, fmt.Errorf("failed to base64 decode secret %s: %w", name, err)
+		}
+		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
+	}
+	if !args.validateOnly {
+		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
+	}
+	return k8sSpec.Name, nil
 }
 
 func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {

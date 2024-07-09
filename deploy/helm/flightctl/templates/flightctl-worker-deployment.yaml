@@ -18,6 +18,7 @@ spec:
       labels:
         flightctl.service: flightctl-worker
     spec:
+      serviceAccountName: flightctl-worker
       containers:
         - name: flightctl-worker
           image: {{ .Values.flightctl.worker.image }}

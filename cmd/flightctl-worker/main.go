@@ -4,6 +4,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -36,7 +37,12 @@ func main() {
 	defer store.Close()
 
 	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
-	server := workerserver.New(cfg, log, store, provider)
+	k8sClient, err := k8sclient.NewK8SClient()
+	if err != nil {
+		log.WithError(err).Warning("initializing k8s client, assuming k8s is not supported")
+		k8sClient = nil
+	}
+	server := workerserver.New(cfg, log, store, provider, k8sClient)
 	if err := server.Run(); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

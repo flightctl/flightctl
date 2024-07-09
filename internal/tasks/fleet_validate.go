@@ -8,11 +8,12 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
 
-func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
-	logic := NewFleetValidateLogic(callbackManager, log, store, *resourceRef)
+func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+	logic := NewFleetValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
 	switch {
 	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == model.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -29,11 +30,12 @@ type FleetValidateLogic struct {
 	callbackManager CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
+	k8sClient       k8sclient.K8SClient
 	resourceRef     ResourceReference
 }
 
-func NewFleetValidateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) FleetValidateLogic {
-	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
+func NewFleetValidateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) FleetValidateLogic {
+	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
@@ -42,7 +44,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		return fmt.Errorf("failed getting fleet %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
 	}
 
-	_, repoNames, validationErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, fleet.Spec.Template.Spec.Config, true)
+	_, repoNames, validationErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, fleet.Spec.Template.Spec.Config, true)
 
 	// Set the many-to-many relationship with the repos (we do this even if the validation failed so that we will
 	// validate the fleet again if the repository is updated, and then it might be fixed).

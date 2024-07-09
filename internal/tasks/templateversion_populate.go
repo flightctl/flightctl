@@ -2,17 +2,22 @@ package tasks
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"path/filepath"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/ignition"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
 
-func templateVersionPopulate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
-	logic := NewTemplateVersionPopulateLogic(callbackManager, log, store, *resourceRef)
+func templateVersionPopulate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+	logic := NewTemplateVersionPopulateLogic(callbackManager, log, store, k8sClient, *resourceRef)
 	if resourceRef.Op == TemplateVersionPopulateOpCreated {
 		err := logic.SyncFleetTemplateToTemplateVersion(ctx)
 		if err != nil {
@@ -28,14 +33,15 @@ type TemplateVersionPopulateLogic struct {
 	callbackManager CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
+	k8sClient       k8sclient.K8SClient
 	resourceRef     ResourceReference
 	templateVersion *api.TemplateVersion
 	fleet           *api.Fleet
 	frozenConfig    []api.TemplateVersionStatus_Config_Item
 }
 
-func NewTemplateVersionPopulateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) TemplateVersionPopulateLogic {
-	return TemplateVersionPopulateLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
+func NewTemplateVersionPopulateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) TemplateVersionPopulateLogic {
+	return TemplateVersionPopulateLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef, k8sClient: k8sClient}
 }
 
 func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx context.Context) error {
@@ -146,9 +152,54 @@ func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, conf
 	return nil
 }
 
-// TODO: implement
 func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpec_Config_Item) error {
-	return fmt.Errorf("service does not yet support kubernetes config")
+	if t.k8sClient == nil {
+		return errors.New("k8s client is not available: skipping handling kubernetes secret configuration")
+	}
+	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
+	if err != nil {
+		return fmt.Errorf("failed getting config item as KubernetesSecretProviderSpec: %w", err)
+	}
+
+	for key, value := range map[string]string{
+		"name":      k8sSpec.SecretRef.Name,
+		"namespace": k8sSpec.SecretRef.Namespace,
+		"mountPath": k8sSpec.SecretRef.MountPath,
+	} {
+		if ContainsParameter([]byte(value)) {
+			return fmt.Errorf("parameters in field %s of secret reference are not currently supported", key)
+		}
+	}
+	secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+	if err != nil {
+		return fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+	}
+	ignitionWrapper, err := ignition.NewWrapper()
+	if err != nil {
+		return fmt.Errorf("failed to create ignition wrapper: %w", err)
+	}
+	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
+	for name, encodedContents := range secret.Data {
+		contents, err := base64.StdEncoding.DecodeString(string(encodedContents))
+		if err != nil {
+			return fmt.Errorf("failed to base64 decode secret %s: %w", name, err)
+		}
+		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
+	}
+	m, err := ignitionWrapper.AsMap()
+	if err != nil {
+		return fmt.Errorf("failed to convert ignition to ap: %w", err)
+	}
+	newConfig := api.TemplateVersionStatus_Config_Item{}
+	inlineSpec := api.InlineConfigProviderSpec{
+		Inline: m,
+		Name:   k8sSpec.Name,
+	}
+	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
+		return err
+	}
+	t.frozenConfig = append(t.frozenConfig, newConfig)
+	return nil
 }
 
 func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.DeviceSpec_Config_Item) error {
