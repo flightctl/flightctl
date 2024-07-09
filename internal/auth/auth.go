@@ -71,7 +71,10 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 	}
 
 	if authN == nil {
-		return nil, errors.New("no auth provider defined")
+		return nil, errors.New("no authN provider defined")
+	}
+	if authZ == nil {
+		return nil, errors.New("no authZ provider defined")
 	}
 
 	handler := func(next http.Handler) http.Handler {
