@@ -91,6 +91,23 @@ func (r Fleet) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
+
+	// Validate the Device spec settings
+	if r.Spec.Template.Spec.Os != nil {
+		allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
+	}
+
+	if r.Spec.Template.Spec.Config != nil {
+		for _, config := range *r.Spec.Template.Spec.Config {
+			value, err := config.ValueByDiscriminator()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid configType: %s", err))
+			} else {
+				allErrs = append(allErrs, value.(Validator).Validate()...)
+			}
+		}
+	}
+
 	return allErrs
 }
 

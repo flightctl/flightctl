@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -40,9 +39,6 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.CreateFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
-	}
-	if err := validateDiscriminators(request.Body); err != nil {
-		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
 	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
@@ -141,9 +137,6 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 	if request.Name != *request.Body.Metadata.Name {
 		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
-	if err := validateDiscriminators(request.Body); err != nil {
-		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
-	}
 
 	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
 	switch err {
@@ -218,32 +211,6 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	default:
 		return nil, err
 	}
-}
-
-func validateDiscriminators(fleet *v1alpha1.Fleet) error {
-	if fleet.Spec.Template.Spec.Config == nil {
-		return nil
-	}
-	for _, config := range *fleet.Spec.Template.Spec.Config {
-		discriminator, err := config.Discriminator()
-		if err != nil {
-			return err
-		}
-		found := false
-		discriminators := []string{
-			string(v1alpha1.TemplateDiscriminatorGitConfig),
-			string(v1alpha1.TemplateDiscriminatorKubernetesSec),
-			string(v1alpha1.TemplateDiscriminatorInlineConfig)}
-		for _, d := range discriminators {
-			if discriminator == d {
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("configType must be one of %s", strings.Join(discriminators, ", "))
-		}
-	}
-	return nil
 }
 
 // (PATCH /api/v1/fleets/{name})
