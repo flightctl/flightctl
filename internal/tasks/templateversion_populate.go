@@ -228,6 +228,7 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
+		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
 	}
 
 	t.templateVersion.Status.Conditions = []api.Condition{}
