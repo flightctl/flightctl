@@ -176,12 +176,13 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 	}
 
 	ref := ResourceReference{OrgID: device.OrgID, Kind: model.DeviceKind, Name: device.Name}
-	if ownerUpdated {
-		// If the device's owner was updated, check if we need to update its spec according to its new fleet
+	if ownerUpdated || labelsUpdated {
+		// If the device's owner was updated, or if labels were updating that might affect parametrers,
+		// check if we need to update its spec according to its new fleet
 		t.submitTask(FleetRolloutTask, ref, FleetRolloutOpUpdate)
 	}
 	if labelsUpdated {
-		// If the label selector was updated, check the devices matching the new one
+		// Check if the new labels cause the device to move to a different fleet
 		op := FleetSelectorMatchOpUpdate
 		if len(GetOverlappingAnnotationValue(device.ToApiResource().Metadata.Annotations)) != 0 {
 			op = FleetSelectorMatchOpUpdateOverlap
