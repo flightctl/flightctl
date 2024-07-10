@@ -35,7 +35,7 @@ var _ = Describe("FleetStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numFleets = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 
 		testutil.CreateTestFleets(ctx, 3, storeInst.Fleet(), orgId, "myfleet", false, nil)
 	})
