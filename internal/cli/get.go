@@ -338,16 +338,24 @@ func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListE
 }
 
 func printFleetsTable(w *tabwriter.Writer, response *apiclient.ListFleetsResponse) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR")
+	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID")
 	for _, f := range response.JSON200.Items {
 		selector := "<none>"
 		if f.Spec.Selector != nil {
 			selector = strings.Join(util.LabelMapToArray(&f.Spec.Selector.MatchLabels), ",")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n",
+		valid := "Unknown"
+		if f.Status != nil {
+			condition := api.FindStatusCondition(f.Status.Conditions, api.FleetValid)
+			if condition != nil {
+				valid = string(condition.Status)
+			}
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			*f.Metadata.Name,
 			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
 			selector,
+			valid,
 		)
 	}
 }
