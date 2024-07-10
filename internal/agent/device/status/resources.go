@@ -23,10 +23,10 @@ func newResources(log *log.PrefixLogger, manager resource.Manager) *Resources {
 }
 
 func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	resource := r.manager.Usage()
+	alerts := r.manager.Alerts()
 
 	// disk
-	diskStatus, err := diskUsageStatus(resource.DiskUsage)
+	diskStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.DiskUsage)
 	if err != nil {
 		// TODO: add error to status
 		r.log.Errorf("Error getting disk usage status: %v", err)
@@ -34,40 +34,20 @@ func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) e
 	status.Resources.Disk = diskStatus
 
 	// cpu
-	cpuStatus, err := cpuUsageStatus(resource.CPUUsage)
+	cpuStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.CPUUsage)
 	if err != nil {
 		r.log.Errorf("Error getting cpu usage status: %v", err)
 	}
 	status.Resources.Cpu = cpuStatus
 
+	// memory
+	memoryStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.MemoryUsage)
+	if err != nil {
+		r.log.Errorf("Error getting memory usage status: %v", err)
+	}
+	status.Resources.Memory = memoryStatus
+
 	return nil
-}
-
-// TODO: make generic
-func diskUsageStatus(usage *resource.DiskUsage) (v1alpha1.DeviceResourceStatusType, error) {
-	switch {
-	case usage.Error() != nil:
-		return v1alpha1.DeviceResourceStatusError, usage.Error()
-	case usage.IsAlert():
-		return v1alpha1.DeviceResourceStatusCritical, nil
-	case usage.IsWarn():
-		return v1alpha1.DeviceResourceStatusWarning, nil
-	default:
-		return v1alpha1.DeviceResourceStatusHealthy, nil
-	}
-}
-
-func cpuUsageStatus(usage *resource.CPUUsage) (v1alpha1.DeviceResourceStatusType, error) {
-	switch {
-	case usage.Error() != nil:
-		return v1alpha1.DeviceResourceStatusError, usage.Error()
-	case usage.IsAlert():
-		return v1alpha1.DeviceResourceStatusCritical, nil
-	case usage.IsWarn():
-		return v1alpha1.DeviceResourceStatusWarning, nil
-	default:
-		return v1alpha1.DeviceResourceStatusHealthy, nil
-	}
 }
 
 func (r *Resources) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {

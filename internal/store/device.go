@@ -377,6 +377,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Containers:      device.Spec.Data.Containers,
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,
+		Resources:       device.Spec.Data.Resources,
 	}
 
 	return &renderedConfig, nil

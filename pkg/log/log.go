@@ -62,7 +62,7 @@ func (p *PrefixLogger) Debug(args ...interface{}) {
 }
 
 func (p *PrefixLogger) Debugf(format string, args ...interface{}) {
-	p.logger.Errorf(p.prependPrefix(format), args...)
+	p.logger.Debugf(p.prependPrefix(format), args...)
 }
 
 func (p *PrefixLogger) Warn(args ...interface{}) {
