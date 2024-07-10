@@ -68,6 +68,9 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			Name: enrollmentRequest.Metadata.Name,
 		},
 	}
+	if errs := apiResource.Validate(); len(errs) > 0 {
+		return fmt.Errorf("failed validating new device: %w", errors.Join(errs...))
+	}
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
