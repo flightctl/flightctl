@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
@@ -18,12 +19,13 @@ import (
 
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
-	name              string
-	deviceWriter      *fileio.Writer
-	statusManager     status.Manager
-	specManager       *spec.Manager
-	configController  *config.Controller
-	osImageController *OSImageController
+	name               string
+	deviceWriter       *fileio.Writer
+	statusManager      status.Manager
+	specManager        *spec.Manager
+	configController   *config.Controller
+	osImageController  *OSImageController
+	resourceController *resource.Controller
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
@@ -41,6 +43,7 @@ func NewAgent(
 	fetchStatusInterval util.Duration,
 	configController *config.Controller,
 	osImageController *OSImageController,
+	resourceController *resource.Controller,
 	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{
@@ -52,6 +55,7 @@ func NewAgent(
 		fetchStatusInterval: fetchStatusInterval,
 		configController:    configController,
 		osImageController:   osImageController,
+		resourceController:  resourceController,
 		log:                 log,
 	}
 }
@@ -126,6 +130,10 @@ func (a *Agent) syncDevice(ctx context.Context) error {
 		return err
 	}
 
+	if err := a.resourceController.Sync(ctx, &desired); err != nil {
+		return err
+	}
+
 	if err := a.osImageController.Sync(ctx, &desired); err != nil {
 		return err
 	}
@@ -150,12 +158,15 @@ func (a *Agent) syncDevice(ctx context.Context) error {
 	}
 
 	updateFns := []status.UpdateStatusFn{
-		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: current.Os.Image,
-		}),
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
 			RenderedVersion: current.RenderedVersion,
 		}),
+	}
+
+	if current.Os != nil {
+		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOSStatus{
+			Image: current.Os.Image,
+		}))
 	}
 
 	_, updateErr = a.statusManager.Update(ctx, updateFns...)
