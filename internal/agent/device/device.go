@@ -150,12 +150,15 @@ func (a *Agent) syncDevice(ctx context.Context) error {
 	}
 
 	updateFns := []status.UpdateStatusFn{
-		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: current.Os.Image,
-		}),
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
 			RenderedVersion: current.RenderedVersion,
 		}),
+	}
+
+	if current.Os != nil {
+		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOSStatus{
+			Image: current.Os.Image,
+		}))
 	}
 
 	_, updateErr = a.statusManager.Update(ctx, updateFns...)
