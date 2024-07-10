@@ -2,6 +2,8 @@ package status
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -24,28 +26,32 @@ func newResources(log *log.PrefixLogger, manager resource.Manager) *Resources {
 
 func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
 	alerts := r.manager.Alerts()
+	errs := []error{}
 
 	// disk
 	diskStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.DiskUsage)
 	if err != nil {
-		// TODO: add error to status
-		r.log.Errorf("Error getting disk usage status: %v", err)
+		errs = append(errs, fmt.Errorf("disk: %w", err))
 	}
 	status.Resources.Disk = diskStatus
 
 	// cpu
 	cpuStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.CPUUsage)
 	if err != nil {
-		r.log.Errorf("Error getting cpu usage status: %v", err)
+		errs = append(errs, fmt.Errorf("cpu: %w", err))
 	}
 	status.Resources.Cpu = cpuStatus
 
 	// memory
 	memoryStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.MemoryUsage)
 	if err != nil {
-		r.log.Errorf("Error getting memory usage status: %v", err)
+		errs = append(errs, fmt.Errorf("memory: %w", err))
 	}
 	status.Resources.Memory = memoryStatus
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 
 	return nil
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/lthibault/jitterbug"
-	"k8s.io/apimachinery/pkg/api/equality"
 )
 
 // Agent is responsible for managing the applications, configuration and status of the device.
@@ -74,7 +73,8 @@ func (a *Agent) Run(ctx context.Context) error {
 			return nil
 		case <-fetchSpecTicker.C:
 			a.log.Debug("Fetching device spec")
-			if err := a.syncDevice(ctx); err != nil {
+			deviceUpdated, err := a.syncDevice(ctx)
+			if err != nil {
 				infoMsg := fmt.Sprintf("Failed to sync device: %v", err)
 				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 					Status: v1alpha1.DeviceSummaryStatusDegraded,
@@ -87,67 +87,83 @@ func (a *Agent) Run(ctx context.Context) error {
 				continue
 			}
 
-			_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-				Status: v1alpha1.DeviceSummaryStatusOnline,
-				Info:   nil,
-			}))
-			if updateErr != nil {
-				a.log.Errorf("Failed to update device status: %v", updateErr)
+			if deviceUpdated {
+				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+					Status: v1alpha1.DeviceSummaryStatusOnline,
+					Info:   nil,
+				}))
+				if updateErr != nil {
+					a.log.Errorf("Updating device status: %v", updateErr)
+				}
 			}
 		case <-fetchStatusTicker.C:
 			a.log.Debug("Fetching device status")
 			if err := a.statusManager.Sync(ctx); err != nil {
-				a.log.Errorf("Failed to update device status: %v", err)
-			}
+				msg := err.Error()
+				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+					Status: v1alpha1.DeviceSummaryStatusDegraded,
+					Info:   &msg,
+				}))
+				if updateErr != nil {
+					a.log.Errorf("Updating device status: %v", updateErr)
+				}
 
+				a.log.Errorf("Syncing status: %v", err)
+			}
 		}
 	}
 }
 
-func (a *Agent) syncDevice(ctx context.Context) error {
-	// TODO: don't keep the spec constantly in memory
-	current, desired, skipSync, err := a.specManager.GetRendered(ctx)
+func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
+	current, desired, err := a.specManager.GetRendered(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	if equality.Semantic.DeepEqual(current, desired) || skipSync {
-		a.log.Debug("Skipping device reconciliation")
-		return nil
+	if current.RenderedVersion == "" && desired.RenderedVersion == "" {
+		return false, nil
 	}
 
-	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  "Updating",
-		Message: fmt.Sprintf("The device is updating to renderedVersion: %s", desired.RenderedVersion),
-	})
-	if updateErr != nil {
-		a.log.Warnf("Failed setting status: %v", updateErr)
+	if current.RenderedVersion != desired.RenderedVersion {
+		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+			Type:    v1alpha1.DeviceUpdating,
+			Status:  v1alpha1.ConditionStatusTrue,
+			Reason:  "Update",
+			Message: fmt.Sprintf("The device is updating to renderedVersion: %s", desired.RenderedVersion),
+		})
+		if updateErr != nil {
+			a.log.Warnf("Failed setting status: %v", updateErr)
+		}
 	}
 
 	if err := a.configController.Sync(&desired); err != nil {
-		return err
+		return false, err
 	}
 
 	if err := a.resourceController.Sync(ctx, &desired); err != nil {
-		return err
+		return false, err
 	}
 
 	if err := a.osImageController.Sync(ctx, &desired); err != nil {
-		return err
+		return false, err
 	}
 
 	// set status collector properties based on new desired spec
 	a.statusManager.SetProperties(&desired)
 
-	// write the desired spec to the current spec file
-	// this would only happen if there was no os image change as that requires a reboot
-	if err := a.specManager.WriteCurrentRendered(&desired); err != nil {
-		return err
+	// we have ensured that the desired spec is applied to the device. if the
+	// rendered versions are the same no more work is needed.
+	if current.RenderedVersion == desired.RenderedVersion {
+		return false, nil
 	}
 
-	updateErr = a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+	// write the desired spec to the current spec file this would only happen if
+	// there was no os image change as that requires a reboot
+	if err := a.specManager.WriteCurrentRendered(&desired); err != nil {
+		return false, err
+	}
+
+	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.DeviceUpdating,
 		Status:  v1alpha1.ConditionStatusFalse,
 		Reason:  "Updated",
@@ -174,5 +190,5 @@ func (a *Agent) syncDevice(ctx context.Context) error {
 		a.log.Warnf("Failed setting status: %v", updateErr)
 	}
 
-	return nil
+	return true, nil
 }

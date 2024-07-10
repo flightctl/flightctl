@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -44,52 +45,68 @@ func NewManager(
 // Collector aggregates device status from various exporters.
 type StatusManager struct {
 	deviceName       string
-	managementClient *client.Management
+	managementClient client.Management
 	exporters        []Exporter
 	log              *log.PrefixLogger
 	device           *v1alpha1.Device
 }
 
 type Exporter interface {
+	// Export collects status information and updates the device status.
 	Export(ctx context.Context, device *v1alpha1.DeviceStatus) error
+	// SetProperties sets the properties for the exporter.
 	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
 type Collector interface {
+	// Get returns the device status and is safe to call without a management client.
 	Get(context.Context) *v1alpha1.DeviceStatus
 }
 
 type Manager interface {
 	Collector
+	// Sync collects status information from all exporters and updates the device status.
 	Sync(context.Context) error
+	// Collect gathers status information from all exporters and is safe to call without a management client.
+	Collect(context.Context) error
+	// Update updates the device status with the given update functions.
 	Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1alpha1.DeviceStatus, error)
+	// UpdateCondition updates the device status with the given condition.
 	UpdateCondition(context.Context, v1alpha1.Condition) error
-	SetClient(*client.Management)
+	// SetClient sets the management client for the status manager.
+	SetClient(client.Management)
+	// SetProperties sets the properties for the exporters.
 	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
-func (m *StatusManager) SetClient(managementCLient *client.Management) {
-	m.managementClient = managementCLient
+func (m *StatusManager) SetClient(managementClient client.Management) {
+	m.managementClient = managementClient
 }
 
 func (m *StatusManager) Get(ctx context.Context) *v1alpha1.DeviceStatus {
 	return m.device.Status
 }
 
-func (m *StatusManager) syncDeviceStatus(ctx context.Context) error {
+func (m *StatusManager) Collect(ctx context.Context) error {
+	errs := []error{}
 	for _, exporter := range m.exporters {
 		err := exporter.Export(ctx, m.device.Status)
 		if err != nil {
-			m.log.Errorf("failed getting status from exporter: %v", err)
+			errs = append(errs, err)
 			continue
 		}
 	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
 	return nil
 }
 
 func (m *StatusManager) Sync(ctx context.Context) error {
-	if err := m.syncDeviceStatus(ctx); err != nil {
-		return fmt.Errorf("failed to sync device status: %w", err)
+	if err := m.Collect(ctx); err != nil {
+		return err
 	}
 	if m.managementClient == nil {
 		return nil

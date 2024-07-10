@@ -1,3 +1,4 @@
+
 apiVersion: v1alpha1
 kind: Fleet
 metadata:
@@ -33,6 +34,14 @@ spec:
                   mode: 422
                   overwrite: true
                   path: "/etc/motd"
+      resources:
+        - monitorType: CPU
+          alertRules:
+            - severity: Warning
+              duration: 10m
+              percentage: 50
+              description: 'CPU load is above 50% for more than 10 minutes'
+          samplingInterval: 30s
       systemd:
         matchPatterns:
           - chronyd.service

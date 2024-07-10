@@ -201,7 +201,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
+func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err
@@ -209,7 +209,7 @@ func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newManagementClient(cfg *Config) (*client.Management, error) {
+func newManagementClient(cfg *Config) (client.Management, error) {
 	httpClient, err := client.NewFromConfig(&cfg.ManagementService.Config)
 	if err != nil {
 		return nil, err
