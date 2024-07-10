@@ -28,7 +28,6 @@ func BenchmarkAggregateDeviceStatus(b *testing.B) {
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/crictl", "ps", "-a", "--output", "json").Return(crioListResult, "", 0).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json").Return(podmanListResult, "", 0).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "crio.service").Return(systemdUnitListResult, "", 0).AnyTimes()
-	resourceMock.EXPECT().Usage().Return(&resource.Usage{}, nil).AnyTimes()
 
 	manager := NewManager("test", resourceMock, execMock, log)
 	systemdPatterns := []string{"crio.service"}

@@ -17,7 +17,8 @@ paths:
           description: Redirect
           headers:
             Location:
-              type: "string"
+              schema:
+                type: string
         "418":
           description: Auth not configured
   /api/v1/token/validate:
@@ -2003,6 +2004,17 @@ components:
               additionalProperties: true
           required:
           - inline
+    ResourceMonitor:
+      oneOf:
+        - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+        - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
+        - $ref: '#/components/schemas/DiskResourceMonitorSpec'
+      discriminator:
+        propertyName: monitorType
+        mapping:
+          CPU: '#/components/schemas/CPUResourceMonitorSpec'
+          Memory: '#/components/schemas/MemoryResourceMonitorSpec'
+          Disk: '#/components/schemas/DiskResourceMonitorSpec'
     ResourceMonitorSpec:
       type: object
       properties:
@@ -2015,14 +2027,12 @@ components:
           description: "Array of alert rules. Only one alert per severity is allowed." 
         samplingInterval:
           type: string
-          pattern: '^\d+[smhd]$'
-          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-      discriminator:
-        propertyName: monitorType
+          pattern: '^[1-9]\d*[smhd]$'
+          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer."
       required:
         - monitorType
         - alertRules
-        - frequency
+        - samplingInterval
     CPUResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
@@ -2635,17 +2645,9 @@ components:
           type: array
           description: 'Array of resource monitor configurations.'
           items:
-            type: object
-            oneOf:
-              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
-              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
-              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
-              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
-            discriminator:
-              propertyName: monitorType
+            $ref: '#/components/schemas/ResourceMonitor'
       required:
         - renderedVersion
-        - resources
     DeviceSpec:
       type: object
       properties:
@@ -2683,14 +2685,7 @@ components:
           type: array
           description: 'Array of resource monitor configurations.'
           items:
-            type: object
-            oneOf:
-              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
-              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
-              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
-              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
-            discriminator:
-              propertyName: monitorType
+            $ref: '#/components/schemas/ResourceMonitor'
     FleetStatus:
       type: object
       properties:
