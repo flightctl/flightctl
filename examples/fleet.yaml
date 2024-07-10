@@ -19,7 +19,7 @@ spec:
           gitRef:
             repository: flightctl-demos
             targetRevision: main
-            path: /basic-nginx-demo/configuration
+            path: /demos/basic-nginx-demo/configuration
         - name: motd-update
           configType: InlineConfigProviderSpec
           inline:
