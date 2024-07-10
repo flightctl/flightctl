@@ -1,0 +1,6 @@
+apiVersion: v1alpha1
+kind: Repository
+metadata:
+  name: flightctl
+spec:
+  repo: https://github.com/flightctl/flightctl.git

@@ -47,7 +47,7 @@ jobs:
         run: bin/flightctl apply -f examples/enrollmentrequest.yaml
 
       - name: Apply repository
-        run: bin/flightctl apply -f examples/repository.yaml
+        run: bin/flightctl apply -f examples/repository-flightctl.yaml
 
       - name: Apply resourcesync
         run: bin/flightctl apply -f examples/resourcesync.yaml
