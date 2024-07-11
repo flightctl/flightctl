@@ -24,10 +24,10 @@ spec:
             - containerPort: 22
               protocol: TCP
           imagePullPolicy: IfNotPresent
-      securityContext:
-        allowPrivilegeEscalation: true
-        capabilities:
-          add:
-          - NET_BIND_SERVICE
-          - SYS_CHROOT 
+          securityContext:
+            allowPrivilegeEscalation: true
+            capabilities:
+              add:
+                - NET_BIND_SERVICE
+                - SYS_CHROOT
       restartPolicy: Always
