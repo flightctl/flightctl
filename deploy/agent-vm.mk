@@ -5,11 +5,13 @@ VMDISK = /var/lib/libvirt/images/$(VMNAME).qcow2
 VMWAIT ?= 0
 
 
-agent-vm: bin/output/qcow2/disk.qcow2
+agent-vm: #bin/output/qcow2/disk.qcow2
 	@echo "Booting Agent VM from $(VMDISK)"
 	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
 	sudo chown libvirt:libvirt $(VMDISK) 2>/dev/null || true
 	sudo virt-install --name $(VMNAME) \
+		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
+		 --boot uefi \
 					  --vcpus $(VMCPUS) \
 					  --memory $(VMRAM) \
 					  --import --disk $(VMDISK),format=qcow2 \
