@@ -7,7 +7,7 @@ Flight Control is a service for declarative, GitOps-driven management of edge de
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.20), and `podman-compose`
+* `git`, `make`, `openssl`, `go` (>= 1.21), and `podman-compose`
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
@@ -28,6 +28,9 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 `go install github.com/golang/mock/mockgen@v1.6.0`
 
 ## Running
+
+Prerequisites:
+* `virt-install`
 
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
 image with:
@@ -58,7 +61,15 @@ this only works on a Linux host.
 ```
 # will create the cluster, and the agent config files in bin/agent which will be embedded in the image
 make deploy
-make agent-vm agent-vm-console # user/password is redhat/redhat
+make agent-vm agent-vm-console # user/password is user/user
+```
+
+You also may need to add a firewall rule to allow your virtual machines to access the 
+flightctl service (port 7443). For example, `firewalld` can be configured using the following
+command:
+
+```
+firewall-cmd --zone=libvirt --add-port=7443/tcp
 ```
 
 The agent-vm target accepts multiple parameters:
