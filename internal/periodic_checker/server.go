@@ -33,25 +33,38 @@ func New(
 	}
 }
 
+// TODO: expose metrics
 func (s *Server) Run() error {
 	provider := queues.NewAmqpProvider(s.cfg.Queue.AmqpURL, s.log)
 	defer provider.Stop()
-	repoTester := tasks.NewRepoTester(s.log, s.store)
-	repoTesterThread := thread.New(
-		s.log.WithField("pkg", "repository-tester"), "Repository tester", 2*time.Minute, repoTester.TestRepositories)
-	repoTesterThread.Start()
-	defer repoTesterThread.Stop()
 
 	publisher, err := tasks.TaskQueuePublisher(provider)
 	if err != nil {
 		return err
 	}
 	callbackManager := tasks.NewCallbackManager(publisher, s.log)
+
+	// repository tester
+	repoTester := tasks.NewRepoTester(s.log, s.store)
+	repoTesterThread := thread.New(
+		s.log.WithField("pkg", "repository-tester"), "Repository tester", 2*time.Minute, repoTester.TestRepositories)
+	repoTesterThread.Start()
+	defer repoTesterThread.Stop()
+
+	// resource sync
 	resourceSync := tasks.NewResourceSync(callbackManager, s.store, s.log)
 	resourceSyncThread := thread.New(
 		s.log.WithField("pkg", "resourcesync"), "ResourceSync", 2*time.Minute, resourceSync.Poll)
 	resourceSyncThread.Start()
 	defer resourceSyncThread.Stop()
+
+	// device liveness
+	deviceLiveness := tasks.NewDeviceLiveness(s.log, s.store)
+	deviceLivenessThread := thread.New(
+		s.log.WithField("pkg", "device-liveness"), "Device liveness", tasks.DeviceLivenessPollingInterval, deviceLiveness.Poll)
+	deviceLivenessThread.Start()
+	defer deviceLivenessThread.Stop()
+
 	sigShutdown := make(chan os.Signal, 1)
 
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)

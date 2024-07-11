@@ -5,8 +5,10 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -25,6 +27,7 @@ type Device interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
@@ -247,6 +250,31 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 
 	updatedResource := device.ToApiResource()
 	return &updatedResource, created, nil
+}
+
+func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType) error {
+	if len(deviceNames) == 0 {
+		return nil
+	}
+
+	tokens := strings.Repeat("?,", len(deviceNames))
+	// trim tailing comma
+	tokens = tokens[:len(tokens)-1]
+
+	// https://www.postgresql.org/docs/current/functions-json.html
+	// jsonb_set(target jsonb, path text[], new_value jsonb, create_missing boolean)
+	createMissing := "false"
+	query := fmt.Sprintf(`
+        UPDATE devices
+        SET status = jsonb_set(status, '{summary, status}', '"%s"', %s)
+        WHERE name IN (%s)`, status, createMissing, tokens)
+
+	args := make([]interface{}, len(deviceNames))
+	for i, name := range deviceNames {
+		args[i] = name
+	}
+
+	return s.db.WithContext(ctx).Exec(query, args...).Error
 }
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
