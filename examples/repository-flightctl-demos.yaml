@@ -1,6 +1,6 @@
 apiVersion: v1alpha1
 kind: Repository
 metadata:
-  name: default-repo
+  name: flightctl-demos
 spec:
   repo: https://github.com/flightctl/flightctl-demos.git

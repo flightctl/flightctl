@@ -80,7 +80,7 @@ func TestEnsureEnrollment(t *testing.T) {
 			defer ctrl.Finish()
 
 			statusManager := status.NewMockManager(ctrl)
-			statusManager.EXPECT().Sync(gomock.Any()).Return(nil).Times(1)
+			statusManager.EXPECT().Collect(gomock.Any()).Return(nil).Times(1)
 			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}).Times(1)
 
 			log := flightlog.NewPrefixLogger("")

@@ -34,7 +34,7 @@ type Manager struct {
 	desiredRenderedFilePath string
 	deviceWriter            *fileio.Writer
 	deviceReader            *fileio.Reader
-	managementClient        *client.Management
+	managementClient        client.Management
 
 	log     *log.PrefixLogger
 	backoff wait.Backoff
@@ -47,7 +47,7 @@ func NewManager(
 	desiredRenderedFilePath string,
 	deviceWriter *fileio.Writer,
 	deviceReader *fileio.Reader,
-	managementClient *client.Management,
+	managementClient client.Management,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Manager {
@@ -69,57 +69,57 @@ func (s *Manager) WriteCurrentRendered(rendered *v1alpha1.RenderedDeviceSpec) er
 }
 
 // GetRendered returns the current and desired rendered device specs.
-func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec, v1alpha1.RenderedDeviceSpec, bool, error) {
+func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec, v1alpha1.RenderedDeviceSpec, error) {
 	current, err := ReadRenderedSpecFromFile(s.deviceReader, s.currentRenderedFilePath)
 	if err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, err
+		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, err
 	}
 
-	desired, skipSync, err := s.getDesiredRenderedSpec(ctx, current.RenderedVersion)
+	desired, err := s.getDesiredRenderedSpec(ctx, current.RenderedVersion)
 	if err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("get rendered spec: %w", err)
+		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("get rendered spec: %w", err)
 	}
-	return current, desired, skipSync, nil
+	return current, desired, nil
 }
 
 // getDesiredRenderedSpec returns the desired rendered device spec from the management API or from disk if the API is unavailable.
-func (m *Manager) getDesiredRenderedSpec(ctx context.Context, renderedVersion string) (v1alpha1.RenderedDeviceSpec, bool, error) {
+func (m *Manager) getDesiredRenderedSpec(ctx context.Context, renderedVersion string) (v1alpha1.RenderedDeviceSpec, error) {
 	var desired v1alpha1.RenderedDeviceSpec
 	err := wait.ExponentialBackoff(m.backoff, func() (bool, error) {
 		return m.getRenderedSpecFromManagementAPIWithRetry(ctx, renderedVersion, &desired)
 	})
 	if err != nil {
-		if errors.Is(err, ErrNoContent) {
-			return v1alpha1.RenderedDeviceSpec{}, true, nil
+		if !errors.Is(err, ErrNoContent) {
+			m.log.Warnf("Failed to get rendered device spec after retry: %v", err)
 		}
-		m.log.Warnf("Failed to get rendered device spec after retry: %v", err)
 	} else {
 		// write to disk
 		m.log.Infof("Writing desired rendered spec to disk with rendered version: %s", desired.RenderedVersion)
 		if err := WriteRenderedSpecToFile(m.deviceWriter, &desired, m.desiredRenderedFilePath); err != nil {
-			return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("write rendered spec to disk: %w", err)
+			return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("write rendered spec to disk: %w", err)
 		}
-		return desired, false, nil
+		return desired, nil
 	}
 
 	// fall back to latest from disk
-	m.log.Info("Falling back to latest rendered spec from disk")
+	m.log.Debug("Falling back to latest rendered spec from disk")
 
 	renderedBytes, err := os.ReadFile(m.desiredRenderedFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// TODO: handle this case better
 			// if the file does not exist, this means it has been removed/corrupted
-			return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("%w: rendered device has been deleted: %w", ErrMissingRenderedSpec, err)
+			return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("%w: rendered device has been deleted: %w", ErrMissingRenderedSpec, err)
 		}
-		return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("read from '%s': %w", m.desiredRenderedFilePath, err)
+		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read from '%s': %w", m.desiredRenderedFilePath, err)
 	}
 
 	// read bytes from file
 	if err := json.Unmarshal(renderedBytes, &desired); err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, false, fmt.Errorf("unmarshal %T: %w", desired, err)
+		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("unmarshal %T: %w", desired, err)
 	}
 
-	return desired, false, nil
+	return desired, nil
 }
 
 func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
@@ -179,7 +179,7 @@ func EnsureDesiredRenderedSpec(
 	log *log.PrefixLogger,
 	writer *fileio.Writer,
 	reader *fileio.Reader,
-	managementClient *client.Management,
+	managementClient client.Management,
 	deviceName string,
 	filePath string,
 	backoff wait.Backoff,

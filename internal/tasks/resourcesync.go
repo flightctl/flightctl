@@ -290,6 +290,9 @@ func (r ResourceSync) parseFleets(resources []genericResourceMap, owner *string)
 			if fleet.Metadata.Name == nil {
 				return nil, fmt.Errorf("decoding Fleet resource: missing field .metadata.name: %w", err)
 			}
+			if errs := fleet.Validate(); len(errs) > 0 {
+				return nil, fmt.Errorf("failed validating fleet: %w", errors.Join(errs...))
+			}
 			name, nameExists := names[*fleet.Metadata.Name]
 			if nameExists {
 				return nil, fmt.Errorf("found multiple fleet definitions with name '%s'", name)
