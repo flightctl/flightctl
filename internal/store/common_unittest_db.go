@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
+func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *gorm.DB) {
 	cfg := config.NewDefault()
 	cfg.Database.Name = ""
 	dbTemp, err := InitDB(cfg, log)
@@ -37,7 +37,7 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string) {
 	err = store.InitialMigration()
 	Expect(err).ShouldNot(HaveOccurred())
 
-	return store, cfg, randomDBName
+	return store, cfg, randomDBName, db
 }
 
 func DeleteTestDB(cfg *config.Config, store Store, dbName string) {

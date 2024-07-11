@@ -44,7 +44,7 @@ var _ = Describe("DeviceStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) { called = true })
