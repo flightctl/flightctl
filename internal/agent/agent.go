@@ -102,29 +102,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	executer := &executer.CommonExecuter{}
 
-	// TODO: expose through config
-	diskAlertFreeCapacityThreshold := int64(10)
-	diskWarnFreeCapacityThreshold := int64(20)
-	diskPaths := []string{"/"}
-	diskSyncDuration := time.Minute
-	diskTimeoutDuration := time.Second * 5
-
-	cpuAlertFreeCapacityThreshold := int64(10)
-	cpuWarnFreeCapacityThreshold := int64(20)
-	cpuSyncDuration := time.Minute
-	cpuTimeoutDuration := time.Second * 5
-
 	resourceManager := resource.NewManager(
 		a.log,
-		diskAlertFreeCapacityThreshold,
-		diskWarnFreeCapacityThreshold,
-		diskPaths,
-		diskSyncDuration,
-		diskTimeoutDuration,
-		cpuAlertFreeCapacityThreshold,
-		cpuWarnFreeCapacityThreshold,
-		cpuSyncDuration,
-		cpuTimeoutDuration,
 	)
 
 	// create status manager
@@ -184,6 +163,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create resource controller
+	resourceController := resource.NewController(
+		a.log,
+		resourceManager,
+	)
+
 	// create config controller
 	configController := config.NewController(
 		deviceWriter,
@@ -207,6 +192,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.StatusUpdateInterval,
 		configController,
 		osImageController,
+		resourceController,
 		a.log,
 	)
 
@@ -215,7 +201,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
+func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err
@@ -223,7 +209,7 @@ func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newManagementClient(cfg *Config) (*client.Management, error) {
+func newManagementClient(cfg *Config) (client.Management, error) {
 	httpClient, err := client.NewFromConfig(&cfg.ManagementService.Config)
 	if err != nil {
 		return nil, err

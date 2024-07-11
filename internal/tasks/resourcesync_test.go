@@ -187,7 +187,7 @@ func TestParseFleet(t *testing.T) {
 	require.Equal(*fleets[0].Metadata.Owner, *owner)
 }
 
-func TestParseFleet_invalid(t *testing.T) {
+func TestParseFleet_invalid_kind(t *testing.T) {
 	require := require.New(t)
 
 	memfs := memfs.New()
@@ -199,6 +199,25 @@ func TestParseFleet_invalid(t *testing.T) {
 	require.NoError(err)
 	require.Len(genericResources, 1)
 	genericResources[0]["kind"] = "NotValid"
+
+	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	_, err = rsTask.parseFleets(genericResources, owner)
+	require.Error(err)
+}
+
+func TestParseFleet_invalid_fleet(t *testing.T) {
+	require := require.New(t)
+
+	memfs := memfs.New()
+	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
+
+	rsTask := NewResourceSync(resourceSyncParams(t))
+
+	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
+	require.NoError(err)
+	require.Len(genericResources, 1)
+	metadata := (genericResources[0]["metadata"]).(map[string]interface{})
+	metadata["name"] = "i=n;!v@l!d"
 
 	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
 	_, err = rsTask.parseFleets(genericResources, owner)

@@ -28,7 +28,7 @@ type Bootstrap struct {
 	executer             executer.Executer
 	deviceWriter         *fileio.Writer
 	deviceReader         *fileio.Reader
-	enrollmentClient     *client.Enrollment
+	enrollmentClient     client.Enrollment
 	enrollmentUIEndpoint string
 	statusManager        status.Manager
 	bootcClient          *container.BootcCmd
@@ -38,7 +38,7 @@ type Bootstrap struct {
 	desiredRenderedFile string
 
 	managementServiceConfig *client.Config
-	managementClient        *client.Management
+	managementClient        client.Management
 
 	enrollmentCSR []byte
 	log           *log.PrefixLogger
@@ -51,7 +51,7 @@ func NewBootstrap(
 	deviceReader *fileio.Reader,
 	enrollmentCSR []byte,
 	statusManager status.Manager,
-	enrollmentClient *client.Enrollment,
+	enrollmentClient client.Enrollment,
 	enrollmentUIEndpoint string,
 	managementServiceConfig *client.Config,
 	backoff wait.Backoff,
@@ -342,9 +342,9 @@ func (b *Bootstrap) writeQRBanner(message, url string) error {
 }
 
 func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
-	err := b.statusManager.Sync(ctx)
+	err := b.statusManager.Collect(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to sync system status: %w", err)
+		b.log.Warnf("Collecting device status: %v", err)
 	}
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",

@@ -3825,7 +3825,7 @@ type TokenRequestResponseObject interface {
 }
 
 type TokenRequest301ResponseHeaders struct {
-	Location interface{}
+	Location string
 }
 
 type TokenRequest301Response struct {

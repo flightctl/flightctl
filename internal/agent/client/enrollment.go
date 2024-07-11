@@ -10,24 +10,26 @@ import (
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 )
 
+var _ Enrollment = (*enrollment)(nil)
+
 func NewEnrollment(
 	client *client.ClientWithResponses,
-) *Enrollment {
-	return &Enrollment{
+) Enrollment {
+	return &enrollment{
 		client: client,
 	}
 }
 
-type Enrollment struct {
+type enrollment struct {
 	client                 *client.ClientWithResponses
 	rpcMetricsCallbackFunc func(operation string, durationSeconds float64, err error)
 }
 
-func (e *Enrollment) SetRPCMetricsCallback(cb func(operation string, durationSeconds float64, err error)) {
+func (e *enrollment) SetRPCMetricsCallback(cb func(operation string, durationSeconds float64, err error)) {
 	e.rpcMetricsCallbackFunc = cb
 }
 
-func (e *Enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
+func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
 	start := time.Now()
 	resp, err := e.client.CreateEnrollmentRequestWithResponse(ctx, req, cb...)
 	if err != nil {
@@ -55,7 +57,7 @@ func (e *Enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 	return nil, fmt.Errorf("create enrollmentrequest failed: %s", ErrEmptyResponse)
 }
 
-func (e *Enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
+func (e *enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
 	start := time.Now()
 	resp, err := e.client.ReadEnrollmentRequestWithResponse(ctx, id, cb...)
 	if err != nil {

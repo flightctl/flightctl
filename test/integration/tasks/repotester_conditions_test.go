@@ -64,7 +64,7 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		repotestr = tasks.NewRepoTester(log, stores)
 		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
 	})

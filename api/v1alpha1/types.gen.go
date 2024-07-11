@@ -164,8 +164,8 @@ type CustomResourceMonitorSpec struct {
 	AlertRules  []ResourceAlertRule `json:"alertRules"`
 	MonitorType string              `json:"monitorType"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
-	SamplingInterval *string `json:"samplingInterval,omitempty"`
+	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	SamplingInterval string `json:"samplingInterval"`
 }
 
 // Device Device represents a physical device.
@@ -259,7 +259,7 @@ type DeviceSpec struct {
 	Os *DeviceOSSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
-	Resources *[]DeviceSpec_Resources_Item `json:"resources,omitempty"`
+	Resources *[]ResourceMonitor `json:"resources,omitempty"`
 	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
@@ -267,11 +267,6 @@ type DeviceSpec struct {
 
 // DeviceSpec_Config_Item defines model for DeviceSpec.config.Item.
 type DeviceSpec_Config_Item struct {
-	union json.RawMessage
-}
-
-// DeviceSpec_Resources_Item defines model for DeviceSpec.resources.Item.
-type DeviceSpec_Resources_Item struct {
 	union json.RawMessage
 }
 
@@ -334,8 +329,8 @@ type DiskResourceMonitorSpec struct {
 	// Path The directory path to monitor for disk usage.
 	Path string `json:"path"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
-	SamplingInterval *string `json:"samplingInterval,omitempty"`
+	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	SamplingInterval string `json:"samplingInterval"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
@@ -618,15 +613,10 @@ type RenderedDeviceSpec struct {
 	RenderedVersion string        `json:"renderedVersion"`
 
 	// Resources Array of resource monitor configurations.
-	Resources []RenderedDeviceSpec_Resources_Item `json:"resources"`
+	Resources *[]ResourceMonitor `json:"resources,omitempty"`
 	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
-}
-
-// RenderedDeviceSpec_Resources_Item defines model for RenderedDeviceSpec.resources.Item.
-type RenderedDeviceSpec_Resources_Item struct {
-	union json.RawMessage
 }
 
 // Repository Repository represents a git repository
@@ -687,14 +677,19 @@ type ResourceAlertRule struct {
 // ResourceAlertSeverityType defines model for ResourceAlertSeverityType.
 type ResourceAlertSeverityType string
 
+// ResourceMonitor defines model for ResourceMonitor.
+type ResourceMonitor struct {
+	union json.RawMessage
+}
+
 // ResourceMonitorSpec defines model for ResourceMonitorSpec.
 type ResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
 	AlertRules  []ResourceAlertRule `json:"alertRules"`
 	MonitorType string              `json:"monitorType"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
-	SamplingInterval *string `json:"samplingInterval,omitempty"`
+	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	SamplingInterval string `json:"samplingInterval"`
 }
 
 // ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
@@ -818,7 +813,7 @@ type TemplateVersionStatus struct {
 	Os *DeviceOSSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
-	Resources *[]TemplateVersionStatus_Resources_Item `json:"resources,omitempty"`
+	Resources *[]ResourceMonitor `json:"resources,omitempty"`
 	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
@@ -827,11 +822,6 @@ type TemplateVersionStatus struct {
 
 // TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.
 type TemplateVersionStatus_Config_Item struct {
-	union json.RawMessage
-}
-
-// TemplateVersionStatus_Resources_Item defines model for TemplateVersionStatus.resources.Item.
-type TemplateVersionStatus_Resources_Item struct {
 	union json.RawMessage
 }
 
@@ -1100,304 +1090,6 @@ func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsCPUResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a CPUResourceMonitorSpec
-func (t DeviceSpec_Resources_Item) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
-	var body CPUResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCPUResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided CPUResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
-	v.MonitorType = "CPUResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCPUResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided CPUResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
-	v.MonitorType = "CPUResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsMemoryResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a MemoryResourceMonitorSpec
-func (t DeviceSpec_Resources_Item) AsMemoryResourceMonitorSpec() (MemoryResourceMonitorSpec, error) {
-	var body MemoryResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromMemoryResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided MemoryResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) FromMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
-	v.MonitorType = "MemoryResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeMemoryResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided MemoryResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) MergeMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
-	v.MonitorType = "MemoryResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsDiskResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a DiskResourceMonitorSpec
-func (t DeviceSpec_Resources_Item) AsDiskResourceMonitorSpec() (DiskResourceMonitorSpec, error) {
-	var body DiskResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromDiskResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided DiskResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) FromDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
-	v.MonitorType = "DiskResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeDiskResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided DiskResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) MergeDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
-	v.MonitorType = "DiskResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsCustomResourceMonitorSpec returns the union data inside the DeviceSpec_Resources_Item as a CustomResourceMonitorSpec
-func (t DeviceSpec_Resources_Item) AsCustomResourceMonitorSpec() (CustomResourceMonitorSpec, error) {
-	var body CustomResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCustomResourceMonitorSpec overwrites any union data inside the DeviceSpec_Resources_Item as the provided CustomResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) FromCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
-	v.MonitorType = "CustomResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCustomResourceMonitorSpec performs a merge with any union data inside the DeviceSpec_Resources_Item, using the provided CustomResourceMonitorSpec
-func (t *DeviceSpec_Resources_Item) MergeCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
-	v.MonitorType = "CustomResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t DeviceSpec_Resources_Item) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"monitorType"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t DeviceSpec_Resources_Item) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "CPUResourceMonitorSpec":
-		return t.AsCPUResourceMonitorSpec()
-	case "CustomResourceMonitorSpec":
-		return t.AsCustomResourceMonitorSpec()
-	case "DiskResourceMonitorSpec":
-		return t.AsDiskResourceMonitorSpec()
-	case "MemoryResourceMonitorSpec":
-		return t.AsMemoryResourceMonitorSpec()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t DeviceSpec_Resources_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *DeviceSpec_Resources_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsCPUResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a CPUResourceMonitorSpec
-func (t RenderedDeviceSpec_Resources_Item) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
-	var body CPUResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCPUResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided CPUResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
-	v.MonitorType = "CPUResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCPUResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided CPUResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
-	v.MonitorType = "CPUResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsMemoryResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a MemoryResourceMonitorSpec
-func (t RenderedDeviceSpec_Resources_Item) AsMemoryResourceMonitorSpec() (MemoryResourceMonitorSpec, error) {
-	var body MemoryResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromMemoryResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided MemoryResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) FromMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
-	v.MonitorType = "MemoryResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeMemoryResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided MemoryResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) MergeMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
-	v.MonitorType = "MemoryResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsDiskResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a DiskResourceMonitorSpec
-func (t RenderedDeviceSpec_Resources_Item) AsDiskResourceMonitorSpec() (DiskResourceMonitorSpec, error) {
-	var body DiskResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromDiskResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided DiskResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) FromDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
-	v.MonitorType = "DiskResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeDiskResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided DiskResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) MergeDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
-	v.MonitorType = "DiskResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsCustomResourceMonitorSpec returns the union data inside the RenderedDeviceSpec_Resources_Item as a CustomResourceMonitorSpec
-func (t RenderedDeviceSpec_Resources_Item) AsCustomResourceMonitorSpec() (CustomResourceMonitorSpec, error) {
-	var body CustomResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCustomResourceMonitorSpec overwrites any union data inside the RenderedDeviceSpec_Resources_Item as the provided CustomResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) FromCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
-	v.MonitorType = "CustomResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCustomResourceMonitorSpec performs a merge with any union data inside the RenderedDeviceSpec_Resources_Item, using the provided CustomResourceMonitorSpec
-func (t *RenderedDeviceSpec_Resources_Item) MergeCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
-	v.MonitorType = "CustomResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t RenderedDeviceSpec_Resources_Item) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"monitorType"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t RenderedDeviceSpec_Resources_Item) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "CPUResourceMonitorSpec":
-		return t.AsCPUResourceMonitorSpec()
-	case "CustomResourceMonitorSpec":
-		return t.AsCustomResourceMonitorSpec()
-	case "DiskResourceMonitorSpec":
-		return t.AsDiskResourceMonitorSpec()
-	case "MemoryResourceMonitorSpec":
-		return t.AsMemoryResourceMonitorSpec()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t RenderedDeviceSpec_Resources_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *RenderedDeviceSpec_Resources_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
 // AsGitGenericRepoSpec returns the union data inside the RepositorySpec as a GitGenericRepoSpec
 func (t RepositorySpec) AsGitGenericRepoSpec() (GitGenericRepoSpec, error) {
 	var body GitGenericRepoSpec
@@ -1482,6 +1174,125 @@ func (t RepositorySpec) MarshalJSON() ([]byte, error) {
 }
 
 func (t *RepositorySpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsCPUResourceMonitorSpec returns the union data inside the ResourceMonitor as a CPUResourceMonitorSpec
+func (t ResourceMonitor) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
+	var body CPUResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCPUResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided CPUResourceMonitorSpec
+func (t *ResourceMonitor) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPU"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCPUResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided CPUResourceMonitorSpec
+func (t *ResourceMonitor) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+	v.MonitorType = "CPU"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMemoryResourceMonitorSpec returns the union data inside the ResourceMonitor as a MemoryResourceMonitorSpec
+func (t ResourceMonitor) AsMemoryResourceMonitorSpec() (MemoryResourceMonitorSpec, error) {
+	var body MemoryResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided MemoryResourceMonitorSpec
+func (t *ResourceMonitor) FromMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "Memory"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMemoryResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided MemoryResourceMonitorSpec
+func (t *ResourceMonitor) MergeMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
+	v.MonitorType = "Memory"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDiskResourceMonitorSpec returns the union data inside the ResourceMonitor as a DiskResourceMonitorSpec
+func (t ResourceMonitor) AsDiskResourceMonitorSpec() (DiskResourceMonitorSpec, error) {
+	var body DiskResourceMonitorSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDiskResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided DiskResourceMonitorSpec
+func (t *ResourceMonitor) FromDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "Disk"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDiskResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided DiskResourceMonitorSpec
+func (t *ResourceMonitor) MergeDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
+	v.MonitorType = "Disk"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ResourceMonitor) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"monitorType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ResourceMonitor) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "CPU":
+		return t.AsCPUResourceMonitorSpec()
+	case "Disk":
+		return t.AsDiskResourceMonitorSpec()
+	case "Memory":
+		return t.AsMemoryResourceMonitorSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ResourceMonitor) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ResourceMonitor) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -1601,155 +1412,6 @@ func (t TemplateVersionStatus_Config_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *TemplateVersionStatus_Config_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsCPUResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a CPUResourceMonitorSpec
-func (t TemplateVersionStatus_Resources_Item) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
-	var body CPUResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCPUResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided CPUResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
-	v.MonitorType = "CPUResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCPUResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided CPUResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
-	v.MonitorType = "CPUResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsMemoryResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a MemoryResourceMonitorSpec
-func (t TemplateVersionStatus_Resources_Item) AsMemoryResourceMonitorSpec() (MemoryResourceMonitorSpec, error) {
-	var body MemoryResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromMemoryResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided MemoryResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) FromMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
-	v.MonitorType = "MemoryResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeMemoryResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided MemoryResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) MergeMemoryResourceMonitorSpec(v MemoryResourceMonitorSpec) error {
-	v.MonitorType = "MemoryResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsDiskResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a DiskResourceMonitorSpec
-func (t TemplateVersionStatus_Resources_Item) AsDiskResourceMonitorSpec() (DiskResourceMonitorSpec, error) {
-	var body DiskResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromDiskResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided DiskResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) FromDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
-	v.MonitorType = "DiskResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeDiskResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided DiskResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) MergeDiskResourceMonitorSpec(v DiskResourceMonitorSpec) error {
-	v.MonitorType = "DiskResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsCustomResourceMonitorSpec returns the union data inside the TemplateVersionStatus_Resources_Item as a CustomResourceMonitorSpec
-func (t TemplateVersionStatus_Resources_Item) AsCustomResourceMonitorSpec() (CustomResourceMonitorSpec, error) {
-	var body CustomResourceMonitorSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCustomResourceMonitorSpec overwrites any union data inside the TemplateVersionStatus_Resources_Item as the provided CustomResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) FromCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
-	v.MonitorType = "CustomResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCustomResourceMonitorSpec performs a merge with any union data inside the TemplateVersionStatus_Resources_Item, using the provided CustomResourceMonitorSpec
-func (t *TemplateVersionStatus_Resources_Item) MergeCustomResourceMonitorSpec(v CustomResourceMonitorSpec) error {
-	v.MonitorType = "CustomResourceMonitorSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t TemplateVersionStatus_Resources_Item) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"monitorType"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t TemplateVersionStatus_Resources_Item) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "CPUResourceMonitorSpec":
-		return t.AsCPUResourceMonitorSpec()
-	case "CustomResourceMonitorSpec":
-		return t.AsCustomResourceMonitorSpec()
-	case "DiskResourceMonitorSpec":
-		return t.AsDiskResourceMonitorSpec()
-	case "MemoryResourceMonitorSpec":
-		return t.AsMemoryResourceMonitorSpec()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t TemplateVersionStatus_Resources_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *TemplateVersionStatus_Resources_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

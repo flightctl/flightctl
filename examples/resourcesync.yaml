@@ -3,6 +3,6 @@ kind: ResourceSync
 metadata:
   name: default-sync
 spec:
-  repository: default-repo
+  repository: flightctl
   path: /examples/fleet.yaml
   targetRevision: main

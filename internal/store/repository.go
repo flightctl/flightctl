@@ -49,21 +49,8 @@ func (s *RepositoryStore) InitialMigration() error {
 }
 
 func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	repository := model.NewRepositoryFromApiResource(resource)
-	repository.OrgID = orgId
-	result := s.db.Create(repository)
-	apiRepository, toApiErr := repository.ToApiResource()
-	if result.Error == nil {
-		callback(repository)
-	}
-	err := flterrors.ErrorFromGormError(result.Error)
-	if err == nil {
-		err = toApiErr
-	}
-	return &apiRepository, err
+	repo, _, err := s.CreateOrUpdate(ctx, orgId, resource, callback)
+	return repo, err
 }
 
 func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
@@ -95,6 +82,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 			}
 		} else {
 			countQuery := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
+			countQuery = countQuery.Where("spec IS NOT NULL")
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -117,7 +105,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 	var repositories model.RepositoryList
 
-	result := s.db.Model(&repositories).Find(&repositories)
+	result := s.db.Model(&repositories).Where("spec IS NOT NULL").Find(&repositories)
 	if result.Error != nil {
 		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
@@ -126,7 +114,7 @@ func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 
 func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback RepositoryStoreAllDeletedCallback) error {
 	condition := model.Repository{}
-	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+	result := s.db.Unscoped().Where("spec IS NOT NULL AND org_id = ?", orgId).Delete(&condition)
 	if result.Error == nil {
 		callback(orgId)
 	}
@@ -146,7 +134,7 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&repository)
+	result := s.db.Where("spec IS NOT NULL").First(&repository)
 	if result.Error != nil {
 		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
@@ -167,7 +155,7 @@ func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 	findRepository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
-	result := s.db.First(&findRepository)
+	result := s.db.Where("spec IS NOT NULL").First(&findRepository)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			created = true
@@ -205,7 +193,7 @@ func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name stri
 	var existingRecord model.Repository
 	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
 		existingRecord = model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
+		result := innerTx.Where("spec IS NOT NULL").First(&existingRecord)
 		if result.Error != nil {
 			return flterrors.ErrorFromGormError(result.Error)
 		}

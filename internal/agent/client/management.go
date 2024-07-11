@@ -11,25 +11,27 @@ import (
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 )
 
+var _ Management = (*management)(nil)
+
 var (
 	ErrEmptyResponse = errors.New("empty response")
 )
 
 func NewManagement(
 	client *client.ClientWithResponses,
-) *Management {
-	return &Management{
+) Management {
+	return &management{
 		client: client,
 	}
 }
 
-type Management struct {
+type management struct {
 	client                 *client.ClientWithResponses
 	rpcMetricsCallbackFunc func(operation string, durationSeconds float64, err error)
 }
 
 // UpdateDeviceStatus updates the status of the device with the given name.
-func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
+func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
 	start := time.Now()
 	resp, err := m.client.ReplaceDeviceStatusWithResponse(ctx, name, device, rcb...)
 	if err != nil {
@@ -54,7 +56,7 @@ func (m *Management) UpdateDeviceStatus(ctx context.Context, name string, device
 // and the response code. If the server returns a 200, the rendered device spec
 // is returned. If the server returns a 204, the rendered device spec is nil,
 // and the response code is returned which should be evaluated but the caller.
-func (m *Management) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
+func (m *management) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
 	start := time.Now()
 	resp, err := m.client.GetRenderedDeviceSpecWithResponse(ctx, name, params, rcb...)
 	if err != nil {
