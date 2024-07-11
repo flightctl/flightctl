@@ -17,6 +17,10 @@ const (
 	DefaultSamplingInterval = 1 * time.Hour
 )
 
+var (
+	ErrAlertFiring = fmt.Errorf("alert is firing")
+)
+
 type Manager interface {
 	Run(ctx context.Context)
 	Update(monitor v1alpha1.ResourceMonitor) (bool, error)
@@ -79,8 +83,9 @@ func (m *ResourceManager) Update(monitor v1alpha1.ResourceMonitor) (bool, error)
 
 func (m *ResourceManager) Alerts() *Alerts {
 	return &Alerts{
-		DiskUsage: m.diskMonitor.Alerts(),
-		CPUUsage:  m.cpuMonitor.Alerts(),
+		DiskUsage:   m.diskMonitor.Alerts(),
+		CPUUsage:    m.cpuMonitor.Alerts(),
+		MemoryUsage: m.memoryMonitor.Alerts(),
 	}
 }
 
@@ -129,6 +134,7 @@ func GetHighestSeverityResourceStatusFromAlerts(alerts []v1alpha1.ResourceAlertR
 		return v1alpha1.DeviceResourceStatusUnknown, nil
 	}
 
+	var err error
 	// initialize with the lowest severity (info)
 	maxSeverity := AlertLevelMap[v1alpha1.ResourceAlertSeverityTypeInfo]
 	var highestSeverity v1alpha1.DeviceResourceStatusType
@@ -137,8 +143,9 @@ func GetHighestSeverityResourceStatusFromAlerts(alerts []v1alpha1.ResourceAlertR
 		if severity.Level > maxSeverity.Level {
 			maxSeverity = AlertLevelMap[alert.Severity]
 			highestSeverity = severity.Status
+			err = fmt.Errorf("%w: %s", ErrAlertFiring, alert.Severity)
 		}
 	}
 
-	return highestSeverity, nil
+	return highestSeverity, err
 }

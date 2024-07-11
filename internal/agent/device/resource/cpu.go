@@ -69,7 +69,7 @@ func (m *CPUMonitor) Run(ctx context.Context) {
 }
 
 func (m *CPUMonitor) Update(monitor v1alpha1.ResourceMonitor) (bool, error) {
-	spec, err := monitor.AsDiskResourceMonitorSpec()
+	spec, err := monitor.AsCPUResourceMonitorSpec()
 	if err != nil {
 		return false, err
 	}
@@ -227,7 +227,7 @@ func (m *CPUMonitor) clearAlerts() {
 func (m *CPUMonitor) ensureAlerts() {
 	for _, alert := range m.alerts {
 		if m.updateAlert(alert) {
-			m.log.Infof("Alert %s is firing", alert.Severity)
+			m.log.Debugf("CPU alert is firing: %s", alert.Severity)
 		}
 	}
 }

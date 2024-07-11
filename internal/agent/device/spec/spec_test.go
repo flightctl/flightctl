@@ -87,9 +87,9 @@ func TestManager(t *testing.T) {
 				backoff,
 				log,
 			)
-			current, desired, skipSync, err := manager.GetRendered(ctx)
+			current, desired, err := manager.GetRendered(ctx)
 			if tt.wantSkipSync {
-				require.Equal(tt.wantSkipSync, skipSync)
+				require.Equal(current, desired)
 				return
 			}
 			if tt.wantErr != nil {

@@ -257,7 +257,7 @@ func (m *MemoryMonitor) ensureAlerts() {
 
 	for _, alert := range m.alerts {
 		if m.checkAlert(alert) {
-			m.log.Debugf("Alert %s is firing", alert.Severity)
+			m.log.Debugf("Memory alert is firing: %s", alert.Severity)
 		}
 	}
 }
