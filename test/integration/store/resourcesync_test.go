@@ -56,7 +56,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numResourceSyncs = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 
 		createResourceSyncs(ctx, 3, storeInst, orgId)
 	})
