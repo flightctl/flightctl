@@ -39,7 +39,7 @@ func main() {
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		fmt.Println("This program starts a devicesimulator with the specified configuration. Below are the available flags:")
+		fmt.Println("This program starts a device simulator with the specified configuration. Below are the available flags:")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -49,6 +49,8 @@ func main() {
 	if err := agentConfigTemplate.ParseConfigFile(*configFile); err != nil {
 		log.Fatalf("Error parsing config: %v", err)
 	}
+	agentConfigTemplate.DataDir = *dataDir
+
 	if err := agentConfigTemplate.Validate(); err != nil {
 		log.Fatalf("Error validating config: %v", err)
 	}
@@ -70,24 +72,33 @@ func main() {
 		agentName := fmt.Sprintf("device-%04d", i)
 		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
 		agentDir := filepath.Join(*dataDir, agentName)
+		err := os.Setenv(client.TestRootDirEnvKey, agentDir)
+		if err != nil {
+			log.Fatalf("Error setting environment variable: %v", err)
+		}
 		for _, filename := range []string{"ca.crt", "client-enrollment.crt", "client-enrollment.key"} {
 			if err := copyFile(filepath.Join(certDir, filename), filepath.Join(agentDir, filename)); err != nil {
 				log.Fatalf("copying %s: %v", filename, err)
 			}
 		}
 
+		// initialize the agent's expected
+		if err := os.MkdirAll(filepath.Join(agentDir, "etc", "flightctl"), 0700); err != nil {
+			log.Fatalf("Error creating directory: %v", err)
+		}
+
 		cfg := agent.NewDefault()
-		cfg.ConfigDir = agentConfigTemplate.ConfigDir
-		cfg.DataDir = agentDir
-		cfg.EnrollmentService = agentConfigTemplate.EnrollmentService
-		cfg.ManagementService = agent.ManagementService{
+		cfg.ConfigDir = "/etc/flightctl"
+		cfg.DataDir = "/etc/flightctl"
+		cfg.EnrollmentService = agent.EnrollmentService{
 			Config: client.Config{
-				Service: agentConfigTemplate.ManagementService.Config.Service,
+				Service: client.Service{
+					Server:               agentConfigTemplate.EnrollmentService.Config.Service.Server,
+					CertificateAuthority: filepath.Join(agentDir, agent.CacertFile),
+				},
 				AuthInfo: client.AuthInfo{
-					ClientCertificate:     filepath.Join(agentDir, agent.GeneratedCertFile),
-					ClientCertificateData: []byte{},
-					ClientKey:             filepath.Join(agentDir, agent.KeyFile),
-					ClientKeyData:         []byte{},
+					ClientCertificate: filepath.Join(agentDir, agent.EnrollmentCertFile),
+					ClientKey:         filepath.Join(agentDir, agent.EnrollmentKeyFile),
 				},
 			},
 		}
