@@ -77,7 +77,7 @@ func TestDiskMonitor(t *testing.T) {
 	require.Len(alerts, 2)
 
 	deviceResourceStatusType, err := GetHighestSeverityResourceStatusFromAlerts(alerts)
-	require.NoError(err)
+	require.ErrorIs(err, ErrAlertFiring)
 
 	require.Equal(v1alpha1.DeviceResourceStatusCritical, deviceResourceStatusType)
 

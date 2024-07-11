@@ -127,6 +127,20 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
+// Collect mocks base method.
+func (m *MockManager) Collect(arg0 context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Collect", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Collect indicates an expected call of Collect.
+func (mr *MockManagerMockRecorder) Collect(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Collect", reflect.TypeOf((*MockManager)(nil).Collect), arg0)
+}
+
 // Get mocks base method.
 func (m *MockManager) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
 	m.ctrl.T.Helper()
@@ -142,7 +156,7 @@ func (mr *MockManagerMockRecorder) Get(arg0 any) *gomock.Call {
 }
 
 // SetClient mocks base method.
-func (m *MockManager) SetClient(arg0 *client.Management) {
+func (m *MockManager) SetClient(arg0 client.Management) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetClient", arg0)
 }

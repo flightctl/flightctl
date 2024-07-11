@@ -178,7 +178,7 @@ func (m *DiskMonitor) ensureAlerts() {
 
 	for _, alert := range m.alerts {
 		if m.checkAlert(alert) {
-			m.log.Warnf("Alert %s is firing", alert.Severity)
+			m.log.Debugf("Disk alert is firing: %s", alert.Severity)
 		}
 	}
 }

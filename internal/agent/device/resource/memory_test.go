@@ -134,7 +134,7 @@ func TestMemoryMonitor(t *testing.T) {
 	require.Len(alerts, 1)
 
 	deviceResourceStatusType, err := GetHighestSeverityResourceStatusFromAlerts(alerts)
-	require.NoError(err)
+	require.ErrorIs(err, ErrAlertFiring)
 
 	require.Equal(v1alpha1.DeviceResourceStatusWarning, deviceResourceStatusType)
 
