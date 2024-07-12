@@ -226,3 +226,11 @@ func LabelsMatchLabelSelector(labels map[string]string, labelSelector map[string
 	}
 	return true
 }
+
+func OwnerQueryParamsToArray(ownerQueryParam *string) []string {
+	owners := []string{}
+	if ownerQueryParam != nil && len(*ownerQueryParam) > 0 {
+		owners = strings.Split(*ownerQueryParam, ",")
+	}
+	return owners
+}

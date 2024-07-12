@@ -108,7 +108,7 @@ type ListParams struct {
 	Labels       map[string]string
 	Filter       map[string][]string
 	InvertLabels *bool
-	Owner        *string
+	Owners       []string
 	Limit        int
 	Continue     *Continue
 	FleetName    *string

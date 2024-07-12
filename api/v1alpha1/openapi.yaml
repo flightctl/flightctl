@@ -575,7 +575,7 @@ paths:
             format: int32
         - name: owner
           in: query
-          description: The owner of the devices.
+          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
           required: false
           schema:
             type: string
@@ -1302,7 +1302,7 @@ paths:
             format: int32
         - name: owner
           in: query
-          description: The owner of the fleets.
+          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
           required: false
           schema:
             type: string
