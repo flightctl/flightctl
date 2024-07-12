@@ -2078,8 +2078,6 @@ components:
               - repository
               - filePath
           required:
-          - url
-          - filePath
           - httpRef
     ResourceMonitor:
       oneOf:

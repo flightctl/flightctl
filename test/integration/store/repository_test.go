@@ -230,7 +230,7 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository create nilspec", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 				Repo: "myotherrepo",
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -247,7 +247,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
