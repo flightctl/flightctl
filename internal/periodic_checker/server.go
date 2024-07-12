@@ -58,12 +58,12 @@ func (s *Server) Run() error {
 	resourceSyncThread.Start()
 	defer resourceSyncThread.Stop()
 
-	// device liveness
-	deviceLiveness := tasks.NewDeviceLiveness(s.log, s.store)
-	deviceLivenessThread := thread.New(
-		s.log.WithField("pkg", "device-liveness"), "Device liveness", tasks.DeviceLivenessPollingInterval, deviceLiveness.Poll)
-	deviceLivenessThread.Start()
-	defer deviceLivenessThread.Stop()
+	// device disconnected
+	deviceDisconnected := tasks.NewDeviceDisconnected(s.log, s.store)
+	deviceDisconnectedThread := thread.New(
+		s.log.WithField("pkg", "device-disconnected"), "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
+	deviceDisconnectedThread.Start()
+	defer deviceDisconnectedThread.Stop()
 
 	sigShutdown := make(chan os.Signal, 1)
 

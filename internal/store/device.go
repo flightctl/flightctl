@@ -27,7 +27,7 @@ type Device interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
-	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType) error
+	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
@@ -57,6 +57,19 @@ func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
 func (s *DeviceStore) InitialMigration() error {
 	if err := s.db.AutoMigrate(&model.Device{}); err != nil {
 		return err
+	}
+
+	// Create index for device primary key 'name'
+	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_primary_key_name") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_device_primary_key_name ON devices USING BTREE (name)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "PrimaryKeyColumnName"); err != nil {
+				return err
+			}
+		}
 	}
 
 	// TODO: generalize this for fleet, enrollmentrequest, etc. Make part of the base resource
@@ -252,7 +265,7 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 	return &updatedResource, created, nil
 }
 
-func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType) error {
+func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
 	if len(deviceNames) == 0 {
 		return nil
 	}
@@ -266,8 +279,12 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 	createMissing := "false"
 	query := fmt.Sprintf(`
         UPDATE devices
-        SET status = jsonb_set(status, '{summary, status}', '"%s"', %s)
-        WHERE name IN (%s)`, status, createMissing, tokens)
+        SET 
+            status = jsonb_set(
+                jsonb_set(status, '{summary,status}', '"%s"', %s), 
+                '{summary,info}', '"%s"'
+            )
+        WHERE name IN (%s)`, status, createMissing, statusInfo, tokens)
 
 	args := make([]interface{}, len(deviceNames))
 	for i, name := range deviceNames {

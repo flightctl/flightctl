@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -12,30 +13,31 @@ import (
 
 const (
 	// TODO: make configurable
-	// DeviceLivenessTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
-	DeviceLivenessTimeout = 5 * time.Minute
-	// DeviceLivenessPollingInterval is the interval at which the device liveness task runs.
-	DeviceLivenessPollingInterval = 2 * time.Minute
+	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
+	DeviceDisconnectedTimeout = 5 * time.Minute
+	// DeviceDisconnectedPollingInterval is the interval at which the device liveness task runs.
+	DeviceDisconnectedPollingInterval = 2 * time.Minute
 )
 
-type DeviceLiveness struct {
+type DeviceDisconnected struct {
 	log         logrus.FieldLogger
 	deviceStore store.Device
 }
 
-func NewDeviceLiveness(log logrus.FieldLogger, store store.Store) *DeviceLiveness {
-	return &DeviceLiveness{
+func NewDeviceDisconnected(log logrus.FieldLogger, store store.Store) *DeviceDisconnected {
+	return &DeviceDisconnected{
 		log:         log,
 		deviceStore: store.Device(),
 	}
 }
 
-// Poll checks the status of devices and updates the status to unknown if the device has not reported in the last DeviceLivenessTimeout.
-func (t *DeviceLiveness) Poll() {
-	t.log.Info("Running DeviceLiveness Polling")
+// Poll checks the status of devices and updates the status to unknown if the device has not reported in the last DeviceDisconnectedTimeout.
+func (t *DeviceDisconnected) Poll() {
+	t.log.Info("Running DeviceDisconnected Polling")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	statusInfoMessage := fmt.Sprintf("Did not check in for %d minutes", int(DeviceDisconnectedTimeout.Minutes()))
 	// TODO: one thread per org?
 	orgID := uuid.UUID{}
 	// batch of 1000 devices
@@ -50,14 +52,15 @@ func (t *DeviceLiveness) Poll() {
 		var batch []string
 		for _, device := range devices.Items {
 			if device.Status != nil && device.Status.Summary.Status != v1alpha1.DeviceSummaryStatusUnknown {
-				if device.Status.UpdatedAt.Add(DeviceLivenessTimeout).Before(time.Now()) {
+				if device.Status.UpdatedAt.Add(DeviceDisconnectedTimeout).Before(time.Now()) {
 					batch = append(batch, *device.Metadata.Name)
 				}
 			}
 		}
 
 		t.log.Infof("Updating %d devices to unknown status", len(batch))
-		if err := t.deviceStore.UpdateSummaryStatusBatch(ctx, orgID, batch, v1alpha1.DeviceSummaryStatusUnknown); err != nil {
+		// TODO: This is MVP and needs to be properly evaluated for performance and race conditions
+		if err := t.deviceStore.UpdateSummaryStatusBatch(ctx, orgID, batch, v1alpha1.DeviceSummaryStatusUnknown, statusInfoMessage); err != nil {
 			t.log.WithError(err).Error("failed to update device summary status")
 			return
 		}
