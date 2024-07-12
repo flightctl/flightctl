@@ -17,6 +17,7 @@ enrollment-service:
     certificate-authority: certs/ca.crt
     server: https://${IP}:7443
   enrollment-ui-endpoint: https://${IP}:8080
+grpc-management-endpoint: grpcs://${IP}:7444
 spec-fetch-interval: 0m10s
 status-update-interval: 0m10s
 tpm-path: /dev/tpmrm0

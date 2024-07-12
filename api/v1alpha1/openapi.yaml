@@ -893,6 +893,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/devices/{name}/console:
+    get:
+      tags:
+        - device
+      description: Request a console connection
+      operationId: requestConsole
+      parameters:
+        - name: name
+          in: path
+          description: unique name of the Device
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConsole'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -1940,6 +1972,20 @@ components:
         - kind
         - metadata
       description: Device represents a physical device.
+    DeviceConsole:
+      type: object
+      properties:
+        # TODO: when migrating to ws, this should be a ws url instead of gRPCEndpoint
+        #wsURL:
+        #  type: string
+        #  description: 'The URL to connect to the console through a websocket'
+        gRPCEndpoint:
+          type: string
+        sessionID:
+          type: string
+      required:
+        - gRPCEndpoint
+        - sessionID
     GenericConfigSpec:
       type: object
       properties:
@@ -2646,6 +2692,9 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+        console:
+          $ref: '#/components/schemas/DeviceConsole'
+
       required:
         - renderedVersion
     DeviceSpec:
