@@ -42,7 +42,7 @@ make deploy
 ```
 
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
-and the client configuration in `$HOME/.flightctl/config.yaml`.
+and the client configuration in `$HOME/.flightctl/client.yaml`.
 
 Use the `flightctl` CLI to apply, get, or delete resources:
 
