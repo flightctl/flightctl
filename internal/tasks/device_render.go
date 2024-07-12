@@ -318,7 +318,11 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 	if err != nil {
 		return "", err
 	}
-	repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
+
+	// Append the suffix only if exists (as it's optional)
+	if httpConfigProviderSpec.HttpRef.Suffix != nil {
+		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
+	}
 	if args.validateOnly {
 		return httpConfigProviderSpec.Name, nil
 	}
@@ -338,7 +342,9 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 		req.Header.Set("Authorization", "Bearer "+*repoHttpSpec.HttpConfig.Token)
 	}
 
-	tlsConfig := &tls.Config{}
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
 	if repoHttpSpec.HttpConfig.TlsCrt != nil && repoHttpSpec.HttpConfig.TlsKey != nil {
 		cert, err := base64.StdEncoding.DecodeString(*repoHttpSpec.HttpConfig.TlsCrt)
 		if err != nil {

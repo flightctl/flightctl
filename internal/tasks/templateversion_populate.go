@@ -108,6 +108,8 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 		return t.handleK8sConfig(configItem)
 	case string(api.TemplateDiscriminatorInlineConfig):
 		return t.handleInlineConfig(configItem)
+	case string(api.TemplateDiscriminatorHttpConfig):
+		return t.handleHttpConfig(configItem)
 	default:
 		return fmt.Errorf("unsupported discriminator %s", disc)
 	}
@@ -211,6 +213,31 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	}
 
 	t.frozenConfig = append(t.frozenConfig, *newConfig)
+	return nil
+}
+
+func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceSpec_Config_Item) error {
+	httpSpec, err := configItem.AsHttpConfigProviderSpec()
+	if err != nil {
+		return fmt.Errorf("failed getting config item as HttpConfigProviderSpec: %w", err)
+	}
+
+	repo, err := t.store.Repository().GetInternal(context.Background(), t.resourceRef.OrgID, httpSpec.HttpRef.Repository)
+	if err != nil {
+		return fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, httpSpec.HttpRef.Repository, err)
+	}
+
+	if repo.Spec == nil {
+		return fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpSpec.HttpRef.Repository, err)
+	}
+
+	newConfig := &api.TemplateVersionStatus_Config_Item{}
+	err = newConfig.FromHttpConfigProviderSpec(httpSpec)
+	if err != nil {
+		return fmt.Errorf("failed creating http config from item %s: %w", httpSpec.Name, err)
+	}
+	t.frozenConfig = append(t.frozenConfig, *newConfig)
+
 	return nil
 }
 
