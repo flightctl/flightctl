@@ -174,6 +174,34 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(len(devices.Items)).To(Equal(3))
 		})
 
+		It("List with owner selector", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", util.StrToPtr("Fleet/fleet-a"), nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", util.StrToPtr("Fleet/fleet-b"), nil, nil)
+			listParams := store.ListParams{
+				Owners: []string{"Fleet/fleet-a"},
+				Limit:  1000,
+			}
+			devices, err := devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(1))
+
+			listParams = store.ListParams{
+				Owners: []string{"Fleet/fleet-b"},
+				Limit:  1000,
+			}
+			devices, err = devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(1))
+
+			listParams = store.ListParams{
+				Owners: []string{"Fleet/fleet-a", "Fleet/fleet-b"},
+				Limit:  1000,
+			}
+			devices, err = devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(2))
+		})
+
 		It("CreateOrUpdateDevice create mode", func() {
 			imageName := "tv"
 			device := api.Device{

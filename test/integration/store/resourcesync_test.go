@@ -112,8 +112,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rsName := "myresourcesync-1"
 			fleetowner := util.SetResourceOwner(model.ResourceSyncKind, rsName)
 			listParams := store.ListParams{
-				Limit: 100,
-				Owner: fleetowner,
+				Limit:  100,
+				Owners: []string{*fleetowner},
 			}
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, fleetowner)
 			callbackCalled := false

@@ -69,3 +69,59 @@ func TestCreateQueryFromFilterMap(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateOrQuery(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name          string
+		key           string
+		values        []string
+		expectedQuery []string
+		expectedArgs  []interface{}
+	}{
+		{
+			name:          "empty input",
+			key:           "",
+			values:        []string{""},
+			expectedQuery: []string{""},
+			expectedArgs:  []interface{}{},
+		},
+		{
+			name:          "empty field",
+			key:           "",
+			values:        []string{"foo"},
+			expectedQuery: []string{""},
+			expectedArgs:  []interface{}{},
+		},
+		{
+			name:          "empty value",
+			key:           "owner",
+			values:        []string{""},
+			expectedQuery: []string{""},
+			expectedArgs:  []interface{}{},
+		},
+		{
+			name:          "single value",
+			key:           "owner",
+			values:        []string{"Fleet/fleet-a"},
+			expectedQuery: []string{"owner = ?"},
+			expectedArgs:  []interface{}{"Fleet/fleet-a"},
+		},
+		{
+			name:          "multiple values",
+			key:           "owner",
+			values:        []string{"Fleet/fleet-a", "Fleet/fleet-b"},
+			expectedQuery: []string{"owner = ?", "owner = ?"},
+			expectedArgs:  []interface{}{"Fleet/fleet-a", "Fleet/fleet-b"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			query, args := createOrQuery(test.key, test.values)
+			queryParts := strings.Split(query, " OR ")
+			require.ElementsMatch(test.expectedQuery, queryParts)
+			require.ElementsMatch(test.expectedArgs, args)
+		})
+	}
+}
