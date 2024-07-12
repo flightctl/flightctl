@@ -443,8 +443,8 @@ var _ = Describe("FleetStore create", func() {
 		It("List with owner param", func() {
 			owner := "owner"
 			listParams := store.ListParams{
-				Limit: 100,
-				Owner: &owner,
+				Limit:  100,
+				Owners: []string{owner},
 			}
 
 			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {})

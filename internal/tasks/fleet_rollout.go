@@ -73,7 +73,8 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	failureCount := 0
 	owner := util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)
 
-	listParams := store.ListParams{Owner: owner, Limit: ItemsPerPage}
+	listParams := store.ListParams{Owners: []string{*owner}, Limit: ItemsPerPage}
+
 	for {
 		devices, err := f.devStore.List(ctx, f.resourceRef.OrgID, listParams)
 		if err != nil {

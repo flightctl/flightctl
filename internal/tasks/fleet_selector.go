@@ -230,7 +230,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx context.Context) error {
 	// Remove the owner from devices that have this owner
 	listParams := store.ListParams{
-		Owner: util.SetResourceOwner(model.FleetKind, f.resourceRef.Name),
+		Owners: []string{*util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)},
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
 }
@@ -240,7 +240,7 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.C
 	listParams := store.ListParams{
 		Labels:       getMatchLabelsSafe(fleet),
 		InvertLabels: util.BoolToPtr(true),
-		Owner:        util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name),
+		Owners:       []string{*util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)},
 		Limit:        ItemsPerPage,
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)

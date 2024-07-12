@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -81,7 +82,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		Filter:   filterMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
-		Owner:    request.Params.Owner,
+		Owners:   util.OwnerQueryParamsToArray(request.Params.Owner),
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
