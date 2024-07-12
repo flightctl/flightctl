@@ -8,6 +8,25 @@ TIMEOUT ?= 30m
 
 VERBOSE ?= false
 
+SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
+SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
+SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null)
+BIN_TIMESTAMP ?=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+MAJOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$1}')
+MINOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$2}')
+PATCH := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$3}')
+
+GO_LD_FLAGS := -ldflags "\
+	-X github.com/flightctl/flightctl/pkg/version.majorFromGit=$(MAJOR) \
+	-X github.com/flightctl/flightctl/pkg/version.minorFromGit=$(MINOR) \
+	-X github.com/flightctl/flightctl/pkg/version.patchFromGit=$(PATCH) \
+	-X github.com/flightctl/flightctl/pkg/version.versionFromGit=$(SOURCE_GIT_TAG) \
+	-X github.com/flightctl/flightctl/pkg/version.commitFromGit=$(SOURCE_GIT_COMMIT) \
+	-X github.com/flightctl/flightctl/pkg/version.gitTreeState=$(SOURCE_GIT_TREE_STATE) \
+	-X github.com/flightctl/flightctl/pkg/version.buildDate=$(BIN_TIMESTAMP) \
+	$(LD_FLAGS)"
+GO_BUILD_FLAGS += $(GO_LD_FLAGS)
+
 .EXPORT_ALL_VARIABLES:
 
 all: build build-containers
@@ -36,6 +55,7 @@ publish: build-containers
 generate:
 	go generate -v $(shell go list ./...)
 	hack/mockgen.sh
+	hack/grpcgen.sh
 
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
@@ -84,6 +104,11 @@ build-containers: flightctl-api-container flightctl-worker-container flightctl-p
 .PHONY: build-containers
 
 
+update-server-container: bin/.flightctl-server-container
+	kind load docker-image localhost/flightctl-server:latest
+	kubectl delete pod -l flightctl.service=flightctl-server -n flightctl-external
+	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s 
+	kubectl logs -l flightctl.service=flightctl-server -n flightctl-external -f
 bin:
 	mkdir -p bin
 

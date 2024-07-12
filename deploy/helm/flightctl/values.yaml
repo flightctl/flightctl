@@ -15,6 +15,7 @@ flightctl:
     imagePullPolicy: Always
     hostName: api.flightctl.example.com
     agentAPIHostName: agent-api.flightctl.example.com
+    agentGrpcHostName: agent-grpc.flightctl.example.com
   worker:
     enabled: true
     namespace: flightctl-internal
@@ -46,6 +47,8 @@ flightctl:
       type: ClusterIP
       amqpPort: 5672
       managementPort: 15672
+
+
 
 storageClassName: aws-ebs
 storageClassNameRWM: aws-efs-tier-c4

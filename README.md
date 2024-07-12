@@ -42,11 +42,12 @@ make deploy
 ```
 
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
-and the client configuration in `$HOME/.flightctl/config.yaml`.
+and the client configuration in `$HOME/.flightctl/client.yaml`.
 
-Use the `flightctl` CLI to apply, get, or delete resources:
+Use the `flightctl` CLI to login and then apply, get, or delete resources:
 
 ```
+bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}')
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```
@@ -104,21 +105,6 @@ Use the `devicesimulator` to simulate load from devices:
 
 ```
 bin/devicesimulator --count=100
-```
-
-## Running the server locally
-For development purposes it can be useful to run the database in a container in kind, and
-the server locally. To do this, first start the database:
-
-```
-make deploy-db
-```
-
-Then start the server:
-
-```
-rm $HOME/.flightctl/client.yaml
-FLIGHTCTL_DISABLE_AUTH=true bin/flightctl-server
 ```
 
 ## Metrics
