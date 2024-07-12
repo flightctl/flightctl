@@ -18,9 +18,12 @@ func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) 
 	}
 	query = LabelSelectionQuery(query, listParams.Labels, invertLabels)
 	query = StatusFilterSelectionQuery(query, listParams.Filter)
-	if listParams.Owner != nil {
-		query = query.Where("owner = ?", *listParams.Owner)
+
+	queryStr, args := createOrQuery("owner", listParams.Owners)
+	if len(queryStr) > 0 {
+		query = query.Where(queryStr, args...)
 	}
+
 	if listParams.FleetName != nil {
 		query = query.Where("fleet_name = ?", *listParams.FleetName)
 	}
@@ -113,14 +116,10 @@ func createQueryFromFilterMap(fieldMap map[string][]string) (string, []interface
 			continue
 		}
 
-		for _, val := range values {
-			val = strings.TrimSpace(val)
-			if val == "" {
-				continue
-			}
-			params := createParamsFromKey(key)
-			queryParams = append(queryParams, fmt.Sprintf("%s = ?", params))
-			args = append(args, val)
+		orQuery, queryArgs := createOrQuery(createParamsFromKey(key), values)
+		if len(orQuery) > 0 {
+			queryParams = append(queryParams, orQuery)
+			args = append(args, queryArgs...)
 		}
 	}
 
@@ -146,4 +145,30 @@ func createParamsFromKey(key string) string {
 		}
 	}
 	return params
+}
+
+// createOrQuery can return empty `queryStr`/`args` (ie if `key` or `values` params are empty).
+// The caller is expected to check the size of `queryStr`/`args` before constructing a GORM query.
+func createOrQuery(key string, values []string) (string, []interface{}) {
+	var queryStr string
+	var queryParams []string
+	var args []interface{}
+
+	if key == "" {
+		return queryStr, args
+	}
+
+	for _, val := range values {
+		val = strings.TrimSpace(val)
+		if val == "" {
+			continue
+		}
+		queryParams = append(queryParams, fmt.Sprintf("%s = ?", key))
+		args = append(args, val)
+	}
+
+	if len(queryParams) > 0 {
+		queryStr = strings.Join(queryParams, " OR ")
+	}
+	return queryStr, args
 }

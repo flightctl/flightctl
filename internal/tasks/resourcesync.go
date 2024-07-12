@@ -93,8 +93,8 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	fleetsPreOwned := make([]api.Fleet, 0)
 
 	listParams := store.ListParams{
-		Owner: owner,
-		Limit: 100,
+		Owners: []string{*owner},
+		Limit:  100,
 	}
 	for {
 		listRes, err := r.store.Fleet().List(ctx, rs.OrgID, listParams)

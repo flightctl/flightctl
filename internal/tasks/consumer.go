@@ -20,6 +20,8 @@ func dispatchTasks(store store.Store, callbackManager CallbackManager, k8sClient
 			log.WithError(err).Error("failed to unmarshal consume payload")
 			return err
 		}
+		log.Infof("dispatching task %s, op %s, kind %s, orgID %s, name %s",
+			reference.TaskName, reference.Op, reference.Kind, reference.OrgID, reference.Name)
 		switch reference.TaskName {
 		case FleetRolloutTask:
 			return fleetRollout(ctx, &reference, store, callbackManager, log)
