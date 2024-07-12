@@ -25,6 +25,7 @@ type Agent struct {
 	configController   *config.Controller
 	osImageController  *OSImageController
 	resourceController *resource.Controller
+	consoleController  *ConsoleController
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
@@ -43,6 +44,7 @@ func NewAgent(
 	configController *config.Controller,
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
+	consoleController *ConsoleController,
 	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{
@@ -55,6 +57,7 @@ func NewAgent(
 		configController:    configController,
 		osImageController:   osImageController,
 		resourceController:  resourceController,
+		consoleController:   consoleController,
 		log:                 log,
 	}
 }
@@ -122,6 +125,10 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 
 	if current.RenderedVersion == "" && desired.RenderedVersion == "" {
 		return false, nil
+	}
+
+	if err := a.consoleController.Sync(ctx, &desired); err != nil {
+		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
 	if current.RenderedVersion != desired.RenderedVersion {

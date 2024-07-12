@@ -123,6 +123,15 @@ func main() {
 		cancel()
 	}()
 
+	go func() {
+
+		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, tlsConfig)
+		if err := grpcServer.Run(ctx); err != nil {
+			log.Fatalf("Error running server: %s", err)
+		}
+		cancel()
+	}()
+
 	<-ctx.Done()
 }
 

@@ -8,6 +8,7 @@ flightctl:
     hostName: localhost
     nodePort: 3443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentNodePort: 7443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+    agentGrpcNodePort: 7444 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
   worker:
     image: localhost/flightctl-worker:latest
     imagePullPolicy: IfNotPresent
