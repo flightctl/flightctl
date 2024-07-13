@@ -17,13 +17,14 @@ const (
 )
 
 type Config struct {
-	Database   *dbConfig         `json:"database,omitempty"`
-	Service    *svcConfig        `json:"service,omitempty"`
-	KV         *kvConfig         `json:"kv,omitempty"`
-	Auth       *authConfig       `json:"auth,omitempty"`
-	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
-	CA         *ca.Config        `json:"ca,omitempty"`
-	Tracing    *tracingConfig    `json:"tracing,omitempty"`
+	Database        *dbConfig         `json:"database,omitempty"`
+	Service         *svcConfig        `json:"service,omitempty"`
+	KV              *kvConfig         `json:"kv,omitempty"`
+	Auth            *authConfig       `json:"auth,omitempty"`
+	Prometheus      *prometheusConfig `json:"prometheus,omitempty"`
+	CA              *ca.Config        `json:"ca,omitempty"`
+	Tracing         *tracingConfig    `json:"tracing,omitempty"`
+	HTTPOtelMetrics *httpOtelConfig   `json:"httpOtelMetrics,omitempty"`
 }
 
 type dbConfig struct {
@@ -90,15 +91,23 @@ type aapAuth struct {
 }
 
 type prometheusConfig struct {
-	Address        string    `json:"address,omitempty"`
-	SloMax         float64   `json:"sloMax,omitempty"`
-	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
+	Address           string    `json:"address,omitempty"`
+	SloMax            float64   `json:"sloMax,omitempty"`
+	ApiLatencyBins    []float64 `json:"apiLatencyBins,omitempty"`
+	CustomHTTPEnabled bool      `json:"customHttpEnabled,omitempty"`
 }
 
 type tracingConfig struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Insecure bool   `json:"insecure,omitempty"`
+}
+
+type httpOtelConfig struct {
+	Enabled     bool   `json:"enabled,omitempty"`
+	ServiceName string `json:"serviceName,omitempty"`
+	Endpoint    string `json:"endpoint,omitempty"`
+	Insecure    bool   `json:"insecure,omitempty"`
 }
 
 type ConfigOption func(*Config)
@@ -162,9 +171,14 @@ func NewDefault(opts ...ConfigOption) *Config {
 			Password: "adminpass",
 		},
 		Prometheus: &prometheusConfig{
-			Address:        ":15690",
-			SloMax:         4.0,
-			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+			Address:           ":15690",
+			SloMax:            4.0,
+			ApiLatencyBins:    []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+			CustomHTTPEnabled: true,
+		},
+		HTTPOtelMetrics: &httpOtelConfig{
+			Enabled:     true,
+			ServiceName: "flightctl-api",
 		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())

@@ -14,6 +14,7 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -24,7 +25,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 )
 
@@ -42,6 +42,7 @@ type AgentServer struct {
 	queuesProvider queues.Provider
 	tlsConfig      *tls.Config
 	grpcServer     *AgentGrpcServer
+	httpMetrics    *metrics.HTTPMetricsCollector
 }
 
 // New returns a new instance of a flightctl server.
@@ -53,6 +54,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
+	httpMetrics *metrics.HTTPMetricsCollector,
 ) *AgentServer {
 	return &AgentServer{
 		log:            log,
@@ -63,6 +65,7 @@ func New(
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
+		httpMetrics:    httpMetrics,
 	}
 }
 
@@ -143,10 +146,15 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
+	// Add HTTP metrics middleware if available
+	if s.httpMetrics != nil {
+		router.Use(s.httpMetrics.GetMiddleware(metrics.ServiceTypeAgentAPI))
+	}
+
 	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
 	server.HandlerFromMux(h, router)
 
-	return otelhttp.NewHandler(router, "agent-http-Server"), nil
+	return router, nil
 }
 
 // grpcMuxHandlerFunc dispatches requests to the gRPC server or the HTTP handler based on the request headers

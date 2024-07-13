@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -119,7 +120,10 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
+	// Create a test HTTP metrics collector
+	httpMetrics := metrics.NewHTTPMetricsCollector(cfg)
+
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, httpMetrics), listener, nil
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
@@ -136,7 +140,10 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig), listener, nil
+	// Create a test HTTP metrics collector
+	httpMetrics := metrics.NewHTTPMetricsCollector(cfg)
+
+	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig, httpMetrics), listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.

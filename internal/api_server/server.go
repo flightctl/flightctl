@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -28,7 +29,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -43,6 +43,7 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
+	httpMetrics        *metrics.HTTPMetricsCollector
 }
 
 // New returns a new instance of a flightctl server.
@@ -54,6 +55,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
+	httpMetrics *metrics.HTTPMetricsCollector,
 ) *Server {
 	return &Server{
 		log:                log,
@@ -63,6 +65,7 @@ func New(
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
+		httpMetrics:        httpMetrics,
 	}
 }
 
@@ -172,6 +175,11 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.Recoverer,
 	)
 
+	// Add HTTP metrics middleware if available
+	if s.httpMetrics != nil {
+		router.Use(s.httpMetrics.GetMiddleware(metrics.ServiceTypeUserAPI))
+	}
+
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
 		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 
@@ -195,8 +203,8 @@ func (s *Server) Run(ctx context.Context) error {
 		ws.RegisterRoutes(r)
 	})
 
-	handler := otelhttp.NewHandler(router, "http-server")
-	srv := fcmiddleware.NewHTTPServer(handler, s.log, s.cfg.Service.Address, s.cfg)
+	// The wrapper handles both OpenTelemetry standard metrics and custom FlightCtl metrics
+	srv := fcmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {
 		<-ctx.Done()
