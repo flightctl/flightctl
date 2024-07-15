@@ -2,22 +2,27 @@ kind: Service
 apiVersion: v1
 metadata:
   name: keycloak
-  namespace: {{ .Values.keycloak.namespace }}
+  namespace: {{ .Values.namespace }}
   labels:
     app: keycloak
 spec:
+  {{- if .Values.service.nodePorts }}
+  type: NodePort
+  {{- else }}
+  type: LoadBalancer
+  {{- end }}
   ports:
-    - name: 8080-tcp
-      port: 8080
+    - name: {{ .Values.service.ports.http }}-tcp
+      port: {{ .Values.service.ports.http }}
       targetPort: 8080
-      {{ if .Values.keycloak.nodePort }}
-      nodePort: {{ .Values.flightctl.nodePort }}
+      {{ if .Values.service.nodePorts }}
+      nodePort: {{ .Values.service.nodePorts.http }}
       {{ end }}
-    - name: 8443-tcp
-      port: 8443
+    - name: {{ .Values.service.ports.https }}-tcp
+      port: {{ .Values.service.ports.https }}
       targetPort: 8443
-      {{ if .Values.keycloak.nodePort }}
-      nodePort: {{ .Values.flightctl.nodePort }}
+      {{ if .Values.service.nodePorts }}
+      nodePort: {{ .Values.service.nodePorts.https }}
       {{ end }}
   selector:
     app: keycloak
