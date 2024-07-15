@@ -133,6 +133,7 @@ func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.
 		}
 	}
 
+	enrollmentrequest.Status = nil
 	var updatedEnrollmentRequest model.EnrollmentRequest
 	where := model.EnrollmentRequest{Resource: model.Resource{OrgID: enrollmentrequest.OrgID, Name: enrollmentrequest.Name}}
 	result = s.db.Where(where).Assign(enrollmentrequest).FirstOrCreate(&updatedEnrollmentRequest)
