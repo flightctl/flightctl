@@ -204,7 +204,6 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 			}
 			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, fleet.Spec.Data)
 			sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
-			where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
 
 			// Update the generation if the template was updated
 			if !sameSpec {
@@ -230,7 +229,14 @@ func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *ap
 				fleet.Spec.Data.Template.Metadata.Generation = existingRecord.Spec.Data.Template.Metadata.Generation
 			}
 			fleet.Owner = resource.Metadata.Owner
-			result = innerTx.Model(where).Updates(&fleet)
+
+			where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
+			query := innerTx.Model(where)
+
+			selectFields := []string{"spec"}
+			selectFields = append(selectFields, GetNonNilFieldsFromResource(fleet.Resource)...)
+			query = query.Select(selectFields)
+			result = query.Updates(&fleet)
 			if result.Error != nil {
 				return flterrors.ErrorFromGormError(result.Error)
 			}

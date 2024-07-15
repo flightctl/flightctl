@@ -164,13 +164,14 @@ func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 		}
 	}
 
+	repository.Status = nil
 	var updatedRepository model.Repository
 	where := model.Repository{Resource: model.Resource{OrgID: repository.OrgID, Name: repository.Name}}
 	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedRepository)
 
 	updatedResource, toApiErr := updatedRepository.ToApiResource()
 	if result.Error == nil {
-		callback(repository)
+		callback(&updatedRepository)
 	}
 	err := flterrors.ErrorFromGormError(result.Error)
 	if err == nil {

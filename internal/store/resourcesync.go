@@ -171,6 +171,7 @@ func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 		}
 	}
 
+	resourcesync.Status = nil
 	var updatedResourceSync model.ResourceSync
 	where := model.ResourceSync{Resource: model.Resource{OrgID: resourcesync.OrgID, Name: resourcesync.Name}}
 	result = s.db.Where(where).Assign(resourcesync).FirstOrCreate(&updatedResourceSync)
