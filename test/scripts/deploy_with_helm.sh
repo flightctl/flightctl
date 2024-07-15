@@ -68,6 +68,7 @@ helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml \
                   --set flightctl.api.hostName=${IP} \
                   --set flightctl.api.agentAPIHostName=${IP} \
                   --set flightctl.api.agentGrpcHostName=${IP} \
+                  --set flightctl.api.agentGrpcBaseURL=grpcs://${IP}:7444 \
                    ${ONLY_DB} ${NO_AUTH} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 

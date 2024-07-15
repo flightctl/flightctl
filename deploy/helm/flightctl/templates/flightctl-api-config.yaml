@@ -23,10 +23,8 @@ data:
         {{ else }}
         baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.hostName }}:7443/
         {{ end }}
-        {{ if .Values.flightctl.api.agentGrpcHostName }}
-        baseAgentGrpcUrl:  grpcs://{{ .Values.flightctl.api.agentGrpcHostName }}:7444/
-        {{ else }}
-        baseAgentGrpcUrl:  grpcs://{{ .Values.flightctl.api.hostName }}:7444/
+        {{ if .Values.flightctl.api.agentGrpcBaseURL }}
+        baseAgentGrpcUrl:  {{ .Values.flightctl.api.agentGrpcBaseURL }}
         {{ end }}
         altNames:
           - {{ .Values.flightctl.api.hostName }}
