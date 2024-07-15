@@ -16,11 +16,13 @@ flightctl:
     hostName: api.flightctl.example.com
     agentAPIHostName: agent-api.flightctl.example.com
     agentGrpcHostName: agent-grpc.flightctl.example.com
+    agentGrpcBaseURL: grpcs://agent-grpc.flightctl.example.com
   worker:
     enabled: true
     namespace: flightctl-internal
     image: quay.io/flightctl/flightctl-worker:latest
     imagePullPolicy: Always
+    enableSecretsClusterRoleBinding: true
   periodic:
     enabled: true
     namespace: flightctl-internal

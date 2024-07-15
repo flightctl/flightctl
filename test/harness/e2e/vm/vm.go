@@ -84,6 +84,7 @@ func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 	args := []string{"-p", v.SSHPassword, "ssh", "-p", port, sshDestination,
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "StrictHostKeyChecking=no",
+		"-o", "PubkeyAuthentication=no", // avoid any local SSH keys to be used
 		"-o", "LogLevel=ERROR", "-o", "SetEnv=LC_ALL="}
 	if len(inputArgs) > 0 {
 		args = append(args, inputArgs...)
