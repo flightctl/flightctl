@@ -29,6 +29,9 @@ func createEnrollmentRequests(numEnrollmentRequests int, ctx context.Context, st
 			Spec: api.EnrollmentRequestSpec{
 				Csr: "csr string",
 			},
+			Status: &api.EnrollmentRequestStatus{
+				Certificate: util.StrToPtr("cert"),
+			},
 		}
 
 		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource)
@@ -173,14 +176,14 @@ var _ = Describe("enrollmentRequestStore create", func() {
 				},
 				Status: nil,
 			}
-			dev, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
+			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			Expect(dev.ApiVersion).To(Equal(model.EnrollmentRequestAPI))
-			Expect(dev.Kind).To(Equal(model.EnrollmentRequestKind))
-			Expect(dev.Spec.Csr).To(Equal("csr string"))
-			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect(dev.Status.Conditions).To(BeEmpty())
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPI))
+			Expect(er.Kind).To(Equal(model.EnrollmentRequestKind))
+			Expect(er.Spec.Csr).To(Equal("csr string"))
+			Expect(er.Status.Conditions).ToNot(BeNil())
+			Expect(er.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateEnrollmentRequest update mode", func() {
@@ -189,18 +192,25 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Name: util.StrToPtr("myenrollmentrequest-1"),
 				},
 				Spec: api.EnrollmentRequestSpec{
-					Csr: "csr string",
+					Csr: "new csr string",
 				},
-				Status: nil,
+				Status: &api.EnrollmentRequestStatus{
+					Certificate: util.StrToPtr("bogus-cert"),
+				},
 			}
-			dev, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
+			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			Expect(dev.ApiVersion).To(Equal(model.EnrollmentRequestAPI))
-			Expect(dev.Kind).To(Equal(model.EnrollmentRequestKind))
-			Expect(dev.Spec.Csr).To(Equal("csr string"))
-			Expect(dev.Status.Conditions).ToNot(BeNil())
-			Expect(dev.Status.Conditions).To(BeEmpty())
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPI))
+			Expect(er.Kind).To(Equal(model.EnrollmentRequestKind))
+			Expect(er.Spec.Csr).To(Equal("new csr string"))
+
+			er, err = storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPI))
+			Expect(er.Kind).To(Equal(model.EnrollmentRequestKind))
+			Expect(er.Spec.Csr).To(Equal("new csr string"))
+			Expect(*er.Status.Certificate).To(Equal("cert"))
 		})
 
 		It("UpdateEnrollmentRequestStatus", func() {
