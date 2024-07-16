@@ -2,9 +2,12 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 )
 
 var (
@@ -47,9 +50,9 @@ func (d Device) String() string {
 	return string(val)
 }
 
-func NewDeviceFromApiResource(resource *api.Device) *Device {
+func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	if resource == nil || resource.Metadata.Name == nil {
-		return &Device{}
+		return &Device{}, nil
 	}
 
 	var spec api.DeviceSpec
@@ -67,18 +70,27 @@ func NewDeviceFromApiResource(resource *api.Device) *Device {
 	if status.Conditions == nil {
 		status.Conditions = make(map[string]api.Condition)
 	}
+	var resourceVersion *int64
+	if resource.Metadata.ResourceVersion != nil {
+		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
+		if err != nil {
+			return nil, flterrors.ErrIllegalResourceVersionFormat
+		}
+		resourceVersion = &i
+	}
 
 	return &Device{
 		Resource: Resource{
-			Name:        *resource.Metadata.Name,
-			Labels:      util.LabelMapToArray(resource.Metadata.Labels),
-			Generation:  resource.Metadata.Generation,
-			Owner:       resource.Metadata.Owner,
-			Annotations: util.LabelMapToArray(resource.Metadata.Annotations),
+			Name:            *resource.Metadata.Name,
+			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Generation:      resource.Metadata.Generation,
+			Owner:           resource.Metadata.Owner,
+			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
+			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(spec),
 		Status: MakeJSONField(status),
-	}
+	}, nil
 }
 
 func (d *Device) ToApiResource() api.Device {
@@ -108,6 +120,10 @@ func (d *Device) ToApiResource() api.Device {
 	metadataLabels := util.LabelArrayToMap(d.Resource.Labels)
 	metadataAnnotations := util.LabelArrayToMap(d.Resource.Annotations)
 
+	var resourceVersion *string
+	if d.ResourceVersion != nil {
+		resourceVersion = lo.ToPtr(strconv.FormatInt(*d.ResourceVersion, 10))
+	}
 	return api.Device{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceKind,
@@ -118,7 +134,7 @@ func (d *Device) ToApiResource() api.Device {
 			Generation:        d.Generation,
 			Owner:             d.Owner,
 			Annotations:       &metadataAnnotations,
-			ResourceVersion:   GetResourceVersion(d.UpdatedAt),
+			ResourceVersion:   resourceVersion,
 		},
 		Spec:   &spec,
 		Status: &status,

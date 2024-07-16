@@ -63,6 +63,14 @@ func GetNonNilFieldsFromResource(resource model.Resource) []string {
 		ret = append(ret, "annotations")
 	}
 
+	if resource.Generation != nil {
+		ret = append(ret, "generation")
+	}
+
+	if resource.ResourceVersion != nil {
+		ret = append(ret, "resource_version")
+	}
+
 	return ret
 }
 

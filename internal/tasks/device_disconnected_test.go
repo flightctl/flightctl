@@ -116,7 +116,10 @@ func batchCreateDeviceTransaction(db *gorm.DB, devices []v1alpha1.Device) error 
 	return db.Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, device := range devices {
 			deviceCopy := device
-			modelDevice := model.NewDeviceFromApiResource(&deviceCopy)
+			modelDevice, err := model.NewDeviceFromApiResource(&deviceCopy)
+			if err != nil {
+				return flterrors.ErrIllegalResourceVersionFormat
+			}
 			result := innerTx.Create(modelDevice)
 			if result.Error != nil {
 				return flterrors.ErrorFromGormError(result.Error)
