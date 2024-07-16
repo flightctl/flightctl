@@ -35,6 +35,8 @@ var _ = Describe("FleetValidate", func() {
 		badGitConfig     *api.GitConfigProviderSpec
 		goodInlineConfig *api.InlineConfigProviderSpec
 		badInlineConfig  *api.InlineConfigProviderSpec
+		goodHttpConfig   *api.HttpConfigProviderSpec
+		badHttpConfig    *api.HttpConfigProviderSpec
 		callback         store.FleetStoreCallback
 	)
 
@@ -59,8 +61,22 @@ var _ = Describe("FleetValidate", func() {
 			},
 			Spec: spec,
 		}
+		specHttp := api.RepositorySpec{}
+		err = specHttp.FromGenericRepoSpec(api.GenericRepoSpec{
+			Repo: "http-repo-url",
+		})
+		Expect(err).ToNot(HaveOccurred())
+		repositoryHttp := &api.Repository{
+			Metadata: api.ObjectMeta{
+				Name: util.StrToPtr("http-repo"),
+			},
+			Spec: specHttp,
+		}
+
 		repoCallback := store.RepositoryStoreCallback(func(*model.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
+		Expect(err).ToNot(HaveOccurred())
+		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
@@ -104,6 +120,22 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		badInlineConfig.Inline = badInline
 
+		goodHttpConfig = &api.HttpConfigProviderSpec{
+			ConfigType: string(api.TemplateDiscriminatorHttpConfig),
+			Name:       "goodHttpConfig",
+		}
+		goodHttpConfig.HttpRef.Repository = "http-repo"
+		goodHttpConfig.HttpRef.FilePath = "http-path"
+		goodHttpConfig.HttpRef.Suffix = util.StrToPtr("/suffix")
+
+		badHttpConfig = &api.HttpConfigProviderSpec{
+			ConfigType: string(api.TemplateDiscriminatorHttpConfig),
+			Name:       "badHttpConfig",
+		}
+		badHttpConfig.HttpRef.Repository = "http-missingrepo"
+		badHttpConfig.HttpRef.FilePath = "http-path"
+		badHttpConfig.HttpRef.Suffix = util.StrToPtr("/suffix")
+
 		callback = store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
 	})
 
@@ -124,7 +156,11 @@ var _ = Describe("FleetValidate", func() {
 			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem}
+			httpItem := api.DeviceSpec_Config_Item{}
+			err = httpItem.FromHttpConfigProviderSpec(*goodHttpConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem}
 
 			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
@@ -149,9 +185,12 @@ var _ = Describe("FleetValidate", func() {
 			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
 
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(1))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
+			Expect(repos.Items).To(HaveLen(2))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-repo"))
+			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("repo"))
+
 		})
 	})
 
@@ -168,7 +207,11 @@ var _ = Describe("FleetValidate", func() {
 			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem}
+			httpItem := api.DeviceSpec_Config_Item{}
+			err = httpItem.FromHttpConfigProviderSpec(*goodHttpConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem}
 
 			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
@@ -194,8 +237,9 @@ var _ = Describe("FleetValidate", func() {
 
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(1))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("missingrepo"))
+			Expect(repos.Items).To(HaveLen(2))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-repo"))
+			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("missingrepo"))
 		})
 	})
 
@@ -212,7 +256,11 @@ var _ = Describe("FleetValidate", func() {
 			err = inlineItem.FromInlineConfigProviderSpec(*badInlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem}
+			httpItem := api.DeviceSpec_Config_Item{}
+			err = httpItem.FromHttpConfigProviderSpec(*goodHttpConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem}
 
 			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
@@ -238,8 +286,59 @@ var _ = Describe("FleetValidate", func() {
 
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(1))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
+			Expect(repos.Items).To(HaveLen(2))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-repo"))
+			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("repo"))
+
+		})
+	})
+
+	When("a Fleet has an invalid http configuration", func() {
+		It("sets an error Condition", func() {
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
+
+			gitItem := api.DeviceSpec_Config_Item{}
+			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			inlineItem := api.DeviceSpec_Config_Item{}
+			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			httpItem := api.DeviceSpec_Config_Item{}
+			err = httpItem.FromHttpConfigProviderSpec(*badHttpConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem}
+
+			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(tvList.Items).To(HaveLen(0))
+
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
+			Expect(err).To(HaveOccurred())
+
+			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(tvList.Items).To(HaveLen(0))
+
+			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(fleet.Status.Conditions).ToNot(BeNil())
+			Expect(fleet.Status.Conditions).To(HaveLen(1))
+			Expect(fleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(2))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-missingrepo"))
+			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("repo"))
 		})
 	})
 

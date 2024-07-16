@@ -76,6 +76,7 @@ func (h HttpConfigProviderSpec) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateGenericName(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
 	allErrs = append(allErrs, validation.ValidateString(&h.HttpRef.FilePath, "spec.config[].httpRef.path", 0, 2048, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", 0, 2048, nil, "")...)
 
 	return allErrs
 }
@@ -127,23 +128,23 @@ func (r Repository) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 
 	// Validate GitGenericRepoSpec
-	gitGenericRepoSpec, genericErr := r.Spec.GetGenericRepoSpec()
+	genericRepoSpec, genericErr := r.Spec.GetGenericRepoSpec()
 	if genericErr == nil {
-		allErrs = append(allErrs, validation.ValidateString(&gitGenericRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateString(&genericRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
 	}
 
 	// Validate GitHttpRepoSpec
-	gitHttpRepoSpec, httpErr := r.Spec.GetHttpRepoSpec()
+	httpRepoSpec, httpErr := r.Spec.GetHttpRepoSpec()
 	if httpErr == nil {
-		allErrs = append(allErrs, validation.ValidateString(&gitHttpRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
-		allErrs = append(allErrs, validateHttpConfig(&gitHttpRepoSpec.HttpConfig)...)
+		allErrs = append(allErrs, validation.ValidateString(&httpRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
+		allErrs = append(allErrs, validateHttpConfig(&httpRepoSpec.HttpConfig)...)
 	}
 
 	// Validate GitSshRepoSpec
-	gitSshRepoSpec, sshErr := r.Spec.GetSshRepoSpec()
+	sshRepoSpec, sshErr := r.Spec.GetSshRepoSpec()
 	if sshErr == nil {
-		allErrs = append(allErrs, validation.ValidateString(&gitSshRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
-		allErrs = append(allErrs, validateSshConfig(&gitSshRepoSpec.SshConfig)...)
+		allErrs = append(allErrs, validation.ValidateString(&sshRepoSpec.Repo, "spec.repo", 1, 2048, nil, "")...)
+		allErrs = append(allErrs, validateSshConfig(&sshRepoSpec.SshConfig)...)
 	}
 
 	if genericErr != nil && httpErr != nil && sshErr != nil {
@@ -193,6 +194,10 @@ func validateHttpConfig(config *HttpConfig) []error {
 		if config.TlsCrt != nil && config.TlsKey != nil {
 			errs = append(errs, validation.ValidateBase64Field(*config.TlsCrt, "spec.httpConfig.TlsCrt", maxBase64CertificateLength)...)
 			errs = append(errs, validation.ValidateBase64Field(*config.TlsKey, "spec.httpConfig.TlsKey", maxBase64CertificateLength)...)
+		}
+
+		if config.Token != nil {
+			errs = append(errs, validation.ValidateBearerToken(config.Token, "spec.httpConfig.Token")...)
 		}
 	}
 	return errs
