@@ -85,6 +85,26 @@ func ValidateBase64Field(s string, path string, maxLen int) []error {
 	return asErrors(errs)
 }
 
+func ValidateBearerToken(token *string, path string) []error {
+	if token == nil {
+		return []error{}
+	}
+	var jwtPattern = regexp.MustCompile(`^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$`)
+
+	errs := field.ErrorList{}
+	if !jwtPattern.MatchString(*token) {
+		errs = append(errs, field.Invalid(fieldPathFor(path), *token, "must be a valid JWT token"))
+	} else {
+		parts := strings.Split(*token, ".")
+		for i, part := range parts {
+			if _, err := base64.RawURLEncoding.DecodeString(part); err != nil {
+				errs = append(errs, field.Invalid(fieldPathFor(fmt.Sprintf("%s.part%d", path, i+1)), part, "must be a valid base64url encoded string"))
+			}
+		}
+	}
+	return asErrors(errs)
+}
+
 func fieldPathFor(path string) *field.Path {
 	fields := strings.Split(path, ".")
 	return field.NewPath(fields[0], fields[1:]...)
