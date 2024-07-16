@@ -6,7 +6,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/google/uuid"
-	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -15,13 +14,17 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *
 	cfg := config.NewDefault()
 	cfg.Database.Name = ""
 	dbTemp, err := InitDB(cfg, log)
-	Expect(err).ShouldNot(HaveOccurred())
+	if err != nil {
+		log.Fatalf("initializing data store: %v", err)
+	}
 	defer CloseDB(dbTemp)
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
 	dbTemp = dbTemp.Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
-	Expect(dbTemp.Error).ShouldNot(HaveOccurred())
+	if dbTemp.Error != nil {
+		log.Fatalf("creating database: %v", dbTemp.Error)
+	}
 
 	cfg.Database.Name = randomDBName
 	db, err := InitDB(cfg, log)
@@ -35,21 +38,28 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *
 	}
 
 	err = store.InitialMigration()
-	Expect(err).ShouldNot(HaveOccurred())
+	if err != nil {
+		log.Fatalf("running initial migration: %v", err)
+	}
 
 	return store, cfg, randomDBName, db
 }
 
-func DeleteTestDB(cfg *config.Config, store Store, dbName string) {
+func DeleteTestDB(log *logrus.Logger, cfg *config.Config, store Store, dbName string) {
 	err := store.Close()
-	Expect(err).ShouldNot(HaveOccurred())
+	if err != nil {
+		log.Fatalf("closing data store: %v", err)
+	}
 	cfg.Database.Name = ""
 	db, err := InitDB(cfg, logrus.New())
-	Expect(err).ShouldNot(HaveOccurred())
+	if err != nil {
+		log.Fatalf("initializing data store: %v", err)
+	}
 	defer CloseDB(db)
 	db = db.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
-
-	Expect(db.Error).ShouldNot(HaveOccurred())
+	if db.Error != nil {
+		log.Fatalf("dropping database: %v", db.Error)
+	}
 }
 
 func CloseDB(db *gorm.DB) {

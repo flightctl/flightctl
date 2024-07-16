@@ -70,7 +70,7 @@ var _ = Describe("RepoTester", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, stores, dbName)
+		store.DeleteTestDB(log, cfg, stores, dbName)
 	})
 
 	Context("Conditions", func() {

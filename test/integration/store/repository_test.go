@@ -50,7 +50,7 @@ var _ = Describe("RepositoryStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("Repository store", func() {

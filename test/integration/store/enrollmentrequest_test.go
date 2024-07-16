@@ -63,7 +63,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("EnrollmentRequest store", func() {

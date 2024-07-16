@@ -62,7 +62,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("ResourceSync store", func() {
