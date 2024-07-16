@@ -108,7 +108,7 @@ var _ = Describe("FleetValidate", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	When("a Fleet has a valid configuration", func() {

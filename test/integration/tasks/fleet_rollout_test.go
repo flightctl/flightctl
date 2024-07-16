@@ -64,7 +64,7 @@ var _ = Describe("FleetRollout", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 		ctrl.Finish()
 	})
 

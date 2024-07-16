@@ -36,7 +36,7 @@ var _ = Describe("TemplateVersion", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("TemplateVersion store", func() {

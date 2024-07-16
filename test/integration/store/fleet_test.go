@@ -41,7 +41,7 @@ var _ = Describe("FleetStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("Fleet store", func() {

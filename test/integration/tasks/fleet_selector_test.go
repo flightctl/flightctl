@@ -49,7 +49,7 @@ var _ = Describe("FleetSelector", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("FleetSelector", func() {
