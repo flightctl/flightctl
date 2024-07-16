@@ -25,7 +25,7 @@ To run unit tests, use `make unit-test`.  This requires installing gotestsum:
 
 To generate API code and mocks, use `make generate`  This requires installing mockgen:
 
-`go install github.com/golang/mock/mockgen@v1.6.0`
+`go install go.uber.org/mock/mockgen@v0.4.0`
 
 ## Running
 
