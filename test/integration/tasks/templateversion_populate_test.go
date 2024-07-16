@@ -70,7 +70,7 @@ var _ = Describe("TVPopulate", func() {
 
 	AfterEach(func() {
 		ctrl.Finish()
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	When("a template has a valid inline config with no params", func() {

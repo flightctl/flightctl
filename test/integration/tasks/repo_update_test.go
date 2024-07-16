@@ -166,7 +166,7 @@ var _ = Describe("RepoUpdate", func() {
 
 	AfterEach(func() {
 		ctrl.Finish()
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	When("a Repository definition is updated", func() {
