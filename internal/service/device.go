@@ -153,7 +153,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		}
 	case flterrors.ErrResourceIsNil:
 		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceDevice404JSONResponse{}, nil
@@ -253,7 +253,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	switch err {
 	case nil:
 		return server.PatchDevice200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchDevice404JSONResponse{}, nil

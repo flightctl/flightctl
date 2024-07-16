@@ -32,11 +32,11 @@ type Resource struct {
 
 	Annotations pq.StringArray `gorm:"type:text[]"`
 
-	Generation *int64
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	Generation      *int64
+	ResourceVersion *int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
 }
 
 func (r *Resource) BeforeCreate(tx *gorm.DB) error {
