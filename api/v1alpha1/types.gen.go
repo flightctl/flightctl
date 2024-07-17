@@ -281,7 +281,7 @@ type DeviceStatus struct {
 	Applications DeviceApplicationsStatus `json:"applications"`
 
 	// Conditions Conditions represent the observations of a the current state of a device.
-	Conditions map[string]Condition  `json:"conditions"`
+	Conditions []Condition           `json:"conditions"`
 	Config     DeviceConfigStatus    `json:"config"`
 	Integrity  DeviceIntegrityStatus `json:"integrity"`
 	Os         DeviceOSStatus        `json:"os"`

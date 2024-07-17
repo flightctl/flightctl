@@ -2181,9 +2181,9 @@ components:
         - updatedAt
       properties:
         conditions:
-          type: object
+          type: array
           description: "Conditions represent the observations of a the current state of a device."
-          additionalProperties:
+          items:
             $ref: '#/components/schemas/Condition'
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"

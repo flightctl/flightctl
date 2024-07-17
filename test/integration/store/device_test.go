@@ -341,7 +341,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Random Condition to make sure Conditions do get stored
 			status := api.NewDeviceStatus()
 			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
+				Type:               api.DeviceUpdating,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -356,7 +356,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: &status,
 			}
-			device.Status.Conditions[string(api.EnrollmentRequestApproved)] = condition
+			api.SetStatusCondition(&device.Status.Conditions, condition)
 			_, err := devStore.UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
@@ -365,7 +365,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("os"))
 			Expect(dev.Status.Conditions).ToNot(BeEmpty())
-			Expect(dev.Status.Conditions[string(api.EnrollmentRequestApproved)].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(api.IsStatusConditionFalse(dev.Status.Conditions, api.DeviceUpdating)).To(BeTrue())
 		})
 
 		It("UpdateOwner", func() {
