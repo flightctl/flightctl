@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -38,6 +39,8 @@ type Device interface {
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	InitialMigration() error
 }
+
+const retryIterations = 10
 
 type DeviceStore struct {
 	db  *gorm.DB
@@ -107,13 +110,14 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	device := model.NewDeviceFromApiResource(resource)
+	device, err := model.NewDeviceFromApiResource(resource)
+	if err != nil {
+		return nil, err
+	}
 	device.OrgID = orgId
-	device.Generation = util.Int64ToPtr(1)
-
-	result := s.db.Create(device)
+	_, err = s.createDevice(device)
 	callback(nil, device)
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	return resource, err
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
@@ -181,88 +185,105 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return &apiDevice, nil
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
+func (s *DeviceStore) getExistingRecord(name string, orgId uuid.UUID) (*model.Device, bool, error) {
+	existingRecord := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	if err := s.db.First(existingRecord).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, flterrors.ErrorFromGormError(err)
+	}
+	return existingRecord, true, nil
+}
+
+func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
+	device.Generation = lo.ToPtr[int64](1)
+	device.ResourceVersion = lo.ToPtr[int64](1)
+	if result := s.db.Create(device); result.Error != nil {
+		err := flterrors.ErrorFromGormError(result.Error)
+		return err == flterrors.ErrDuplicateName, err
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
+	sameSpec := reflect.DeepEqual(existingRecord.Spec, device.Spec)
+
+	// Update the generation if the spec was updated
+	if !sameSpec {
+		if fromAPI && len(lo.FromPtr(existingRecord.Owner)) != 0 {
+			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+
+		device.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
+	}
+	if device.ResourceVersion != nil && lo.FromPtr(existingRecord.ResourceVersion) != lo.FromPtr(device.ResourceVersion) {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	device.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
+	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
+	query := s.db.Model(where).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion))
+
+	selectFields := []string{"spec"}
+	selectFields = append(selectFields, GetNonNilFieldsFromResource(device.Resource)...)
+	selectFields = append(selectFields, fieldsToUnset...)
+	query = query.Select(selectFields)
+	result := query.Updates(&device)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return true, errors.New("no rows were updated.  Assuming resource version was updated or resource was deleted")
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
 	if resource == nil {
-		return nil, false, flterrors.ErrResourceIsNil
+		return nil, false, false, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, false, flterrors.ErrResourceNameIsNil
+		return nil, false, false, flterrors.ErrResourceNameIsNil
 	}
-	device := model.NewDeviceFromApiResource(resource)
+
+	device, err := model.NewDeviceFromApiResource(resource)
+	if err != nil {
+		return nil, false, false, err
+	}
 	device.OrgID = orgId
 
 	// Use the dedicated API to update annotations
 	device.Annotations = nil
 
-	created := false
-	var existingRecord *model.Device
-
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord = &model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
-		result := innerTx.First(existingRecord)
-
-		deviceExists := true
-
-		// NotFound is OK because in that case we will create the record, anything else is a real error
-		if result.Error != nil {
-			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-				deviceExists = false
-			} else {
-				return flterrors.ErrorFromGormError(result.Error)
-			}
-		}
-		// We returned
-		if !deviceExists {
-			created = true
-			device.Generation = util.Int64ToPtr(1)
-
-			result = innerTx.Create(device)
-			if result.Error != nil {
-				return flterrors.ErrorFromGormError(result.Error)
-			}
-		} else {
-			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, device.Spec.Data)
-
-			// Update the generation if the spec was updated
-			if !sameSpec {
-				if fromAPI && existingRecord.Owner != nil && len(*existingRecord.Owner) != 0 {
-					return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-				}
-
-				if existingRecord.Generation == nil {
-					device.Generation = util.Int64ToPtr(1)
-				} else {
-					device.Generation = util.Int64ToPtr(*existingRecord.Generation + 1)
-				}
-			} else {
-				device.Generation = existingRecord.Generation
-			}
-
-			where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
-			query := innerTx.Model(where)
-
-			selectFields := []string{"spec"}
-			selectFields = append(selectFields, GetNonNilFieldsFromResource(device.Resource)...)
-			if len(fieldsToUnset) > 0 {
-				selectFields = append(selectFields, fieldsToUnset...)
-			}
-			query = query.Select(selectFields)
-			result := query.Updates(&device)
-			if result.Error != nil {
-				return flterrors.ErrorFromGormError(result.Error)
-			}
-		}
-		return nil
-	})
-
+	existingRecord, deviceExists, err := s.getExistingRecord(device.Name, orgId)
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
+	}
+	if !deviceExists {
+		if retry, err := s.createDevice(device); err != nil {
+			return nil, false, retry, err
+		}
+	} else {
+		if retry, err := s.updateDevice(fromAPI, existingRecord, device, fieldsToUnset); err != nil {
+			return nil, false, retry, err
+		}
 	}
 
 	callback(existingRecord, device)
 
 	updatedResource := device.ToApiResource()
-	return &updatedResource, created, nil
+	return &updatedResource, !deviceExists, false, nil
+}
+
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
+	var created, retry bool
+	var device *api.Device
+	var err error
+	i := 0
+	for device, created, retry, err = s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback); retry && i < retryIterations; device, created, retry, err = s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback) {
+		i++
+	}
+	return device, created, err
 }
 
 func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
@@ -283,7 +304,8 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
             status = jsonb_set(
                 jsonb_set(status, '{summary,status}', '"%s"', %s), 
                 '{summary,info}', '"%s"'
-            )
+            ),
+            resource_version = resource_version + 1
         WHERE name IN (%s)`, status, createMissing, statusInfo, tokens)
 
 	args := make([]interface{}, len(deviceNames))
@@ -305,7 +327,8 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
 	result := s.db.Model(&device).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(resource.Status),
+		"status":           model.MakeJSONField(resource.Status),
+		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 	return resource, flterrors.ErrorFromGormError(result.Error)
 }
@@ -344,56 +367,81 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 	return nil
 }
 
+func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
+	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
+
+	for _, deleteKey := range deleteKeys {
+		delete(existingAnnotations, deleteKey)
+	}
+	annotationsArray := util.LabelMapToArray(&existingAnnotations)
+
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"annotations":      pq.StringArray(annotationsArray),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+
+	err := flterrors.ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, errors.New("no row was updated. assuming resource version mismatch")
+	}
+	return false, nil
+}
+
 func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
-	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-		existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
-		existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
-
-		for _, deleteKey := range deleteKeys {
-			delete(existingAnnotations, deleteKey)
-		}
-		annotationsArray := util.LabelMapToArray(&existingAnnotations)
-
-		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
-			"annotations": pq.StringArray(annotationsArray),
-		})
-		return flterrors.ErrorFromGormError(result.Error)
+	return retryUpdate(func() (bool, error) {
+		return s.updateAnnotations(orgId, name, annotations, deleteKeys)
 	})
 }
 
+func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered string) (retry bool, err error) {
+	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+
+	var currentRenderedVersion int64 = 0
+	renderedVersionString, ok := existingAnnotations[model.DeviceAnnotationRenderedVersion]
+	if ok {
+		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	currentRenderedVersion++
+	existingAnnotations[model.DeviceAnnotationRenderedVersion] = strconv.FormatInt(currentRenderedVersion, 10)
+	annotationsArray := util.LabelMapToArray(&existingAnnotations)
+
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"annotations":      pq.StringArray(annotationsArray),
+		"rendered_config":  &rendered,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+
+	err = flterrors.ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, errors.New("no row was updated. assuming resource version mismatch")
+	}
+	return false, nil
+}
+
 func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error {
-	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-		existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
-
-		var currentRenderedVersion int64 = 0
-		renderedVersionString, ok := existingAnnotations[model.DeviceAnnotationRenderedVersion]
-		if ok {
-			currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
-			if err != nil {
-				return err
-			}
-		}
-
-		currentRenderedVersion++
-		existingAnnotations[model.DeviceAnnotationRenderedVersion] = strconv.FormatInt(currentRenderedVersion, 10)
-		annotationsArray := util.LabelMapToArray(&existingAnnotations)
-
-		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
-			"annotations":     pq.StringArray(annotationsArray),
-			"rendered_config": &rendered,
-		})
-
-		return flterrors.ErrorFromGormError(result.Error)
+	return retryUpdate(func() (bool, error) {
+		return s.updateRendered(orgId, name, rendered)
 	})
 }
 
@@ -440,30 +488,54 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	return &renderedConfig, nil
 }
 
-func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
-	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
+func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditions []api.Condition) (retry bool, err error) {
+	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
 
-		if existingRecord.ServiceConditions == nil {
-			existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
-		}
-		if existingRecord.ServiceConditions.Data.Conditions == nil {
-			existingRecord.ServiceConditions.Data.Conditions = &[]api.Condition{}
-		}
+	if existingRecord.ServiceConditions == nil {
+		existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
+	}
+	if existingRecord.ServiceConditions.Data.Conditions == nil {
+		existingRecord.ServiceConditions.Data.Conditions = &[]api.Condition{}
+	}
 
-		for _, condition := range conditions {
-			api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
-		}
+	for _, condition := range conditions {
+		api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
+	}
 
-		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
-			"service_conditions": existingRecord.ServiceConditions,
-		})
-		return flterrors.ErrorFromGormError(result.Error)
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"service_conditions": existingRecord.ServiceConditions,
+		"resource_version":   gorm.Expr("resource_version + 1"),
 	})
+	err = flterrors.ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, errors.New("no row was updated. assuming resource version mismatch")
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+	return retryUpdate(func() (bool, error) {
+		return s.setServiceConditions(orgId, name, conditions)
+	})
+}
+
+func retryUpdate(fn func() (bool, error)) error {
+	var (
+		retry bool
+		err   error
+	)
+	i := 0
+	for retry, err = fn(); retry && i < retryIterations; retry, err = fn() {
+		i++
+	}
+	return err
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
