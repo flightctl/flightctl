@@ -223,40 +223,18 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 }
 
 func processReponse(response interface{}, err error, kind string, name string, output string) error {
-	if len(name) > 0 {
-		if err != nil {
-			return fmt.Errorf("reading %s/%s: %w", kind, name, err)
-		}
-		out, err := serializeResponse(response, fmt.Sprintf("%s/%s", kind, name))
-		if err != nil {
-			return fmt.Errorf("serializing response for %s/%s: %w", kind, name, err)
-		}
-		fmt.Printf("%s\n", string(out))
-		return nil
+	errorPrefix := fmt.Sprintf("reading %s/%s", kind, name)
+	if len(name) == 0 {
+		errorPrefix = fmt.Sprintf("listing %s", plural(kind))
 	}
 
 	if err != nil {
-		return fmt.Errorf("listing %s: %w", plural(kind), err)
+		return fmt.Errorf(errorPrefix+": %w", err)
 	}
-	return printListResourceResponse(response, err, plural(kind), output)
-}
 
-func serializeResponse(response interface{}, name string) ([]byte, error) {
 	v := reflect.ValueOf(response).Elem()
 	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return nil, fmt.Errorf("reading %s: %d", name, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
-	}
-
-	return yaml.Marshal(v.FieldByName("JSON200").Interface())
-}
-
-func printListResourceResponse(response interface{}, err error, resourceType string, output string) error {
-	if err != nil {
-		return fmt.Errorf("listing %s: %w", resourceType, err)
-	}
-	v := reflect.ValueOf(response).Elem()
-	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf("listing %s: %d", resourceType, v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
+		return fmt.Errorf(errorPrefix+": %d", v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
 	}
 
 	switch output {
@@ -275,33 +253,47 @@ func printListResourceResponse(response interface{}, err error, resourceType str
 		fmt.Printf("%s\n", string(marshalled))
 		return nil
 	default:
+		return printTable(response, kind, name)
 	}
+}
 
-	// Tabular
+func printTable(response interface{}, kind string, name string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-	switch resourceType {
-	case plural(DeviceKind):
-		printDevicesTable(w, response.(*apiclient.ListDevicesResponse))
-	case plural(EnrollmentRequestKind):
-		printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse))
-	case plural(FleetKind):
-		printFleetsTable(w, response.(*apiclient.ListFleetsResponse))
-	case plural(TemplateVersionKind):
-		printTemplateVersionsTable(w, response.(*apiclient.ListTemplateVersionsResponse))
-	case plural(RepositoryKind):
-		printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse))
-	case plural(ResourceSyncKind):
-		printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse))
+	switch {
+	case kind == DeviceKind && len(name) == 0:
+		printDevicesTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Items...)
+	case kind == DeviceKind && len(name) > 0:
+		printDevicesTable(w, *(response.(*apiclient.ReadDeviceResponse).JSON200))
+	case kind == EnrollmentRequestKind && len(name) == 0:
+		printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
+	case kind == EnrollmentRequestKind && len(name) > 0:
+		printEnrollmentRequestsTable(w, *(response.(*apiclient.ReadEnrollmentRequestResponse).JSON200))
+	case kind == FleetKind && len(name) == 0:
+		printFleetsTable(w, response.(*apiclient.ListFleetsResponse).JSON200.Items...)
+	case kind == FleetKind && len(name) > 0:
+		printFleetsTable(w, *(response.(*apiclient.ReadFleetResponse).JSON200))
+	case kind == TemplateVersionKind && len(name) == 0:
+		printTemplateVersionsTable(w, response.(*apiclient.ListTemplateVersionsResponse).JSON200.Items...)
+	case kind == TemplateVersionKind && len(name) > 0:
+		printTemplateVersionsTable(w, *(response.(*apiclient.ReadTemplateVersionResponse).JSON200))
+	case kind == RepositoryKind && len(name) == 0:
+		printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse).JSON200.Items...)
+	case kind == RepositoryKind && len(name) > 0:
+		printRepositoriesTable(w, *(response.(*apiclient.ReadRepositoryResponse).JSON200))
+	case kind == ResourceSyncKind && len(name) == 0:
+		printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse).JSON200.Items...)
+	case kind == ResourceSyncKind && len(name) > 0:
+		printResourceSyncsTable(w, *(response.(*apiclient.ReadResourceSyncResponse).JSON200))
 	default:
-		return fmt.Errorf("unknown resource type %s", resourceType)
+		return fmt.Errorf("unknown resource type %s", kind)
 	}
 	w.Flush()
 	return nil
 }
 
-func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesResponse) {
+func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
-	for _, d := range response.JSON200.Items {
+	for _, d := range devices {
 		lastSeen := "<never>"
 		if !d.Status.UpdatedAt.IsZero() {
 			lastSeen = humanize.Time(d.Status.UpdatedAt)
@@ -317,9 +309,9 @@ func printDevicesTable(w *tabwriter.Writer, response *apiclient.ListDevicesRespo
 	}
 }
 
-func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListEnrollmentRequestsResponse) {
+func printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequest) {
 	fmt.Fprintln(w, "NAME\tAPPROVAL\tAPPROVER\tAPPROVED LABELS")
-	for _, e := range response.JSON200.Items {
+	for _, e := range ers {
 		approval, approver, approvedLabels := "Pending", "<none>", ""
 		if e.Status.Approval != nil {
 			approval = util.BoolToStr(e.Status.Approval.Approved, "Approved", "Denied")
@@ -337,9 +329,9 @@ func printEnrollmentRequestsTable(w *tabwriter.Writer, response *apiclient.ListE
 	}
 }
 
-func printFleetsTable(w *tabwriter.Writer, response *apiclient.ListFleetsResponse) {
+func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
 	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID")
-	for _, f := range response.JSON200.Items {
+	for _, f := range fleets {
 		selector := "<none>"
 		if f.Spec.Selector != nil {
 			selector = strings.Join(util.LabelMapToArray(&f.Spec.Selector.MatchLabels), ",")
@@ -360,52 +352,52 @@ func printFleetsTable(w *tabwriter.Writer, response *apiclient.ListFleetsRespons
 	}
 }
 
-func printTemplateVersionsTable(w *tabwriter.Writer, response *apiclient.ListTemplateVersionsResponse) {
+func printTemplateVersionsTable(w *tabwriter.Writer, tvs ...api.TemplateVersion) {
 	fmt.Fprintln(w, "FLEET\tNAME")
-	for _, f := range response.JSON200.Items {
-		fmt.Fprintf(w, "%s\t%s\n", f.Spec.Fleet, *f.Metadata.Name)
+	for _, tv := range tvs {
+		fmt.Fprintf(w, "%s\t%s\n", tv.Spec.Fleet, *tv.Metadata.Name)
 	}
 }
 
-func printRepositoriesTable(w *tabwriter.Writer, response *apiclient.ListRepositoriesResponse) {
+func printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
 	fmt.Fprintln(w, "NAME\tREPOSITORY URL\tACCESSIBLE")
-	for _, f := range response.JSON200.Items {
+	for _, r := range repos {
 		accessible := "Unknown"
-		if f.Status != nil {
-			condition := api.FindStatusCondition(f.Status.Conditions, api.RepositoryAccessible)
+		if r.Status != nil {
+			condition := api.FindStatusCondition(r.Status.Conditions, api.RepositoryAccessible)
 			if condition != nil {
 				accessible = string(condition.Status)
 			}
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\n",
-			*f.Metadata.Name,
-			util.DefaultIfError(f.Spec.GetRepoURL, ""),
+			*r.Metadata.Name,
+			util.DefaultIfError(r.Spec.GetRepoURL, ""),
 			accessible,
 		)
 	}
 }
 
-func printResourceSyncsTable(w *tabwriter.Writer, response *apiclient.ListResourceSyncResponse) {
+func printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs ...api.ResourceSync) {
 	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH\tREVISION\tACCESSIBLE\tSYNCED\tLAST SYNC")
 
-	for _, f := range response.JSON200.Items {
+	for _, rs := range resourcesyncs {
 		accessible, synced, lastSynced := "Unknown", "Unknown", "Unknown"
-		if f.Status != nil {
-			condition := api.FindStatusCondition(f.Status.Conditions, api.ResourceSyncAccessible)
+		if rs.Status != nil {
+			condition := api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncAccessible)
 			if condition != nil {
 				accessible = string(condition.Status)
 			}
-			condition = api.FindStatusCondition(f.Status.Conditions, api.ResourceSyncSynced)
+			condition = api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncSynced)
 			if condition != nil {
 				synced = string(condition.Status)
 				lastSynced = humanize.Time(condition.LastTransitionTime)
 			}
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			*f.Metadata.Name,
-			f.Spec.Repository,
-			f.Spec.Path,
-			f.Spec.TargetRevision,
+			*rs.Metadata.Name,
+			rs.Spec.Repository,
+			rs.Spec.Path,
+			rs.Spec.TargetRevision,
 			accessible,
 			synced,
 			lastSynced,
