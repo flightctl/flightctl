@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 func TestStore(t *testing.T) {
@@ -55,6 +56,85 @@ var _ = Describe("DeviceStore create", func() {
 
 	AfterEach(func() {
 		store.DeleteTestDB(log, cfg, storeInst, dbName)
+	})
+
+	It("CreateOrUpdateDevice create mode race", func() {
+		imageName := "tv"
+		device := api.Device{
+			Metadata: api.ObjectMeta{
+				Name: util.StrToPtr("newresourcename"),
+			},
+			Spec: &api.DeviceSpec{
+				Os: &api.DeviceOSSpec{Image: imageName},
+			},
+			Status: nil,
+		}
+
+		callbackdb, err := store.InitDB(cfg, log)
+		defer store.CloseDB(callbackdb)
+		Expect(err).ToNot(HaveOccurred())
+		race := func(db *gorm.DB) {
+			result := callbackdb.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename"}})
+			Expect(result.Error).ToNot(HaveOccurred())
+		}
+		err = callbackdb.Callback().Create().Before("gorm:create").Register("race", race)
+		Expect(err).ToNot(HaveOccurred())
+
+		_, _, err = devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("CreateOrUpdateDevice update mode race", func() {
+		status := api.NewDeviceStatus()
+		device := api.Device{
+			Metadata: api.ObjectMeta{
+				Name: util.StrToPtr("mydevice-1"),
+			},
+			Spec: &api.DeviceSpec{
+				Os: &api.DeviceOSSpec{
+					Image: "newos",
+				},
+			},
+			Status: &status,
+		}
+
+		callbackdb, err := store.InitDB(cfg, log)
+		defer store.CloseDB(callbackdb)
+		Expect(err).ToNot(HaveOccurred())
+		race := func(db *gorm.DB) {
+			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOSSpec{Image: "bah"}}}
+			device, err := model.NewDeviceFromApiResource(&otherupdate)
+			Expect(err).ToNot(HaveOccurred())
+			result := callbackdb.Updates(device)
+			Expect(result.Error).ToNot(HaveOccurred())
+		}
+		err = callbackdb.Callback().Update().Before("*").Register("race", race)
+		Expect(err).ToNot(HaveOccurred())
+
+		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(created).To(Equal(false))
+		Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
+		Expect(dev.Kind).To(Equal(model.DeviceKind))
+		Expect(dev.Spec.Os.Image).To(Equal("newos"))
+		Expect(dev.Metadata.ResourceVersion).ToNot(BeNil())
+		Expect(*dev.Metadata.ResourceVersion).To(Equal("2"))
+	})
+
+	It("CreateOrUpdateDevice update with stale resourceVersion", func() {
+		dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+		Expect(err).ToNot(HaveOccurred())
+		dev.Metadata.Owner = util.StrToPtr("newowner")
+		dev.Spec.Os.Image = "oldos"
+		// Update but don't save the new device, so we still have the old resourceVersion
+		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(called).To(BeTrue())
+
+		dev.Spec.Os.Image = "newos"
+		_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, callback)
+		Expect(err).To(HaveOccurred())
+		Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 	})
 
 	Context("Device store", func() {
@@ -247,7 +327,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = util.StrToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
