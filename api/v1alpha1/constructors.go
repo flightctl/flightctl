@@ -2,7 +2,7 @@ package v1alpha1
 
 func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{
-		Conditions: make(map[string]Condition),
+		Conditions: []Condition{},
 		Applications: DeviceApplicationsStatus{
 			Data: make(map[string]ApplicationStatus),
 			Summary: ApplicationsSummaryStatus{
