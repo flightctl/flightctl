@@ -10,6 +10,30 @@ env:
   QUAY_ORG: quay.io/flightctl
 
 jobs:
+  publish-helm-charts-containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Build helm charts
+        run: |
+          echo packaging $(git describe --long --tags)
+          helm package ./deploy/helm/flightctl --version $(git describe --long --tags) --app-version ${{ github.sha }}
+
+      - name: Login helm
+        env:
+          PASSWORD: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+          USER: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+        run:
+          helm registry login -u ${USER} -p ${PASSWORD}
+
+      - name: Push helm charts
+        run: |
+          helm registry push flightctl-*.tgz oci://${{ env.QUAY_ORG }}/helm-charts
+
   publish-flightctl-containers:
     strategy:
       matrix:
