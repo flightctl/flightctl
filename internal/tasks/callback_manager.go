@@ -184,7 +184,8 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 	if labelsUpdated {
 		// Check if the new labels cause the device to move to a different fleet
 		op := FleetSelectorMatchOpUpdate
-		if len(GetOverlappingAnnotationValue(device.ToApiResource().Metadata.Annotations)) != 0 {
+
+		if api.IsStatusConditionTrue(device.Status.Data.Conditions, api.DeviceMultipleOwners) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)

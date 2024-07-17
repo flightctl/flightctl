@@ -2980,6 +2980,7 @@ components:
       - 'Valid'                # Fleet
       - 'Updating'             # Device
       - 'SpecValid'            # Device (service condition)
+      - 'MultipleOwners'       # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
@@ -2991,6 +2992,7 @@ components:
       - FleetValid
       - DeviceUpdating
       - DeviceSpecValid
+      - DeviceMultipleOwners
       - TemplateVersionValid
     ConditionStatus:
       type: string

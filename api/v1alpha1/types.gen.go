@@ -38,6 +38,7 @@ const (
 
 // Defines values for ConditionType.
 const (
+	DeviceMultipleOwners       ConditionType = "MultipleOwners"
 	DeviceSpecValid            ConditionType = "SpecValid"
 	DeviceUpdating             ConditionType = "Updating"
 	EnrollmentRequestApproved  ConditionType = "Approved"
