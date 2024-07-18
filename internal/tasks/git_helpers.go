@@ -108,7 +108,7 @@ func GetAuth(repository *model.Repository) (transport.AuthMethod, error) {
 				password = *sshSpec.SshConfig.PrivateKeyPassphrase
 			}
 			user := ""
-			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(sshSpec.Repo)
+			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(sshSpec.Url)
 			if len(repoSubmatch) > 1 {
 				user = repoSubmatch[1]
 			}
@@ -134,7 +134,7 @@ func GetAuth(repository *model.Repository) (transport.AuthMethod, error) {
 	} else {
 		httpSpec, err := repository.Spec.Data.GetHttpRepoSpec()
 		if err == nil {
-			if strings.HasPrefix(httpSpec.Repo, "https") {
+			if strings.HasPrefix(httpSpec.Url, "https") {
 				err := configureRepoHTTPSClient(httpSpec.HttpConfig)
 				if err != nil {
 					return nil, err

@@ -1839,7 +1839,7 @@ components:
         - kind
         - metadata
         - spec
-      description: Repository represents a git repository
+      description: Repository represents a git repository or an Http endpoint
     HttpConfig:
       type: object
       additionalProperties: false
@@ -1873,13 +1873,16 @@ components:
       type: object
       additionalProperties: false
       properties:
-        repo:
+        url:
           type: string
-          description: 'The HTTP Git repository URL to clone from'
+          description: 'The HTTP URL to call or clone from'
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
         httpConfig:
           $ref: "#/components/schemas/HttpConfig"
       required:
-        - repo
+        - url
+        - type
         - httpConfig
     SshConfig:
       type: object
@@ -1900,23 +1903,29 @@ components:
       type: object
       additionalProperties: false
       properties:
-        repo:
+        url:
           type: string
           description: 'The SSH Git repository URL to clone from'
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
         sshConfig:
           $ref: "#/components/schemas/SshConfig"
       required:
-        - repo
+        - url
+        - type
         - sshConfig
     GenericRepoSpec:
       type: object
       additionalProperties: false
       properties:
-        repo:
+        url:
           type: string
-          description: 'The (possibly remote) repository URL to clone from'
+          description: 'The (possibly remote) repository URL'
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
       required:
-        - repo
+        - url
+        - type
     RepositorySpec:
       type: object
       oneOf:
@@ -1956,6 +1965,12 @@ components:
         - kind
         - metadata
         - items
+    RepoSpecType:
+      type: string
+      description: 'RepoSpecType is the type of the repository'
+      enum:
+        - git
+        - http
     Device:
       type: object
       properties:
@@ -2069,11 +2084,12 @@ components:
                 suffix:
                   type: string
                   description: |
-                    The endpoint to fetch the config from
+                    Part of the URL that comes after the base URL. It can include query parameters such as:
+                    /path/to/endpoint?query=param
                 filePath:
                   type: string
                   description: |
-                    The path to the file to land the body of the response
+                    The path of the file where the response is stored in the filesystem of the device.
               required:
               - repository
               - filePath

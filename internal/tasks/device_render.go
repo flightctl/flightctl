@@ -370,7 +370,10 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 			return "", err
 		}
 
-		rootCAs, _ := x509.SystemCertPool()
+		rootCAs, err := x509.SystemCertPool()
+		if err != nil {
+			return "", err
+		}
 		if rootCAs == nil {
 			rootCAs = x509.NewCertPool()
 		}
@@ -379,7 +382,6 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 	}
 	if repoHttpSpec.HttpConfig.SkipServerVerification != nil {
 		tlsConfig.InsecureSkipVerify = *repoHttpSpec.HttpConfig.SkipServerVerification //nolint:gosec
-
 	}
 
 	// Set up the HTTP client with the configured TLS settings

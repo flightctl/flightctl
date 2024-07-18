@@ -270,7 +270,7 @@ func testRepo() (model.Repository, error) {
 	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 		// This is contacting a GIT repo, we should either mock it, or move it to E2E eventually
 		// where we setup a local test git repo we could control (i.e. https://github.com/rockstorm101/git-server-docker)
-		Repo: "https://github.com/flightctl/flightctl",
+		Url: "https://github.com/flightctl/flightctl",
 	})
 	return model.Repository{
 		Spec: &model.JSONField[api.RepositorySpec]{

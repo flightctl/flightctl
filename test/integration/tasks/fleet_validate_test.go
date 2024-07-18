@@ -52,7 +52,8 @@ var _ = Describe("FleetValidate", func() {
 
 		spec := api.RepositorySpec{}
 		err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-			Repo: "repo-url",
+			Url:  "repo-url",
+			Type: "git",
 		})
 		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
@@ -63,7 +64,8 @@ var _ = Describe("FleetValidate", func() {
 		}
 		specHttp := api.RepositorySpec{}
 		err = specHttp.FromGenericRepoSpec(api.GenericRepoSpec{
-			Repo: "http-repo-url",
+			Url:  "http-repo-url",
+			Type: "http",
 		})
 		Expect(err).ToNot(HaveOccurred())
 		repositoryHttp := &api.Repository{
@@ -188,8 +190,8 @@ var _ = Describe("FleetValidate", func() {
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-repo"))
-			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("repo"))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
+			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("http-repo"))
 
 		})
 	})
@@ -287,8 +289,8 @@ var _ = Describe("FleetValidate", func() {
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-repo"))
-			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("repo"))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
+			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("http-repo"))
 
 		})
 	})
@@ -337,8 +339,8 @@ var _ = Describe("FleetValidate", func() {
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-missingrepo"))
-			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("repo"))
+			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
+			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("http-missingrepo"))
 		})
 	})
 

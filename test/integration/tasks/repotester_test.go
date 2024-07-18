@@ -71,7 +71,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 
 	spec := api.RepositorySpec{}
 	err = spec.FromHttpRepoSpec(api.HttpRepoSpec{
-		Repo: "https://localhost:4443",
+		Url: "https://localhost:4443",
 		HttpConfig: api.HttpConfig{
 			TlsKey: &clientKeyB64,
 			TlsCrt: &clientCrtB64,
@@ -125,7 +125,7 @@ func TestSSHRepo(t *testing.T) {
 
 	spec := api.RepositorySpec{}
 	err = spec.FromSshRepoSpec(api.SshRepoSpec{
-		Repo: "ssh://root@127.0.0.1:2222",
+		Url: "ssh://root@127.0.0.1:2222",
 		SshConfig: api.SshConfig{
 			SshPrivateKey:          &privKey,
 			SkipServerVerification: util.BoolToPtr(true),
