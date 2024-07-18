@@ -18,21 +18,28 @@ jobs:
       - name: Setup all dependencies
         uses: ./.github/actions/setup-dependencies
 
+      - name: Get version
+        run: |
+          VERSION=$(git describe --long --tags)
+          VERSION=${VERSION#v} # remove the leading v prefix for version
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}"
+
       - name: Build helm charts
         run: |
-          echo packaging $(git describe --long --tags)
-          helm package ./deploy/helm/flightctl --version $(git describe --long --tags) --app-version ${{ github.sha }}
+          echo packaging "${VERSION}"
+          helm package ./deploy/helm/flightctl --version "${VERSION}" --app-version "${VERSION}"
 
       - name: Login helm
         env:
           PASSWORD: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
           USER: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
         run:
-          helm registry login -u ${USER} -p ${PASSWORD}
+          helm registry login quay.io -u ${USER} -p ${PASSWORD}
 
       - name: Push helm charts
         run: |
-          helm registry push flightctl-*.tgz oci://${{ env.QUAY_ORG }}/helm-charts
+          helm push flightctl-helm-*.tgz oci://${{ env.QUAY_ORG }}/
 
   publish-flightctl-containers:
     strategy:
@@ -46,7 +53,12 @@ jobs:
       - name: Generate tags
         id: generate-tags
         run: |
-          tags=( latest-${GITHUB_SHA} latest )
+          VERSION=$(git describe --long --tags)
+          VERSION=${VERSION#v} # remove the leading v prefix for version
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}"
+
+          tags=( latest-${GITHUB_SHA} latest ${VERSION} )
           echo "tags=${tags[@]}" >> $GITHUB_OUTPUT
           echo "tags=${tags[@]}"
 
