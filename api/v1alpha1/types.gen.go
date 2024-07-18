@@ -92,6 +92,12 @@ const (
 	Replace PatchRequestOp = "replace"
 )
 
+// Defines values for RepoSpecType.
+const (
+	Git  RepoSpecType = "git"
+	Http RepoSpecType = "http"
+)
+
 // Defines values for ResourceAlertSeverityType.
 const (
 	ResourceAlertSeverityTypeCritical ResourceAlertSeverityType = "Critical"
@@ -472,8 +478,11 @@ type GenericConfigSpec struct {
 
 // GenericRepoSpec defines model for GenericRepoSpec.
 type GenericRepoSpec struct {
-	// Repo The (possibly remote) repository URL to clone from
-	Repo string `json:"repo"`
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
+
+	// Url The (possibly remote) repository URL
+	Url string `json:"url"`
 }
 
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
@@ -517,13 +526,14 @@ type HttpConfig struct {
 type HttpConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
 	HttpRef    struct {
-		// FilePath The path to the file to land the body of the response
+		// FilePath The path of the file where the response is stored in the filesystem of the device.
 		FilePath string `json:"filePath"`
 
 		// Repository The name of the repository resource to use as the sync source
 		Repository string `json:"repository"`
 
-		// Suffix The endpoint to fetch the config from
+		// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
+		// /path/to/endpoint?query=param
 		Suffix *string `json:"suffix,omitempty"`
 	} `json:"httpRef"`
 	Name string `json:"name"`
@@ -533,8 +543,11 @@ type HttpConfigProviderSpec struct {
 type HttpRepoSpec struct {
 	HttpConfig HttpConfig `json:"httpConfig"`
 
-	// Repo The HTTP Git repository URL to clone from
-	Repo string `json:"repo"`
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
+
+	// Url The HTTP URL to call or clone from
+	Url string `json:"url"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -627,7 +640,10 @@ type RenderedDeviceSpec struct {
 	} `json:"systemd,omitempty"`
 }
 
-// Repository Repository represents a git repository
+// RepoSpecType RepoSpecType is the type of the repository
+type RepoSpecType string
+
+// Repository Repository represents a git repository or an Http endpoint
 type Repository struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
 	ApiVersion string `json:"apiVersion"`
@@ -772,9 +788,13 @@ type SshConfig struct {
 
 // SshRepoSpec defines model for SshRepoSpec.
 type SshRepoSpec struct {
-	// Repo The SSH Git repository URL to clone from
-	Repo      string    `json:"repo"`
 	SshConfig SshConfig `json:"sshConfig"`
+
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
+
+	// Url The SSH Git repository URL to clone from
+	Url string `json:"url"`
 }
 
 // Status Status is a return value for calls that don't return other objects.

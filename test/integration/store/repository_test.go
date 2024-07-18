@@ -179,7 +179,8 @@ var _ = Describe("RepositoryStore create", func() {
 		It("CreateOrUpdateRepository create mode", func() {
 			spec := api.RepositorySpec{}
 			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-				Repo: "myrepo",
+				Url:  "myrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -197,7 +198,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myrepo"))
+			Expect(repoSpec.Url).To(Equal("myrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
@@ -205,7 +206,8 @@ var _ = Describe("RepositoryStore create", func() {
 		It("CreateOrUpdateRepository update mode", func() {
 			spec := api.RepositorySpec{}
 			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-				Repo: "myotherrepo",
+				Url:  "myotherrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -223,7 +225,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
+			Expect(repoSpec.Url).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
@@ -231,7 +233,8 @@ var _ = Describe("RepositoryStore create", func() {
 		It("CreateOrUpdateRepository create nilspec", func() {
 			spec := api.RepositorySpec{}
 			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-				Repo: "myotherrepo",
+				Url:  "myotherrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -249,7 +252,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
+			Expect(repoSpec.Url).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})

@@ -15,7 +15,7 @@ var _ = Describe("ResourceSync CloneGitRepo", Ordered, func() {
 		spec := api.RepositorySpec{}
 		err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 			// This should move to E2E with a local git repo in kind
-			Repo: "https://github.com/flightctl/flightctl",
+			Url: "https://github.com/flightctl/flightctl",
 		})
 		Expect(err).ToNot(HaveOccurred())
 		repo := model.Repository{

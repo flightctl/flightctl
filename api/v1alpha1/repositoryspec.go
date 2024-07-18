@@ -38,5 +38,5 @@ func (t RepositorySpec) GetRepoURL() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return genericRepo.Repo, nil
+	return genericRepo.Url, nil
 }

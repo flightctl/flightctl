@@ -89,6 +89,8 @@ func ValidateBearerToken(token *string, path string) []error {
 	if token == nil {
 		return []error{}
 	}
+
+	// https://www.rfc-editor.org/info/rfc7519
 	var jwtPattern = regexp.MustCompile(`^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$`)
 
 	errs := field.ErrorList{}

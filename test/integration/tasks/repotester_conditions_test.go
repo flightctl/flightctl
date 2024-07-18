@@ -31,7 +31,7 @@ func (r *MockRepoTester) TestAccess(repository *model.Repository) error {
 func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
 	spec := api.RepositorySpec{}
 	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-		Repo: "myrepourl",
+		Url: "myrepourl",
 	})
 	if err != nil {
 		return err
