@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: flightctl-api
-          image: {{ .Values.flightctl.api.image }}
+          image: {{ .Values.flightctl.api.image }}:{{ default .Chart.AppVersion .Values.flightctl.api.imageTag }}
           imagePullPolicy: {{ .Values.flightctl.api.imagePullPolicy }}
           env:
             - name: HOME
