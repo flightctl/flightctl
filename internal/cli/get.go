@@ -95,6 +95,10 @@ func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// The RenderedDeviceSpec can only be printed as JSON or YAML, so default to JSON if not set
+	if o.Rendered && len(o.Output) == 0 {
+		o.Output = jsonFormat
+	}
 	// If a label selector is provided, ensure keys without value still have '=' appended
 	if len(o.LabelSelector) > 0 {
 		labels := strings.Split(o.LabelSelector, ",")
