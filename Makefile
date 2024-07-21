@@ -42,6 +42,7 @@ help:
 	@echo "    test:            run all tests"
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
 	@echo "    deploy-db:       deploy only the database as a container, for testing"
+	@echo "    deploy-rabbitmq:       deploy only the rabbitmq as a container"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"

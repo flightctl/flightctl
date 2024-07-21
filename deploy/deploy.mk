@@ -28,6 +28,10 @@ deploy-db:
 	podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 	podman exec -it flightctl-db createdb admin || true
 
+deploy-rabbitmq:
+	podman rm -f flightctl-rabbitmq || true
+	cd deploy/podman && podman-compose up -d flightctl-rabbitmq
+
 kill-db:
 	cd deploy/podman && podman-compose down flightctl-db
 
