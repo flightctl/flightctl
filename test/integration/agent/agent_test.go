@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -254,7 +253,7 @@ func mockSecret(mockK8sClient *k8sclient.MockK8SClient, secrets map[string]strin
 				Namespace: "secret-namespace",
 			},
 			Data: lo.MapValues(secrets, func(v, _ string) []byte {
-				return []byte(base64.StdEncoding.EncodeToString([]byte(v)))
+				return []byte(v)
 			}),
 		}, nil).AnyTimes()
 }
