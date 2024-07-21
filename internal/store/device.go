@@ -40,8 +40,6 @@ type Device interface {
 	InitialMigration() error
 }
 
-const retryIterations = 10
-
 type DeviceStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
@@ -185,17 +183,6 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return &apiDevice, nil
 }
 
-func (s *DeviceStore) getExistingRecord(name string, orgId uuid.UUID) (*model.Device, bool, error) {
-	existingRecord := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	if err := s.db.First(existingRecord).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, false, nil
-		}
-		return nil, false, flterrors.ErrorFromGormError(err)
-	}
-	return existingRecord, true, nil
-}
-
 func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 	device.Generation = lo.ToPtr[int64](1)
 	device.ResourceVersion = lo.ToPtr[int64](1)
@@ -233,7 +220,7 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 		return false, flterrors.ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no rows were updated.  Assuming resource version was updated or resource was deleted")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -255,11 +242,12 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	// Use the dedicated API to update annotations
 	device.Annotations = nil
 
-	existingRecord, deviceExists, err := s.getExistingRecord(device.Name, orgId)
+	existingRecord, err := getExistingRecord[model.Device](s.db, device.Name, orgId)
 	if err != nil {
 		return nil, false, false, err
 	}
-	if !deviceExists {
+	exists := existingRecord != nil
+	if !exists {
 		if retry, err := s.createDevice(device); err != nil {
 			return nil, false, retry, err
 		}
@@ -272,18 +260,13 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	callback(existingRecord, device)
 
 	updatedResource := device.ToApiResource()
-	return &updatedResource, !deviceExists, false, nil
+	return &updatedResource, !exists, false, nil
 }
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
-	var created, retry bool
-	var device *api.Device
-	var err error
-	i := 0
-	for device, created, retry, err = s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback); retry && i < retryIterations; device, created, retry, err = s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback) {
-		i++
-	}
-	return device, created, err
+	return retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback)
+	})
 }
 
 func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
@@ -391,7 +374,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no row was updated. assuming resource version mismatch")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -434,7 +417,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no row was updated. assuming resource version mismatch")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -515,7 +498,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no row was updated. assuming resource version mismatch")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -524,18 +507,6 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 	return retryUpdate(func() (bool, error) {
 		return s.setServiceConditions(orgId, name, conditions)
 	})
-}
-
-func retryUpdate(fn func() (bool, error)) error {
-	var (
-		retry bool
-		err   error
-	)
-	i := 0
-	for retry, err = fn(); retry && i < retryIterations; retry, err = fn() {
-		i++
-	}
-	return err
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {

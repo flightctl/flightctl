@@ -425,7 +425,7 @@ var _ = Describe("FleetStore create", func() {
 				called++
 			})
 			err := storeInst.Fleet().CreateOrUpdateMultiple(ctx, orgId, callback, &fleet, &fleet2)
-			Expect(called).To(Equal(0))
+			Expect(called).To(Equal(1))
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNameIsNil))
 		})
