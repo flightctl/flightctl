@@ -15,6 +15,7 @@ var (
 	ErrDuplicateName                       = errors.New("a resource with this name already exists")
 	ErrResourceVersionConflict             = errors.New("the object has been modified; please apply your changes to the latest version and try again")
 	ErrIllegalResourceVersionFormat        = errors.New("resource version does not match the required integer format")
+	ErrNoRowsUpdated                       = errors.New("no rows were updated; assuming resource version was updated or resource was deleted")
 
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
