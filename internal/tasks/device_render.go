@@ -2,9 +2,6 @@ package tasks
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -335,53 +332,10 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 	if err != nil {
 		return "", err
 	}
-	if repoHttpSpec.HttpConfig.Username != nil && repoHttpSpec.HttpConfig.Password != nil {
-		req.SetBasicAuth(*repoHttpSpec.HttpConfig.Username, *repoHttpSpec.HttpConfig.Password)
-	}
-	if repoHttpSpec.HttpConfig.Token != nil {
-		req.Header.Set("Authorization", "Bearer "+*repoHttpSpec.HttpConfig.Token)
-	}
 
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-	}
-	if repoHttpSpec.HttpConfig.TlsCrt != nil && repoHttpSpec.HttpConfig.TlsKey != nil {
-		cert, err := base64.StdEncoding.DecodeString(*repoHttpSpec.HttpConfig.TlsCrt)
-		if err != nil {
-			return "", err
-		}
-
-		key, err := base64.StdEncoding.DecodeString(*repoHttpSpec.HttpConfig.TlsKey)
-		if err != nil {
-			return "", err
-		}
-
-		tlsPair, err := tls.X509KeyPair(cert, key)
-		if err != nil {
-			return "", err
-		}
-
-		tlsConfig.Certificates = []tls.Certificate{tlsPair}
-	}
-
-	if repoHttpSpec.HttpConfig.CaCrt != nil {
-		ca, err := base64.StdEncoding.DecodeString(*repoHttpSpec.HttpConfig.CaCrt)
-		if err != nil {
-			return "", err
-		}
-
-		rootCAs, err := x509.SystemCertPool()
-		if err != nil {
-			return "", err
-		}
-		if rootCAs == nil {
-			rootCAs = x509.NewCertPool()
-		}
-		rootCAs.AppendCertsFromPEM(ca)
-		tlsConfig.RootCAs = rootCAs
-	}
-	if repoHttpSpec.HttpConfig.SkipServerVerification != nil {
-		tlsConfig.InsecureSkipVerify = *repoHttpSpec.HttpConfig.SkipServerVerification //nolint:gosec
+	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+	if err != nil {
+		return "", fmt.Errorf("error building request authentication: %w", err)
 	}
 
 	// Set up the HTTP client with the configured TLS settings
@@ -390,7 +344,6 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 			TLSClientConfig: tlsConfig,
 		},
 	}
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("sending request: %w", err)

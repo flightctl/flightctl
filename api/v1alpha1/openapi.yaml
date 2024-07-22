@@ -1839,7 +1839,7 @@ components:
         - kind
         - metadata
         - spec
-      description: Repository represents a git repository or an Http endpoint
+      description: Repository represents a Git repository or an HTTP endpoint
     HttpConfig:
       type: object
       additionalProperties: false
