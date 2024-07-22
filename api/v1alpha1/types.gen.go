@@ -643,7 +643,7 @@ type RenderedDeviceSpec struct {
 // RepoSpecType RepoSpecType is the type of the repository
 type RepoSpecType string
 
-// Repository Repository represents a git repository or an Http endpoint
+// Repository Repository represents a Git repository or an HTTP endpoint
 type Repository struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
 	ApiVersion string `json:"apiVersion"`
