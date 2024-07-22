@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -247,11 +246,7 @@ func renderK8sConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigA
 		return k8sSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
-	for name, encodedContents := range secret.Data {
-		contents, err := base64.StdEncoding.DecodeString(string(encodedContents))
-		if err != nil {
-			return k8sSpec.Name, fmt.Errorf("failed to base64 decode secret %s: %w", name, err)
-		}
+	for name, contents := range secret.Data {
 		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
 	}
 	if !args.validateOnly {
