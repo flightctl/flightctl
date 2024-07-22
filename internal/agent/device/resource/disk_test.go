@@ -66,7 +66,7 @@ func TestDiskMonitor(t *testing.T) {
 	// ensure only 2 alerts are firing
 	var alerts []v1alpha1.ResourceAlertRule
 	require.Eventually(func() bool {
-		alerts := diskMonitor.Alerts()
+		alerts = diskMonitor.Alerts()
 		return len(alerts) == 2
 	}, retryTimeout, retryInterval, "alert add")
 

@@ -40,7 +40,8 @@ func (c *Controller) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceS
 }
 
 func (c *Controller) ensureMonitors(monitors *[]v1alpha1.ResourceMonitor) error {
-	for _, monitor := range *monitors {
+	for i := range *monitors {
+		monitor := (*monitors)[i]
 		monitorType, err := monitor.Discriminator()
 		if err != nil {
 			return err

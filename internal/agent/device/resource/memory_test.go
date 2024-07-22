@@ -147,6 +147,6 @@ func TestMemoryMonitor(t *testing.T) {
 	// ensure no alerts after clearing
 	require.Eventually(func() bool {
 		alerts := memoryMonitor.Alerts()
-		return len(alerts) == 1
-	}, retryTimeout, retryInterval, "alert add")
+		return len(alerts) == 0
+	}, retryTimeout, retryInterval, "alerts remove")
 }
