@@ -124,8 +124,8 @@ func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tv
 func CreateRepositories(ctx context.Context, numRepositories int, storeInst store.Store, orgId uuid.UUID) error {
 	for i := 1; i <= numRepositories; i++ {
 		spec := api.RepositorySpec{}
-		err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-			Repo: "myrepo",
+		err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+			Url: "myrepo",
 		})
 		if err != nil {
 			return err
