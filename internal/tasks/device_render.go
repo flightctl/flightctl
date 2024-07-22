@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -187,6 +189,8 @@ func renderConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Ite
 		return renderK8sConfig(configItem, args)
 	case string(api.TemplateDiscriminatorInlineConfig):
 		return renderInlineConfig(configItem, args)
+	case string(api.TemplateDiscriminatorHttpConfig):
+		return renderHttpProviderConfig(ctx, configItem, args)
 	default:
 		return "", fmt.Errorf("%w: unsupported discriminator: %s", ErrUnknownConfigName, disc)
 	}
@@ -292,4 +296,77 @@ func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConf
 		args.ignitionConfig = &mergedConfig
 	}
 	return inlineSpec.Name, nil
+}
+
+func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
+	httpConfigProviderSpec, err := configItem.AsHttpConfigProviderSpec()
+	if err != nil {
+		return "", fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
+	}
+	args.repoNames = append(args.repoNames, httpConfigProviderSpec.HttpRef.Repository)
+	repo, err := args.store.Repository().GetInternal(ctx, args.orgId, httpConfigProviderSpec.HttpRef.Repository)
+	if err != nil {
+		return httpConfigProviderSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", args.orgId, httpConfigProviderSpec.HttpRef.Repository, err)
+	}
+	if repo.Spec == nil {
+		return httpConfigProviderSpec.Name, fmt.Errorf("empty Repository definition %s/%s: %w", args.orgId, httpConfigProviderSpec.HttpRef.Repository, err)
+	}
+	repoURL, err := repo.Spec.Data.GetRepoURL()
+	if err != nil {
+		return "", err
+	}
+
+	// Append the suffix only if exists (as it's optional)
+	if httpConfigProviderSpec.HttpRef.Suffix != nil {
+		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
+	}
+	if args.validateOnly {
+		return httpConfigProviderSpec.Name, nil
+	}
+	req, err := http.NewRequest("GET", repoURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	repoHttpSpec, err := repo.Spec.Data.GetHttpRepoSpec()
+	if err != nil {
+		return "", err
+	}
+
+	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+	if err != nil {
+		return "", fmt.Errorf("error building request authentication: %w", err)
+	}
+
+	// Set up the HTTP client with the configured TLS settings
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("sending request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response body: %w", err)
+	}
+
+	// Convert body to ignition config
+	ignitionWrapper, err := ignition.NewWrapper()
+	if err != nil {
+		return httpConfigProviderSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
+	}
+
+	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644)
+	if !args.validateOnly {
+		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
+	}
+
+	return httpConfigProviderSpec.Name, nil
 }
