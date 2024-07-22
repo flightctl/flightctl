@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -179,11 +178,7 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 		return fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
-	for name, encodedContents := range secret.Data {
-		contents, err := base64.StdEncoding.DecodeString(string(encodedContents))
-		if err != nil {
-			return fmt.Errorf("failed to base64 decode secret %s: %w", name, err)
-		}
+	for name, contents := range secret.Data {
 		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
 	}
 	m, err := ignitionWrapper.AsMap()
