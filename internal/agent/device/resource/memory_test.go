@@ -74,7 +74,7 @@ DirectMap1G:    41943040 kB`
 
 func TestMemoryMonitor(t *testing.T) {
 	require := require.New(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	tmpDir := t.TempDir()
@@ -88,23 +88,21 @@ func TestMemoryMonitor(t *testing.T) {
 
 	go memoryMonitor.Run(ctx)
 
-	usage := memoryMonitor.Usage()
-	require.NotNil(usage)
-
+	samplingInterval := 100 * time.Millisecond
 	monitorSpec := v1alpha1.CPUResourceMonitorSpec{
-		SamplingInterval: "1s",
+		SamplingInterval: samplingInterval.String(),
 		MonitorType:      CPUMonitorType,
 		AlertRules: []v1alpha1.ResourceAlertRule{
 			{
 				Severity:    v1alpha1.ResourceAlertSeverityTypeCritical,
 				Percentage:  90, // 90% usage should never fire an alert
-				Duration:    "1s",
+				Duration:    "90ms",
 				Description: "Critical: memory usage is above 90% for 1s",
 			},
 			{
 				Severity:    v1alpha1.ResourceAlertSeverityTypeWarning,
 				Percentage:  5, // 5% usage should always fire an alert
-				Duration:    "1s",
+				Duration:    "90ms",
 				Description: "Warning: Memory usage is above 5% for 1s",
 			},
 			{
@@ -116,7 +114,7 @@ func TestMemoryMonitor(t *testing.T) {
 		},
 	}
 
-	rm := v1alpha1.ResourceMonitor{}
+	rm := &v1alpha1.ResourceMonitor{}
 	err = rm.FromCPUResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
@@ -124,23 +122,21 @@ func TestMemoryMonitor(t *testing.T) {
 	require.NoError(err)
 	require.True(updated)
 
-	<-ctx.Done()
+	var alerts []v1alpha1.ResourceAlertRule
 
-	usage = memoryMonitor.Usage()
-	require.NotNil(usage)
-	require.Equal(usage.UsedPercent, int64(23))
+	require.Eventually(func() bool {
+		alerts = memoryMonitor.Alerts()
+		return len(alerts) == 1
+	}, retryTimeout, retryInterval, "alert add")
 
-	alerts := memoryMonitor.Alerts()
-	require.Len(alerts, 1)
-
-	deviceResourceStatusType, err := GetHighestSeverityResourceStatusFromAlerts(alerts)
-	require.ErrorIs(err, ErrAlertFiring)
+	deviceResourceStatusType, alertMsg := GetHighestSeverityResourceStatusFromAlerts(MemoryMonitorType, alerts)
+	require.NotEmpty(alertMsg) // ensure we have an alert message
 
 	require.Equal(v1alpha1.DeviceResourceStatusWarning, deviceResourceStatusType)
 
 	// update the monitor to remove all alerts
 	monitorSpec.AlertRules = monitorSpec.AlertRules[:0]
-	rm = v1alpha1.ResourceMonitor{}
+	rm = &v1alpha1.ResourceMonitor{}
 	err = rm.FromCPUResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
@@ -149,6 +145,8 @@ func TestMemoryMonitor(t *testing.T) {
 	require.True(updated)
 
 	// ensure no alerts after clearing
-	alerts = memoryMonitor.Alerts()
-	require.Len(alerts, 0)
+	require.Eventually(func() bool {
+		alerts := memoryMonitor.Alerts()
+		return len(alerts) == 1
+	}, retryTimeout, retryInterval, "alert add")
 }

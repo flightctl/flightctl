@@ -54,6 +54,20 @@ func (mr *MockManagerMockRecorder) Alerts() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Alerts", reflect.TypeOf((*MockManager)(nil).Alerts))
 }
 
+// ClearAll mocks base method.
+func (m *MockManager) ClearAll() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearAll")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearAll indicates an expected call of ClearAll.
+func (mr *MockManagerMockRecorder) ClearAll() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearAll", reflect.TypeOf((*MockManager)(nil).ClearAll))
+}
+
 // Run mocks base method.
 func (m *MockManager) Run(ctx context.Context) {
 	m.ctrl.T.Helper()
@@ -67,7 +81,7 @@ func (mr *MockManagerMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockManager) Update(monitor v1alpha1.ResourceMonitor) (bool, error) {
+func (m *MockManager) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", monitor)
 	ret0, _ := ret[0].(bool)
@@ -145,7 +159,7 @@ func (mr *MockMonitorMockRecorder[T]) Run(ctx any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockMonitor[T]) Update(monitor v1alpha1.ResourceMonitor) (bool, error) {
+func (m *MockMonitor[T]) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", monitor)
 	ret0, _ := ret[0].(bool)
@@ -157,18 +171,4 @@ func (m *MockMonitor[T]) Update(monitor v1alpha1.ResourceMonitor) (bool, error) 
 func (mr *MockMonitorMockRecorder[T]) Update(monitor any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockMonitor[T])(nil).Update), monitor)
-}
-
-// Usage mocks base method.
-func (m *MockMonitor[T]) Usage() *T {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Usage")
-	ret0, _ := ret[0].(*T)
-	return ret0
-}
-
-// Usage indicates an expected call of Usage.
-func (mr *MockMonitorMockRecorder[T]) Usage() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Usage", reflect.TypeOf((*MockMonitor[T])(nil).Usage))
 }

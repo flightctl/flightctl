@@ -28,7 +28,8 @@ func (c *Controller) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceS
 
 	if desired.Resources == nil {
 		c.log.Debug("Device resources are nil")
-		return nil
+		// Clear all alerts if no resources are defined
+		return c.manager.ClearAll()
 	}
 
 	if err := c.ensureMonitors(desired.Resources); err != nil {
@@ -44,7 +45,7 @@ func (c *Controller) ensureMonitors(monitors *[]v1alpha1.ResourceMonitor) error 
 		if err != nil {
 			return err
 		}
-		updated, err := c.manager.Update(monitor)
+		updated, err := c.manager.Update(&monitor)
 		if err != nil {
 			return err
 		}
