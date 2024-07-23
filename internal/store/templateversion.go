@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -48,41 +49,26 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	templateVersion := model.NewTemplateVersionFromApiResource(resource)
+	templateVersion, err := model.NewTemplateVersionFromApiResource(resource)
+	if err != nil {
+		return nil, err
+	}
 	templateVersion.OrgID = orgId
-	templateVersion.Generation = util.Int64ToPtr(1)
+	templateVersion.Generation = lo.ToPtr[int64](1)
+	templateVersion.ResourceVersion = lo.ToPtr[int64](1)
 	status := api.TemplateVersionStatus{Conditions: []api.Condition{}}
 	api.SetStatusCondition(&status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
 	templateVersion.Status = model.MakeJSONField(status)
-	apiResource := templateVersion.ToApiResource()
-
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: resource.Spec.Fleet}}
-		result := innerTx.First(&fleet)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-		duplicateName := model.TemplateVersion{
-			OrgID:     orgId,
-			FleetName: templateVersion.FleetName,
-			Name:      *resource.Metadata.Name,
-		}
-		result = innerTx.First(&duplicateName)
-		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-		if result.Error == nil {
-			return flterrors.ErrDuplicateName
-		}
-
-		result = innerTx.Create(templateVersion)
-		return flterrors.ErrorFromGormError(result.Error)
-	})
-	if err == nil {
-		callback(templateVersion)
+	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: resource.Spec.Fleet}}
+	if err = s.db.First(&fleet).Error; err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
 	}
 
-	return &apiResource, err
+	if err = s.db.Create(templateVersion).Error; err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+	callback(templateVersion)
+	return lo.ToPtr(templateVersion.ToApiResource()), err
 }
 
 func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error) {
@@ -191,7 +177,10 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 		Name:      *resource.Metadata.Name,
 	}
 
-	updates := map[string]interface{}{"status": model.MakeJSONField(resource.Status)}
+	updates := map[string]interface{}{
+		"status":           model.MakeJSONField(resource.Status),
+		"resource_version": gorm.Expr("resource_version +1"),
+	}
 	if valid != nil {
 		updates["valid"] = valid
 	}
