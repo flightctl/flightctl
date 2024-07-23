@@ -3,7 +3,6 @@ package status
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -29,26 +28,29 @@ func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) e
 	errs := []error{}
 
 	// disk
-	diskStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.DiskUsage)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("disk: %w", err))
+	diskStatus, alertMsg := resource.GetHighestSeverityResourceStatusFromAlerts(resource.DiskMonitorType, alerts.DiskUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
 	}
 	status.Resources.Disk = diskStatus
 
 	// cpu
-	cpuStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.CPUUsage)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("cpu: %w", err))
+	cpuStatus, alertMsg := resource.GetHighestSeverityResourceStatusFromAlerts(resource.CPUMonitorType, alerts.CPUUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
 	}
 	status.Resources.Cpu = cpuStatus
 
 	// memory
-	memoryStatus, err := resource.GetHighestSeverityResourceStatusFromAlerts(alerts.MemoryUsage)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("memory: %w", err))
+	memoryStatus, alertMsg := resource.GetHighestSeverityResourceStatusFromAlerts(resource.MemoryMonitorType, alerts.MemoryUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
 	}
 	status.Resources.Memory = memoryStatus
 
+	// the alertMsg is a message that gets bubbled up to the summary.info status field
+	// if an alert is present.  these messages are not errors specifically but
+	// for now the presence of an error sets the device status to degraded.
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

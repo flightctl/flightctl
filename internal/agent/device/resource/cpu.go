@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,12 +23,12 @@ const (
 var _ Monitor[CPUUsage] = (*CPUMonitor)(nil)
 
 type CPUMonitor struct {
-	mu               sync.Mutex
-	alerts           map[v1alpha1.ResourceAlertSeverityType]*Alert
+	mu       sync.Mutex
+	alerts   map[v1alpha1.ResourceAlertSeverityType]*Alert
+	statPath string
+
 	updateIntervalCh chan time.Duration
 	samplingInterval time.Duration
-	usage            *CPUUsage
-	statPath         string
 
 	log *log.PrefixLogger
 }
@@ -38,17 +37,18 @@ func NewCPUMonitor(
 	log *log.PrefixLogger,
 ) *CPUMonitor {
 	return &CPUMonitor{
-		usage:            &CPUUsage{},
 		alerts:           make(map[v1alpha1.ResourceAlertSeverityType]*Alert),
-		updateIntervalCh: make(chan time.Duration, 1),
 		statPath:         DefaultProcStatPath,
+		updateIntervalCh: make(chan time.Duration, 1),
 		samplingInterval: DefaultSamplingInterval,
 		log:              log,
 	}
 }
 
 func (m *CPUMonitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(m.getInterval())
+	defer m.log.Infof("CPU monitor stopped")
+	samplingInterval := m.getSamplingInterval()
+	ticker := time.NewTicker(samplingInterval)
 	defer ticker.Stop()
 
 	for {
@@ -56,70 +56,20 @@ func (m *CPUMonitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case newInterval := <-m.updateIntervalCh:
-			m.log.Infof("Updating cpu monitor sampling interval to: %s", newInterval)
-			ticker.Stop()
-			ticker = time.NewTicker(newInterval)
+			ticker.Reset(newInterval)
 		case <-ticker.C:
 			m.log.Debug("Checking disk usage")
-			usage := &CPUUsage{}
-			m.sync(ctx, usage)
-			m.update(usage)
+			usage := CPUUsage{}
+			m.sync(ctx, &usage)
 		}
 	}
 }
 
-func (m *CPUMonitor) Update(monitor v1alpha1.ResourceMonitor) (bool, error) {
-	spec, err := monitor.AsCPUResourceMonitorSpec()
-	if err != nil {
-		return false, err
-	}
+func (m *CPUMonitor) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	updated := false
-	if len(spec.AlertRules) == 0 {
-		m.clearAlerts()
-		updated = true
-	}
-
-	newSamplingInterval, err := time.ParseDuration(spec.SamplingInterval)
-	if err != nil {
-		return false, err
-	}
-
-	seen := make(map[v1alpha1.ResourceAlertSeverityType]struct{})
-	for _, rule := range spec.AlertRules {
-		seen[rule.Severity] = struct{}{}
-	}
-
-	// remove any alerts that are no longer in the spec
-	for severity := range m.alerts {
-		if _, ok := seen[severity]; !ok {
-			m.deleteAlert(severity)
-			updated = true
-		}
-	}
-
-	for _, rule := range spec.AlertRules {
-		alert, ok := m.alerts[rule.Severity]
-		if !ok {
-			alert, err = NewAlert(rule)
-			if err != nil {
-				return false, err
-			}
-			m.setAlert(rule.Severity, alert)
-			updated = true
-		}
-
-		if !reflect.DeepEqual(alert.ResourceAlertRule, rule) {
-			alert.ResourceAlertRule = rule
-			updated = true
-		}
-	}
-
-	if m.setInterval(newSamplingInterval) {
-		updated = true
-	}
-
-	return updated, nil
+	return updateMonitor(m.log, monitor, &m.samplingInterval, m.alerts, m.updateIntervalCh)
 }
 
 func (m *CPUMonitor) Alerts() []v1alpha1.ResourceAlertRule {
@@ -132,13 +82,6 @@ func (m *CPUMonitor) Alerts() []v1alpha1.ResourceAlertRule {
 		}
 	}
 	return firing
-}
-
-func (m *CPUMonitor) Usage() *CPUUsage {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return m.usage
 }
 
 func (m *CPUMonitor) CollectUsage(ctx context.Context, usage *CPUUsage) error {
@@ -166,96 +109,41 @@ func (m *CPUMonitor) CollectUsage(ctx context.Context, usage *CPUUsage) error {
 }
 
 func (m *CPUMonitor) sync(ctx context.Context, usage *CPUUsage) {
+	if !m.hasAlertRules() {
+		m.log.Debug("Skipping CPU usage sync as there are no alert rules")
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, DefaultCPUSyncTimeout)
 	defer cancel()
 
 	if err := m.CollectUsage(ctx, usage); err != nil {
-		usage.err = err
+		m.log.Errorf("Failed to collect CPU usage: %v", err)
+		return
 	}
 
-	m.update(usage)
-
-	m.ensureAlerts()
-
+	m.ensureAlerts(usage.UsedPercent)
 }
 
-func (m *CPUMonitor) update(usage *CPUUsage) {
+func (m *CPUMonitor) ensureAlerts(percentageUsed int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.usage = usage
+
+	for _, alert := range m.alerts {
+		alert.Sync(percentageUsed)
+	}
 }
 
-func (m *CPUMonitor) getInterval() time.Duration {
+func (m *CPUMonitor) hasAlertRules() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.alerts) > 0
+}
+
+func (m *CPUMonitor) getSamplingInterval() time.Duration {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.samplingInterval
-}
-
-func (m *CPUMonitor) setInterval(interval time.Duration) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if interval != m.samplingInterval {
-		m.samplingInterval = interval
-		select {
-		case m.updateIntervalCh <- m.samplingInterval:
-		default:
-			// don't block
-		}
-		return true
-	}
-	return false
-}
-
-func (m *CPUMonitor) deleteAlert(severity v1alpha1.ResourceAlertSeverityType) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.alerts, severity)
-}
-
-func (m *CPUMonitor) setAlert(severity v1alpha1.ResourceAlertSeverityType, alert *Alert) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.alerts[severity] = alert
-}
-
-func (m *CPUMonitor) clearAlerts() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.alerts = make(map[v1alpha1.ResourceAlertSeverityType]*Alert)
-}
-
-func (m *CPUMonitor) ensureAlerts() {
-	for _, alert := range m.alerts {
-		if m.updateAlert(alert) {
-			m.log.Debugf("CPU alert is firing: %s", alert.Severity)
-		}
-	}
-}
-
-func (m *CPUMonitor) updateAlert(alert *Alert) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// if the available usage is below the threshold, reset the firingSince time
-	if m.usage.UsedPercent > int64(alert.Percentage) {
-		if alert.firingSince.IsZero() {
-			alert.firingSince = time.Now()
-		}
-	} else {
-		// reset
-		alert.firingSince = time.Time{}
-	}
-
-	// if the alert has been firing for the duration, set the firing flag
-	if !alert.firingSince.IsZero() && time.Since(alert.firingSince) > alert.duration {
-		alert.firing = true
-	}
-
-	return alert.IsFiring()
-}
-
-func (m *CPUMonitor) Error() error {
-	return m.usage.err
 }
 
 // ref. https://stackoverflow.com/questions/23367857/accurate-calculation-of-cpu-usage-given-in-percentage-in-linux
