@@ -21,12 +21,7 @@ func NewManager(
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	exporters := []Exporter{
-		newSystemD(executer),
-		newContainer(executer),
-		newSystemInfo(executer),
-		newResources(log, resourceManager),
-	}
+	exporters := newExporters(resourceManager, executer, log)
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{
 		deviceName: deviceName,
