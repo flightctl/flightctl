@@ -364,7 +364,7 @@ func printTemplateVersionsTable(w *tabwriter.Writer, tvs ...api.TemplateVersion)
 }
 
 func printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
-	fmt.Fprintln(w, "NAME\tREPOSITORY URL\tACCESSIBLE")
+	fmt.Fprintln(w, "NAME\tTYPE\tREPOSITORY URL\tACCESSIBLE")
 	for _, r := range repos {
 		accessible := "Unknown"
 		if r.Status != nil {
@@ -373,8 +373,13 @@ func printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
 				accessible = string(condition.Status)
 			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n",
+
+		repoSpec, _ := r.Spec.GetGenericRepoSpec()
+		repoType := repoSpec.Type
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			*r.Metadata.Name,
+			fmt.Sprintf("%v", repoType),
 			util.DefaultIfError(r.Spec.GetRepoURL, ""),
 			accessible,
 		)
