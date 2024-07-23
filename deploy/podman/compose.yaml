@@ -19,7 +19,7 @@ services:
       - flightctl-network
     restart: unless-stopped
 
-  flightctl-rabbitmq:
+  flightctl-mq:
     container_name: flightctl-rabbitmq
     image: ${RABBITMQ_IMAGE:-docker.io/library/rabbitmq:3.13-management}
     ports:
