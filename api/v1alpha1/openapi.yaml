@@ -1307,6 +1307,355 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/preenrollmentrequests:
+    get:
+    # TODO - this should be scoped to requests made by the user account issuing the GET
+      tags:
+        - preenrollmentrequest
+      description: list PreEnrollment Requests
+      operationId: listPreEnrollmentRequests
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequestList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+    # TODO: how to pre-enroll an entire batch of devices? is this a separate POST request,
+    # or should it be handled on the user/client side to send a series of single-device POST
+    # requests here?
+      tags:
+        - preenrollmentrequest
+      description: request preenrollment of a Device
+      operationId: createPreEnrollmentRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "208":
+          description: Already Reported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+    # TODO scope this to the user making the request
+      tags:
+        - preenrollmentrequest
+      description: delete a collection of PreEnrollments
+      operationId: deletePreEnrollmentRequests
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/preenrollmentrequests/{name}:
+    get:
+    # TODO scope this to the user making the request
+      tags:
+        - preenrollmentrequest
+      description: read the specified PreEnrollment
+      operationId: readPreEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          # TODO update terminology and also this will need to change from fingerprint to UUID
+          # in a future PR
+          description: the fingerprint of the PreEnrollmentRequest
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+    # TODO - do we need this for pre-enrollment? replace it with what?
+      tags:
+        - preenrollmentrequest
+      description: replace the specified PreEnrollment Request
+      operationId: replacePreEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the PreEnrollmentRequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+    # TODO scope to user
+      tags:
+        - preenrollmentrequest
+      description: delete a PreEnrollment Request
+      operationId: deletePreEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the PreEnrollment Request
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/preenrollmentrequests/{name}/status:
+  # TODO scope this so the user who submitted the CSR == the user making the request,
+  # otherwise error
+    get:
+      tags:
+        - enrollmentrequest
+      description: read status of the specified PreEnrollmentRequest
+      operationId: readPreEnrollmentRequestStatus
+      parameters:
+        - name: name
+          in: path
+          description: name of the PreEnrollmentRequest
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+    # TODO only the server can do this?
+      tags:
+        - preenrollmentrequest
+      description: replace status of the specified PreEnrollmentRequest
+      operationId: replacePreEnrollmentRequestStatus
+      parameters:
+        - name: name
+          in: path
+          description: name of the PreEnrollmentRequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/preenrollmentrequests/{name}/approval:
+  # TODO scope access
+    post:
+      tags:
+        - enrollmentrequest
+      description: create approval of the specified PreEnrollmentRequest
+      operationId: createPreEnrollmentRequestApproval
+      parameters:
+        - name: name
+          in: path
+          description: name of the PreEnrollmentRequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrRequestApproval'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrRequestApproval'
+        "422":
+          description: UnprocessableEntity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets:
     get:
       tags:
