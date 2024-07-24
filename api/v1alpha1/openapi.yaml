@@ -1003,7 +1003,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestList'
+                $ref: '#/components/schemas/CsrRequestList'
         "400":
           description: Bad Request
           content:
@@ -1025,7 +1025,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
+              $ref: '#/components/schemas/CsrRequest'
         required: true
       responses:
         "201":
@@ -1033,13 +1033,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "208":
           description: Already Reported
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "400":
           description: Bad Request
           content:
@@ -1095,7 +1095,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "401":
           description: Unauthorized
           content:
@@ -1124,7 +1124,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
+              $ref: '#/components/schemas/CsrRequest'
         required: true
       responses:
         "200":
@@ -1132,13 +1132,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "400":
           description: Bad Request
           content:
@@ -1175,7 +1175,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "401":
           description: Unauthorized
           content:
@@ -1207,7 +1207,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "401":
           description: Unauthorized
           content:
@@ -1236,7 +1236,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
+              $ref: '#/components/schemas/CsrRequest'
         required: true
       responses:
         "200":
@@ -1244,7 +1244,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/CsrRequest'
         "401":
           description: Unauthorized
           content:
@@ -1274,7 +1274,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequestApproval'
+              $ref: '#/components/schemas/CsrRequestApproval'
         required: true
       responses:
         "200":
@@ -1282,7 +1282,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestApproval'
+                $ref: '#/components/schemas/CsrRequestApproval'
         "422":
           description: UnprocessableEntity
           content:
@@ -2475,7 +2475,7 @@ components:
         - "DeviceResourceStatusError"
         - "DeviceResourceStatusUnknown"
 
-    EnrollmentRequestApproval:
+    CsrRequestApproval:
       type: object
       properties:
         labels:
@@ -2495,7 +2495,7 @@ components:
           description: 'approvedAt is the time at which the request was approved.'
       required:
         - approved
-    EnrollmentRequest:
+    CsrRequest:
       type: object
       properties:
         apiVersion:
@@ -2507,16 +2507,16 @@ components:
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
-          $ref: '#/components/schemas/EnrollmentRequestSpec'
+          $ref: '#/components/schemas/CsrRequestSpec'
         status:
-          $ref: '#/components/schemas/EnrollmentRequestStatus'
+          $ref: '#/components/schemas/CsrRequestStatus'
       required:
         - apiVersion
         - kind
         - metadata
         - spec
       description: EnrollmentRequest represents a request for approval to enroll a device.
-    EnrollmentRequestList:
+    CsrRequestList:
       type: object
       properties:
         apiVersion:
@@ -2529,16 +2529,16 @@ components:
           $ref: '#/components/schemas/ListMeta'
         items:
           type: array
-          description: 'List of EnrollmentRequest.'
+          description: 'List of CsrRequest.'
           items:
-            $ref: '#/components/schemas/EnrollmentRequest'
+            $ref: '#/components/schemas/CsrRequest'
       required:
         - apiVersion
         - kind
         - metadata
         - items
-      description: EnrollmentRequestList is a list of EnrollmentRequest.
-    EnrollmentRequestSpec:
+      description: CsrRequestList is a list of CsrRequest.
+    CsrRequestSpec:
       required:
         - csr
       type: object
@@ -2548,8 +2548,8 @@ components:
           description: 'csr is a PEM-encoded PKCS#10 certificate signing request.'
         deviceStatus:
           $ref: '#/components/schemas/DeviceStatus'
-      description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
-    EnrollmentRequestStatus:
+      description: EnrollmentRequestSpec is a description of a CsrRequest's target state.
+    CsrRequestStatus:
       type: object
       properties:
         certificate:
@@ -2557,11 +2557,11 @@ components:
           description: 'certificate is a PEM-encoded signed certificate.'
         conditions:
           type: array
-          description: 'Current state of the EnrollmentRequest.'
+          description: 'Current state of the CsrRequest.'
           items:
             $ref: '#/components/schemas/Condition'
         approval:
-          $ref: '#/components/schemas/EnrollmentRequestApproval'
+          $ref: '#/components/schemas/CsrRequestApproval'
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
