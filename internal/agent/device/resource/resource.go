@@ -18,14 +18,14 @@ const (
 	DiskMonitorType   = "Disk"
 	MemoryMonitorType = "Memory"
 
-	DefaultSamplingInterval = 5 * time.Minute
+	DefaultSamplingInterval = 1 * time.Minute
 )
 
 type Manager interface {
 	Run(ctx context.Context)
 	Update(monitor *v1alpha1.ResourceMonitor) (bool, error)
-	// ClearAll clears all alerts rules for each registered resource monitor
-	ClearAll() error
+	// ResetAlertDefaults clears all alerts and resets the monitors to their default state.
+	ResetAlertDefaults() error
 	Alerts() *Alerts
 }
 
@@ -61,7 +61,9 @@ func (m *ResourceManager) Run(ctx context.Context) {
 
 	go m.diskMonitor.Run(ctx)
 	go m.cpuMonitor.Run(ctx)
-	m.memoryMonitor.Run(ctx)
+	go m.memoryMonitor.Run(ctx)
+
+	<-ctx.Done()
 }
 
 func (m *ResourceManager) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
@@ -82,7 +84,7 @@ func (m *ResourceManager) Update(monitor *v1alpha1.ResourceMonitor) (bool, error
 	}
 }
 
-func (m *ResourceManager) ClearAll() error {
+func (m *ResourceManager) ResetAlertDefaults() error {
 	var errs []error
 
 	// cpu
@@ -95,7 +97,7 @@ func (m *ResourceManager) ClearAll() error {
 		errs = append(errs, err)
 	}
 	if updated {
-		m.log.Infof("Cleared CPU monitor alerts")
+		m.log.Infof("Reset CPU monitor alerts")
 	}
 
 	// disk
@@ -108,7 +110,7 @@ func (m *ResourceManager) ClearAll() error {
 		errs = append(errs, err)
 	}
 	if updated {
-		m.log.Infof("Cleared disk monitor alerts")
+		m.log.Infof("Reset disk monitor alerts")
 	}
 
 	// memory
@@ -121,7 +123,7 @@ func (m *ResourceManager) ClearAll() error {
 		errs = append(errs, err)
 	}
 	if updated {
-		m.log.Infof("Cleared memory monitor alerts")
+		m.log.Infof("Reset memory monitor alerts")
 	}
 
 	if len(errs) > 0 {
@@ -238,7 +240,7 @@ type MonitorSpec struct {
 // The alert message is auto generated if the alert description is empty.
 func GetHighestSeverityResourceStatusFromAlerts(resource string, alerts []v1alpha1.ResourceAlertRule) (v1alpha1.DeviceResourceStatusType, string) {
 	if len(alerts) == 0 {
-		return v1alpha1.DeviceResourceStatusUnknown, ""
+		return v1alpha1.DeviceResourceStatusHealthy, ""
 	}
 
 	var info string
@@ -265,6 +267,20 @@ func defaultCPUResourceMonitor() (*v1alpha1.ResourceMonitor, error) {
 	spec := v1alpha1.CPUResourceMonitorSpec{
 		SamplingInterval: DefaultSamplingInterval.String(),
 		MonitorType:      CPUMonitorType,
+		AlertRules: []v1alpha1.ResourceAlertRule{
+			{
+				Severity:    v1alpha1.ResourceAlertSeverityTypeCritical,
+				Percentage:  90,
+				Duration:    "30m",
+				Description: "", // use generated description
+			},
+			{
+				Severity:    v1alpha1.ResourceAlertSeverityTypeWarning,
+				Percentage:  80,
+				Duration:    "1h",
+				Description: "", // use generated description
+			},
+		},
 	}
 	rm := &v1alpha1.ResourceMonitor{}
 	err := rm.FromCPUResourceMonitorSpec(spec)
@@ -275,6 +291,21 @@ func defaultDiskResourceMonitor() (*v1alpha1.ResourceMonitor, error) {
 	spec := v1alpha1.DiskResourceMonitorSpec{
 		SamplingInterval: DefaultSamplingInterval.String(),
 		MonitorType:      DiskMonitorType,
+		AlertRules: []v1alpha1.ResourceAlertRule{
+			{
+				Severity:    v1alpha1.ResourceAlertSeverityTypeCritical,
+				Percentage:  90,
+				Duration:    "10m",
+				Description: "", // use generated description
+			},
+			{
+				Severity:    v1alpha1.ResourceAlertSeverityTypeWarning,
+				Percentage:  80,
+				Duration:    "30m",
+				Description: "", // use generated description
+			},
+		},
+		Path: "/sysroot",
 	}
 	rm := &v1alpha1.ResourceMonitor{}
 	err := rm.FromDiskResourceMonitorSpec(spec)
@@ -285,6 +316,20 @@ func defaultMemoryResourceMonitor() (*v1alpha1.ResourceMonitor, error) {
 	spec := v1alpha1.MemoryResourceMonitorSpec{
 		SamplingInterval: DefaultSamplingInterval.String(),
 		MonitorType:      MemoryMonitorType,
+		AlertRules: []v1alpha1.ResourceAlertRule{
+			{
+				Severity:    v1alpha1.ResourceAlertSeverityTypeCritical,
+				Percentage:  90,
+				Duration:    "30m",
+				Description: "", // use generated description
+			},
+			{
+				Severity:    v1alpha1.ResourceAlertSeverityTypeWarning,
+				Percentage:  80,
+				Duration:    "1h",
+				Description: "", // use generated description
+			},
+		},
 	}
 	rm := &v1alpha1.ResourceMonitor{}
 	err := rm.FromMemoryResourceMonitorSpec(spec)
