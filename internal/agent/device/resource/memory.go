@@ -3,7 +3,6 @@ package resource
 import (
 	"context"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,12 +20,12 @@ const (
 var _ Monitor[MemoryUsage] = (*MemoryMonitor)(nil)
 
 type MemoryMonitor struct {
-	mu               sync.Mutex
-	alerts           map[v1alpha1.ResourceAlertSeverityType]*Alert
+	mu          sync.Mutex
+	alerts      map[v1alpha1.ResourceAlertSeverityType]*Alert
+	memInfoPath string
+
 	updateIntervalCh chan time.Duration
-	usage            *MemoryUsage
 	samplingInterval time.Duration
-	memInfoPath      string
 
 	log *log.PrefixLogger
 }
@@ -37,7 +36,6 @@ func NewMemoryMonitor(
 	return &MemoryMonitor{
 		alerts:           make(map[v1alpha1.ResourceAlertSeverityType]*Alert),
 		updateIntervalCh: make(chan time.Duration, 1),
-		usage:            &MemoryUsage{},
 		samplingInterval: DefaultSamplingInterval,
 		memInfoPath:      DefaultProcMemInfoPath,
 		log:              log,
@@ -45,7 +43,8 @@ func NewMemoryMonitor(
 }
 
 func (m *MemoryMonitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(m.getInterval())
+	samplingInterval := m.getSamplingInterval()
+	ticker := time.NewTicker(samplingInterval)
 	defer ticker.Stop()
 
 	for {
@@ -53,73 +52,22 @@ func (m *MemoryMonitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case newInterval := <-m.updateIntervalCh:
-			m.log.Infof("Updating memory monitor sampling interval to: %v", newInterval)
-			ticker.Stop()
-			ticker = time.NewTicker(newInterval)
+			ticker.Reset(newInterval)
 		case <-ticker.C:
 			m.log.Debug("Checking memory usage")
 			usage := MemoryUsage{}
 			m.sync(ctx, &usage)
-			m.update(&usage)
-			m.log.Debugf("Memory usage: %v", m.Usage())
 		}
 	}
 }
 
 // TODO: dedupe this with the other monitors
 
-func (m *MemoryMonitor) Update(monitor v1alpha1.ResourceMonitor) (bool, error) {
-	spec, err := monitor.AsMemoryResourceMonitorSpec()
-	if err != nil {
-		return false, err
-	}
+func (m *MemoryMonitor) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	updated := false
-	if len(spec.AlertRules) == 0 {
-		m.clearAlerts()
-		updated = true
-	}
-
-	newSamplingInterval, err := time.ParseDuration(spec.SamplingInterval)
-	if err != nil {
-		return false, err
-	}
-
-	seen := make(map[v1alpha1.ResourceAlertSeverityType]struct{})
-	for _, rule := range spec.AlertRules {
-		seen[rule.Severity] = struct{}{}
-	}
-
-	// remove any alerts that are no longer in the spec
-	for severity := range m.alerts {
-		if _, ok := seen[severity]; !ok {
-			m.deleteAlert(severity)
-			updated = true
-		}
-	}
-
-	for _, rule := range spec.AlertRules {
-		alert, ok := m.alerts[rule.Severity]
-		if !ok {
-			alert, err = NewAlert(rule)
-			if err != nil {
-				return false, err
-			}
-			m.setAlert(rule.Severity, alert)
-			updated = true
-		}
-
-		if !reflect.DeepEqual(alert.ResourceAlertRule, rule) {
-			alert.ResourceAlertRule = rule
-			updated = true
-		}
-	}
-
-	if m.setInterval(newSamplingInterval) {
-		updated = true
-	}
-
-	return updated, nil
+	return updateMonitor(m.log, monitor, &m.samplingInterval, m.alerts, m.updateIntervalCh)
 }
 
 func (m *MemoryMonitor) Alerts() []v1alpha1.ResourceAlertRule {
@@ -132,12 +80,6 @@ func (m *MemoryMonitor) Alerts() []v1alpha1.ResourceAlertRule {
 		}
 	}
 	return firing
-}
-
-func (m *MemoryMonitor) Usage() *MemoryUsage {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.usage
 }
 
 func (m *MemoryMonitor) CollectUsage(ctx context.Context, usage *MemoryUsage) error {
@@ -156,56 +98,41 @@ func (m *MemoryMonitor) CollectUsage(ctx context.Context, usage *MemoryUsage) er
 }
 
 func (m *MemoryMonitor) sync(ctx context.Context, usage *MemoryUsage) {
+	if !m.hasAlertRules() {
+		m.log.Debug("Skipping Memory usage sync as there are no alert rules")
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, DefaultMemorySyncTimeout)
 	defer cancel()
 
 	if err := m.CollectUsage(ctx, usage); err != nil {
-		usage.err = err
+		m.log.Errorf("Failed to collect Memory usage: %v", err)
+		return
 	}
 
-	m.update(usage)
-
-	m.ensureAlerts()
+	m.ensureAlerts(usage.UsedPercent)
 }
 
-func (m *MemoryMonitor) getInterval() time.Duration {
+func (m *MemoryMonitor) ensureAlerts(percentageUsed int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, alert := range m.alerts {
+		alert.Sync(percentageUsed)
+	}
+}
+
+func (m *MemoryMonitor) hasAlertRules() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.alerts) > 0
+}
+
+func (m *MemoryMonitor) getSamplingInterval() time.Duration {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.samplingInterval
-}
-
-func (m *MemoryMonitor) setInterval(interval time.Duration) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if interval != m.samplingInterval {
-		m.samplingInterval = interval
-		select {
-		case m.updateIntervalCh <- m.samplingInterval:
-		default:
-			// don't block
-		}
-		return true
-	}
-
-	return false
-}
-
-func (m *MemoryMonitor) deleteAlert(severity v1alpha1.ResourceAlertSeverityType) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.alerts, severity)
-}
-
-func (m *MemoryMonitor) setAlert(severity v1alpha1.ResourceAlertSeverityType, alert *Alert) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.alerts[severity] = alert
-}
-
-func (m *MemoryMonitor) clearAlerts() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.alerts = make(map[v1alpha1.ResourceAlertSeverityType]*Alert)
 }
 
 func parseMemStats(lines []string, usage *MemoryUsage) error {
@@ -251,42 +178,6 @@ func parseMemStats(lines []string, usage *MemoryUsage) error {
 	return nil
 }
 
-func (m *MemoryMonitor) ensureAlerts() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for _, alert := range m.alerts {
-		if m.checkAlert(alert) {
-			m.log.Debugf("Memory alert is firing: %s", alert.Severity)
-		}
-	}
-}
-
-func (m *MemoryMonitor) checkAlert(alert *Alert) bool {
-	// if the available usage is below the threshold, reset the firingSince time
-	if m.usage.UsedPercent > int64(alert.Percentage) {
-		if alert.firingSince.IsZero() {
-			alert.firingSince = time.Now()
-		}
-	} else {
-		// reset
-		alert.firingSince = time.Time{}
-	}
-
-	// if the alert has been firing for the duration, set the firing flag
-	if !alert.firingSince.IsZero() && time.Since(alert.firingSince) > alert.duration {
-		alert.firing = true
-	}
-
-	return alert.IsFiring()
-}
-
-func (m *MemoryMonitor) update(usage *MemoryUsage) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.usage = usage
-}
-
 // MemoryUsage represents the memory usage of this device
 type MemoryUsage struct {
 	MemTotal     uint64
@@ -299,9 +190,4 @@ type MemoryUsage struct {
 	UsedPercent int64
 
 	lastCollectedAt time.Time
-	err             error
-}
-
-func (u *MemoryUsage) Error() error {
-	return u.err
 }
