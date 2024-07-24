@@ -377,9 +377,10 @@ func validateService(service Service, baseDir string, testRootDir string) []erro
 		u, err := url.Parse(service.Server)
 		if err != nil {
 			validationErrors = append(validationErrors, fmt.Errorf("invalid server format %q: %w", service.Server, err))
-		}
-		if len(u.Hostname()) == 0 {
-			validationErrors = append(validationErrors, fmt.Errorf("invalid server format %q: no hostname", service.Server))
+		} else {
+			if len(u.Hostname()) == 0 {
+				validationErrors = append(validationErrors, fmt.Errorf("invalid server format %q: no hostname", service.Server))
+			}
 		}
 	}
 	// Make sure CA data and CA file aren't both specified
