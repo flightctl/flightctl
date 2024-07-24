@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -18,10 +19,11 @@ var _ Manager = (*StatusManager)(nil)
 func NewManager(
 	deviceName string,
 	resourceManager resource.Manager,
+	hookManager hook.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	exporters := newExporters(resourceManager, executer, log)
+	exporters := newExporters(resourceManager, hookManager, executer, log)
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{
 		deviceName: deviceName,

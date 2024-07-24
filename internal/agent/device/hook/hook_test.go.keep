@@ -1,0 +1,283 @@
+package hook
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+)
+
+var (
+	testRetryTimeout  = 5 * time.Second
+	testRetryInterval = 100 * time.Millisecond
+)
+
+func TestHookManager(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	cwd, err := os.Getwd()
+	require.NoError(err)
+	execPath := filepath.Join(cwd, "testdata", "executable_script.sh")
+	varDirPath := filepath.Join(tmpDir, "var/lib/stuff")
+	err = os.MkdirAll(varDirPath, 0755)
+	require.NoError(err)
+
+	log := log.NewPrefixLogger("test")
+
+	type TestFiles struct {
+		filePath string
+		content  string
+		op       v1alpha1.FileOperation
+	}
+
+	tests := []struct {
+		name string
+		hook *v1alpha1.DeviceHookSpec
+		// configFiles is a list of files that should be created before the hook is updated
+		configFiles []TestFiles
+		// desiredFiles is a list of files that should be created by the hook
+		desiredFiles []TestFiles
+	}{
+		{
+			name: "happy path file create",
+			hook: &v1alpha1.DeviceHookSpec{
+				Path: varDirPath,
+				Actions: []v1alpha1.HookAction{
+					newTestExecutableHook(t, cwd, fmt.Sprintf("%s %s %s", execPath, filepath.Join(varDirPath, "file1"), "file1-content"), []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+				},
+			},
+			configFiles: []TestFiles{
+				{
+					filePath: filepath.Join(varDirPath, "configFile1"),
+					content:  "configFile1-content",
+					op:       v1alpha1.FileOperationCreate,
+				},
+			},
+			desiredFiles: []TestFiles{
+				{
+					filePath: filepath.Join(varDirPath, "file1"),
+					content:  "file1-content",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			exec := executer.Executer(&executer.CommonExecuter{})
+			hookManager, err := NewManager(log, exec)
+			require.NoError(err)
+
+			go hookManager.Run(ctx)
+
+			require.Eventuallyf(func() bool {
+				updated, err := hookManager.Config().Post().Update(tt.hook)
+				require.NoError(err)
+				return updated == true
+			}, testRetryTimeout, testRetryInterval, "hook not updated")
+
+			for _, file := range tt.configFiles {
+				switch file.op {
+				case v1alpha1.FileOperationCreate:
+					createTestFile(t, file.filePath)
+				case v1alpha1.FileOperationRemove:
+					deleteTestFile(t, file.filePath)
+				}
+			}
+			// the executable script should create the desired files giving us signal it is working as expected
+			require.Eventuallyf(func() bool {
+				for _, file := range tt.desiredFiles {
+					if _, err := os.Stat(file.filePath); os.IsNotExist(err) {
+						return false
+					}
+				}
+				return true
+			}, testRetryTimeout, testRetryInterval, "desired files not created")
+		})
+	}
+}
+
+func TestAddOrReplaceHandler(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name             string
+		newHook          *v1alpha1.DeviceHookSpec
+		existingHandlers map[string]*Handler
+		existingPaths    []string
+		expectAddWatch   bool
+	}{
+		{
+			name: "no existing handlers add new watch",
+			newHook: &v1alpha1.DeviceHookSpec{
+				Path: "/var/lib/stuff",
+				Actions: []v1alpha1.HookAction{
+					newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+				},
+			},
+			existingHandlers: make(map[string]*Handler),
+			expectAddWatch:   true,
+		},
+		{
+			name: "replace existing actions for existing watch path",
+			newHook: &v1alpha1.DeviceHookSpec{
+				Path: "/var/lib/stuff",
+				Actions: []v1alpha1.HookAction{
+					newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+				},
+			},
+			existingHandlers: map[string]*Handler{
+				"test-hook": {
+					DeviceHookSpec: &v1alpha1.DeviceHookSpec{
+						Path: "/var/lib/stuff",
+						Actions: []v1alpha1.HookAction{
+							newTestExecutableHook(t, "/var/lib/bar", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+							newTestExecutableHook(t, "/var/lib/foo", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationRemove}),
+						},
+					},
+					opActions: map[v1alpha1.FileOperation][]v1alpha1.HookAction{
+						v1alpha1.FileOperationCreate: {
+							newTestExecutableHook(t, "/var/lib/bar", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+							newTestExecutableHook(t, "/var/lib/foo", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationRemove}),
+						},
+					},
+				},
+			},
+			existingPaths:  []string{"/var/lib/stuff"},
+			expectAddWatch: false,
+		},
+		{
+			name: "remove existing handler if no actions",
+			newHook: &v1alpha1.DeviceHookSpec{
+				Path:    "/var/lib/stuff",
+				Actions: []v1alpha1.HookAction{}, // No actions provided
+			},
+			existingHandlers: map[string]*Handler{
+				"test-hook": {
+					DeviceHookSpec: &v1alpha1.DeviceHookSpec{
+						Path: "/var/lib/stuff",
+						Actions: []v1alpha1.HookAction{
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+						},
+					},
+					opActions: map[v1alpha1.FileOperation][]v1alpha1.HookAction{
+						v1alpha1.FileOperationCreate: {
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+						},
+					},
+				},
+			},
+			existingPaths:  []string{"/var/lib/stuff"},
+			expectAddWatch: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockWatcher := NewMockFileMonitor(ctrl)
+			mockWatcher.EXPECT().WatchList().Return(tt.existingPaths)
+			if tt.expectAddWatch {
+				mockWatcher.EXPECT().WatchAdd(tt.newHook.Path)
+			}
+
+			err := addOrReplaceConfigHandler(mockWatcher, tt.newHook, tt.existingHandlers)
+			require.NoError(err)
+			// ensure the handler was added or replaced
+			require.Len(tt.existingHandlers[tt.newHook.Path].opActions, len(tt.newHook.Actions))
+			// ensure the actions were updated
+			require.Equal(tt.existingHandlers[tt.newHook.Path].DeviceHookSpec.Actions, tt.newHook.Actions)
+		})
+	}
+}
+
+func createTestFile(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	err = file.Close()
+	require.NoError(t, err)
+}
+
+func deleteTestFile(t *testing.T, path string) {
+	t.Helper()
+	err := os.Remove(path)
+	require.NoError(t, err)
+}
+
+func newTestExecutableHook(t *testing.T, workingDir string, runCommand string, fileOps []v1alpha1.FileOperation) v1alpha1.HookAction {
+	t.Helper()
+	action := v1alpha1.HookAction{}
+	actionExec := v1alpha1.HookActionExecutableSpec{
+		Executable: v1alpha1.HookActionExecutable{
+			Run:     runCommand,
+			WorkDir: util.StrToPtr(workingDir),
+		},
+		On: fileOps,
+	}
+	err := action.FromHookActionExecutableSpec(actionExec)
+	require.NoError(t, err)
+	return action
+}
+
+func TestGetHandler(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		handlers map[string]*Handler
+		events   map[string]string
+	}{
+		{
+			name: "watch on directory and file",
+			handlers: map[string]*Handler{
+				"/var/lib/stuff/file1": {
+					DeviceHookSpec: &v1alpha1.DeviceHookSpec{
+						Path: "/var/lib/stuff/file1",
+						Actions: []v1alpha1.HookAction{
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo file1", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+						},
+					},
+				},
+				"/var/lib/stuff": {
+					DeviceHookSpec: &v1alpha1.DeviceHookSpec{
+						Path: "/var/lib/stuff",
+						Actions: []v1alpha1.HookAction{
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo file 1", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+						},
+					},
+				},
+				"/var/lib/stuff/file2": {
+					DeviceHookSpec: &v1alpha1.DeviceHookSpec{
+						Path: "/var/lib/stuff/file2",
+						Actions: []v1alpha1.HookAction{
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo file2", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}),
+						},
+					},
+				},
+			},
+			events: map[string]string{
+				"/var/lib/stuff":       "test-hook-dir",
+				"/var/lib/stuff/file1": "test-hook-file1",
+				"/var/lib/stuff/file2": "test-hook-file2",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for eventName, expectedHookName := range tt.events {
+				handler := getHandler(eventName, tt.handlers)
+				require.Equal(expectedHookName, handler.Name)
+			}
+		})
+	}
+}

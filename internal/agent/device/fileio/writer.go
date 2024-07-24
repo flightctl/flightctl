@@ -42,16 +42,23 @@ func (w *Writer) SetRootdir(path string) {
 	w.rootDir = path
 }
 
-// WriteIgnitionFiles writes the provided files to the device
-func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
+// WriteFiles writes Ignition files to the device, optionally invoking a callback with decoded contents.
+func (w *Writer) WriteIgnitionFiles(files []ign3types.File, onContentDecoded func(string, []byte) error) error {
 	var testMode bool
 	if len(w.rootDir) > 0 {
 		testMode = true
 	}
 	for _, file := range files {
+		filePath := file.Path
 		decodedContents, err := DecodeIgnitionFileContents(file.Contents.Source, file.Contents.Compression)
 		if err != nil {
-			return fmt.Errorf("could not decode file %q: %w", file.Path, err)
+			return fmt.Errorf("could not decode file %q: %w", filePath, err)
+		}
+		if onContentDecoded != nil {
+			err := onContentDecoded(file.Path, decodedContents)
+			if err != nil {
+				return fmt.Errorf("onContentDecoded failed for file %q: %w", filePath, err)
+			}
 		}
 		mode := DefaultFilePermissions
 		if file.Mode != nil {
@@ -60,18 +67,26 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 		// set chown if file information is provided
 		uid, gid, err := getFileOwnership(file, testMode)
 		if err != nil {
-			return fmt.Errorf("failed to retrieve file ownership for file %q: %w", file.Path, err)
+			return fmt.Errorf("failed to retrieve file ownership for file %q: %w", filePath, err)
 		}
 
 		// TODO: implement createOrigFile
 		// if err := createOrigFile(file.Path, file.Path); err != nil {
 		// 	return err
 		// }
-		if err := writeFileAtomically(filepath.Join(w.rootDir, file.Path), decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
+		if err := writeFileAtomically(filepath.Join(w.rootDir, filePath), decodedContents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (w *Writer) WriteFileBytes(name string, data []byte, perm os.FileMode) error {
+	uid, gid, err := getUserIdentity()
+	if err != nil {
+		return err
+	}
+	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
 }
 
 // WriteFile writes the provided data to the file at the path with the provided permissions
@@ -81,6 +96,13 @@ func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
 		return err
 	}
 	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
+}
+
+func (w *Writer) RemoveFile(file string) error {
+	if err := os.Remove(filepath.Join(w.rootDir, file)); err != nil {
+		return fmt.Errorf("failed to remove file %q: %w", file, err)
+	}
+	return nil
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile

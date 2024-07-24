@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -103,14 +104,22 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	executer := &executer.CommonExecuter{}
 
+	// create resource manager
 	resourceManager := resource.NewManager(
 		a.log,
 	)
+
+	// create hook manager
+	hookManager, err := hook.NewManager(a.log, executer)
+	if err != nil {
+		return err
+	}
 
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
 		resourceManager,
+		hookManager,
 		executer,
 		a.log,
 	)
@@ -179,6 +188,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create config controller
 	configController := config.NewController(
+		hookManager,
 		deviceWriter,
 		a.log,
 	)
@@ -212,6 +222,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	go hookManager.Run(ctx)
 	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)

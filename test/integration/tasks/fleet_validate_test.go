@@ -85,7 +85,6 @@ var _ = Describe("FleetValidate", func() {
 			Metadata: api.ObjectMeta{
 				Name: util.StrToPtr("myfleet"),
 			},
-			Spec: api.FleetSpec{},
 		}
 
 		goodGitConfig = &api.GitConfigProviderSpec{

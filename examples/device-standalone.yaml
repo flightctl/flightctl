@@ -38,4 +38,3 @@ spec:
   systemd:
     matchPatterns:
       - chronyd.service
-

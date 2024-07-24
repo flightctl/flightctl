@@ -6,6 +6,7 @@ require (
 	github.com/coreos/ignition/v2 v2.19.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/evanphx/json-patch v5.9.0+incompatible
+	github.com/fsnotify/fsnotify v1.6.0
 	github.com/getkin/kin-openapi v0.124.0
 	github.com/gliderlabs/ssh v0.3.7
 	github.com/go-chi/chi v4.1.2+incompatible

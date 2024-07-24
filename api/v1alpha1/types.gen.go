@@ -86,6 +86,30 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
+// Defines values for FileOperation.
+const (
+	FileOperationCreate FileOperation = "Create"
+	FileOperationRemove FileOperation = "Remove"
+	FileOperationUpdate FileOperation = "Update"
+)
+
+// Defines values for HookActionSystemdUnitOperations.
+const (
+	SystemdDaemonReload HookActionSystemdUnitOperations = "DaemonReload"
+	SystemdDisable      HookActionSystemdUnitOperations = "Disable"
+	SystemdEnable       HookActionSystemdUnitOperations = "Enable"
+	SystemdReload       HookActionSystemdUnitOperations = "Reload"
+	SystemdRestart      HookActionSystemdUnitOperations = "Restart"
+	SystemdStart        HookActionSystemdUnitOperations = "Start"
+	SystemdStop         HookActionSystemdUnitOperations = "Stop"
+)
+
+// Defines values for OSOperationOperations.
+const (
+	OSOperationReboot  OSOperationOperations = "Reboot"
+	OSOperationUpgrade OSOperationOperations = "Upgrade"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
@@ -211,6 +235,30 @@ type DeviceConsole struct {
 	SessionID    string `json:"sessionID"`
 }
 
+// DeviceHookSpec defines model for DeviceHookSpec.
+type DeviceHookSpec struct {
+	// Actions The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.
+	Actions     []HookAction `json:"actions"`
+	Description *string      `json:"description,omitempty"`
+	Name        *string      `json:"name,omitempty"`
+
+	// Path The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
+	Path string `json:"path"`
+}
+
+// DeviceHooksSpec defines model for DeviceHooksSpec.
+type DeviceHooksSpec struct {
+	// Post A list of hooks to execute after the configuration is applied. These
+	// post-hooks enable custom behavior and integration with other systems
+	// or services after the configuration changes are implemented.
+	Post *[]DeviceHookSpec `json:"post,omitempty"`
+
+	// Pre A list of hooks to execute before the configuration is applied. These
+	// pre-hooks enable custom behavior and integration with other systems
+	// or services before the configuration changes are implemented.
+	Pre *[]DeviceHookSpec `json:"pre,omitempty"`
+}
+
 // DeviceIntegrityStatus defines model for DeviceIntegrityStatus.
 type DeviceIntegrityStatus struct {
 	Summary DeviceIntegrityStatusSummary `json:"summary"`
@@ -270,7 +318,8 @@ type DeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	Hooks DeviceHooksSpec `json:"hooks"`
+	Os    *DeviceOSSpec   `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -424,6 +473,9 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+// FileOperation The type of operation that was observed on the file.
+type FileOperation string
+
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -501,6 +553,82 @@ type GitConfigProviderSpec struct {
 	} `json:"gitRef"`
 	Name string `json:"name"`
 }
+
+// HookAction defines model for HookAction.
+type HookAction struct {
+	union json.RawMessage
+}
+
+// HookAction0 defines model for .
+type HookAction0 = map[string]interface{}
+
+// HookActionExecutable defines model for HookActionExecutable.
+type HookActionExecutable struct {
+	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
+	EnvVars *[]string `json:"envVars,omitempty"`
+
+	// Run The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.
+	Run string `json:"run"`
+
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir *string `json:"workDir,omitempty"`
+}
+
+// HookActionExecutableSpec defines model for HookActionExecutableSpec.
+type HookActionExecutableSpec struct {
+	Executable HookActionExecutable               `json:"executable"`
+	On         []HookActionExecutableSpec_On_Item `json:"on"`
+
+	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	Timeout *string `json:"timeout,omitempty"`
+}
+
+// HookActionExecutableSpec_On_Item defines model for HookActionExecutableSpec.on.Item.
+type HookActionExecutableSpec_On_Item struct {
+	union json.RawMessage
+}
+
+// HookActionSpec defines model for HookActionSpec.
+type HookActionSpec struct {
+	On []HookActionSpec_On_Item `json:"on"`
+
+	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	Timeout *string `json:"timeout,omitempty"`
+}
+
+// HookActionSpec_On_Item defines model for HookActionSpec.on.Item.
+type HookActionSpec_On_Item struct {
+	union json.RawMessage
+}
+
+// HookActionSystemdSpec defines model for HookActionSystemdSpec.
+type HookActionSystemdSpec struct {
+	On []HookActionSystemdSpec_On_Item `json:"on"`
+
+	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	Timeout *string               `json:"timeout,omitempty"`
+	Unit    HookActionSystemdUnit `json:"unit"`
+}
+
+// HookActionSystemdSpec_On_Item defines model for HookActionSystemdSpec.on.Item.
+type HookActionSystemdSpec_On_Item struct {
+	union json.RawMessage
+}
+
+// HookActionSystemdUnit defines model for HookActionSystemdUnit.
+type HookActionSystemdUnit struct {
+	// Name The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.
+	Name string `json:"name"`
+
+	// Operations The specific systemd operations to perform on the specified unit.
+	Operations []HookActionSystemdUnitOperations `json:"operations"`
+
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir *string `json:"workDir,omitempty"`
+}
+
+// HookActionSystemdUnitOperations defines model for HookActionSystemdUnit.Operations.
+type HookActionSystemdUnitOperations string
 
 // HttpConfig defines model for HttpConfig.
 type HttpConfig struct {
@@ -589,6 +717,18 @@ type ListMeta struct {
 // MemoryResourceMonitorSpec defines model for MemoryResourceMonitorSpec.
 type MemoryResourceMonitorSpec = ResourceMonitorSpec
 
+// OSOperation defines model for OSOperation.
+type OSOperation struct {
+	// Operations The specific operations to perform on the specified operating system.
+	Operations *[]OSOperationOperations `json:"operations,omitempty"`
+
+	// Os The name of the operating system to perform the specified operations on.
+	Os *string `json:"os,omitempty"`
+}
+
+// OSOperationOperations defines model for OSOperation.Operations.
+type OSOperationOperations string
+
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
 	// Annotations Properties set by the service.
@@ -634,8 +774,9 @@ type RenderedDeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os              *DeviceOSSpec `json:"os,omitempty"`
-	RenderedVersion string        `json:"renderedVersion"`
+	Hooks           DeviceHooksSpec `json:"hooks"`
+	Os              *DeviceOSSpec   `json:"os,omitempty"`
+	RenderedVersion string          `json:"renderedVersion"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -861,7 +1002,8 @@ type TemplateVersionStatus struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	Hooks DeviceHooksSpec `json:"hooks"`
+	Os    *DeviceOSSpec   `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -1167,6 +1309,280 @@ func (t DeviceSpec_Config_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsHookAction0 returns the union data inside the HookAction as a HookAction0
+func (t HookAction) AsHookAction0() (HookAction0, error) {
+	var body HookAction0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHookAction0 overwrites any union data inside the HookAction as the provided HookAction0
+func (t *HookAction) FromHookAction0(v HookAction0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHookAction0 performs a merge with any union data inside the HookAction, using the provided HookAction0
+func (t *HookAction) MergeHookAction0(v HookAction0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsHookActionSystemdSpec returns the union data inside the HookAction as a HookActionSystemdSpec
+func (t HookAction) AsHookActionSystemdSpec() (HookActionSystemdSpec, error) {
+	var body HookActionSystemdSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHookActionSystemdSpec overwrites any union data inside the HookAction as the provided HookActionSystemdSpec
+func (t *HookAction) FromHookActionSystemdSpec(v HookActionSystemdSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHookActionSystemdSpec performs a merge with any union data inside the HookAction, using the provided HookActionSystemdSpec
+func (t *HookAction) MergeHookActionSystemdSpec(v HookActionSystemdSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsHookActionExecutableSpec returns the union data inside the HookAction as a HookActionExecutableSpec
+func (t HookAction) AsHookActionExecutableSpec() (HookActionExecutableSpec, error) {
+	var body HookActionExecutableSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHookActionExecutableSpec overwrites any union data inside the HookAction as the provided HookActionExecutableSpec
+func (t *HookAction) FromHookActionExecutableSpec(v HookActionExecutableSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHookActionExecutableSpec performs a merge with any union data inside the HookAction, using the provided HookActionExecutableSpec
+func (t *HookAction) MergeHookActionExecutableSpec(v HookActionExecutableSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t HookAction) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *HookAction) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFileOperation returns the union data inside the HookActionExecutableSpec_On_Item as a FileOperation
+func (t HookActionExecutableSpec_On_Item) AsFileOperation() (FileOperation, error) {
+	var body FileOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFileOperation overwrites any union data inside the HookActionExecutableSpec_On_Item as the provided FileOperation
+func (t *HookActionExecutableSpec_On_Item) FromFileOperation(v FileOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFileOperation performs a merge with any union data inside the HookActionExecutableSpec_On_Item, using the provided FileOperation
+func (t *HookActionExecutableSpec_On_Item) MergeFileOperation(v FileOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOSOperation returns the union data inside the HookActionExecutableSpec_On_Item as a OSOperation
+func (t HookActionExecutableSpec_On_Item) AsOSOperation() (OSOperation, error) {
+	var body OSOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOSOperation overwrites any union data inside the HookActionExecutableSpec_On_Item as the provided OSOperation
+func (t *HookActionExecutableSpec_On_Item) FromOSOperation(v OSOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOSOperation performs a merge with any union data inside the HookActionExecutableSpec_On_Item, using the provided OSOperation
+func (t *HookActionExecutableSpec_On_Item) MergeOSOperation(v OSOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t HookActionExecutableSpec_On_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *HookActionExecutableSpec_On_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFileOperation returns the union data inside the HookActionSpec_On_Item as a FileOperation
+func (t HookActionSpec_On_Item) AsFileOperation() (FileOperation, error) {
+	var body FileOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFileOperation overwrites any union data inside the HookActionSpec_On_Item as the provided FileOperation
+func (t *HookActionSpec_On_Item) FromFileOperation(v FileOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFileOperation performs a merge with any union data inside the HookActionSpec_On_Item, using the provided FileOperation
+func (t *HookActionSpec_On_Item) MergeFileOperation(v FileOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOSOperation returns the union data inside the HookActionSpec_On_Item as a OSOperation
+func (t HookActionSpec_On_Item) AsOSOperation() (OSOperation, error) {
+	var body OSOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOSOperation overwrites any union data inside the HookActionSpec_On_Item as the provided OSOperation
+func (t *HookActionSpec_On_Item) FromOSOperation(v OSOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOSOperation performs a merge with any union data inside the HookActionSpec_On_Item, using the provided OSOperation
+func (t *HookActionSpec_On_Item) MergeOSOperation(v OSOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t HookActionSpec_On_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *HookActionSpec_On_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFileOperation returns the union data inside the HookActionSystemdSpec_On_Item as a FileOperation
+func (t HookActionSystemdSpec_On_Item) AsFileOperation() (FileOperation, error) {
+	var body FileOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFileOperation overwrites any union data inside the HookActionSystemdSpec_On_Item as the provided FileOperation
+func (t *HookActionSystemdSpec_On_Item) FromFileOperation(v FileOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFileOperation performs a merge with any union data inside the HookActionSystemdSpec_On_Item, using the provided FileOperation
+func (t *HookActionSystemdSpec_On_Item) MergeFileOperation(v FileOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOSOperation returns the union data inside the HookActionSystemdSpec_On_Item as a OSOperation
+func (t HookActionSystemdSpec_On_Item) AsOSOperation() (OSOperation, error) {
+	var body OSOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOSOperation overwrites any union data inside the HookActionSystemdSpec_On_Item as the provided OSOperation
+func (t *HookActionSystemdSpec_On_Item) FromOSOperation(v OSOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOSOperation performs a merge with any union data inside the HookActionSystemdSpec_On_Item, using the provided OSOperation
+func (t *HookActionSystemdSpec_On_Item) MergeOSOperation(v OSOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t HookActionSystemdSpec_On_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *HookActionSystemdSpec_On_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
