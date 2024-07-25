@@ -137,6 +137,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		currentSpecFilePath,
 		desiredSpecFilePath,
 		a.log,
+		a.config.DefaultLabels,
 	)
 
 	// bootstrap

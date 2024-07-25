@@ -52,6 +52,17 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		Conditions:  []v1alpha1.Condition{},
 		Approval:    approval,
 	}
+
+	// union user-provided labels with agent-provided labels
+	if enrollmentRequest.Spec.Labels != nil {
+		for k, v := range *enrollmentRequest.Spec.Labels {
+			// don't override user-provided labels
+			if _, ok := (*enrollmentRequest.Status.Approval.Labels)[k]; !ok {
+				(*enrollmentRequest.Status.Approval.Labels)[k] = v
+			}
+		}
+	}
+
 	condition := v1alpha1.Condition{
 		Type:    v1alpha1.EnrollmentRequestApproved,
 		Status:  v1alpha1.ConditionStatusTrue,

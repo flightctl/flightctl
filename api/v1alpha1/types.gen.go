@@ -401,6 +401,9 @@ type EnrollmentRequestSpec struct {
 
 	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
+
+	// Labels A set of labels that the service will apply to this device when its enrollment is approved
+	Labels *map[string]string `json:"labels,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
