@@ -2548,6 +2548,11 @@ components:
           description: 'csr is a PEM-encoded PKCS#10 certificate signing request.'
         deviceStatus:
           $ref: '#/components/schemas/DeviceStatus'
+        labels:
+          type: object
+          additionalProperties:
+            type: string 
+          description: 'A set of labels that the service will apply to this device when its enrollment is approved'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
