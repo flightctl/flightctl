@@ -872,6 +872,17 @@ type TemplateVersionStatus_Config_Item struct {
 	union json.RawMessage
 }
 
+// TestObjectFooBar EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+type TestObjectFooBar struct {
+	Approval *EnrollmentRequestApproval `json:"approval,omitempty"`
+
+	// Certificate certificate is a PEM-encoded signed certificate.
+	Certificate *string `json:"certificate,omitempty"`
+
+	// Conditions Current state of the EnrollmentRequest.
+	Conditions []Condition `json:"conditions"`
+}
+
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.

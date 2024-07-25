@@ -3009,3 +3009,19 @@ components:
       - 'TemplateDiscriminatorKubernetesSec'
       - 'TemplateDiscriminatorInlineConfig'
       - 'TemplateDiscriminatorHttpConfig'
+    TestObjectFooBar:
+      type: object
+      properties:
+        certificate:
+          type: string
+          description: 'certificate is a PEM-encoded signed certificate.'
+        conditions:
+          type: array
+          description: 'Current state of the EnrollmentRequest.'
+          items:
+            $ref: '#/components/schemas/Condition'
+        approval:
+          $ref: '#/components/schemas/EnrollmentRequestApproval'
+      required:
+        - conditions
+      description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
