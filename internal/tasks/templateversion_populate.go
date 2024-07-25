@@ -2,9 +2,10 @@ package tasks
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"path/filepath"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -109,6 +110,8 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 		return t.handleK8sConfig(configItem)
 	case string(api.TemplateDiscriminatorInlineConfig):
 		return t.handleInlineConfig(configItem)
+	case string(api.TemplateDiscriminatorHttpConfig):
+		return t.handleHttpConfig(configItem)
 	default:
 		return fmt.Errorf("unsupported discriminator %s", disc)
 	}
@@ -179,11 +182,7 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 		return fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
-	for name, encodedContents := range secret.Data {
-		contents, err := base64.StdEncoding.DecodeString(string(encodedContents))
-		if err != nil {
-			return fmt.Errorf("failed to base64 decode secret %s: %w", name, err)
-		}
+	for name, contents := range secret.Data {
 		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
 	}
 	m, err := ignitionWrapper.AsMap()
@@ -216,6 +215,86 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	}
 
 	t.frozenConfig = append(t.frozenConfig, *newConfig)
+	return nil
+}
+
+func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceSpec_Config_Item) error {
+	httpSpec, err := configItem.AsHttpConfigProviderSpec()
+	if err != nil {
+		return fmt.Errorf("failed getting config item as HttpConfigProviderSpec: %w", err)
+	}
+
+	repo, err := t.store.Repository().GetInternal(context.Background(), t.resourceRef.OrgID, httpSpec.HttpRef.Repository)
+	if err != nil {
+		return fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, httpSpec.HttpRef.Repository, err)
+	}
+
+	if repo.Spec == nil {
+		return fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpSpec.HttpRef.Repository, err)
+	}
+
+	repoURL, err := repo.Spec.Data.GetRepoURL()
+	if err != nil {
+		return err
+	}
+
+	// Append the suffix only if exists (as it's optional)
+	if httpSpec.HttpRef.Suffix != nil {
+		repoURL = repoURL + *httpSpec.HttpRef.Suffix
+	}
+	req, err := http.NewRequest("GET", repoURL, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	repoHttpSpec, err := repo.Spec.Data.GetHttpRepoSpec()
+	if err != nil {
+		return err
+	}
+
+	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+	if err != nil {
+		return fmt.Errorf("error building request authentication: %w", err)
+	}
+
+	// Set up the HTTP client with the configured TLS settings
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("sending request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response body: %w", err)
+	}
+
+	ignitionWrapper, err := ignition.NewWrapper()
+	if err != nil {
+		return fmt.Errorf("failed to create ignition wrapper: %w", err)
+	}
+	ignitionWrapper.SetFile(httpSpec.HttpRef.FilePath, body, 0o644)
+	m, err := ignitionWrapper.AsMap()
+	if err != nil {
+		return fmt.Errorf("failed to convert ignition to ap: %w", err)
+	}
+	newConfig := api.TemplateVersionStatus_Config_Item{}
+	inlineSpec := api.InlineConfigProviderSpec{
+		Inline: m,
+		Name:   httpSpec.Name,
+	}
+	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
+		return err
+	}
+	t.frozenConfig = append(t.frozenConfig, newConfig)
+
 	return nil
 }
 

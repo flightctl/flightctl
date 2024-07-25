@@ -35,8 +35,8 @@ func NewConsoleController(grpcClient grpc_v1.RouterServiceClient, deviceName str
 }
 
 func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	c.log.Info("Syncing console status")
-	defer c.log.Info("Finished syncing console status")
+	c.log.Debug("Syncing console status")
+	defer c.log.Debug("Finished syncing console status")
 
 	// do we have an open console stream, and we are supposed to close it?
 	if desired.Console == nil {
@@ -212,10 +212,6 @@ func (c *ConsoleController) bashProcess() (io.WriteCloser, io.ReadCloser, error)
 	}
 
 	cmd.Stderr = cmd.Stdout
-
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stderr pipe: %w", err)
-	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("error starting bash process: %w", err)

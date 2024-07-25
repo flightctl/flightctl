@@ -92,6 +92,12 @@ const (
 	Replace PatchRequestOp = "replace"
 )
 
+// Defines values for RepoSpecType.
+const (
+	Git  RepoSpecType = "git"
+	Http RepoSpecType = "http"
+)
+
 // Defines values for ResourceAlertSeverityType.
 const (
 	ResourceAlertSeverityTypeCritical ResourceAlertSeverityType = "Critical"
@@ -102,6 +108,7 @@ const (
 // Defines values for TemplateDiscriminators.
 const (
 	TemplateDiscriminatorGitConfig     TemplateDiscriminators = "GitConfigProviderSpec"
+	TemplateDiscriminatorHttpConfig    TemplateDiscriminators = "HttpConfigProviderSpec"
 	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
@@ -469,6 +476,15 @@ type GenericConfigSpec struct {
 	Name       string `json:"name"`
 }
 
+// GenericRepoSpec defines model for GenericRepoSpec.
+type GenericRepoSpec struct {
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
+
+	// Url The (possibly remote) repository URL
+	Url string `json:"url"`
+}
+
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
 type GitConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
@@ -482,14 +498,8 @@ type GitConfigProviderSpec struct {
 	Name string `json:"name"`
 }
 
-// GitGenericRepoSpec defines model for GitGenericRepoSpec.
-type GitGenericRepoSpec struct {
-	// Repo The (possibly remote) repository URL to clone from
-	Repo string `json:"repo"`
-}
-
-// GitHttpConfig defines model for GitHttpConfig.
-type GitHttpConfig struct {
+// HttpConfig defines model for HttpConfig.
+type HttpConfig struct {
 	// CaCrt Base64 encoded root CA
 	CaCrt *string `json:"ca.crt,omitempty"`
 
@@ -505,35 +515,39 @@ type GitHttpConfig struct {
 	// TlsKey Base64 encoded TLS cert key
 	TlsKey *string `json:"tls.key,omitempty"`
 
+	// Token The token for auth with HTTP transport
+	Token *string `json:"token,omitempty"`
+
 	// Username The username for auth with HTTP transport
 	Username *string `json:"username,omitempty"`
 }
 
-// GitHttpRepoSpec defines model for GitHttpRepoSpec.
-type GitHttpRepoSpec struct {
-	HttpConfig GitHttpConfig `json:"httpConfig"`
+// HttpConfigProviderSpec defines model for HttpConfigProviderSpec.
+type HttpConfigProviderSpec struct {
+	ConfigType string `json:"configType"`
+	HttpRef    struct {
+		// FilePath The path of the file where the response is stored in the filesystem of the device.
+		FilePath string `json:"filePath"`
 
-	// Repo The HTTP Git repository URL to clone from
-	Repo string `json:"repo"`
+		// Repository The name of the repository resource to use as the sync source
+		Repository string `json:"repository"`
+
+		// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
+		// /path/to/endpoint?query=param
+		Suffix *string `json:"suffix,omitempty"`
+	} `json:"httpRef"`
+	Name string `json:"name"`
 }
 
-// GitSshConfig defines model for GitSshConfig.
-type GitSshConfig struct {
-	// PrivateKeyPassphrase The passphrase for sshPrivateKey
-	PrivateKeyPassphrase *string `json:"privateKeyPassphrase,omitempty"`
+// HttpRepoSpec defines model for HttpRepoSpec.
+type HttpRepoSpec struct {
+	HttpConfig HttpConfig `json:"httpConfig"`
 
-	// SkipServerVerification Skip remote server verification
-	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
 
-	// SshPrivateKey Base64 encoded private SSH key
-	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
-}
-
-// GitSshRepoSpec defines model for GitSshRepoSpec.
-type GitSshRepoSpec struct {
-	// Repo The SSH Git repository URL to clone from
-	Repo      string       `json:"repo"`
-	SshConfig GitSshConfig `json:"sshConfig"`
+	// Url The HTTP URL to call or clone from
+	Url string `json:"url"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -626,7 +640,10 @@ type RenderedDeviceSpec struct {
 	} `json:"systemd,omitempty"`
 }
 
-// Repository Repository represents a git repository
+// RepoSpecType RepoSpecType is the type of the repository
+type RepoSpecType string
+
+// Repository Repository represents a Git repository or an HTTP endpoint
 type Repository struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
 	ApiVersion string `json:"apiVersion"`
@@ -755,6 +772,29 @@ type ResourceSyncStatus struct {
 
 	// ObservedGeneration The last generation that was synced
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+}
+
+// SshConfig defines model for SshConfig.
+type SshConfig struct {
+	// PrivateKeyPassphrase The passphrase for sshPrivateKey
+	PrivateKeyPassphrase *string `json:"privateKeyPassphrase,omitempty"`
+
+	// SkipServerVerification Skip remote server verification
+	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
+
+	// SshPrivateKey Base64 encoded private SSH key
+	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
+}
+
+// SshRepoSpec defines model for SshRepoSpec.
+type SshRepoSpec struct {
+	SshConfig SshConfig `json:"sshConfig"`
+
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
+
+	// Url The SSH Git repository URL to clone from
+	Url string `json:"url"`
 }
 
 // Status Status is a return value for calls that don't return other objects.
@@ -1062,6 +1102,34 @@ func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigPro
 	return err
 }
 
+// AsHttpConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a HttpConfigProviderSpec
+func (t DeviceSpec_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
+	var body HttpConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHttpConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided HttpConfigProviderSpec
+func (t *DeviceSpec_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHttpConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided HttpConfigProviderSpec
+func (t *DeviceSpec_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t DeviceSpec_Config_Item) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"configType"`
@@ -1078,6 +1146,8 @@ func (t DeviceSpec_Config_Item) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "GitConfigProviderSpec":
 		return t.AsGitConfigProviderSpec()
+	case "HttpConfigProviderSpec":
+		return t.AsHttpConfigProviderSpec()
 	case "InlineConfigProviderSpec":
 		return t.AsInlineConfigProviderSpec()
 	case "KubernetesSecretProviderSpec":
@@ -1097,22 +1167,22 @@ func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsGitGenericRepoSpec returns the union data inside the RepositorySpec as a GitGenericRepoSpec
-func (t RepositorySpec) AsGitGenericRepoSpec() (GitGenericRepoSpec, error) {
-	var body GitGenericRepoSpec
+// AsGenericRepoSpec returns the union data inside the RepositorySpec as a GenericRepoSpec
+func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
+	var body GenericRepoSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GitGenericRepoSpec
-func (t *RepositorySpec) FromGitGenericRepoSpec(v GitGenericRepoSpec) error {
+// FromGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GenericRepoSpec
+func (t *RepositorySpec) FromGenericRepoSpec(v GenericRepoSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitGenericRepoSpec
-func (t *RepositorySpec) MergeGitGenericRepoSpec(v GitGenericRepoSpec) error {
+// MergeGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GenericRepoSpec
+func (t *RepositorySpec) MergeGenericRepoSpec(v GenericRepoSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1123,22 +1193,22 @@ func (t *RepositorySpec) MergeGitGenericRepoSpec(v GitGenericRepoSpec) error {
 	return err
 }
 
-// AsGitHttpRepoSpec returns the union data inside the RepositorySpec as a GitHttpRepoSpec
-func (t RepositorySpec) AsGitHttpRepoSpec() (GitHttpRepoSpec, error) {
-	var body GitHttpRepoSpec
+// AsHttpRepoSpec returns the union data inside the RepositorySpec as a HttpRepoSpec
+func (t RepositorySpec) AsHttpRepoSpec() (HttpRepoSpec, error) {
+	var body HttpRepoSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided GitHttpRepoSpec
-func (t *RepositorySpec) FromGitHttpRepoSpec(v GitHttpRepoSpec) error {
+// FromHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided HttpRepoSpec
+func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitHttpRepoSpec
-func (t *RepositorySpec) MergeGitHttpRepoSpec(v GitHttpRepoSpec) error {
+// MergeHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided HttpRepoSpec
+func (t *RepositorySpec) MergeHttpRepoSpec(v HttpRepoSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1149,22 +1219,22 @@ func (t *RepositorySpec) MergeGitHttpRepoSpec(v GitHttpRepoSpec) error {
 	return err
 }
 
-// AsGitSshRepoSpec returns the union data inside the RepositorySpec as a GitSshRepoSpec
-func (t RepositorySpec) AsGitSshRepoSpec() (GitSshRepoSpec, error) {
-	var body GitSshRepoSpec
+// AsSshRepoSpec returns the union data inside the RepositorySpec as a SshRepoSpec
+func (t RepositorySpec) AsSshRepoSpec() (SshRepoSpec, error) {
+	var body SshRepoSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitSshRepoSpec overwrites any union data inside the RepositorySpec as the provided GitSshRepoSpec
-func (t *RepositorySpec) FromGitSshRepoSpec(v GitSshRepoSpec) error {
+// FromSshRepoSpec overwrites any union data inside the RepositorySpec as the provided SshRepoSpec
+func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitSshRepoSpec
-func (t *RepositorySpec) MergeGitSshRepoSpec(v GitSshRepoSpec) error {
+// MergeSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided SshRepoSpec
+func (t *RepositorySpec) MergeSshRepoSpec(v SshRepoSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1388,6 +1458,34 @@ func (t *TemplateVersionStatus_Config_Item) MergeInlineConfigProviderSpec(v Inli
 	return err
 }
 
+// AsHttpConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a HttpConfigProviderSpec
+func (t TemplateVersionStatus_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
+	var body HttpConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHttpConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided HttpConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHttpConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided HttpConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t TemplateVersionStatus_Config_Item) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"configType"`
@@ -1404,6 +1502,8 @@ func (t TemplateVersionStatus_Config_Item) ValueByDiscriminator() (interface{}, 
 	switch discriminator {
 	case "GitConfigProviderSpec":
 		return t.AsGitConfigProviderSpec()
+	case "HttpConfigProviderSpec":
+		return t.AsHttpConfigProviderSpec()
 	case "InlineConfigProviderSpec":
 		return t.AsInlineConfigProviderSpec()
 	case "KubernetesSecretProviderSpec":
