@@ -416,12 +416,7 @@ func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUI
 	}
 	return s.db.Transaction(func(innerTx *gorm.DB) error {
 		fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-		err := innerTx.Model(&fleet).Association("Repositories").Clear()
-		if err != nil {
-			return flterrors.ErrorFromGormError(err)
-		}
-		if len(repos) > 0 {
-			err = innerTx.Model(&fleet).Association("Repositories").Append(repos)
+		if err := innerTx.Model(&fleet).Association("Repositories").Replace(repos); err != nil {
 			return flterrors.ErrorFromGormError(err)
 		}
 		return nil
