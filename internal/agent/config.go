@@ -82,6 +82,9 @@ type Config struct {
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
 	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
 
+	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
+	DefaultLabels map[string]string `json:"default-labels,omitempty"`
+
 	reader *fileio.Reader
 }
 
@@ -120,6 +123,7 @@ func NewDefault() *Config {
 		SpecFetchInterval:    DefaultSpecFetchInterval,
 		reader:               fileio.NewReader(),
 		LogLevel:             logrus.InfoLevel.String(),
+		DefaultLabels:        make(map[string]string),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
