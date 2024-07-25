@@ -42,6 +42,8 @@ type Bootstrap struct {
 
 	enrollmentCSR []byte
 	log           *log.PrefixLogger
+
+	defaultLabels map[string]string
 }
 
 func NewBootstrap(
@@ -58,6 +60,7 @@ func NewBootstrap(
 	currentRenderedFile string,
 	desiredRenderedFile string,
 	log *log.PrefixLogger,
+	defaultLabels map[string]string,
 ) *Bootstrap {
 	return &Bootstrap{
 		deviceName:              deviceName,
@@ -74,6 +77,7 @@ func NewBootstrap(
 		currentRenderedFile:     currentRenderedFile,
 		desiredRenderedFile:     desiredRenderedFile,
 		log:                     log,
+		defaultLabels:           defaultLabels,
 	}
 }
 
@@ -346,6 +350,7 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 	if err != nil {
 		b.log.Warnf("Collecting device status: %v", err)
 	}
+
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
@@ -355,6 +360,7 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 		Spec: v1alpha1.EnrollmentRequestSpec{
 			Csr:          string(b.enrollmentCSR),
 			DeviceStatus: b.statusManager.Get(ctx),
+			Labels:       &b.defaultLabels,
 		},
 	}
 

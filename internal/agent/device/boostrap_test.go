@@ -111,6 +111,7 @@ func TestEnsureEnrollment(t *testing.T) {
 				currentSpecFilePath,
 				desiredSpecFilePath,
 				log,
+				make(map[string]string),
 			)
 			err = b.ensureEnrollment(context.Background())
 			if tt.wantErr {
@@ -193,6 +194,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			currentSpecFilePath,
 			desiredSpecFilePath,
 			log,
+			map[string]string{},
 		)
 	})
 
