@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
@@ -94,6 +95,9 @@ func TestDiskMonitor(t *testing.T) {
 
 // getRWMountPoint returns the first rw mount point.
 func getRWMountPoint() (string, error) {
+	validFileSystemTypes := []string{
+		"ext4", "ext3", "ext2", "btrfs", "xfs", "jfs", "reiserfs", "vfat", "ntfs", "f2fs", "zfs", "ufs", "nfs", "nfs4",
+	}
 	file, err := os.Open("/proc/mounts")
 	if err != nil {
 		return "", err
@@ -107,10 +111,11 @@ func getRWMountPoint() (string, error) {
 			continue
 		}
 		mountPoint := fields[1]
+		mountType := fields[2]
 		options := fields[3]
 
 		// use first rw
-		if strings.Contains(options, "rw") {
+		if strings.Contains(options, "rw") && lo.Contains(validFileSystemTypes, mountType) {
 			var statfs unix.Statfs_t
 			if err := unix.Statfs(mountPoint, &statfs); err != nil {
 				continue
