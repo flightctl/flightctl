@@ -1,7 +1,6 @@
 package model
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,9 +43,4 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 		r.Name = uuid.New().String()
 	}
 	return nil
-}
-
-func GetResourceVersion(updatedAt time.Time) *string {
-	resourceVersion := strconv.FormatInt(updatedAt.UnixNano(), 10)
-	return &resourceVersion
 }
