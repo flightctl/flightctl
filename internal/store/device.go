@@ -516,12 +516,7 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 	}
 	return s.db.Transaction(func(innerTx *gorm.DB) error {
 		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		err := innerTx.Model(&device).Association("Repositories").Clear()
-		if err != nil {
-			return flterrors.ErrorFromGormError(err)
-		}
-		if len(repos) > 0 {
-			err = innerTx.Model(&device).Association("Repositories").Append(repos)
+		if err := innerTx.Model(&device).Association("Repositories").Replace(repos); err != nil {
 			return flterrors.ErrorFromGormError(err)
 		}
 		return nil
