@@ -3009,3 +3009,157 @@ components:
       - 'TemplateDiscriminatorKubernetesSec'
       - 'TemplateDiscriminatorInlineConfig'
       - 'TemplateDiscriminatorHttpConfig'
+    CertSigningRequestApproval:
+      type: object
+      properties:
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'labels is a set of labels to apply to the device.'
+        approved:
+          type: boolean
+          description: 'approved indicates whether the request has been approved.'
+        approvedBy:
+          type: string
+          description: 'approvedBy is the name of the approver.'
+        approvedAt:
+          type: string
+          format: date-time
+          description: 'approvedAt is the time at which the request was approved.'
+      required:
+        - approved
+    CertSigningRequestCondition:
+    # this could be replaced with the pre-existing Condition schema, but Condition is not a 1:1 match to the k8s schema
+      description: 'Information about a CSR'
+      properties:
+        lastTransitionTime:
+          description: 'Time of the last status transition'
+          type: string
+          format: date-time
+        lastUpdateTime:
+          description: 'Time of the last update to current condition'
+          type: string
+          format: date-time
+        message:
+          description: 'Human readable message with details about the request state'
+          type: string
+        reason:
+          description: 'Brief reason for the request state'
+          type: string #TODO - enum?
+        status:
+          description: 'True, False, or Unknown'
+          $ref: '#/components/schemas/ConditionStatus'
+        type:
+          description: 'Approved, Denied, and/or Failed'
+          type: string
+          enum:
+            - 'Approved'
+            - 'Denied'
+            - 'Failed'
+      required:
+        - type
+        - status
+      type: object
+    CertSigningRequest:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/CertSigningRequestSpec'
+        status:
+          $ref: '#/components/schemas/CertSigningRequestStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      description: 'CertSigningRequest represents a request for a signed certificate from the CA'
+    CertSigningRequestList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of CertSigningRequest.'
+          items:
+            $ref: '#/components/schemas/CertSigningRequest'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      description: 'CertSigningRequestList is a list of CertSigningRequest'
+    CertSigningRequestSpec:
+      description: 'Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec'
+      properties:
+        expirationSeconds:
+          description: 'Requested duration of validity for the certificate'
+        extra:
+          additionalProperties:
+            items:
+              type: string
+            type: array
+          description: 'Extra attributes of the user that created the CSR, populated by the API server on creation and immutable'
+          type: object
+        groups:
+          description: 'Group membership of the user that created the CSR, populated by the API server on creation and immutable'
+          items:
+            type: string
+          type: array
+        request:
+          description: 'The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource'
+          format: byte
+          type: string
+        signerName:
+          description: 'Indicates the requested signer, and is a qualified name'
+          type: string
+        uid:
+          description: 'UID of the user that created the CSR, populated by the API server on creation and immutable'
+          type: string
+        usage:
+          description: 'Usages (purpose or scope) requested in the issued certificate - this differs from k8s in that we restrict it to several known usages'
+          type: string
+          $ref: '#/components/schemas/CertSigningRequestUsages'
+        username:
+          description: 'Name of the user that created the CSR, populated by the API server on creation and immutable'
+          type: string
+      required:
+        - request
+        - signerName
+      type: object
+    CertSigningRequestStatus:
+      description: 'Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists'
+      properties:
+        certificate:
+          description: 'The issued signed certificate, immutable once populated'
+          format: byte
+          type: string
+        conditions:
+          description: 'Information about the certificate and CSR'
+          items:
+            $ref: '#/components/schemas/CertSigningRequestCondition'
+          type: array
+      required:
+      type: object
+    CertSigningRequestUsages:
+      description: 'Purpose or scope of the requested certificate'
+      type: string
+      enum:
+        - 'Enrollment'
+        - 'Agent'
+        - 'Renewal'

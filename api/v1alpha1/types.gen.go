@@ -29,6 +29,20 @@ const (
 	ApplicationsSummaryStatusUnknown  ApplicationsSummaryStatusType = "Unknown"
 )
 
+// Defines values for CertSigningRequestConditionType.
+const (
+	Approved CertSigningRequestConditionType = "Approved"
+	Denied   CertSigningRequestConditionType = "Denied"
+	Failed   CertSigningRequestConditionType = "Failed"
+)
+
+// Defines values for CertSigningRequestUsages.
+const (
+	Agent      CertSigningRequestUsages = "Agent"
+	Enrollment CertSigningRequestUsages = "Enrollment"
+	Renewal    CertSigningRequestUsages = "Renewal"
+)
+
 // Defines values for ConditionStatus.
 const (
 	ConditionStatusFalse   ConditionStatus = "False"
@@ -141,6 +155,115 @@ type ApplicationsSummaryStatusType string
 
 // CPUResourceMonitorSpec defines model for CPUResourceMonitorSpec.
 type CPUResourceMonitorSpec = ResourceMonitorSpec
+
+// CertSigningRequest CertSigningRequest represents a request for a signed certificate from the CA
+type CertSigningRequest struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec
+	Spec CertSigningRequestSpec `json:"spec"`
+
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists
+	Status *CertSigningRequestStatus `json:"status,omitempty"`
+}
+
+// CertSigningRequestApproval defines model for CertSigningRequestApproval.
+type CertSigningRequestApproval struct {
+	// Approved approved indicates whether the request has been approved.
+	Approved bool `json:"approved"`
+
+	// ApprovedAt approvedAt is the time at which the request was approved.
+	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+
+	// ApprovedBy approvedBy is the name of the approver.
+	ApprovedBy *string `json:"approvedBy,omitempty"`
+
+	// Labels labels is a set of labels to apply to the device.
+	Labels *map[string]string `json:"labels,omitempty"`
+}
+
+// CertSigningRequestCondition Information about a CSR
+type CertSigningRequestCondition struct {
+	// LastTransitionTime Time of the last status transition
+	LastTransitionTime *time.Time `json:"lastTransitionTime,omitempty"`
+
+	// LastUpdateTime Time of the last update to current condition
+	LastUpdateTime *time.Time `json:"lastUpdateTime,omitempty"`
+
+	// Message Human readable message with details about the request state
+	Message *string `json:"message,omitempty"`
+
+	// Reason Brief reason for the request state
+	Reason *string         `json:"reason,omitempty"`
+	Status ConditionStatus `json:"status"`
+
+	// Type Approved, Denied, and/or Failed
+	Type CertSigningRequestConditionType `json:"type"`
+}
+
+// CertSigningRequestConditionType Approved, Denied, and/or Failed
+type CertSigningRequestConditionType string
+
+// CertSigningRequestList CertSigningRequestList is a list of CertSigningRequest
+type CertSigningRequestList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of CertSigningRequest.
+	Items []CertSigningRequest `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// CertSigningRequestSpec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec
+type CertSigningRequestSpec struct {
+	// ExpirationSeconds Requested duration of validity for the certificate
+	ExpirationSeconds *interface{} `json:"expirationSeconds,omitempty"`
+
+	// Extra Extra attributes of the user that created the CSR, populated by the API server on creation and immutable
+	Extra *map[string][]string `json:"extra,omitempty"`
+
+	// Groups Group membership of the user that created the CSR, populated by the API server on creation and immutable
+	Groups *[]string `json:"groups,omitempty"`
+
+	// Request The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource
+	Request []byte `json:"request"`
+
+	// SignerName Indicates the requested signer, and is a qualified name
+	SignerName string `json:"signerName"`
+
+	// Uid UID of the user that created the CSR, populated by the API server on creation and immutable
+	Uid *string `json:"uid,omitempty"`
+
+	// Usage Purpose or scope of the requested certificate
+	Usage *CertSigningRequestUsages `json:"usage,omitempty"`
+
+	// Username Name of the user that created the CSR, populated by the API server on creation and immutable
+	Username *string `json:"username,omitempty"`
+}
+
+// CertSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists
+type CertSigningRequestStatus struct {
+	// Certificate The issued signed certificate, immutable once populated
+	Certificate *[]byte `json:"certificate,omitempty"`
+
+	// Conditions Information about the certificate and CSR
+	Conditions *[]CertSigningRequestCondition `json:"conditions,omitempty"`
+}
+
+// CertSigningRequestUsages Purpose or scope of the requested certificate
+type CertSigningRequestUsages string
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
