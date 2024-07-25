@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package status
 
@@ -9,11 +8,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-)
-
-const (
-	// BootIDPath is the path to the boot ID file.
-	DefaultBootIDPath = "/proc/sys/kernel/random/boot_id"
 )
 
 func newExporters(
