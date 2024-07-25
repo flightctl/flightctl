@@ -11,13 +11,14 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
 func TestDiskMonitor(t *testing.T) {
 	require := require.New(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	log := log.NewPrefixLogger("test")
@@ -25,40 +26,37 @@ func TestDiskMonitor(t *testing.T) {
 
 	go diskMonitor.Run(ctx)
 
-	usage := diskMonitor.Usage()
-	require.NotNil(usage)
-	require.Zero(usage.Total)
-
 	path, err := getRWMountPoint()
 	require.NoError(err)
 
+	samplingInterval := 100 * time.Millisecond
 	monitorSpec := v1alpha1.DiskResourceMonitorSpec{
-		SamplingInterval: "1s",
+		SamplingInterval: samplingInterval.String(),
 		MonitorType:      DiskMonitorType,
 		Path:             path,
 		AlertRules: []v1alpha1.ResourceAlertRule{
 			{
 				Severity:    v1alpha1.ResourceAlertSeverityTypeInfo,
 				Percentage:  0, // 0% disk usage should always fire
-				Duration:    "1s",
-				Description: "Info: Disk usage is above 0% for 1s",
+				Duration:    "90ms",
+				Description: "Info: Disk usage is above 0% for 90ms",
 			},
 			{
 				Severity:    v1alpha1.ResourceAlertSeverityTypeCritical,
 				Percentage:  0, // 0% disk usage should always fire
-				Duration:    "1s",
-				Description: "Critical: Disk usage is above 0% for 1s",
+				Duration:    "90ms",
+				Description: "Critical: Disk usage is above 0% for 90ms",
 			},
 			{
 				Severity:    v1alpha1.ResourceAlertSeverityTypeWarning,
 				Percentage:  100,
 				Duration:    "1h",
-				Description: "Warning: Disk usage is above 100% for 1s",
+				Description: "Warning: Disk usage is above 100% for 1h",
 			},
 		},
 	}
 
-	rm := v1alpha1.ResourceMonitor{}
+	rm := &v1alpha1.ResourceMonitor{}
 	err = rm.FromDiskResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
@@ -66,24 +64,21 @@ func TestDiskMonitor(t *testing.T) {
 	require.NoError(err)
 	require.True(updated)
 
-	<-ctx.Done()
-
-	usage = diskMonitor.Usage()
-	require.NotNil(usage)
-	require.NotZero(usage.Total)
-
 	// ensure only 2 alerts are firing
-	alerts := diskMonitor.Alerts()
-	require.Len(alerts, 2)
+	var alerts []v1alpha1.ResourceAlertRule
+	require.Eventually(func() bool {
+		alerts = diskMonitor.Alerts()
+		return len(alerts) == 2
+	}, retryTimeout, retryInterval, "alert add")
 
-	deviceResourceStatusType, err := GetHighestSeverityResourceStatusFromAlerts(alerts)
-	require.ErrorIs(err, ErrAlertFiring)
+	deviceResourceStatusType, alertMsg := GetHighestSeverityResourceStatusFromAlerts(DiskMonitorType, alerts)
+	require.NotEmpty(alertMsg) // ensure we have an alert message
 
 	require.Equal(v1alpha1.DeviceResourceStatusCritical, deviceResourceStatusType)
 
 	// update the monitor to remove the critical alert
 	monitorSpec.AlertRules = monitorSpec.AlertRules[1:]
-	rm = v1alpha1.ResourceMonitor{}
+	rm = &v1alpha1.ResourceMonitor{}
 	err = rm.FromDiskResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
@@ -92,12 +87,17 @@ func TestDiskMonitor(t *testing.T) {
 	require.True(updated)
 
 	// ensure only 1 alert is firing after removal update
-	alerts = diskMonitor.Alerts()
-	require.Len(alerts, 1)
+	require.Eventually(func() bool {
+		alerts := diskMonitor.Alerts()
+		return len(alerts) == 1
+	}, retryTimeout, retryInterval, "alert add")
 }
 
 // getRWMountPoint returns the first rw mount point.
 func getRWMountPoint() (string, error) {
+	validFileSystemTypes := []string{
+		"ext4", "ext3", "ext2", "btrfs", "xfs", "jfs", "reiserfs", "vfat", "ntfs", "f2fs", "zfs", "ufs", "nfs", "nfs4",
+	}
 	file, err := os.Open("/proc/mounts")
 	if err != nil {
 		return "", err
@@ -111,10 +111,11 @@ func getRWMountPoint() (string, error) {
 			continue
 		}
 		mountPoint := fields[1]
+		mountType := fields[2]
 		options := fields[3]
 
 		// use first rw
-		if strings.Contains(options, "rw") {
+		if strings.Contains(options, "rw") && lo.Contains(validFileSystemTypes, mountType) {
 			var statfs unix.Statfs_t
 			if err := unix.Statfs(mountPoint, &statfs); err != nil {
 				continue

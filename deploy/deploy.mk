@@ -28,7 +28,14 @@ deploy-db:
 	podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 	podman exec -it flightctl-db createdb admin || true
 
+deploy-mq:
+	podman rm -f flightctl-mq || true
+	cd deploy/podman && podman-compose up -d flightctl-mq
+
 kill-db:
 	cd deploy/podman && podman-compose down flightctl-db
+
+kill-mq:
+	cd deploy/podman && podman-compose down flightctl-mq
 
 .PHONY: deploy-db deploy cluster run-db-container kill-db-container
