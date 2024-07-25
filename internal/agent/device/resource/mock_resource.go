@@ -54,18 +54,18 @@ func (mr *MockManagerMockRecorder) Alerts() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Alerts", reflect.TypeOf((*MockManager)(nil).Alerts))
 }
 
-// ClearAll mocks base method.
-func (m *MockManager) ClearAll() error {
+// ResetAlertDefaults mocks base method.
+func (m *MockManager) ResetAlertDefaults() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClearAll")
+	ret := m.ctrl.Call(m, "ResetAlertDefaults")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// ClearAll indicates an expected call of ClearAll.
-func (mr *MockManagerMockRecorder) ClearAll() *gomock.Call {
+// ResetAlertDefaults indicates an expected call of ResetAlertDefaults.
+func (mr *MockManagerMockRecorder) ResetAlertDefaults() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearAll", reflect.TypeOf((*MockManager)(nil).ClearAll))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetAlertDefaults", reflect.TypeOf((*MockManager)(nil).ResetAlertDefaults))
 }
 
 // Run mocks base method.
