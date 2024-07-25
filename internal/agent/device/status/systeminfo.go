@@ -10,6 +10,11 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 )
 
+const (
+	// BootIDPath is the path to the boot ID file.
+	DefaultBootIDPath = "/proc/sys/kernel/random/boot_id"
+)
+
 var _ Exporter = (*SystemInfo)(nil)
 
 // SystemInfo collects system information.
