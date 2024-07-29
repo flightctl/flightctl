@@ -34,6 +34,16 @@ var (
 	}
 )
 
+func getValidResourceKinds() []string {
+	resourceKinds := make([]string, len(pluralKinds))
+	i := 0
+	for _, v := range pluralKinds {
+		resourceKinds[i] = v
+		i++
+	}
+	return resourceKinds
+}
+
 func parseAndValidateKindName(arg string) (string, string, error) {
 	kind, name, _ := strings.Cut(arg, "/")
 	kind = singular(kind)
