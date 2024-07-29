@@ -5,6 +5,8 @@ ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_L
 GO_FILES := $(shell find ./ -name ".go" -not -path "./bin" -not -path "./packaging/*")
 GO_CACHE := -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -v $${HOME}/go/flightctl-go-cache/.cache:/opt/app-root/src/.cache:Z
 TIMEOUT ?= 30m
+GOOS := $(shell go env GOOS)
+GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
@@ -65,16 +67,16 @@ lint: tools
 	$(GOBIN)/golangci-lint run -v
 
 build: bin
-	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
 
 build-api: bin
-	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
 
 build-worker: bin
-	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
 
 build-periodic: bin
-	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
 
 
 # rebuild container only on source changes
@@ -100,7 +102,7 @@ flightctl-worker-container: bin/.flightctl-worker-container
 flightctl-periodic-container: bin/.flightctl-periodic-container
 
 
-build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container 
+build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container
 
 .PHONY: build-containers
 
@@ -108,13 +110,13 @@ build-containers: flightctl-api-container flightctl-worker-container flightctl-p
 update-server-container: bin/.flightctl-server-container
 	kind load docker-image localhost/flightctl-server:latest
 	kubectl delete pod -l flightctl.service=flightctl-server -n flightctl-external
-	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s 
+	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s
 	kubectl logs -l flightctl.service=flightctl-server -n flightctl-external -f
 bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl-agent.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
+bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
 	./hack/build_rpms.sh
 	touch bin/.rpm
 
