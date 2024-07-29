@@ -100,7 +100,7 @@ flightctl-worker-container: bin/.flightctl-worker-container
 flightctl-periodic-container: bin/.flightctl-periodic-container
 
 
-build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container 
+build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container
 
 .PHONY: build-containers
 
@@ -108,13 +108,13 @@ build-containers: flightctl-api-container flightctl-worker-container flightctl-p
 update-server-container: bin/.flightctl-server-container
 	kind load docker-image localhost/flightctl-server:latest
 	kubectl delete pod -l flightctl.service=flightctl-server -n flightctl-external
-	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s 
+	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s
 	kubectl logs -l flightctl.service=flightctl-server -n flightctl-external -f
 bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl-agent.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
+bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
 	./hack/build_rpms.sh
 	touch bin/.rpm
 
