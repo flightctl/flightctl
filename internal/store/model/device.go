@@ -16,7 +16,6 @@ var (
 	DeviceListKind = "DeviceList"
 
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
-	DeviceAnnotationMultipleOwners  = "fleet-controller/multipleOwners"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
 )
 
