@@ -37,7 +37,7 @@ func (t *DeviceDisconnected) Poll() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	statusInfoMessage := fmt.Sprintf("Did not check in for %d minutes", int(DeviceDisconnectedTimeout.Minutes()))
+	statusInfoMessage := fmt.Sprintf("Did not check in for more than %d minutes", int(DeviceDisconnectedTimeout.Minutes()))
 	// TODO: one thread per org?
 	orgID := uuid.UUID{}
 	// batch of 1000 devices
