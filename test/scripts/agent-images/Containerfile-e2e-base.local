@@ -6,6 +6,7 @@
 # * User/pw: user/user
 # * Trust on our E2E CA Certificate
 # * flightctl-agent configured to talk to our e2e kind flightctl-server
+# * greenboot installed
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
@@ -15,6 +16,8 @@ RUN update-ca-trust
 COPY bin/rpm/flightctl-agent-*.rpm /tmp/
 RUN dnf install -y /tmp/flightctl-agent-*.rpm && \
     systemctl enable flightctl-agent.service
+
+RUN dnf install -y greenboot greenboot-default-health-checks
 
 RUN useradd -ms /bin/bash user && \
     echo "user:user" | chpasswd && \
