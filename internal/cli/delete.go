@@ -25,9 +25,10 @@ func DefaultDeleteOptions() *DeleteOptions {
 func NewCmdDelete() *cobra.Command {
 	o := DefaultDeleteOptions()
 	cmd := &cobra.Command{
-		Use:   "delete (TYPE | TYPE/NAME)",
-		Short: "Delete resources by resources or owner.",
-		Args:  cobra.ExactArgs(1),
+		Use:       "delete (TYPE | TYPE/NAME)",
+		Short:     "Delete resources by resources or owner.",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: getValidResourceKinds(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
