@@ -93,7 +93,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // noli
 	}
 
 	if console.HTTPResponse.StatusCode != 200 {
-		return fmt.Errorf("error requesting console: %s, %+v", console.HTTPResponse.Status, console.HTTPResponse.Body)
+		return fmt.Errorf("error requesting console: %s", console.HTTPResponse.Status)
 	}
 
 	grpcEndpoint := console.JSON200.GRPCEndpoint

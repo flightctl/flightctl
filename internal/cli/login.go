@@ -127,8 +127,8 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("validating token: %w", err)
 	}
 
-	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("the token provided is invalid or expired")
+	if res.HTTPResponse.StatusCode != http.StatusOK {
+		return fmt.Errorf("the token provided is invalid or expired: %s", res.HTTPResponse.Status)
 	}
 
 	config.AuthInfo.Token = o.Token

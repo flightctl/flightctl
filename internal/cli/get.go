@@ -236,9 +236,9 @@ func processReponse(response interface{}, err error, kind string, name string, o
 		return fmt.Errorf(errorPrefix+": %w", err)
 	}
 
-	v := reflect.ValueOf(response).Elem()
-	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf(errorPrefix+": %d", v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
+	v := reflect.ValueOf(response).Elem().FieldByName("HTTPResponse").Elem()
+	if v.FieldByName("StatusCode").Int() != http.StatusOK {
+		return fmt.Errorf(errorPrefix+": %s", v.FieldByName("Status").String())
 	}
 
 	switch output {

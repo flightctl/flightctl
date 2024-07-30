@@ -201,14 +201,12 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 			fmt.Printf("%s: applying %s/%s (dry run only)\n", strings.ToLower(kind), filename, resourceName)
 			continue
 		}
-		fmt.Printf("%s: applying %s/%s: ", strings.ToLower(kind), filename, resourceName)
 		buf, err := json.Marshal(resource)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %w", filename, kind, err))
 		}
 
 		var httpResponse *http.Response
-		var message string
 
 		switch strings.ToLower(kind) {
 		case DeviceKind:
@@ -216,35 +214,30 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 			response, err = client.ReplaceDeviceWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
-				message = string(response.Body)
 			}
 		case EnrollmentRequestKind:
 			var response *apiclient.ReplaceEnrollmentRequestResponse
 			response, err = client.ReplaceEnrollmentRequestWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
-				message = string(response.Body)
 			}
 		case FleetKind:
 			var response *apiclient.ReplaceFleetResponse
 			response, err = client.ReplaceFleetWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
-				message = string(response.Body)
 			}
 		case RepositoryKind:
 			var response *apiclient.ReplaceRepositoryResponse
 			response, err = client.ReplaceRepositoryWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
-				message = string(response.Body)
 			}
 		case ResourceSyncKind:
 			var response *apiclient.ReplaceResourceSyncResponse
 			response, err = client.ReplaceResourceSyncWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 			if response != nil {
 				httpResponse = response.HTTPResponse
-				message = string(response.Body)
 			}
 		default:
 			err = fmt.Errorf("%s: skipping resource of unknown kind %q: %v", filename, kind, resource)
@@ -255,14 +248,13 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 		}
 
 		if httpResponse != nil {
-			fmt.Printf("%s\n", httpResponse.Status)
 			// bad HTTP Responses don't generate an error on the OpenAPI client, we need to check the status code manually
 			if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusCreated {
 				errs = append(errs, fmt.Errorf("%s: failed to apply %s/%s: %s", strings.ToLower(kind), filename, resourceName, httpResponse.Status))
-				fmt.Printf("%s\n", message)
+			} else {
+				fmt.Printf("%s: applied %s/%s: %s", strings.ToLower(kind), filename, resourceName, httpResponse.Status)
 			}
 		}
-
 	}
 	return errs
 }

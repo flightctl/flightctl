@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"reflect"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -82,94 +84,92 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var response interface{}
+
 	switch kind {
 	case DeviceKind:
 		if len(name) > 0 {
-			response, err := c.DeleteDeviceWithResponse(ctx, name)
+			response, err = c.DeleteDeviceWithResponse(ctx, name)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteDevicesWithResponse(ctx)
+			response, err = c.DeleteDevicesWithResponse(ctx)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		}
 	case EnrollmentRequestKind:
 		if len(name) > 0 {
-			response, err := c.DeleteEnrollmentRequestWithResponse(ctx, name)
+			response, err = c.DeleteEnrollmentRequestWithResponse(ctx, name)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteEnrollmentRequestsWithResponse(ctx)
+			response, err = c.DeleteEnrollmentRequestsWithResponse(ctx)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		}
 	case FleetKind:
 		if len(name) > 0 {
-			response, err := c.DeleteFleetWithResponse(ctx, name)
+			response, err = c.DeleteFleetWithResponse(ctx, name)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteFleetsWithResponse(ctx)
+			response, err = c.DeleteFleetsWithResponse(ctx)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		}
 	case TemplateVersionKind:
 		if len(name) > 0 {
-			response, err := c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name)
+			response, err = c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteTemplateVersionsWithResponse(ctx, o.FleetName)
+			response, err = c.DeleteTemplateVersionsWithResponse(ctx, o.FleetName)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		}
 	case RepositoryKind:
 		if len(name) > 0 {
-			response, err := c.DeleteRepositoryWithResponse(ctx, name)
+			response, err = c.DeleteRepositoryWithResponse(ctx, name)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteRepositoriesWithResponse(ctx)
+			response, err = c.DeleteRepositoriesWithResponse(ctx)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		}
 	case ResourceSyncKind:
 		if len(name) > 0 {
-			response, err := c.DeleteResourceSyncWithResponse(ctx, name)
+			response, err = c.DeleteResourceSyncWithResponse(ctx, name)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		} else {
-			response, err := c.DeleteResourceSyncsWithResponse(ctx)
+			response, err = c.DeleteResourceSyncsWithResponse(ctx)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
-			fmt.Printf("%s\n", response.Status())
 		}
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
+
+	v := reflect.ValueOf(response).Elem().FieldByName("HTTPResponse").Elem()
+	status := v.FieldByName("Status").String()
+	if v.FieldByName("StatusCode").Int() != http.StatusOK {
+		return fmt.Errorf("%s", status)
+	}
+
+	fmt.Printf("status %s", status)
 
 	return nil
 }
