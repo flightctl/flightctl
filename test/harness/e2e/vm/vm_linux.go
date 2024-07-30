@@ -314,8 +314,9 @@ func (v *VMInLibvirt) Exists() (bool, error) {
 }
 
 func (v *VMInLibvirt) IsRunning() (exists bool, err error) {
-	if err != nil {
-		return false, fmt.Errorf("unable to load existing libvirt domain: %w", err)
+
+	if v.domain == nil {
+		return false, nil
 	}
 
 	state, _, err := v.domain.GetState()
@@ -338,8 +339,10 @@ func (v *VMInLibvirt) RunAndWaitForSSH() error {
 
 	err = v.WaitForSSHToBeReady()
 	if err != nil {
+		fmt.Println("============ Console output ============")
+		fmt.Println(v.GetConsoleOutput())
+		fmt.Println("========================================")
 		return fmt.Errorf("waiting for SSH: %w", err)
 	}
-
 	return nil
 }
