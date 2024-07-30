@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
@@ -132,26 +133,28 @@ func (o *ConsoleOptions) connectViaGRPC(ctx context.Context, grpcEndpoint, sessi
 func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient) error {
 	g, _ := errgroup.WithContext(ctx)
 	stdout := os.Stdout
+	consoleIsRaw := true
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		return fmt.Errorf("error making terminal raw: %w", err)
+		fmt.Fprintf(os.Stderr, "error making terminal raw: %s\n", err)
+		consoleIsRaw = false
 	}
 
 	fmt.Printf("Use CTRL+B 3 times to exit console\r\n")
 
 	resetConsole := func() {
-		err := term.Restore(int(os.Stdin.Fd()), oldState)
-		// reset terminal and clear screen
-		fmt.Print("\033c\033[2J\033[H")
-
-		if err != nil {
-			fmt.Printf("error restoring terminal: %v", err)
+		if consoleIsRaw {
+			err := term.Restore(int(os.Stdin.Fd()), oldState)
+			consoleIsRaw = false
+			// reset terminal and clear screen
+			if err != nil {
+				fmt.Printf("error restoring terminal: %v", err)
+			}
 		}
-
+		fmt.Print("\033c\033[2J\033[H")
+		os.Exit(0)
 	}
-
-	defer resetConsole()
 
 	stdioChan := make(chan byte, 8)
 	go func() {
@@ -170,40 +173,37 @@ func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient
 	}()
 
 	g.Go(func() error {
+		defer func() {
+			_ = stream.Send(&grpc_v1.StreamRequest{
+				Closed: true,
+			})
+			stdout.Close()
+			_ = stream.CloseSend()
+			// we need to allow some time for gRPC to complete
+			// the send close before reset console will exit proccess.
+			time.Sleep(1 * time.Second)
+			resetConsole()
+		}()
+
 		buffer := make([]byte, 1)
 		ctrlBCount := 0
 		for {
-
 			chr, isOpen := <-stdioChan
 			buffer[0] = chr
 
 			if !isOpen {
-				_ = stream.Send(&grpc_v1.StreamRequest{
-					Closed: true,
-				})
-				stdout.Close()
-				_ = stream.CloseSend()
 				return nil
 			}
 
+			err = stream.Send(&grpc_v1.StreamRequest{Payload: buffer})
 			if err != nil {
 				return err
 			}
 
-			err = stream.Send(&grpc_v1.StreamRequest{
-				Payload: buffer,
-			})
-
-			if err != nil {
-				return err
-			}
+			// CTRL+B 3 times to exit console
 			if chr == 2 {
 				ctrlBCount++
 				if ctrlBCount == 3 {
-					_ = stream.Send(&grpc_v1.StreamRequest{
-						Closed: true,
-					})
-					_ = stream.CloseSend()
 					return io.EOF
 				}
 			} else {
@@ -213,15 +213,19 @@ func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient
 	})
 
 	g.Go(func() error {
+		defer func() {
+			_ = stream.Send(&grpc_v1.StreamRequest{
+				Closed: true,
+			})
+			_ = stream.CloseSend()
+			// we need to allow gRPC to send the Close
+			time.Sleep(1 * time.Second)
+			resetConsole()
+		}()
+
 		for {
 			frame, err := stream.Recv()
 			if errors.Is(err, io.EOF) || frame != nil && frame.Closed {
-				_ = stream.Send(&grpc_v1.StreamRequest{
-					Closed: true,
-				})
-				_ = stream.CloseSend()
-				resetConsole()
-				close(stdioChan) // make the other forward function leave
 				return io.EOF
 			}
 
