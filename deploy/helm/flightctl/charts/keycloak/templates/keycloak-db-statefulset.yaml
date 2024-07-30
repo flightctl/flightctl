@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak-db
+  namespace: {{ .Values.db.namespace | quote }}
+  labels:
+    app: keycloak-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak-db
+  template:
+    metadata:
+      labels:
+        app: keycloak-db
+    spec:
+      containers:
+        - name: keycloak-db
+          image: {{ .Values.db.image }}
+          imagePullPolicy: {{ .Values.db.imagePullPolicy }}
+          env:
+            {{- if .Values.db.auth.adminAccess }}
+            - name: POSTGRESQL_MASTER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-pgadmin
+                  key: username
+            - name: POSTGRESQL_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-pgadmin
+                  key: password
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-pgadmin
+                  key: password
+            {{- end }}
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-pguser-keycloak
+                  key: database
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-pguser-keycloak
+                  key: username
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-pguser-keycloak
+                  key: password
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /var/lib/pgsql/data
+              name: keycloak-db
+      restartPolicy: Always
+      volumes:
+        - name: keycloak-db
+          persistentVolumeClaim:
+            claimName: keycloak-db
