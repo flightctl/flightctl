@@ -28,7 +28,7 @@ func DefaultApproveOptions() *ApproveOptions {
 func NewCmdApprove() *cobra.Command {
 	o := DefaultApproveOptions()
 	cmd := &cobra.Command{
-		Use:   "approve NAME",
+		Use:   "approve enrollmentrequest/NAME",
 		Short: "Approve an enrollment request.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
