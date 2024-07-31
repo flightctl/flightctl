@@ -148,4 +148,44 @@ var _ = Describe("TVPopulate", func() {
 			Expect(newInline.Inline).To(Equal(inline))
 		})
 	})
+
+	When("a template has a valid HTTP config with params", func() {
+		It("copies the config as is", func() {
+			httpConfig := &api.HttpConfigProviderSpec{
+				ConfigType: string(api.TemplateDiscriminatorHttpConfig),
+				Name:       "httpConfig",
+			}
+			httpConfig.HttpRef.Repository = "repo"
+			httpConfig.HttpRef.FilePath = "filepath-{{ device.metadata.name }}"
+			httpConfig.HttpRef.Suffix = util.StrToPtr("suffix")
+
+			httpItem := api.DeviceSpec_Config_Item{}
+			err := httpItem.FromHttpConfigProviderSpec(*httpConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{httpItem}
+			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, fleetCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			owner := util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Op: tasks.TemplateVersionPopulateOpCreated, Name: "tv", Kind: model.TemplateVersionKind, Owner: *owner}
+			logic := tasks.NewTemplateVersionPopulateLogic(callbackManager, log, storeInst, nil, resourceRef)
+			err = logic.SyncFleetTemplateToTemplateVersion(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			tv, err = storeInst.TemplateVersion().Get(ctx, orgId, *fleet.Metadata.Name, *tv.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(tv.Status.Config).ToNot(BeNil())
+			Expect(*tv.Status.Config).To(HaveLen(1))
+			configItem := (*tv.Status.Config)[0]
+			newHttp, err := configItem.AsHttpConfigProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(newHttp.Name).To(Equal(httpConfig.Name))
+			Expect(newHttp.HttpRef.Repository).To(Equal(httpConfig.HttpRef.Repository))
+			Expect(newHttp.HttpRef.FilePath).To(Equal(httpConfig.HttpRef.FilePath))
+			Expect(*newHttp.HttpRef.Suffix).To(Equal(*httpConfig.HttpRef.Suffix))
+		})
+	})
 })
