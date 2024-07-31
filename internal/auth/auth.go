@@ -68,6 +68,10 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		log.Println("k8s auth enabled")
 		authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: cfg.Auth.K8sApiUrl}}
 		authN = authn.OpenShiftAuthN{OpenShiftApiUrl: cfg.Auth.K8sApiUrl}
+	} else if cfg.Auth != nil && cfg.Auth.JwksUrl != "" {
+		log.Println("odic auth enabled")
+		authZ = NilAuth{}
+		authN = authn.JWTAuth{JwksUrl: cfg.Auth.JwksUrl, OidcDiscoveryUrl: cfg.Auth.OidcDiscoveryUrl}
 	}
 
 	if authN == nil {
