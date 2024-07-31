@@ -9,11 +9,7 @@ import (
 	"sync"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/internal/auth"
-	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
-	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
-	middlewareMetadata "github.com/grpc-ecosystem/go-grpc-middleware/v2/metadata"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -48,32 +44,10 @@ func NewAgentGrpcServer(
 	}
 }
 
-func (s *AgentGrpcServer) AuthFn(ctx context.Context) (context.Context, error) {
-	authHeader := middlewareMetadata.ExtractIncoming(ctx).Get(common.AuthHeader)
-	if authHeader == "" {
-		return ctx, status.Error(codes.Unauthenticated, "missing authentication header")
-	}
-	token, ok := auth.ParseAuthHeader(authHeader)
-	if !ok {
-		return ctx, status.Error(codes.Unauthenticated, "invalid authentication token")
-	}
-	ok, err := auth.GetAuthN().ValidateToken(ctx, token)
-	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, err.Error())
-	}
-	if !ok {
-		return nil, status.Error(codes.Unauthenticated, "invalid auth token")
-	}
-	return ctx, nil
-}
-
 func (s *AgentGrpcServer) Run(ctx context.Context) error {
 	s.log.Printf("Initializing Agent-side gRPC server: %s", s.cfg.Service.AgentGrpcAddress)
 	tlsCredentials := credentials.NewTLS(s.tlsConfig)
-	server := grpc.NewServer(
-		grpc.Creds(tlsCredentials),
-		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(s.AuthFn)),
-	)
+	server := grpc.NewServer(grpc.Creds(tlsCredentials))
 	pb.RegisterRouterServiceServer(server, s)
 
 	listener, err := net.Listen("tcp", s.cfg.Service.AgentGrpcAddress)
