@@ -10,6 +10,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -77,7 +78,11 @@ func (o *ConsoleOptions) Validate(args []string) error {
 }
 
 func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return fmt.Errorf("parsing config file: %w", err)
+	}
+	c, err := client.NewFromConfig(config)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -99,7 +104,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // noli
 	grpcEndpoint := console.JSON200.GRPCEndpoint
 	sessionID := console.JSON200.SessionID
 
-	err = o.connectViaGRPC(ctx, grpcEndpoint, sessionID)
+	err = o.connectViaGRPC(ctx, grpcEndpoint, sessionID, config.AuthInfo.Token)
 	if err == io.EOF {
 		fmt.Println("Connection closed")
 		return nil
@@ -108,7 +113,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // noli
 }
 
 // TODO: Move this to a websocket call instead later, the console endpoint will redirect to a ws method
-func (o *ConsoleOptions) connectViaGRPC(ctx context.Context, grpcEndpoint, sessionID string) error {
+func (o *ConsoleOptions) connectViaGRPC(ctx context.Context, grpcEndpoint, sessionID string, token string) error {
 	//grpcEndpoint = "grpcs://192.168.1.10:7444"
 	grpcEndpoint = strings.TrimRight(grpcEndpoint, "/")
 	fmt.Printf("Connecting to %s with session id %s\n", grpcEndpoint, sessionID)
@@ -119,6 +124,7 @@ func (o *ConsoleOptions) connectViaGRPC(ctx context.Context, grpcEndpoint, sessi
 	// add key-value pairs of metadata to context
 	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.SessionIDKey, sessionID)
 	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.ClientNameKey, "flightctl-cli")
+	ctx = metadata.AppendToOutgoingContext(ctx, common.AuthHeader, fmt.Sprintf("Bearer %s", token))
 
 	stream, err := client.Stream(ctx)
 	if err != nil {
@@ -226,6 +232,7 @@ func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient
 			}
 
 			if err != nil {
+				stdout.Write([]byte(err.Error()))
 				return err
 			}
 			str := string(frame.Payload)
