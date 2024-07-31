@@ -58,6 +58,8 @@ publish: build-containers
 generate:
 	go generate -v $(shell go list ./...)
 	hack/mockgen.sh
+
+generate-grpc:
 	hack/grpcgen.sh
 
 tidy:

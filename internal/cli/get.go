@@ -59,9 +59,10 @@ func DefaultGetOptions() *GetOptions {
 func NewCmdGet() *cobra.Command {
 	o := DefaultGetOptions()
 	cmd := &cobra.Command{
-		Use:   "get (TYPE | TYPE/NAME)",
-		Short: "Display one or many resources.",
-		Args:  cobra.ExactArgs(1),
+		Use:       "get (TYPE | TYPE/NAME)",
+		Short:     "Display one or many resources.",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: getValidResourceKinds(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
