@@ -4,24 +4,23 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
 var (
 	paramsRegex *regexp.Regexp = regexp.MustCompile(`(?P<full>{{\w*(?P<param>.*?)\w*}})`)
 	labelRegex  *regexp.Regexp = regexp.MustCompile(`device.metadata.labels\[(?P<key>.*)\]`)
+	nameRegex   *regexp.Regexp = regexp.MustCompile(`device.metadata.name`)
 )
 
 func ContainsParameter(b []byte) bool {
 	return paramsRegex.Match(b)
 }
 
-func ReplaceParameters(b []byte, labels *map[string]string) ([]byte, error) {
+func ReplaceParameters(b []byte, objectMeta api.ObjectMeta) ([]byte, error) {
 	replacements := map[string]string{}
 	paramsToMatches := map[string]string{}
-
-	if labels == nil {
-		return b, nil
-	}
 
 	matches := paramsRegex.FindAllStringSubmatch(string(b), -1)
 	for _, match := range matches {
@@ -29,21 +28,28 @@ func ReplaceParameters(b []byte, labels *map[string]string) ([]byte, error) {
 	}
 
 	for param, match := range paramsToMatches {
-		if !labelRegex.MatchString(param) {
+		switch {
+		case nameRegex.MatchString(param):
+			if objectMeta.Name == nil {
+				return []byte(""), fmt.Errorf("parameter referenced name, but no name found")
+			}
+			replacements[match] = *objectMeta.Name
+		case labelRegex.MatchString(param):
+			key, err := findKeyinLabelParam(param)
+			if err != nil {
+				return []byte(""), err
+			}
+			if objectMeta.Labels == nil {
+				return []byte(""), fmt.Errorf("no label found with key %s", key)
+			}
+			val, ok := (*objectMeta.Labels)[key]
+			if !ok {
+				return []byte(""), fmt.Errorf("no label found with key %s", key)
+			}
+			replacements[match] = val
+		default:
 			return []byte(""), fmt.Errorf("found unknown parameter: %s", param)
 		}
-
-		key, err := findKeyinLabelParam(param)
-		if err != nil {
-			return []byte(""), err
-		}
-
-		val, ok := (*labels)[key]
-		if !ok {
-			return []byte(""), fmt.Errorf("no label found with key %s", key)
-		}
-
-		replacements[match] = val
 	}
 
 	outputStr := string(b)

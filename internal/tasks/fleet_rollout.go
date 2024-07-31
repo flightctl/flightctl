@@ -200,7 +200,7 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 			return nil, fmt.Errorf("failed converting configuration to json: %w", err)
 		}
 
-		cfgJson, err = ReplaceParameters(cfgJson, device.Metadata.Labels)
+		cfgJson, err = ReplaceParameters(cfgJson, device.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("failed replacing parameters: %w", err)
 		}
