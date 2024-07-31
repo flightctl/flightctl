@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 func TestStore(t *testing.T) {
@@ -44,7 +45,7 @@ var _ = Describe("DeviceStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) { called = true })
@@ -54,7 +55,86 @@ var _ = Describe("DeviceStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
+	})
+
+	It("CreateOrUpdateDevice create mode race", func() {
+		imageName := "tv"
+		device := api.Device{
+			Metadata: api.ObjectMeta{
+				Name: util.StrToPtr("newresourcename"),
+			},
+			Spec: &api.DeviceSpec{
+				Os: &api.DeviceOSSpec{Image: imageName},
+			},
+			Status: nil,
+		}
+
+		callbackdb, err := store.InitDB(cfg, log)
+		defer store.CloseDB(callbackdb)
+		Expect(err).ToNot(HaveOccurred())
+		race := func(db *gorm.DB) {
+			result := callbackdb.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename"}})
+			Expect(result.Error).ToNot(HaveOccurred())
+		}
+		err = callbackdb.Callback().Create().Before("gorm:create").Register("race", race)
+		Expect(err).ToNot(HaveOccurred())
+
+		_, _, err = devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("CreateOrUpdateDevice update mode race", func() {
+		status := api.NewDeviceStatus()
+		device := api.Device{
+			Metadata: api.ObjectMeta{
+				Name: util.StrToPtr("mydevice-1"),
+			},
+			Spec: &api.DeviceSpec{
+				Os: &api.DeviceOSSpec{
+					Image: "newos",
+				},
+			},
+			Status: &status,
+		}
+
+		callbackdb, err := store.InitDB(cfg, log)
+		defer store.CloseDB(callbackdb)
+		Expect(err).ToNot(HaveOccurred())
+		race := func(db *gorm.DB) {
+			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOSSpec{Image: "bah"}}}
+			device, err := model.NewDeviceFromApiResource(&otherupdate)
+			Expect(err).ToNot(HaveOccurred())
+			result := callbackdb.Updates(device)
+			Expect(result.Error).ToNot(HaveOccurred())
+		}
+		err = callbackdb.Callback().Update().Before("*").Register("race", race)
+		Expect(err).ToNot(HaveOccurred())
+
+		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(created).To(Equal(false))
+		Expect(dev.ApiVersion).To(Equal(model.DeviceAPI))
+		Expect(dev.Kind).To(Equal(model.DeviceKind))
+		Expect(dev.Spec.Os.Image).To(Equal("newos"))
+		Expect(dev.Metadata.ResourceVersion).ToNot(BeNil())
+		Expect(*dev.Metadata.ResourceVersion).To(Equal("2"))
+	})
+
+	It("CreateOrUpdateDevice update with stale resourceVersion", func() {
+		dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+		Expect(err).ToNot(HaveOccurred())
+		dev.Metadata.Owner = util.StrToPtr("newowner")
+		dev.Spec.Os.Image = "oldos"
+		// Update but don't save the new device, so we still have the old resourceVersion
+		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(called).To(BeTrue())
+
+		dev.Spec.Os.Image = "newos"
+		_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, callback)
+		Expect(err).To(HaveOccurred())
+		Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 	})
 
 	Context("Device store", func() {
@@ -174,6 +254,34 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(len(devices.Items)).To(Equal(3))
 		})
 
+		It("List with owner selector", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", util.StrToPtr("Fleet/fleet-a"), nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", util.StrToPtr("Fleet/fleet-b"), nil, nil)
+			listParams := store.ListParams{
+				Owners: []string{"Fleet/fleet-a"},
+				Limit:  1000,
+			}
+			devices, err := devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(1))
+
+			listParams = store.ListParams{
+				Owners: []string{"Fleet/fleet-b"},
+				Limit:  1000,
+			}
+			devices, err = devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(1))
+
+			listParams = store.ListParams{
+				Owners: []string{"Fleet/fleet-a", "Fleet/fleet-b"},
+				Limit:  1000,
+			}
+			devices, err = devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(2))
+		})
+
 		It("CreateOrUpdateDevice create mode", func() {
 			imageName := "tv"
 			device := api.Device{
@@ -219,7 +327,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = util.StrToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
+			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -233,7 +341,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Random Condition to make sure Conditions do get stored
 			status := api.NewDeviceStatus()
 			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
+				Type:               api.DeviceUpdating,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -248,7 +356,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: &status,
 			}
-			device.Status.Conditions[string(api.EnrollmentRequestApproved)] = condition
+			api.SetStatusCondition(&device.Status.Conditions, condition)
 			_, err := devStore.UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
@@ -257,7 +365,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Kind).To(Equal(model.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("os"))
 			Expect(dev.Status.Conditions).ToNot(BeEmpty())
-			Expect(dev.Status.Conditions[string(api.EnrollmentRequestApproved)].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(api.IsStatusConditionFalse(dev.Status.Conditions, api.DeviceUpdating)).To(BeTrue())
 		})
 
 		It("UpdateOwner", func() {
@@ -316,7 +424,7 @@ var _ = Describe("DeviceStore create", func() {
 			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev", nil, nil, nil)
 
 			// No rendered version
-			_, err := devStore.GetRendered(ctx, orgId, "dev", nil)
+			_, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrNoRenderedVersion))
 
@@ -325,14 +433,14 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
-			renderedConfig, err := devStore.GetRendered(ctx, orgId, "dev", nil)
+			renderedConfig, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*renderedConfig.Config).To(Equal("this is the first config"))
 			Expect(renderedConfig.Os.Image).To(Equal("os"))
 			Expect(renderedConfig.RenderedVersion).To(Equal("1"))
 
 			// Passing correct renderedVersion
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"))
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"), "")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(renderedConfig).To(BeNil())
 
@@ -341,7 +449,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"))
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"), "")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*renderedConfig.Config).To(Equal("this is the second config"))
 			Expect(renderedConfig.Os.Image).To(Equal("os"))

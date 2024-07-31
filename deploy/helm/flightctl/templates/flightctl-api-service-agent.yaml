@@ -11,7 +11,7 @@ spec:
   type: NodePort
   {{ end }}
   ports:
-    - name: "flightctl-agent-api"
+    - name: "agent-api"
       port: 7443
       targetPort: 7443
       {{ if .Values.flightctl.api.agentNodePort }}

@@ -56,13 +56,13 @@ var _ = Describe("ResourceSyncStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numResourceSyncs = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 
 		createResourceSyncs(ctx, 3, storeInst, orgId)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("ResourceSync store", func() {
@@ -112,8 +112,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rsName := "myresourcesync-1"
 			fleetowner := util.SetResourceOwner(model.ResourceSyncKind, rsName)
 			listParams := store.ListParams{
-				Limit: 100,
-				Owner: fleetowner,
+				Limit:  100,
+				Owners: []string{*fleetowner},
 			}
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, fleetowner)
 			callbackCalled := false

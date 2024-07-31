@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"errors"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -23,51 +24,38 @@ func newResources(log *log.PrefixLogger, manager resource.Manager) *Resources {
 }
 
 func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	resource := r.manager.Usage()
+	alerts := r.manager.Alerts()
+	errs := []error{}
 
 	// disk
-	diskStatus, err := diskUsageStatus(resource.DiskUsage)
-	if err != nil {
-		// TODO: add error to status
-		r.log.Errorf("Error getting disk usage status: %v", err)
+	diskStatus, alertMsg := resource.GetHighestSeverityResourceStatusFromAlerts(resource.DiskMonitorType, alerts.DiskUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
 	}
 	status.Resources.Disk = diskStatus
 
 	// cpu
-	cpuStatus, err := cpuUsageStatus(resource.CPUUsage)
-	if err != nil {
-		r.log.Errorf("Error getting cpu usage status: %v", err)
+	cpuStatus, alertMsg := resource.GetHighestSeverityResourceStatusFromAlerts(resource.CPUMonitorType, alerts.CPUUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
 	}
 	status.Resources.Cpu = cpuStatus
 
+	// memory
+	memoryStatus, alertMsg := resource.GetHighestSeverityResourceStatusFromAlerts(resource.MemoryMonitorType, alerts.MemoryUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
+	}
+	status.Resources.Memory = memoryStatus
+
+	// the alertMsg is a message that gets bubbled up to the summary.info status field
+	// if an alert is present.  these messages are not errors specifically but
+	// for now the presence of an error sets the device status to degraded.
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
 	return nil
-}
-
-// TODO: make generic
-func diskUsageStatus(usage *resource.DiskUsage) (v1alpha1.DeviceResourceStatusType, error) {
-	switch {
-	case usage.Error() != nil:
-		return v1alpha1.DeviceResourceStatusError, usage.Error()
-	case usage.IsAlert():
-		return v1alpha1.DeviceResourceStatusCritical, nil
-	case usage.IsWarn():
-		return v1alpha1.DeviceResourceStatusWarning, nil
-	default:
-		return v1alpha1.DeviceResourceStatusHealthy, nil
-	}
-}
-
-func cpuUsageStatus(usage *resource.CPUUsage) (v1alpha1.DeviceResourceStatusType, error) {
-	switch {
-	case usage.Error() != nil:
-		return v1alpha1.DeviceResourceStatusError, usage.Error()
-	case usage.IsAlert():
-		return v1alpha1.DeviceResourceStatusCritical, nil
-	case usage.IsWarn():
-		return v1alpha1.DeviceResourceStatusWarning, nil
-	default:
-		return v1alpha1.DeviceResourceStatusHealthy, nil
-	}
 }
 
 func (r *Resources) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {

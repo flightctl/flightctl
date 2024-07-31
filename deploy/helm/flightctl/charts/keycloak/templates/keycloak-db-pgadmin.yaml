@@ -1,0 +1,11 @@
+{{- if .Values.db.auth.adminAccess }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db-pgadmin
+  namespace: {{ .Values.db.namespace }}
+type: Opaque
+data:
+  username: {{ .Values.db.auth.adminUsername | b64enc | quote }}
+  password: {{ include "keycloak.lookupOrGeneratePassword" (dict "secret" "keycloak-db-pgadmin" "namespace" .Values.db.namespace "key" "password" "context" $) | b64enc | quote }}
+{{- end }}

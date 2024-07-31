@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("RepositoryStore create", func() {
@@ -25,6 +26,7 @@ var _ = Describe("RepositoryStore create", func() {
 		storeInst       store.Store
 		cfg             *config.Config
 		dbName          string
+		db              *gorm.DB
 		numRepositories int
 		callbackCalled  bool
 		callback        store.RepositoryStoreCallback
@@ -35,16 +37,20 @@ var _ = Describe("RepositoryStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
 		callbackCalled = false
 		callback = store.RepositoryStoreCallback(func(*model.Repository) { callbackCalled = true })
 
 		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
+
+		nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
+		result := db.Create(&nilrepo)
+		Expect(result.Error).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("Repository store", func() {
@@ -67,6 +73,12 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
+		It("Get repository - nil spec - not found error", func() {
+			_, err := storeInst.Repository().Get(ctx, orgId, "nilspec")
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
+		})
+
 		It("Delete repository success", func() {
 			err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
 			Expect(err).ToNot(HaveOccurred())
@@ -75,6 +87,12 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("Delete repository success when not found", func() {
 			err := storeInst.Repository().Delete(ctx, orgId, "nonexistent", callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeFalse())
+		})
+
+		It("Delete repository success when nil spec", func() {
+			err := storeInst.Repository().Delete(ctx, orgId, "nilspec", callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeFalse())
 		})
@@ -102,6 +120,11 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("List with paging", func() {
+			// Delete the repo with nilspec so it doesn't interfere with the counts
+			nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
+			result := db.Delete(&nilrepo)
+			Expect(result.Error).ToNot(HaveOccurred())
+
 			listParams := store.ListParams{Limit: 1000}
 			allRepositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
@@ -143,7 +166,7 @@ var _ = Describe("RepositoryStore create", func() {
 			}
 		})
 
-		It("List with paging", func() {
+		It("List with labels", func() {
 			listParams := store.ListParams{
 				Limit:  1000,
 				Labels: map[string]string{"key": "value-1"}}
@@ -155,8 +178,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository create mode", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-				Repo: "myrepo",
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+				Url:  "myrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -172,17 +196,18 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myrepo"))
+			Expect(repoSpec.Url).To(Equal("myrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateRepository update mode", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-				Repo: "myotherrepo",
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+				Url:  "myotherrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -198,9 +223,36 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(false))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
+			Expect(repoSpec.Url).To(Equal("myotherrepo"))
+			Expect(repo.Status.Conditions).ToNot(BeNil())
+			Expect(repo.Status.Conditions).To(BeEmpty())
+		})
+
+		It("CreateOrUpdateRepository create nilspec", func() {
+			spec := api.RepositorySpec{}
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+				Url:  "myotherrepo",
+				Type: "git",
+			})
+			Expect(err).ToNot(HaveOccurred())
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("nilspec"),
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalled).To(BeTrue())
+			Expect(created).To(Equal(true))
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
+			Expect(repo.Kind).To(Equal(model.RepositoryKind))
+			repoSpec, err := repo.Spec.AsGenericRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repoSpec.Url).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})

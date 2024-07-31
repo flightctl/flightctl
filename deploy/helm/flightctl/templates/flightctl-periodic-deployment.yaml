@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: periodic
-          image: {{ .Values.flightctl.periodic.image }}
+          image: {{ .Values.flightctl.periodic.image }}:{{ default .Chart.AppVersion .Values.flightctl.periodic.imageTag }}
           imagePullPolicy: {{ .Values.flightctl.periodic.imagePullPolicy }}
           env:
             - name: HOME

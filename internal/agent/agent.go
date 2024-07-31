@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
@@ -102,29 +103,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	executer := &executer.CommonExecuter{}
 
-	// TODO: expose through config
-	diskAlertFreeCapacityThreshold := int64(10)
-	diskWarnFreeCapacityThreshold := int64(20)
-	diskPaths := []string{"/"}
-	diskSyncDuration := time.Minute
-	diskTimeoutDuration := time.Second * 5
-
-	cpuAlertFreeCapacityThreshold := int64(10)
-	cpuWarnFreeCapacityThreshold := int64(20)
-	cpuSyncDuration := time.Minute
-	cpuTimeoutDuration := time.Second * 5
-
 	resourceManager := resource.NewManager(
 		a.log,
-		diskAlertFreeCapacityThreshold,
-		diskWarnFreeCapacityThreshold,
-		diskPaths,
-		diskSyncDuration,
-		diskTimeoutDuration,
-		cpuAlertFreeCapacityThreshold,
-		cpuWarnFreeCapacityThreshold,
-		cpuSyncDuration,
-		cpuTimeoutDuration,
 	)
 
 	// create status manager
@@ -157,6 +137,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		currentSpecFilePath,
 		desiredSpecFilePath,
 		a.log,
+		a.config.DefaultLabels,
 	)
 
 	// bootstrap
@@ -168,6 +149,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	managementClient, err := newManagementClient(a.config)
 	if err != nil {
 		return err
+	}
+
+	// create the gRPC client
+	grpcClient, err := newGrpcClient(a.config)
+	if err != nil {
+		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
 
 	statusManager.SetClient(managementClient)
@@ -184,6 +171,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create resource controller
+	resourceController := resource.NewController(
+		a.log,
+		resourceManager,
+	)
+
 	// create config controller
 	configController := config.NewController(
 		deviceWriter,
@@ -197,6 +190,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create console controller
+	consoleController := device.NewConsoleController(
+		grpcClient,
+		deviceName,
+		a.log,
+	)
+
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
@@ -207,6 +207,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.StatusUpdateInterval,
 		configController,
 		osImageController,
+		resourceController,
+		consoleController,
 		a.log,
 	)
 
@@ -215,7 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
+func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err
@@ -223,12 +225,23 @@ func newEnrollmentClient(cfg *Config) (*client.Enrollment, error) {
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newManagementClient(cfg *Config) (*client.Management, error) {
+func newManagementClient(cfg *Config) (client.Management, error) {
 	httpClient, err := client.NewFromConfig(&cfg.ManagementService.Config)
 	if err != nil {
 		return nil, err
 	}
 	return client.NewManagement(httpClient), nil
+}
+
+func newGrpcClient(cfg *Config) (grpc_v1.RouterServiceClient, error) {
+	if cfg.GrpcManagementEndpoint == "" {
+		return nil, fmt.Errorf("no gRPC endpoint, disabling console functionality")
+	}
+	client, err := client.NewGRPCClientFromConfig(&cfg.ManagementService.Config, cfg.GrpcManagementEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("creating gRPC client: %w", err)
+	}
+	return client, nil
 }
 
 func initializeFileIO(cfg *Config) (*fileio.Writer, *fileio.Reader) {

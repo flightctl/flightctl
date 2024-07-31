@@ -12,17 +12,18 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type ResourceSync interface {
-	Create(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, error)
+	Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	ListIgnoreOrg() ([]model.ResourceSync, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.ResourceSync) (*api.ResourceSync, bool, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, bool, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
 	UpdateStatusIgnoreOrg(resourceSync *model.ResourceSync) error
 	InitialMigration() error
@@ -51,13 +52,17 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	resourceSync := model.NewResourceSyncFromApiResource(resource)
+	resourceSync, err := model.NewResourceSyncFromApiResource(resource)
+	if err != nil {
+		return nil, err
+	}
 	resourceSync.OrgID = orgId
-	resourceSync.Generation = util.Int64ToPtr(1)
-	result := s.db.Create(resourceSync)
-
+	_, err = s.createResourceSync(resourceSync)
+	if err != nil {
+		return nil, err
+	}
 	apiResourceSync := resourceSync.ToApiResource()
-	return &apiResourceSync, flterrors.ErrorFromGormError(result.Error)
+	return &apiResourceSync, nil
 }
 
 func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error) {
@@ -102,24 +107,12 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 }
 
 func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error {
-	resourceSyncs, err := s.List(ctx, orgId, ListParams{})
-	if err != nil {
-		return err
-	}
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		for _, resource := range resourceSyncs.Items {
-			rsName := *resource.Metadata.Name
-			resourceSync := model.ResourceSync{
-				Resource: model.Resource{OrgID: orgId, Name: rsName},
-			}
-			result := tx.Unscoped().Delete(resourceSync)
-			if result.Error != nil {
-				return flterrors.ErrorFromGormError(result.Error)
-			}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("org_id = ?", orgId).Delete(&model.ResourceSync{}).Error; err != nil {
+			return flterrors.ErrorFromGormError(err)
 		}
 		return callback(ctx, tx, orgId, model.ResourceSyncKind)
 	})
-	return err
 }
 
 func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
@@ -134,49 +127,78 @@ func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name strin
 	return &apiResourceSync, nil
 }
 
-func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, error) {
+func (s *ResourceSyncStore) createResourceSync(resourceSync *model.ResourceSync) (bool, error) {
+	resourceSync.Generation = lo.ToPtr[int64](1)
+	resourceSync.ResourceVersion = lo.ToPtr[int64](1)
+	if result := s.db.Create(resourceSync); result.Error != nil {
+		err := flterrors.ErrorFromGormError(result.Error)
+		return err == flterrors.ErrDuplicateName, err
+	}
+	return false, nil
+}
+
+func (s *ResourceSyncStore) updateResourceSync(existingRecord, resourceSync *model.ResourceSync) (bool, error) {
+	updateSpec := resourceSync.Spec != nil && !reflect.DeepEqual(existingRecord.Spec, resourceSync.Spec)
+
+	// Update the generation if the spec was updated
+	if updateSpec {
+		resourceSync.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
+	}
+	if resourceSync.ResourceVersion != nil && lo.FromPtr(existingRecord.ResourceVersion) != lo.FromPtr(resourceSync.ResourceVersion) {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	resourceSync.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
+	where := model.ResourceSync{Resource: model.Resource{OrgID: resourceSync.OrgID, Name: resourceSync.Name}}
+	query := s.db.Model(where).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion))
+
+	result := query.Updates(&resourceSync)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *ResourceSyncStore) createOrUpdate(orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, bool, error) {
 	if resource == nil {
-		return nil, false, flterrors.ErrResourceIsNil
+		return nil, false, false, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, false, flterrors.ErrResourceNameIsNil
+		return nil, false, false, flterrors.ErrResourceNameIsNil
 	}
-	resourcesync := model.NewResourceSyncFromApiResource(resource)
-	resourcesync.OrgID = orgId
 
-	created := false
-	findResourceSync := model.ResourceSync{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	resourceSync, err := model.NewResourceSyncFromApiResource(resource)
+	if err != nil {
+		return nil, false, false, err
 	}
-	result := s.db.First(&findResourceSync)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			resourcesync.Generation = util.Int64ToPtr(1)
-			created = true
-		} else {
-			return nil, false, flterrors.ErrorFromGormError(result.Error)
+	resourceSync.OrgID = orgId
+	resourceSync.Status = nil
+
+	existingRecord, err := getExistingRecord[model.ResourceSync](s.db, resourceSync.Name, orgId)
+	if err != nil {
+		return nil, false, false, err
+	}
+	exists := existingRecord != nil
+	if !exists {
+		if retry, err := s.createResourceSync(resourceSync); err != nil {
+			return nil, false, retry, err
 		}
 	} else {
-		sameSpec := reflect.DeepEqual(findResourceSync.Spec.Data, resourcesync.Spec.Data)
-		resourcesync.Generation = findResourceSync.Generation
-		// Update the generation if the template was updated
-		if !sameSpec {
-			if resourcesync.Generation == nil {
-				resourcesync.Generation = util.Int64ToPtr(1)
-			} else {
-				resourcesync.Generation = util.Int64ToPtr(*findResourceSync.Generation + 1)
-			}
-		} else {
-			resourcesync.Generation = findResourceSync.Generation
+		if retry, err := s.updateResourceSync(existingRecord, resourceSync); err != nil {
+			return nil, false, retry, err
 		}
 	}
 
-	var updatedResourceSync model.ResourceSync
-	where := model.ResourceSync{Resource: model.Resource{OrgID: resourcesync.OrgID, Name: resourcesync.Name}}
-	result = s.db.Where(where).Assign(resourcesync).FirstOrCreate(&updatedResourceSync)
+	updatedResource := resourceSync.ToApiResource()
+	return &updatedResource, !exists, false, err
+}
 
-	updatedResource := updatedResourceSync.ToApiResource()
-	return &updatedResource, created, flterrors.ErrorFromGormError(result.Error)
+func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, error) {
+	return retryCreateOrUpdate(func() (*api.ResourceSync, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource)
+	})
 }
 
 func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) error {
@@ -184,7 +206,8 @@ func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) 
 		Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name},
 	}
 	result := s.db.Model(&resourcesync).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(resource.Status),
+		"status":           model.MakeJSONField(resource.Status),
+		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 	return flterrors.ErrorFromGormError(result.Error)
 }

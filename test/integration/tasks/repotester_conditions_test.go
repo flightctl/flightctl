@@ -30,8 +30,8 @@ func (r *MockRepoTester) TestAccess(repository *model.Repository) error {
 
 func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
 	spec := api.RepositorySpec{}
-	err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-		Repo: "myrepourl",
+	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+		Url: "myrepourl",
 	})
 	if err != nil {
 		return err
@@ -64,13 +64,13 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		stores, cfg, dbName = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		repotestr = tasks.NewRepoTester(log, stores)
 		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, stores, dbName)
+		store.DeleteTestDB(log, cfg, stores, dbName)
 	})
 
 	Context("Conditions", func() {
@@ -83,7 +83,8 @@ var _ = Describe("RepoTester", func() {
 			repo, err := stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 
-			repoModel := model.NewRepositoryFromApiResource(repo)
+			repoModel, err := model.NewRepositoryFromApiResource(repo)
+			Expect(err).ToNot(HaveOccurred())
 			err = repotestr.SetAccessCondition(*repoModel, nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -92,7 +93,8 @@ var _ = Describe("RepoTester", func() {
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 
-			repoModel = model.NewRepositoryFromApiResource(repo)
+			repoModel, err = model.NewRepositoryFromApiResource(repo)
+			Expect(err).ToNot(HaveOccurred())
 			err = repotestr.SetAccessCondition(*repoModel, nil)
 			Expect(err).ToNot(HaveOccurred())
 

@@ -73,7 +73,8 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	failureCount := 0
 	owner := util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)
 
-	listParams := store.ListParams{Owner: owner, Limit: ItemsPerPage}
+	listParams := store.ListParams{Owners: []string{*owner}, Limit: ItemsPerPage}
+
 	for {
 		devices, err := f.devStore.List(ctx, f.resourceRef.OrgID, listParams)
 		if err != nil {
@@ -122,11 +123,8 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return nil
 	}
 
-	if device.Metadata.Annotations != nil {
-		multipleOwners, ok := (*device.Metadata.Annotations)[model.DeviceAnnotationMultipleOwners]
-		if ok && len(multipleOwners) > 0 {
-			f.log.Warnf("Device has multiple owners, skipping rollout: %s", multipleOwners)
-		}
+	if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
+		f.log.Warnf("Device has multiple owners, skipping rollout")
 	}
 
 	ownerName, isFleetOwner, err := getOwnerFleet(device)
@@ -163,6 +161,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		Containers: templateVersion.Status.Containers,
 		Os:         templateVersion.Status.Os,
 		Systemd:    templateVersion.Status.Systemd,
+		Resources:  templateVersion.Status.Resources,
 	}
 
 	if currentVersion == *templateVersion.Metadata.Name && reflect.DeepEqual(newDeviceSpec, *device.Spec) {

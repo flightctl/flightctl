@@ -68,7 +68,7 @@ var _ = Describe("RepoUpdate", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks.NewCallbackManager(mockPublisher, log)
@@ -166,7 +166,7 @@ var _ = Describe("RepoUpdate", func() {
 
 	AfterEach(func() {
 		ctrl.Finish()
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	When("a Repository definition is updated", func() {

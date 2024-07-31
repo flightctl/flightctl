@@ -30,7 +30,9 @@ const (
 	// DefaultCertsDir is the default directory where the device's certificates are stored
 	DefaultCertsDirName = "certs"
 	// DefaultManagementEndpoint is the default address of the device management server
-	DefaultManagementEndpoint = "https://localhost:3443"
+	DefaultManagementEndpoint = "https://localhost:7443"
+	// DefaultGrpcManagementEndpoint is the default address of the device management server (gRPC)
+	DefaultGrpcManagementEndpoint = "https://localhost:7444"
 	// name of the CA bundle file
 	CacertFile = "ca.crt"
 	// GeneratedCertFile is the name of the cert file which is generated as the result of enrollment
@@ -56,6 +58,11 @@ type Config struct {
 	// ManagementService is the client configuration for connecting to the device management server
 	ManagementService ManagementService `json:"management-service,omitempty"`
 
+	// grpcManagementEndpoint is the address of the device management server (gRPC)
+	// TODO: remove this field once the HTTP management field is not used anymore, we can just
+	// switch to use that one.
+	GrpcManagementEndpoint string `json:"grpc-management-endpoint,omitempty"`
+
 	// SpecFetchInterval is the interval between two reads of the remote device spec
 	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
@@ -74,6 +81,9 @@ type Config struct {
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
 	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
+
+	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
+	DefaultLabels map[string]string `json:"default-labels,omitempty"`
 
 	reader *fileio.Reader
 }
@@ -113,6 +123,7 @@ func NewDefault() *Config {
 		SpecFetchInterval:    DefaultSpecFetchInterval,
 		reader:               fileio.NewReader(),
 		LogLevel:             logrus.InfoLevel.String(),
+		DefaultLabels:        make(map[string]string),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {

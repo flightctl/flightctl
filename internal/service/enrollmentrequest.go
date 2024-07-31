@@ -52,6 +52,17 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		Conditions:  []v1alpha1.Condition{},
 		Approval:    approval,
 	}
+
+	// union user-provided labels with agent-provided labels
+	if enrollmentRequest.Spec.Labels != nil {
+		for k, v := range *enrollmentRequest.Spec.Labels {
+			// don't override user-provided labels
+			if _, ok := (*enrollmentRequest.Status.Approval.Labels)[k]; !ok {
+				(*enrollmentRequest.Status.Approval.Labels)[k] = v
+			}
+		}
+	}
+
 	condition := v1alpha1.Condition{
 		Type:    v1alpha1.EnrollmentRequestApproved,
 		Status:  v1alpha1.ConditionStatusTrue,
@@ -67,6 +78,9 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 		Metadata: v1alpha1.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
+	}
+	if errs := apiResource.Validate(); len(errs) > 0 {
+		return fmt.Errorf("failed validating new device: %w", errors.Join(errs...))
 	}
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
@@ -160,9 +174,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 		} else {
 			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
 		}
-	case flterrors.ErrResourceIsNil:
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceNameIsNil, flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil

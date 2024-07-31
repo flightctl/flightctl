@@ -33,9 +33,11 @@ type dbConfig struct {
 type svcConfig struct {
 	Address              string   `json:"address,omitempty"`
 	AgentEndpointAddress string   `json:"agentEndpointAddress,omitempty"`
+	AgentGrpcAddress     string   `json:"agentGrpcAddress,omitempty"`
 	CertStore            string   `json:"cert,omitempty"`
 	BaseUrl              string   `json:"baseUrl,omitempty"`
 	BaseAgentEndpointUrl string   `json:"baseAgentEndpointUrl,omitempty"`
+	BaseAgentGrpcUrl     string   `json:"baseAgentGrpcUrl,omitempty"`
 	CaCertFile           string   `json:"caCertFile,omitempty"`
 	CaKeyFile            string   `json:"caKeyFile,omitempty"`
 	SrvCertFile          string   `json:"srvCertFile,omitempty"`
@@ -83,9 +85,11 @@ func NewDefault() *Config {
 		Service: &svcConfig{
 			Address:              ":3443",
 			AgentEndpointAddress: ":7443",
+			AgentGrpcAddress:     ":7444",
 			CertStore:            CertificateDir(),
 			BaseUrl:              "https://localhost:3443",
 			BaseAgentEndpointUrl: "https://localhost:7443",
+			BaseAgentGrpcUrl:     "grpcs://localhost:7444",
 			LogLevel:             "info",
 		},
 		Queue: &queueConfig{

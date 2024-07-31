@@ -17,7 +17,8 @@ paths:
           description: Redirect
           headers:
             Location:
-              type: "string"
+              schema:
+                type: string
         "418":
           description: Auth not configured
   /api/v1/token/validate:
@@ -574,7 +575,7 @@ paths:
             format: int32
         - name: owner
           in: query
-          description: The owner of the devices.
+          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
           required: false
           schema:
             type: string
@@ -880,6 +881,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/devices/{name}/console:
+    get:
+      tags:
+        - device
+      description: Request a console connection
+      operationId: requestConsole
+      parameters:
+        - name: name
+          in: path
+          description: unique name of the Device
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConsole'
         "401":
           description: Unauthorized
           content:
@@ -1301,7 +1334,7 @@ paths:
             format: int32
         - name: owner
           in: query
-          description: The owner of the fleets.
+          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
           required: false
           schema:
             type: string
@@ -1806,8 +1839,8 @@ components:
         - kind
         - metadata
         - spec
-      description: Repository represents a git repository
-    GitHttpConfig:
+      description: Repository represents a Git repository or an HTTP endpoint
+    HttpConfig:
       type: object
       additionalProperties: false
       properties:
@@ -1832,19 +1865,26 @@ components:
         skipServerVerification:
           type: boolean
           description: 'Skip remote server verification'
-    GitHttpRepoSpec:
+        token:
+          type: string
+          description: 'The token for auth with HTTP transport'
+          format: password
+    HttpRepoSpec:
       type: object
       additionalProperties: false
       properties:
-        repo:
+        url:
           type: string
-          description: 'The HTTP Git repository URL to clone from'
+          description: 'The HTTP URL to call or clone from'
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
         httpConfig:
-          $ref: "#/components/schemas/GitHttpConfig"
+          $ref: "#/components/schemas/HttpConfig"
       required:
-        - repo
+        - url
+        - type
         - httpConfig
-    GitSshConfig:
+    SshConfig:
       type: object
       additionalProperties: false
       properties:
@@ -1859,33 +1899,39 @@ components:
         skipServerVerification:
           type: boolean
           description: 'Skip remote server verification'
-    GitSshRepoSpec:
+    SshRepoSpec:
       type: object
       additionalProperties: false
       properties:
-        repo:
+        url:
           type: string
           description: 'The SSH Git repository URL to clone from'
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
         sshConfig:
-          $ref: "#/components/schemas/GitSshConfig"
+          $ref: "#/components/schemas/SshConfig"
       required:
-        - repo
+        - url
+        - type
         - sshConfig
-    GitGenericRepoSpec:
+    GenericRepoSpec:
       type: object
       additionalProperties: false
       properties:
-        repo:
+        url:
           type: string
-          description: 'The (possibly remote) repository URL to clone from'
+          description: 'The (possibly remote) repository URL'
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
       required:
-        - repo
+        - url
+        - type
     RepositorySpec:
       type: object
       oneOf:
-        - $ref: "#/components/schemas/GitGenericRepoSpec"
-        - $ref: "#/components/schemas/GitHttpRepoSpec"
-        - $ref: "#/components/schemas/GitSshRepoSpec"
+        - $ref: "#/components/schemas/GenericRepoSpec"
+        - $ref: "#/components/schemas/HttpRepoSpec"
+        - $ref: "#/components/schemas/SshRepoSpec"
     RepositoryStatus:
       type: object
       properties:
@@ -1919,6 +1965,12 @@ components:
         - kind
         - metadata
         - items
+    RepoSpecType:
+      type: string
+      description: 'RepoSpecType is the type of the repository'
+      enum:
+        - git
+        - http
     Device:
       type: object
       properties:
@@ -1939,6 +1991,20 @@ components:
         - kind
         - metadata
       description: Device represents a physical device.
+    DeviceConsole:
+      type: object
+      properties:
+        # TODO: when migrating to ws, this should be a ws url instead of gRPCEndpoint
+        #wsURL:
+        #  type: string
+        #  description: 'The URL to connect to the console through a websocket'
+        gRPCEndpoint:
+          type: string
+        sessionID:
+          type: string
+      required:
+        - gRPCEndpoint
+        - sessionID
     GenericConfigSpec:
       type: object
       properties:
@@ -2003,6 +2069,43 @@ components:
               additionalProperties: true
           required:
           - inline
+    HttpConfigProviderSpec:
+      allOf:
+        - $ref: '#/components/schemas/GenericConfigSpec'
+        - type: object
+          properties:
+            httpRef:
+              type: object
+              properties:
+                repository:
+                  type: string
+                  description: |
+                    The name of the repository resource to use as the sync source
+                suffix:
+                  type: string
+                  description: |
+                    Part of the URL that comes after the base URL. It can include query parameters such as:
+                    /path/to/endpoint?query=param
+                filePath:
+                  type: string
+                  description: |
+                    The path of the file where the response is stored in the filesystem of the device.
+              required:
+              - repository
+              - filePath
+          required:
+          - httpRef
+    ResourceMonitor:
+      oneOf:
+        - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+        - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
+        - $ref: '#/components/schemas/DiskResourceMonitorSpec'
+      discriminator:
+        propertyName: monitorType
+        mapping:
+          CPU: '#/components/schemas/CPUResourceMonitorSpec'
+          Memory: '#/components/schemas/MemoryResourceMonitorSpec'
+          Disk: '#/components/schemas/DiskResourceMonitorSpec'
     ResourceMonitorSpec:
       type: object
       properties:
@@ -2012,17 +2115,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResourceAlertRule'
-          description: "Array of alert rules. Only one alert per severity is allowed." 
+          description: "Array of alert rules. Only one alert per severity is allowed."
         samplingInterval:
           type: string
-          pattern: '^\d+[smhd]$'
-          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
-      discriminator:
-        propertyName: monitorType
+          pattern: '^[1-9]\d*[smhd]$'
+          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer."
       required:
         - monitorType
         - alertRules
-        - frequency
+        - samplingInterval
     CPUResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
@@ -2054,7 +2155,7 @@ components:
       properties:
         severity:
           $ref: '#/components/schemas/ResourceAlertSeverityType'
-          description: "Severity of the alert."          
+          description: "Severity of the alert."
         duration:
           type: string
           pattern: '^\d+[smhd]$'
@@ -2125,9 +2226,9 @@ components:
         - updatedAt
       properties:
         conditions:
-          type: object
+          type: array
           description: "Conditions represent the observations of a the current state of a device."
-          additionalProperties:
+          items:
             $ref: '#/components/schemas/Condition'
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
@@ -2447,6 +2548,11 @@ components:
           description: 'csr is a PEM-encoded PKCS#10 certificate signing request.'
         deviceStatus:
           $ref: '#/components/schemas/DeviceStatus'
+        labels:
+          type: object
+          additionalProperties:
+            type: string 
+          description: 'A set of labels that the service will apply to this device when its enrollment is approved'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
@@ -2635,17 +2741,12 @@ components:
           type: array
           description: 'Array of resource monitor configurations.'
           items:
-            type: object
-            oneOf:
-              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
-              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
-              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
-              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
-            discriminator:
-              propertyName: monitorType
+            $ref: '#/components/schemas/ResourceMonitor'
+        console:
+          $ref: '#/components/schemas/DeviceConsole'
+
       required:
         - renderedVersion
-        - resources
     DeviceSpec:
       type: object
       properties:
@@ -2660,6 +2761,7 @@ components:
               - $ref: "#/components/schemas/GitConfigProviderSpec"
               - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
               - $ref: "#/components/schemas/InlineConfigProviderSpec"
+              - $ref: "#/components/schemas/HttpConfigProviderSpec"
             discriminator:
               propertyName: configType
         containers:
@@ -2683,14 +2785,7 @@ components:
           type: array
           description: 'Array of resource monitor configurations.'
           items:
-            type: object
-            oneOf:
-              - $ref: '#/components/schemas/CPUResourceMonitorSpec'
-              - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
-              - $ref: '#/components/schemas/DiskResourceMonitorSpec'
-              - $ref: '#/components/schemas/CustomResourceMonitorSpec'
-            discriminator:
-              propertyName: monitorType
+            $ref: '#/components/schemas/ResourceMonitor'
     FleetStatus:
       type: object
       properties:
@@ -2885,6 +2980,7 @@ components:
       - 'Valid'                # Fleet
       - 'Updating'             # Device
       - 'SpecValid'            # Device (service condition)
+      - 'MultipleOwners'       # Device (service condition)
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
@@ -2896,6 +2992,7 @@ components:
       - FleetValid
       - DeviceUpdating
       - DeviceSpecValid
+      - DeviceMultipleOwners
       - TemplateVersionValid
     ConditionStatus:
       type: string
@@ -2913,7 +3010,9 @@ components:
       - 'GitConfigProviderSpec'
       - 'KubernetesSecretProviderSpec'
       - 'InlineConfigProviderSpec'
+      - 'HttpConfigProviderSpec'
       x-enum-varnames:
       - 'TemplateDiscriminatorGitConfig'
       - 'TemplateDiscriminatorKubernetesSec'
       - 'TemplateDiscriminatorInlineConfig'
+      - 'TemplateDiscriminatorHttpConfig'

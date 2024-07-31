@@ -4,12 +4,13 @@ import (
 	"context"
 	b64 "encoding/base64"
 	"encoding/json"
-	"errors"
+	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -49,21 +50,8 @@ func (s *RepositoryStore) InitialMigration() error {
 }
 
 func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	repository := model.NewRepositoryFromApiResource(resource)
-	repository.OrgID = orgId
-	result := s.db.Create(repository)
-	apiRepository, toApiErr := repository.ToApiResource()
-	if result.Error == nil {
-		callback(repository)
-	}
-	err := flterrors.ErrorFromGormError(result.Error)
-	if err == nil {
-		err = toApiErr
-	}
-	return &apiRepository, err
+	repo, _, err := s.CreateOrUpdate(ctx, orgId, resource, callback)
+	return repo, err
 }
 
 func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
@@ -95,6 +83,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 			}
 		} else {
 			countQuery := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
+			countQuery = countQuery.Where("spec IS NOT NULL")
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -117,7 +106,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 	var repositories model.RepositoryList
 
-	result := s.db.Model(&repositories).Find(&repositories)
+	result := s.db.Model(&repositories).Where("spec IS NOT NULL").Find(&repositories)
 	if result.Error != nil {
 		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
@@ -126,7 +115,7 @@ func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 
 func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback RepositoryStoreAllDeletedCallback) error {
 	condition := model.Repository{}
-	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
+	result := s.db.Unscoped().Where("spec IS NOT NULL AND org_id = ?", orgId).Delete(&condition)
 	if result.Error == nil {
 		callback(orgId)
 	}
@@ -146,49 +135,86 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&repository)
+	result := s.db.Where("spec IS NOT NULL").First(&repository)
 	if result.Error != nil {
 		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 	return &repository, nil
 }
 
-func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error) {
+func (s *RepositoryStore) createRepository(repository *model.Repository) (bool, error) {
+	repository.Generation = lo.ToPtr[int64](1)
+	repository.ResourceVersion = lo.ToPtr[int64](1)
+	if result := s.db.Create(repository); result.Error != nil {
+		err := flterrors.ErrorFromGormError(result.Error)
+		return err == flterrors.ErrDuplicateName, err
+	}
+	return false, nil
+}
+
+func (s *RepositoryStore) updateRepository(existingRecord, repository *model.Repository) (bool, error) {
+	updateSpec := repository.Spec != nil && !reflect.DeepEqual(existingRecord.Spec, repository.Spec)
+
+	// Update the generation if the spec was updated
+	if updateSpec {
+		repository.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
+	}
+	if repository.ResourceVersion != nil && lo.FromPtr(existingRecord.ResourceVersion) != lo.FromPtr(repository.ResourceVersion) {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	repository.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
+	where := model.Repository{Resource: model.Resource{OrgID: repository.OrgID, Name: repository.Name}}
+	query := s.db.Model(where).Where("(resource_version is null or resource_version = ?)", lo.FromPtr(existingRecord.ResourceVersion))
+
+	result := query.Updates(&repository)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *RepositoryStore) createOrUpdate(orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, bool, error) {
 	if resource == nil {
-		return nil, false, flterrors.ErrResourceIsNil
+		return nil, false, false, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, false, flterrors.ErrResourceNameIsNil
+		return nil, false, false, flterrors.ErrResourceNameIsNil
 	}
-	repository := model.NewRepositoryFromApiResource(resource)
-	repository.OrgID = orgId
 
-	created := false
-	findRepository := model.Repository{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	repository, err := model.NewRepositoryFromApiResource(resource)
+	if err != nil {
+		return nil, false, false, err
 	}
-	result := s.db.First(&findRepository)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			created = true
-		} else {
-			return nil, false, flterrors.ErrorFromGormError(result.Error)
+	repository.OrgID = orgId
+	repository.Status = nil
+
+	existingRecord, err := getExistingRecord[model.Repository](s.db, repository.Name, orgId)
+	if err != nil {
+		return nil, false, false, err
+	}
+	exists := existingRecord != nil
+	if !exists {
+		if retry, err := s.createRepository(repository); err != nil {
+			return nil, false, retry, err
+		}
+	} else {
+		if retry, err := s.updateRepository(existingRecord, repository); err != nil {
+			return nil, false, retry, err
 		}
 	}
+	callback(repository)
 
-	var updatedRepository model.Repository
-	where := model.Repository{Resource: model.Resource{OrgID: repository.OrgID, Name: repository.Name}}
-	result = s.db.Where(where).Assign(repository).FirstOrCreate(&updatedRepository)
+	updatedResource, err := repository.ToApiResource()
+	return &updatedResource, !exists || existingRecord.Spec == nil, false, err
+}
 
-	updatedResource, toApiErr := updatedRepository.ToApiResource()
-	if result.Error == nil {
-		callback(repository)
-	}
-	err := flterrors.ErrorFromGormError(result.Error)
-	if err == nil {
-		err = toApiErr
-	}
-	return &updatedResource, created, err
+func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error) {
+	return retryCreateOrUpdate(func() (*api.Repository, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, callback)
+	})
 }
 
 func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) error {
@@ -202,28 +228,13 @@ func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) erro
 }
 
 func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error {
-	var existingRecord model.Repository
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord = model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-
-		if err := innerTx.Unscoped().Delete(&existingRecord).Error; err != nil {
-			return flterrors.ErrorFromGormError(err)
-		}
-		return nil
-	})
-
-	if err != nil {
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil
-		}
-		return err
+	var existingRecords []*model.Repository
+	if err := s.db.Raw(`delete from repositories where org_id = ? and name = ? and spec is not null returning *`, orgId, name).Scan(&existingRecords).Error; err != nil {
+		return flterrors.ErrorFromGormError(err)
 	}
-
-	callback(&existingRecord)
+	for i := range existingRecords {
+		callback(existingRecords[i])
+	}
 	return nil
 }
 

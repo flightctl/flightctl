@@ -35,13 +35,13 @@ var _ = Describe("FleetStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numFleets = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 
 		testutil.CreateTestFleets(ctx, 3, storeInst.Fleet(), orgId, "myfleet", false, nil)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	Context("Fleet store", func() {
@@ -201,25 +201,40 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
-			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
-			fleet.Status = nil
+
+			condition := api.Condition{
+				Type:               api.FleetValid,
+				LastTransitionTime: time.Now(),
+				Status:             api.ConditionStatusFalse,
+				Reason:             "reason",
+				Message:            "message",
+			}
+			fleet.Status = &api.FleetStatus{Conditions: []api.Condition{condition}}
+			_, err = storeInst.Fleet().UpdateStatus(ctx, orgId, fleet)
+			Expect(err).ToNot(HaveOccurred())
+			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+
+			updatedFleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
 
 			called := false
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
 				called = true
 			})
-			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, callback)
+			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
 
-			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
+			updatedFleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
-			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
-			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
+			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
 			Expect(*updatedFleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 		})
@@ -410,14 +425,14 @@ var _ = Describe("FleetStore create", func() {
 				called++
 			})
 			err := storeInst.Fleet().CreateOrUpdateMultiple(ctx, orgId, callback, &fleet, &fleet2)
-			Expect(called).To(Equal(0))
+			Expect(called).To(Equal(1))
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNameIsNil))
 		})
 
 		It("UpdateStatus", func() {
 			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
+				Type:               api.FleetValid,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -437,14 +452,14 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
 			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
-			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
 		})
 
 		It("List with owner param", func() {
 			owner := "owner"
 			listParams := store.ListParams{
-				Limit: 100,
-				Owner: &owner,
+				Limit:  100,
+				Owners: []string{owner},
 			}
 
 			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {})

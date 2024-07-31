@@ -1,14 +1,14 @@
 packages:
-  flightctl-agent:
-    specfile_path: packaging/rpm/flightctl-agent.spec
+  flightctl:
+    specfile_path: packaging/rpm/flightctl.spec
 
     # add or remove files that should be synced
     files_to_sync:
-        - packaging/rpm/flightctl-agent.spec
+        - packaging/rpm/flightctl.spec
         - .packit.yaml
 
-    upstream_package_name: flightctl-agent
-    downstream_package_name: flightctl-agent
+    upstream_package_name: flightctl
+    downstream_package_name: flightctl
 
 jobs:
   - job: copr_build

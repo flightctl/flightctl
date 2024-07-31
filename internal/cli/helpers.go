@@ -15,7 +15,7 @@ const (
 )
 
 var (
-	resourceKinds = map[string]string{
+	pluralKinds = map[string]string{
 		DeviceKind:            "devices",
 		EnrollmentRequestKind: "enrollmentrequests",
 		FleetKind:             "fleets",
@@ -23,19 +23,39 @@ var (
 		ResourceSyncKind:      "resourcesyncs",
 		TemplateVersionKind:   "templateversions",
 	}
+
+	shortnameKinds = map[string]string{
+		DeviceKind:            "dev",
+		EnrollmentRequestKind: "er",
+		FleetKind:             "flt",
+		RepositoryKind:        "repo",
+		ResourceSyncKind:      "rs",
+		TemplateVersionKind:   "tv",
+	}
 )
+
+func getValidResourceKinds() []string {
+	resourceKinds := make([]string, len(pluralKinds))
+	i := 0
+	for _, v := range pluralKinds {
+		resourceKinds[i] = v
+		i++
+	}
+	return resourceKinds
+}
 
 func parseAndValidateKindName(arg string) (string, string, error) {
 	kind, name, _ := strings.Cut(arg, "/")
 	kind = singular(kind)
-	if _, ok := resourceKinds[kind]; !ok {
+	kind = fullname(kind)
+	if _, ok := pluralKinds[kind]; !ok {
 		return "", "", fmt.Errorf("invalid resource kind: %s", kind)
 	}
 	return kind, name, nil
 }
 
 func singular(kind string) string {
-	for singular, plural := range resourceKinds {
+	for singular, plural := range pluralKinds {
 		if kind == plural {
 			return singular
 		}
@@ -44,5 +64,14 @@ func singular(kind string) string {
 }
 
 func plural(kind string) string {
-	return resourceKinds[kind]
+	return pluralKinds[kind]
+}
+
+func fullname(kind string) string {
+	for fullname, shortname := range shortnameKinds {
+		if kind == shortname {
+			return fullname
+		}
+	}
+	return kind
 }

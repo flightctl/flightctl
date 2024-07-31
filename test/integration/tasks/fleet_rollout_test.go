@@ -51,7 +51,7 @@ var _ = Describe("FleetRollout", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -64,7 +64,7 @@ var _ = Describe("FleetRollout", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 		ctrl.Finish()
 	})
 
@@ -141,6 +141,7 @@ var _ = Describe("FleetRollout", func() {
 			var (
 				gitConfig    *api.GitConfigProviderSpec
 				inlineConfig *api.InlineConfigProviderSpec
+				httpConfig   *api.HttpConfigProviderSpec
 			)
 
 			BeforeEach(func() {
@@ -160,6 +161,13 @@ var _ = Describe("FleetRollout", func() {
 				err := json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.{{ device.metadata.labels[version] }}\"}}"), &inline)
 				Expect(err).ToNot(HaveOccurred())
 				inlineConfig.Inline = inline
+				httpConfig = &api.HttpConfigProviderSpec{
+					ConfigType: string(api.TemplateDiscriminatorHttpConfig),
+					Name:       "paramHttpConfig",
+				}
+				httpConfig.HttpRef.Repository = "http-repo"
+				httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
+				httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
 			})
 
 			It("its devices are rolled out successfully", func() {
@@ -177,7 +185,10 @@ var _ = Describe("FleetRollout", func() {
 				inlineItem := api.TemplateVersionStatus_Config_Item{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem}
+				httpItem := api.TemplateVersionStatus_Config_Item{}
+				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
+				Expect(err).ToNot(HaveOccurred())
+				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem, httpItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
 				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
 				Expect(err).ToNot(HaveOccurred())
@@ -203,7 +214,7 @@ var _ = Describe("FleetRollout", func() {
 					Expect(dev.Metadata.Annotations).ToNot(BeNil())
 					Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 					Expect(dev.Spec.Config).ToNot(BeNil())
-					Expect(*dev.Spec.Config).To(HaveLen(2))
+					Expect(*dev.Spec.Config).To(HaveLen(3))
 					for _, configItem := range *dev.Spec.Config {
 						disc, err := configItem.Discriminator()
 						Expect(err).ToNot(HaveOccurred())
@@ -222,6 +233,11 @@ var _ = Describe("FleetRollout", func() {
 							verStr, ok := ver.(string)
 							Expect(ok).To(BeTrue())
 							Expect(verStr).To(Equal(fmt.Sprintf("3.4.%d", i)))
+						case string(api.TemplateDiscriminatorHttpConfig):
+							httpSpec, err := configItem.AsHttpConfigProviderSpec()
+							Expect(err).ToNot(HaveOccurred())
+							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("http-path-value-%d", i)))
+							Expect(httpSpec.HttpRef.Suffix).To(Equal(util.StrToPtr("/http-suffix")))
 						default:
 							Expect("").To(Equal("unexpected discriminator"))
 						}
@@ -243,6 +259,9 @@ var _ = Describe("FleetRollout", func() {
 				Expect(err).ToNot(HaveOccurred())
 				inlineItem := api.TemplateVersionStatus_Config_Item{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
+				Expect(err).ToNot(HaveOccurred())
+				httpItem := api.TemplateVersionStatus_Config_Item{}
+				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
 				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})

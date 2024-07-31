@@ -11,19 +11,22 @@ flightctl:
   api:
     enabled: true
     namespace: flightctl-external
-    image: quay.io/flightctl/flightctl-api:latest
+    image: quay.io/flightctl/flightctl-api
     imagePullPolicy: Always
     hostName: api.flightctl.example.com
     agentAPIHostName: agent-api.flightctl.example.com
+    agentGrpcHostName: agent-grpc.flightctl.example.com
+    agentGrpcBaseURL: grpcs://agent-grpc.flightctl.example.com
   worker:
     enabled: true
     namespace: flightctl-internal
-    image: quay.io/flightctl/flightctl-worker:latest
+    image: quay.io/flightctl/flightctl-worker
     imagePullPolicy: Always
+    enableSecretsClusterRoleBinding: true
   periodic:
     enabled: true
     namespace: flightctl-internal
-    image: quay.io/flightctl/flightctl-periodic:latest
+    image: quay.io/flightctl/flightctl-periodic
     imagePullPolicy: Always
   rabbitmq:
     enabled: true
@@ -46,6 +49,8 @@ flightctl:
       type: ClusterIP
       amqpPort: 5672
       managementPort: 15672
+
+
 
 storageClassName: aws-ebs
 storageClassNameRWM: aws-efs-tier-c4

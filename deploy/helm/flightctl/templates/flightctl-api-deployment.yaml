@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: flightctl-api
-          image: {{ .Values.flightctl.api.image }}
+          image: {{ .Values.flightctl.api.image }}:{{ default .Chart.AppVersion .Values.flightctl.api.imageTag }}
           imagePullPolicy: {{ .Values.flightctl.api.imagePullPolicy }}
           env:
             - name: HOME
@@ -33,6 +33,9 @@ spec:
               protocol: TCP
             - containerPort: 7443
               name: agent-api
+              protocol: TCP
+            - containerPort: 7444
+              name: agent-grpc
               protocol: TCP
           volumeMounts:
             - mountPath: /root/.flightctl/

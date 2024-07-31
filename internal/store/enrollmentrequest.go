@@ -5,11 +5,13 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
+	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -45,10 +47,13 @@ func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, re
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	enrollmentrequest := model.NewEnrollmentRequestFromApiResource(resource)
+	enrollmentrequest, err := model.NewEnrollmentRequestFromApiResource(resource)
+	if err != nil {
+		return nil, err
+	}
 	enrollmentrequest.OrgID = orgId
-	result := s.db.Create(enrollmentrequest)
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	_, err = s.createEnrollmentRequest(enrollmentrequest)
+	return resource, err
 }
 
 func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error) {
@@ -110,35 +115,78 @@ func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name 
 	return &apiEnrollmentRequest, nil
 }
 
-func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error) {
+func (s *EnrollmentRequestStore) createEnrollmentRequest(enrollmentRequest *model.EnrollmentRequest) (bool, error) {
+	enrollmentRequest.Generation = lo.ToPtr[int64](1)
+	enrollmentRequest.ResourceVersion = lo.ToPtr[int64](1)
+	if result := s.db.Create(enrollmentRequest); result.Error != nil {
+		err := flterrors.ErrorFromGormError(result.Error)
+		return err == flterrors.ErrDuplicateName, err
+	}
+	return false, nil
+}
+
+func (s *EnrollmentRequestStore) updateEnrollmentRequest(existingRecord, enrollmentRequest *model.EnrollmentRequest) (bool, error) {
+	updateSpec := enrollmentRequest.Spec != nil && !reflect.DeepEqual(existingRecord.Spec, enrollmentRequest.Spec)
+
+	// Update the generation if the spec was updated
+	if updateSpec {
+		enrollmentRequest.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
+	}
+	if enrollmentRequest.ResourceVersion != nil && lo.FromPtr(existingRecord.ResourceVersion) != lo.FromPtr(enrollmentRequest.ResourceVersion) {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+	enrollmentRequest.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
+	where := model.EnrollmentRequest{Resource: model.Resource{OrgID: enrollmentRequest.OrgID, Name: enrollmentRequest.Name}}
+	query := s.db.Model(where).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion))
+
+	result := query.Updates(&enrollmentRequest)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *EnrollmentRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, bool, error) {
 	if resource == nil {
-		return nil, false, flterrors.ErrResourceIsNil
+		return nil, false, false, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, false, flterrors.ErrResourceNameIsNil
+		return nil, false, false, flterrors.ErrResourceNameIsNil
 	}
-	enrollmentrequest := model.NewEnrollmentRequestFromApiResource(resource)
-	enrollmentrequest.OrgID = orgId
 
-	created := false
-	findEnrollmentRequest := model.EnrollmentRequest{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
+	enrollmentrequest, err := model.NewEnrollmentRequestFromApiResource(resource)
+	if err != nil {
+		return nil, false, false, err
 	}
-	result := s.db.First(&findEnrollmentRequest)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			created = true
-		} else {
-			return nil, false, flterrors.ErrorFromGormError(result.Error)
+	enrollmentrequest.OrgID = orgId
+	enrollmentrequest.Status = nil
+
+	existingRecord, err := getExistingRecord[model.EnrollmentRequest](s.db, enrollmentrequest.Name, orgId)
+	if err != nil {
+		return nil, false, false, err
+	}
+	exists := existingRecord != nil
+	if !exists {
+		if retry, err := s.createEnrollmentRequest(enrollmentrequest); err != nil {
+			return nil, false, retry, err
+		}
+	} else {
+		if retry, err := s.updateEnrollmentRequest(existingRecord, enrollmentrequest); err != nil {
+			return nil, false, retry, err
 		}
 	}
 
-	var updatedEnrollmentRequest model.EnrollmentRequest
-	where := model.EnrollmentRequest{Resource: model.Resource{OrgID: enrollmentrequest.OrgID, Name: enrollmentrequest.Name}}
-	result = s.db.Where(where).Assign(enrollmentrequest).FirstOrCreate(&updatedEnrollmentRequest)
+	updatedResource := enrollmentrequest.ToApiResource()
+	return &updatedResource, !exists, false, nil
+}
 
-	updatedResource := updatedEnrollmentRequest.ToApiResource()
-	return &updatedResource, created, flterrors.ErrorFromGormError(result.Error)
+func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error) {
+	return retryCreateOrUpdate(func() (*api.EnrollmentRequest, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource)
+	})
 }
 
 func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
@@ -152,7 +200,8 @@ func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UU
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
 	result := s.db.Model(&enrollmentRequest).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(resource.Status),
+		"status":           model.MakeJSONField(resource.Status),
+		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 	return resource, flterrors.ErrorFromGormError(result.Error)
 }

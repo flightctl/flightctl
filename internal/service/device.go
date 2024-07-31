@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -81,7 +82,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		Filter:   filterMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
-		Owner:    request.Params.Owner,
+		Owners:   util.OwnerQueryParamsToArray(request.Params.Owner),
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -152,7 +153,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		}
 	case flterrors.ErrResourceIsNil:
 		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceDevice404JSONResponse{}, nil
@@ -200,7 +201,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	return common.GetRenderedDeviceSpec(ctx, h.store, request)
+	return common.GetRenderedDeviceSpec(ctx, h.store, request, h.consoleGrpcEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
@@ -252,7 +253,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	switch err {
 	case nil:
 		return server.PatchDevice200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchDevice404JSONResponse{}, nil

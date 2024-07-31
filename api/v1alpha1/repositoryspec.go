@@ -14,29 +14,29 @@ func (t RepositorySpec) getRepoSpec(body any) error {
 	return decoder.Decode(body)
 }
 
-func (t RepositorySpec) GetGitGenericRepoSpec() (GitGenericRepoSpec, error) {
-	var body GitGenericRepoSpec
+func (t RepositorySpec) GetGenericRepoSpec() (GenericRepoSpec, error) {
+	var body GenericRepoSpec
 	err := t.getRepoSpec(&body)
 	return body, err
 }
 
-func (t RepositorySpec) GetGitHttpRepoSpec() (GitHttpRepoSpec, error) {
-	var body GitHttpRepoSpec
+func (t RepositorySpec) GetHttpRepoSpec() (HttpRepoSpec, error) {
+	var body HttpRepoSpec
 	err := t.getRepoSpec(&body)
 	return body, err
 }
 
-func (t RepositorySpec) GetGitSshRepoSpec() (GitSshRepoSpec, error) {
-	var body GitSshRepoSpec
+func (t RepositorySpec) GetSshRepoSpec() (SshRepoSpec, error) {
+	var body SshRepoSpec
 	err := t.getRepoSpec(&body)
 	return body, err
 }
 
 // loose decoder is fine here as all repo specs have `repo` field
 func (t RepositorySpec) GetRepoURL() (string, error) {
-	genericRepo, err := t.AsGitGenericRepoSpec()
+	genericRepo, err := t.AsGenericRepoSpec()
 	if err != nil {
 		return "", err
 	}
-	return genericRepo.Repo, nil
+	return genericRepo.Url, nil
 }

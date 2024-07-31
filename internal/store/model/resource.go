@@ -1,7 +1,6 @@
 package model
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,11 +31,11 @@ type Resource struct {
 
 	Annotations pq.StringArray `gorm:"type:text[]"`
 
-	Generation *int64
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	Generation      *int64
+	ResourceVersion *int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
 }
 
 func (r *Resource) BeforeCreate(tx *gorm.DB) error {
@@ -44,9 +43,4 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 		r.Name = uuid.New().String()
 	}
 	return nil
-}
-
-func GetResourceVersion(updatedAt time.Time) *string {
-	resourceVersion := strconv.FormatInt(updatedAt.UnixNano(), 10)
-	return &resourceVersion
 }

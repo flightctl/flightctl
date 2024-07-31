@@ -2,9 +2,12 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 )
 
 var (
@@ -36,23 +39,32 @@ func (d Repository) String() string {
 	return string(val)
 }
 
-func NewRepositoryFromApiResource(resource *api.Repository) *Repository {
+func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error) {
 	if resource == nil || resource.Metadata.Name == nil {
-		return &Repository{}
+		return &Repository{}, nil
 	}
 
 	status := api.RepositoryStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
+	var resourceVersion *int64
+	if resource.Metadata.ResourceVersion != nil {
+		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
+		if err != nil {
+			return nil, flterrors.ErrIllegalResourceVersionFormat
+		}
+		resourceVersion = &i
+	}
 	return &Repository{
 		Resource: Resource{
-			Name:   *resource.Metadata.Name,
-			Labels: util.LabelMapToArray(resource.Metadata.Labels),
+			Name:            *resource.Metadata.Name,
+			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
-	}
+	}, nil
 }
 
 func hideValue(value *string) {
@@ -76,23 +88,23 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 		status = f.Status.Data
 	}
 
-	_, err := spec.GetGitGenericRepoSpec()
+	_, err := spec.GetGenericRepoSpec()
 	if err != nil {
-		gitHttpSpec, err := spec.GetGitHttpRepoSpec()
+		gitHttpSpec, err := spec.GetHttpRepoSpec()
 		if err == nil {
 			hideValue(gitHttpSpec.HttpConfig.Password)
 			hideValue(gitHttpSpec.HttpConfig.TlsKey)
 			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
-			if err := spec.FromGitHttpRepoSpec(gitHttpSpec); err != nil {
+			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
 				return api.Repository{}, err
 			}
 
 		} else {
-			gitSshRepoSpec, err := spec.GetGitSshRepoSpec()
+			gitSshRepoSpec, err := spec.GetSshRepoSpec()
 			if err == nil {
 				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
 				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
-				if err := spec.FromGitSshRepoSpec(gitSshRepoSpec); err != nil {
+				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
 					return api.Repository{}, err
 				}
 			}
@@ -107,7 +119,7 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
-			ResourceVersion:   GetResourceVersion(f.UpdatedAt),
+			ResourceVersion:   lo.Ternary(f.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(f.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
 		Status: &status,

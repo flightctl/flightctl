@@ -80,7 +80,7 @@ func TestEnsureEnrollment(t *testing.T) {
 			defer ctrl.Finish()
 
 			statusManager := status.NewMockManager(ctrl)
-			statusManager.EXPECT().Sync(gomock.Any()).Return(nil).Times(1)
+			statusManager.EXPECT().Collect(gomock.Any()).Return(nil).Times(1)
 			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}).Times(1)
 
 			log := flightlog.NewPrefixLogger("")
@@ -111,6 +111,7 @@ func TestEnsureEnrollment(t *testing.T) {
 				currentSpecFilePath,
 				desiredSpecFilePath,
 				log,
+				make(map[string]string),
 			)
 			err = b.ensureEnrollment(context.Background())
 			if tt.wantErr {
@@ -193,6 +194,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			currentSpecFilePath,
 			desiredSpecFilePath,
 			log,
+			map[string]string{},
 		)
 	})
 

@@ -40,7 +40,7 @@ var _ = Describe("TVPopulate", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		ctrl = gomock.NewController(GinkgoT())
 		publisher = queues.NewMockPublisher(ctrl)
 		publisher.EXPECT().Publish(gomock.Any()).AnyTimes()
@@ -70,7 +70,7 @@ var _ = Describe("TVPopulate", func() {
 
 	AfterEach(func() {
 		ctrl.Finish()
-		store.DeleteTestDB(cfg, storeInst, dbName)
+		store.DeleteTestDB(log, cfg, storeInst, dbName)
 	})
 
 	When("a template has a valid inline config with no params", func() {

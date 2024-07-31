@@ -217,10 +217,13 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 	}
 
 	// The device matches more than one fleet
-	annotations := map[string]string{
-		model.DeviceAnnotationMultipleOwners: fmt.Sprintf("%s,%s", currentOwnerFleetName, *fleet.Metadata.Name),
+	condition := api.Condition{
+		Type:    api.DeviceMultipleOwners,
+		Status:  api.ConditionStatusTrue,
+		Reason:  "MultipleOwners",
+		Message: fmt.Sprintf("%s,%s", currentOwnerFleetName, *fleet.Metadata.Name),
 	}
-	err = f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
+	err = f.devStore.SetServiceConditions(ctx, f.resourceRef.OrgID, *device.Metadata.Name, []api.Condition{condition})
 	if err != nil {
 		return true, err
 	}
@@ -230,7 +233,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx context.Context) error {
 	// Remove the owner from devices that have this owner
 	listParams := store.ListParams{
-		Owner: util.SetResourceOwner(model.FleetKind, f.resourceRef.Name),
+		Owners: []string{*util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)},
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
 }
@@ -240,7 +243,7 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.C
 	listParams := store.ListParams{
 		Labels:       getMatchLabelsSafe(fleet),
 		InvertLabels: util.BoolToPtr(true),
-		Owner:        util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name),
+		Owners:       []string{*util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)},
 		Limit:        ItemsPerPage,
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
@@ -419,18 +422,21 @@ func (f FleetSelectorMatchingLogic) handleDeviceWithPotentialOverlap(ctx context
 		return nil, nil
 	}
 
-	// If the device now has no labels, make sure it has no owner and no multiple-owner annotation
+	// If the device now has no labels, make sure it has no owner and no multiple-owner condition
 	if device.Metadata.Labels == nil || len(*device.Metadata.Labels) == 0 {
 		if len(currentOwnerFleet) != 0 {
 			err = f.updateDeviceOwner(ctx, device, "")
 			if err != nil {
 				return nil, err
 			}
-			if len(GetOverlappingAnnotationValue(device.Metadata.Annotations)) > 0 {
-				err = f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, nil, []string{model.DeviceAnnotationMultipleOwners})
-				if err != nil {
-					return nil, err
-				}
+
+			condition := api.Condition{
+				Type:   api.DeviceMultipleOwners,
+				Status: api.ConditionStatusFalse,
+			}
+			err = f.devStore.SetServiceConditions(ctx, f.resourceRef.OrgID, *device.Metadata.Name, []api.Condition{condition})
+			if err != nil {
+				return nil, err
 			}
 		}
 		return nil, nil
@@ -450,19 +456,29 @@ func (f FleetSelectorMatchingLogic) findDeviceOwnerAmongAllFleets(ctx context.Co
 			matchingFleets = append(matchingFleets, *fleet.Metadata.Name)
 		}
 	}
-	newAnnotationValue := CreateOverlappingAnnotationValue(matchingFleets)
-	currentAnnotationValue := GetOverlappingAnnotationValue(device.Metadata.Annotations)
+	newConditionMessage := createOverlappingConditionMessage(matchingFleets)
+	currentConditionMessage := ""
+	condition := api.FindStatusCondition(device.Status.Conditions, api.DeviceMultipleOwners)
+	if condition != nil {
+		currentConditionMessage = condition.Message
+	}
 
 	err := f.setDeviceOwnerAccordingToMatchingFleets(ctx, device, currentOwnerFleet, matchingFleets)
 	if err != nil {
 		return nil, err
 	}
 
-	if currentAnnotationValue != newAnnotationValue {
-		annotations := map[string]string{
-			model.DeviceAnnotationMultipleOwners: newAnnotationValue,
+	if currentConditionMessage != newConditionMessage {
+		condition := api.Condition{Type: api.DeviceMultipleOwners}
+		if len(matchingFleets) > 1 {
+			condition.Status = api.ConditionStatusTrue
+			condition.Reason = "MultipleOwners"
+			condition.Message = newConditionMessage
+		} else {
+			condition.Status = api.ConditionStatusFalse
 		}
-		err := f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
+
+		err = f.devStore.SetServiceConditions(ctx, f.resourceRef.OrgID, *device.Metadata.Name, []api.Condition{condition})
 		if err != nil {
 			return nil, err
 		}
@@ -559,14 +575,12 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) e
 				errors++
 				continue
 			}
-			if device.Metadata.Annotations != nil {
-				_, ok := (*device.Metadata.Annotations)[model.DeviceAnnotationMultipleOwners]
-				if ok {
-					err = f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, nil, []string{model.DeviceAnnotationMultipleOwners})
-					if err != nil {
-						f.log.Errorf("failed updating annotations of device %s/%s: %v", f.resourceRef.OrgID, *device.Metadata.Name, err)
-						errors++
-					}
+			if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
+				condition := api.Condition{Type: api.DeviceMultipleOwners, Status: api.ConditionStatusFalse}
+				err = f.devStore.SetServiceConditions(ctx, f.resourceRef.OrgID, *device.Metadata.Name, []api.Condition{condition})
+				if err != nil {
+					f.log.Errorf("failed updating conditions of device %s/%s: %v", f.resourceRef.OrgID, *device.Metadata.Name, err)
+					errors++
 				}
 			}
 		}
@@ -641,19 +655,7 @@ func (f FleetSelectorMatchingLogic) setOverlappingFleetConditionFalse(ctx contex
 	return f.fleetStore.UpdateConditions(ctx, f.resourceRef.OrgID, fleetName, []api.Condition{condition})
 }
 
-func GetOverlappingAnnotationValue(annotations *map[string]string) string {
-	value := ""
-	if annotations == nil {
-		return value
-	}
-	owners, ok := (*annotations)[model.DeviceAnnotationMultipleOwners]
-	if ok && len(owners) != 0 {
-		value = owners
-	}
-	return value
-}
-
-func CreateOverlappingAnnotationValue(matchingFleets []string) string {
+func createOverlappingConditionMessage(matchingFleets []string) string {
 	if len(matchingFleets) > 1 {
 		return strings.Join(matchingFleets, ",")
 	} else {
