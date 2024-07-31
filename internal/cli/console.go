@@ -86,10 +86,14 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // noli
 	if err != nil {
 		return err
 	}
-	console, err := c.RequestConsoleWithResponse(ctx, name)
+	console, err := c.RequestConsoleWithResponse(ctx, name, getPrintHttpFn(&o.GlobalOptions))
 
 	if err != nil {
 		return fmt.Errorf("error requesting console: %w", err)
+	}
+
+	if o.VerboseHttp {
+		printRawHttpResponse(console.HTTPResponse, console.Body)
 	}
 
 	if console.HTTPResponse.StatusCode != 200 {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -85,77 +84,79 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	var response interface{}
+	var response any
+
+	printHttpFn := getPrintHttpFn(&o.GlobalOptions)
 
 	switch kind {
 	case DeviceKind:
 		if len(name) > 0 {
-			response, err = c.DeleteDeviceWithResponse(ctx, name)
+			response, err = c.DeleteDeviceWithResponse(ctx, name, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 		} else {
-			response, err = c.DeleteDevicesWithResponse(ctx)
+			response, err = c.DeleteDevicesWithResponse(ctx, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 		}
 	case EnrollmentRequestKind:
 		if len(name) > 0 {
-			response, err = c.DeleteEnrollmentRequestWithResponse(ctx, name)
+			response, err = c.DeleteEnrollmentRequestWithResponse(ctx, name, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 		} else {
-			response, err = c.DeleteEnrollmentRequestsWithResponse(ctx)
+			response, err = c.DeleteEnrollmentRequestsWithResponse(ctx, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 		}
 	case FleetKind:
 		if len(name) > 0 {
-			response, err = c.DeleteFleetWithResponse(ctx, name)
+			response, err = c.DeleteFleetWithResponse(ctx, name, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 		} else {
-			response, err = c.DeleteFleetsWithResponse(ctx)
+			response, err = c.DeleteFleetsWithResponse(ctx, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 		}
 	case TemplateVersionKind:
 		if len(name) > 0 {
-			response, err = c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name)
+			response, err = c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 		} else {
-			response, err = c.DeleteTemplateVersionsWithResponse(ctx, o.FleetName)
+			response, err = c.DeleteTemplateVersionsWithResponse(ctx, o.FleetName, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 		}
 	case RepositoryKind:
 		if len(name) > 0 {
-			response, err = c.DeleteRepositoryWithResponse(ctx, name)
+			response, err = c.DeleteRepositoryWithResponse(ctx, name, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 		} else {
-			response, err = c.DeleteRepositoriesWithResponse(ctx)
+			response, err = c.DeleteRepositoriesWithResponse(ctx, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
 		}
 	case ResourceSyncKind:
 		if len(name) > 0 {
-			response, err = c.DeleteResourceSyncWithResponse(ctx, name)
+			response, err = c.DeleteResourceSyncWithResponse(ctx, name, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s/%s: %w", kind, name, err)
 			}
 		} else {
-			response, err = c.DeleteResourceSyncsWithResponse(ctx)
+			response, err = c.DeleteResourceSyncsWithResponse(ctx, printHttpFn)
 			if err != nil {
 				return fmt.Errorf("deleting %s: %w", plural(kind), err)
 			}
@@ -164,13 +165,17 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
 
-	v := reflect.ValueOf(response).Elem().FieldByName("HTTPResponse").Elem()
-	status := v.FieldByName("Status").String()
-	if v.FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf("%s", status)
+	httpResponse, body := reflectResponse(response)
+
+	if o.VerboseHttp {
+		printRawHttpResponse(httpResponse, body)
 	}
 
-	fmt.Printf("status %s", status)
+	if httpResponse.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s", httpResponse.Status)
+	}
+
+	fmt.Printf("status %s\n", httpResponse.Status)
 
 	return nil
 }

@@ -155,7 +155,8 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	var response interface{}
+	var response any
+	printHttpFn := getPrintHttpFn(&o.GlobalOptions)
 
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
@@ -163,9 +164,9 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 	}
 	switch {
 	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
-		response, err = c.ReadDeviceWithResponse(ctx, name)
+		response, err = c.ReadDeviceWithResponse(ctx, name, printHttpFn)
 	case kind == DeviceKind && len(name) > 0 && o.Rendered:
-		response, err = c.GetRenderedDeviceSpecWithResponse(ctx, name, &api.GetRenderedDeviceSpecParams{})
+		response, err = c.GetRenderedDeviceSpecWithResponse(ctx, name, &api.GetRenderedDeviceSpecParams{}, printHttpFn)
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),
@@ -174,18 +175,18 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListDevicesWithResponse(ctx, &params)
+		response, err = c.ListDevicesWithResponse(ctx, &params, printHttpFn)
 	case kind == EnrollmentRequestKind && len(name) > 0:
-		response, err = c.ReadEnrollmentRequestWithResponse(ctx, name)
+		response, err = c.ReadEnrollmentRequestWithResponse(ctx, name, printHttpFn)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		params := api.ListEnrollmentRequestsParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
+		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params, printHttpFn)
 	case kind == FleetKind && len(name) > 0:
-		response, err = c.ReadFleetWithResponse(ctx, name)
+		response, err = c.ReadFleetWithResponse(ctx, name, printHttpFn)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),
@@ -193,41 +194,41 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListFleetsWithResponse(ctx, &params)
+		response, err = c.ListFleetsWithResponse(ctx, &params, printHttpFn)
 	case kind == TemplateVersionKind && len(name) > 0:
-		response, err = c.ReadTemplateVersionWithResponse(ctx, o.FleetName, name)
+		response, err = c.ReadTemplateVersionWithResponse(ctx, o.FleetName, name, printHttpFn)
 	case kind == TemplateVersionKind && len(name) == 0:
 		params := api.ListTemplateVersionsParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params)
+		response, err = c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params, printHttpFn)
 	case kind == RepositoryKind && len(name) > 0:
-		response, err = c.ReadRepositoryWithResponse(ctx, name)
+		response, err = c.ReadRepositoryWithResponse(ctx, name, printHttpFn)
 	case kind == RepositoryKind && len(name) == 0:
 		params := api.ListRepositoriesParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListRepositoriesWithResponse(ctx, &params)
+		response, err = c.ListRepositoriesWithResponse(ctx, &params, printHttpFn)
 	case kind == ResourceSyncKind && len(name) > 0:
-		response, err = c.ReadResourceSyncWithResponse(ctx, name)
+		response, err = c.ReadResourceSyncWithResponse(ctx, name, printHttpFn)
 	case kind == ResourceSyncKind && len(name) == 0:
 		params := api.ListResourceSyncParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListResourceSyncWithResponse(ctx, &params)
+		response, err = c.ListResourceSyncWithResponse(ctx, &params, printHttpFn)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return processReponse(response, err, kind, name, o.Output)
+	return processReponse(response, err, kind, name, o.Output, o.VerboseHttp)
 }
 
-func processReponse(response interface{}, err error, kind string, name string, output string) error {
+func processReponse(response interface{}, err error, kind string, name string, output string, verboseHttp bool) error {
 	errorPrefix := fmt.Sprintf("reading %s/%s", kind, name)
 	if len(name) == 0 {
 		errorPrefix = fmt.Sprintf("listing %s", plural(kind))
@@ -237,11 +238,17 @@ func processReponse(response interface{}, err error, kind string, name string, o
 		return fmt.Errorf(errorPrefix+": %w", err)
 	}
 
-	v := reflect.ValueOf(response).Elem().FieldByName("HTTPResponse").Elem()
-	if v.FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf(errorPrefix+": %s", v.FieldByName("Status").String())
+	httpResponse, body := reflectResponse(response)
+
+	if verboseHttp {
+		printRawHttpResponse(httpResponse, body)
 	}
 
+	if httpResponse.StatusCode != http.StatusOK {
+		return fmt.Errorf(errorPrefix+": %s", httpResponse.Status)
+	}
+
+	v := reflect.ValueOf(response).Elem().FieldByName("HTTPResponse").Elem()
 	switch output {
 	case jsonFormat:
 		marshalled, err := json.Marshal(v.FieldByName("JSON200").Interface())

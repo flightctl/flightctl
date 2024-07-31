@@ -66,7 +66,7 @@ tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
 
 lint: tools
-	$(GOBIN)/golangci-lint run -v
+	$(GOBIN)/golangci-lint run -v --fix
 
 build: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...

@@ -122,9 +122,13 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	headerVal := "Bearer " + o.Token
-	res, err := c.TokenValidateWithResponse(ctx, &v1alpha1.TokenValidateParams{Authentication: &headerVal})
+	res, err := c.TokenValidateWithResponse(ctx, &v1alpha1.TokenValidateParams{Authentication: &headerVal}, getPrintHttpFn(&o.GlobalOptions))
 	if err != nil {
 		return fmt.Errorf("validating token: %w", err)
+	}
+
+	if o.VerboseHttp {
+		printRawHttpResponse(res.HTTPResponse, res.Body)
 	}
 
 	if res.HTTPResponse.StatusCode != http.StatusOK {

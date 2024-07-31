@@ -80,12 +80,17 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		Approved: true,
 		Labels:   &labels,
 	}
-	resp, err := c.CreateEnrollmentRequestApproval(ctx, enrollmentRequestName, approval)
+	response, err := c.CreateEnrollmentRequestApprovalWithResponse(ctx, enrollmentRequestName, approval, getPrintHttpFn(&o.GlobalOptions))
 	if err != nil {
-		return fmt.Errorf("creating enrollmentrequestapproval: %w, http response: %+v", err, resp)
+		return fmt.Errorf("creating enrollmentrequestapproval: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s", resp.Status)
+
+	if o.VerboseHttp {
+		printRawHttpResponse(response.HTTPResponse, response.Body)
+	}
+
+	if response.HTTPResponse.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s", response.HTTPResponse.Status)
 	}
 	return nil
 }
