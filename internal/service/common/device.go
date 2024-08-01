@@ -13,7 +13,7 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, request server.Rep
 	orgId := store.NullOrgId
 
 	device := request.Body
-	device.Status.UpdatedAt = time.Now()
+	device.Status.LastSeen = time.Now()
 
 	result, err := st.Device().UpdateStatus(ctx, orgId, device)
 	switch err {

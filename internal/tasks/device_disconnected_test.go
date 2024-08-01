@@ -63,7 +63,7 @@ func benchmarkUpdateSummaryStatusBatch(b *testing.B, log *logrus.Logger, db *gor
 
 func resetDeviceStatus(db *gorm.DB, deviceNames []string) error {
 	status := v1alpha1.NewDeviceStatus()
-	status.UpdatedAt = time.Now().Add(-10 * time.Minute)
+	status.LastSeen = time.Now().Add(-10 * time.Minute)
 	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 	err := db.Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, name := range deviceNames {
@@ -83,7 +83,7 @@ func resetDeviceStatus(db *gorm.DB, deviceNames []string) error {
 func generateMockDevices(count int) []v1alpha1.Device {
 	devices := make([]v1alpha1.Device, count)
 	status := v1alpha1.NewDeviceStatus()
-	status.UpdatedAt = time.Now().Add(-10 * time.Minute)
+	status.LastSeen = time.Now().Add(-10 * time.Minute)
 	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 	for i := 0; i < count; i++ {
 		devices[i] = v1alpha1.Device{
