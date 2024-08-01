@@ -2223,7 +2223,7 @@ components:
         - os
         - updated
         - summary
-        - updatedAt
+        - lastSeen
       properties:
         conditions:
           type: array
@@ -2253,7 +2253,7 @@ components:
         summary:
           $ref: "#/components/schemas/DeviceSummaryStatus"
           description: "Summary status of the device."
-        updatedAt:
+        lastSeen:
           type: string
           format: date-time
       description: "DeviceStatus represents information about the status of a device. Status may trail the actual state of a device."
