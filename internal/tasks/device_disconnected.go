@@ -52,7 +52,7 @@ func (t *DeviceDisconnected) Poll() {
 		var batch []string
 		for _, device := range devices.Items {
 			if device.Status != nil && device.Status.Summary.Status != v1alpha1.DeviceSummaryStatusUnknown {
-				if device.Status.UpdatedAt.Add(DeviceDisconnectedTimeout).Before(time.Now()) {
+				if device.Status.LastSeen.Add(DeviceDisconnectedTimeout).Before(time.Now()) {
 					batch = append(batch, *device.Metadata.Name)
 				}
 			}
