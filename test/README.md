@@ -111,7 +111,7 @@ Our stack helps deploy a complete system with `make deploy` and this stack
 should provide everything necessary to perform e2e testing.
 
 We maintain the end-to-end test files in `/test/e2e/<topic>`
-directory, ie. `/test/e2e/agent/`, `/test/e2e/api/`, etc.
+directory, ie. `/test/e2e/agent/`, `/test/e2e/cli/`, etc.
 
 as examples:
 
@@ -124,12 +124,31 @@ as examples:
 * `k8s/secrets` contains for the server that verify interaction with a k8s API
                 in terms of secret retrieval.
 
+* `cli` contains tests for the command line interface `flightctl`
+
 E2E tests can be run with our testing harness in `/test/pkg/harness/e2e` which
 provides additional functionality on top of `/test/pkg/harness` to interact
 with agents on VMs, or connect the server to the local kind k8s cluster.
 
 We use ginkgo/gomega for these tests, as they are more complex and require
 more setup and teardown than unit tests.
+
+#### Filtering the e2e test run
+
+You can filter which e2e tests to run by pointing to the e2e directory
+using the GO_E2E_DIRS environment variable.
+
+For example, if we wanted to run only the cli tests, we could execute
+```
+make e2e-test GO_E2E_DIRS=test/e2e/cli
+```
+
+or, if we ran e2e-test before and all the necessary artifacts and deployments are
+in place, we could speed up furter by using the `run-e2e-test` target.
+```
+make run-e2e-test GO_E2E_DIRS=test/e2e/cli
+```
+
 
 ### Local testing side services
 For the purpose of providing a local testing environment, we have a set of side services
