@@ -292,6 +292,7 @@ type DeviceStatus struct {
 	Conditions []Condition           `json:"conditions"`
 	Config     DeviceConfigStatus    `json:"config"`
 	Integrity  DeviceIntegrityStatus `json:"integrity"`
+	LastSeen   time.Time             `json:"lastSeen"`
 	Os         DeviceOSStatus        `json:"os"`
 	Resources  DeviceResourceStatus  `json:"resources"`
 	Summary    DeviceSummaryStatus   `json:"summary"`
@@ -299,7 +300,6 @@ type DeviceStatus struct {
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 	SystemInfo DeviceSystemInfo    `json:"systemInfo"`
 	Updated    DeviceUpdatedStatus `json:"updated"`
-	UpdatedAt  time.Time           `json:"updatedAt"`
 }
 
 // DeviceSummaryStatus defines model for DeviceSummaryStatus.

@@ -300,8 +300,8 @@ func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range devices {
 		lastSeen := "<never>"
-		if !d.Status.UpdatedAt.IsZero() {
-			lastSeen = humanize.Time(d.Status.UpdatedAt)
+		if !d.Status.LastSeen.IsZero() {
+			lastSeen = humanize.Time(d.Status.LastSeen)
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			*d.Metadata.Name,
