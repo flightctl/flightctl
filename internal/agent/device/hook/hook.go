@@ -114,13 +114,13 @@ func (h *Handler) SetError(err error) {
 	h.err = err
 }
 
-func fsnotifyOpToFileOperation(op fsnotify.Op) (v1alpha1.FileOperation, error) {
-	switch op {
-	case fsnotify.Create:
+func fsnotifyOpToFileOperation(event fsnotify.Event) (v1alpha1.FileOperation, error) {
+	switch {
+	case event.Has(fsnotify.Create):
 		return v1alpha1.FileOperationCreate, nil
-	case fsnotify.Write:
+	case event.Has(fsnotify.Write):
 		return v1alpha1.FileOperationUpdate, nil
-	case fsnotify.Remove:
+	case event.Has(fsnotify.Remove):
 		return v1alpha1.FileOperationRemove, nil
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupportedFilesystemOperation, op)

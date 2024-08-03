@@ -123,7 +123,7 @@ func (m *PostConfigMonitor) forwardEvents() {
 				if !ok {
 					return
 				}
-				fileEvent, err := fsnotifyOpToFileOperation(event.Op)
+				fileEvent, err := fsnotifyOpToFileOperation(event)
 				if err != nil {
 					if !errors.Is(err, ErrUnsupportedFilesystemOperation) {
 						m.log.Errorf("fsnotify error: %v", err)
