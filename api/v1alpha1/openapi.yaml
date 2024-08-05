@@ -2580,6 +2580,64 @@ components:
               - filePath
           required:
           - httpRef
+    ApplicationSpec:
+      type: object
+      description: "Defines the specification for an application"
+      properties:
+        name:
+          type: string
+          description: "The name of the application"
+        version:
+          type: string
+          description: "The version of the application"
+        description:
+          type: string
+          description: "A brief description of the application"
+        configRef:
+          type: string
+          description: "A reference to the name of a config which is used as the configuration for the application"
+        podmanCompose:
+          $ref: '#/components/schemas/PodmanComposeProviderSpec'
+      required:
+        - name
+        - configRef
+      oneOf: # extend this list with more providers to ensure that only one provider is used
+        - required: ["podmanCompose"]
+        # - required: ["quadlets"]
+    ConfigMounts:
+      type: array
+      items:
+        $ref: '#/components/schemas/ApplicationConfigRef'
+      description: |
+        An array of configuration mounts. 
+        Each item maps a configuration name reference to a mount point inside the application.
+    PodmanComposeProviderSpec:
+      type: object
+      properties:
+        composeFile:
+          type: string
+          description: "The path to the Podman Compose file"
+          example: "/path/to/docker-compose.yml"
+        configMounts:
+          $ref: '#/components/schemas/ConfigMounts'
+        environment:
+          type: object
+          description: "Environment variables for the application"
+          additionalProperties:
+            type: string
+            pattern: "^[A-Z0-9_]+$"
+      required:
+        - composeFile
+    ApplicationConfigRef:
+      type: object
+      additionalProperties:
+        type: string
+        description: |
+          The value is the path where the configuration is mounted inside the application.
+      description: |
+        Represents a configuration mount inside an application.
+        - The key is a configuration name reference.
+        - The value is the path where the configuration is mounted.
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'

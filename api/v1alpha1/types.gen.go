@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/oapi-codegen/runtime"
@@ -135,6 +136,31 @@ const (
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
 
+// ApplicationConfigRef Represents a configuration mount inside an application.
+// - The key is a configuration name reference.
+// - The value is the path where the configuration is mounted.
+type ApplicationConfigRef map[string]string
+
+// ApplicationSpec Defines the specification for an application
+type ApplicationSpec struct {
+	// ConfigRef A reference to the name of a config which is used as the configuration for the application
+	ConfigRef string `json:"configRef"`
+
+	// Description A brief description of the application
+	Description *string `json:"description,omitempty"`
+
+	// Name The name of the application
+	Name          string                     `json:"name"`
+	PodmanCompose *PodmanComposeProviderSpec `json:"podmanCompose,omitempty"`
+
+	// Version The version of the application
+	Version *string `json:"version,omitempty"`
+	union   json.RawMessage
+}
+
+// ApplicationSpec0 defines model for .
+type ApplicationSpec0 = interface{}
+
 // ApplicationStatus defines model for ApplicationStatus.
 type ApplicationStatus struct {
 	// Name Human readable name of the application.
@@ -261,6 +287,10 @@ type ConditionStatus string
 
 // ConditionType defines model for ConditionType.
 type ConditionType string
+
+// ConfigMounts An array of configuration mounts.
+// Each item maps a configuration name reference to a mount point inside the application.
+type ConfigMounts = []ApplicationConfigRef
 
 // CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
 type CustomResourceMonitorSpec struct {
@@ -836,6 +866,19 @@ type PatchRequest = []struct {
 // PatchRequestOp The operation to perform.
 type PatchRequestOp string
 
+// PodmanComposeProviderSpec defines model for PodmanComposeProviderSpec.
+type PodmanComposeProviderSpec struct {
+	// ComposeFile The path to the Podman Compose file
+	ComposeFile string `json:"composeFile"`
+
+	// ConfigMounts An array of configuration mounts.
+	// Each item maps a configuration name reference to a mount point inside the application.
+	ConfigMounts *ConfigMounts `json:"configMounts,omitempty"`
+
+	// Environment Environment variables for the application
+	Environment *map[string]string `json:"environment,omitempty"`
+}
+
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
 	Config     *string        `json:"config,omitempty"`
@@ -1262,6 +1305,128 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
+
+// AsApplicationSpec0 returns the union data inside the ApplicationSpec as a ApplicationSpec0
+func (t ApplicationSpec) AsApplicationSpec0() (ApplicationSpec0, error) {
+	var body ApplicationSpec0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationSpec0 overwrites any union data inside the ApplicationSpec as the provided ApplicationSpec0
+func (t *ApplicationSpec) FromApplicationSpec0(v ApplicationSpec0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationSpec0 performs a merge with any union data inside the ApplicationSpec, using the provided ApplicationSpec0
+func (t *ApplicationSpec) MergeApplicationSpec0(v ApplicationSpec0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["configRef"], err = json.Marshal(t.ConfigRef)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'configRef': %w", err)
+	}
+
+	if t.Description != nil {
+		object["description"], err = json.Marshal(t.Description)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'description': %w", err)
+		}
+	}
+
+	object["name"], err = json.Marshal(t.Name)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'name': %w", err)
+	}
+
+	if t.PodmanCompose != nil {
+		object["podmanCompose"], err = json.Marshal(t.PodmanCompose)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'podmanCompose': %w", err)
+		}
+	}
+
+	if t.Version != nil {
+		object["version"], err = json.Marshal(t.Version)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'version': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["configRef"]; found {
+		err = json.Unmarshal(raw, &t.ConfigRef)
+		if err != nil {
+			return fmt.Errorf("error reading 'configRef': %w", err)
+		}
+	}
+
+	if raw, found := object["description"]; found {
+		err = json.Unmarshal(raw, &t.Description)
+		if err != nil {
+			return fmt.Errorf("error reading 'description': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["podmanCompose"]; found {
+		err = json.Unmarshal(raw, &t.PodmanCompose)
+		if err != nil {
+			return fmt.Errorf("error reading 'podmanCompose': %w", err)
+		}
+	}
+
+	if raw, found := object["version"]; found {
+		err = json.Unmarshal(raw, &t.Version)
+		if err != nil {
+			return fmt.Errorf("error reading 'version': %w", err)
+		}
+	}
+
+	return err
+}
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
