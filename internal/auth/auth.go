@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -21,7 +22,7 @@ const (
 
 type AuthNMiddleware interface {
 	ValidateToken(ctx context.Context, token string) (bool, error)
-	GetTokenRequestURL(ctx context.Context) (string, error)
+	GetAuthConfig() common.AuthConfig
 }
 
 type AuthZMiddleware interface {
@@ -64,14 +65,18 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		log.Warnln("Auth disabled")
 		authZ = NilAuth{}
 		authN = authZ.(AuthNMiddleware)
-	} else if cfg.Auth != nil && cfg.Auth.K8sApiUrl != "" {
-		log.Println("k8s auth enabled")
-		authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: cfg.Auth.K8sApiUrl}}
-		authN = authn.OpenShiftAuthN{OpenShiftApiUrl: cfg.Auth.K8sApiUrl}
-	} else if cfg.Auth != nil && cfg.Auth.JwksUrl != "" {
-		log.Println("odic auth enabled")
+	} else if cfg.Auth != nil && cfg.Auth.OpenShiftApiUrl != "" {
+		log.Println("OpenShift auth enabled")
+		authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: cfg.Auth.OpenShiftApiUrl}}
+		authN = authn.OpenShiftAuthN{OpenShiftApiUrl: cfg.Auth.OpenShiftApiUrl}
+	} else if cfg.Auth != nil && cfg.Auth.OIDCAuthority != "" {
+		log.Println("OIDC auth enabled")
 		authZ = NilAuth{}
-		authN = authn.JWTAuth{JwksUrl: cfg.Auth.JwksUrl, OidcDiscoveryUrl: cfg.Auth.OidcDiscoveryUrl}
+		var err error
+		authN, err = authn.NewJWTAuth(cfg.Auth.OIDCAuthority, cfg.Auth.InternalOIDCAuthority)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
+		}
 	}
 
 	if authN == nil {
@@ -83,7 +88,7 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 
 	handler := func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/v1/token/request" || r.URL.Path == "/api/v1/token/validate" {
+			if r.URL.Path == "/api/v1/auth/config" || r.URL.Path == "/api/v1/auth/validate" {
 				next.ServeHTTP(w, r)
 				return
 			}

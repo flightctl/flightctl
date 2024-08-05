@@ -39,4 +39,16 @@ data:
           - flightctl-api.{{ .Values.flightctl.api.namespace }}.svc.cluster.local
     queue:
         amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@{{ .Values.flightctl.rabbitmq.name }}.{{ .Values.flightctl.rabbitmq.namespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
+    {{ if .Values.flightctl.api.auth.enabled }}
+    auth:
+        {{ if .Values.flightctl.api.auth.oidcAuthority }}
+        oidcAuthority: {{ .Values.flightctl.api.auth.oidcAuthority }}
+        {{ end }}
+        {{ if .Values.flightctl.api.auth.internalOidcAuthority }}
+        internalOidcAuthority: {{ .Values.flightctl.api.auth.internalOidcAuthority }}
+        {{ end }}
+        {{ if .Values.flightctl.api.auth.openShiftApiUrl }}
+        openShiftApiUrl: {{ .Values.flightctl.api.auth.openShiftApiUrl }}
+        {{ end }}
+    {{ end }}
 {{ end }}

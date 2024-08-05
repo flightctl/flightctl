@@ -41,13 +41,18 @@ The service can be deployed locally in kind with the following command:
 make deploy
 ```
 
+To deploy with auth enabled:
+```
+AUTH=true make deploy
+```
+
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
 and the client configuration in `$HOME/.flightctl/client.yaml`.
 
 Use the `flightctl` CLI to login and then apply, get, or delete resources:
 
 ```
-bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}')
+bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```

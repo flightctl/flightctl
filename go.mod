@@ -3,6 +3,7 @@ module github.com/flightctl/flightctl
 go 1.21
 
 require (
+	github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2
 	github.com/coreos/ignition/v2 v2.19.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/evanphx/json-patch v5.9.0+incompatible
@@ -25,6 +26,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.34.1
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
+	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/client_golang v1.19.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/samber/lo v1.44.0
