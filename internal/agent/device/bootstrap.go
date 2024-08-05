@@ -3,7 +3,6 @@ package device
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -23,19 +22,21 @@ import (
 	"k8s.io/klog/v2"
 )
 
+var (
+	ErrEnrollmentRequestFailed = fmt.Errorf("enrollment request failed")
+	ErrEnrollmentRequestDenied = fmt.Errorf("enrollment request denied")
+)
+
 type Bootstrap struct {
 	deviceName           string
 	executer             executer.Executer
-	deviceWriter         fileio.Writer
-	deviceReader         *fileio.Reader
+	deviceReadWriter     fileio.ReadWriter
 	enrollmentClient     client.Enrollment
 	enrollmentUIEndpoint string
+	specManager          spec.ManagerNoClient
 	statusManager        status.Manager
 	bootcClient          *container.BootcCmd
 	backoff              wait.Backoff
-
-	currentRenderedFile string
-	desiredRenderedFile string
 
 	managementServiceConfig *client.Config
 	managementClient        client.Management
@@ -49,33 +50,29 @@ type Bootstrap struct {
 func NewBootstrap(
 	deviceName string,
 	executer executer.Executer,
-	deviceWriter fileio.Writer,
-	deviceReader *fileio.Reader,
+	deviceReadWriter fileio.ReadWriter,
 	enrollmentCSR []byte,
+	specManager spec.ManagerNoClient,
 	statusManager status.Manager,
 	enrollmentClient client.Enrollment,
 	enrollmentUIEndpoint string,
 	managementServiceConfig *client.Config,
 	backoff wait.Backoff,
-	currentRenderedFile string,
-	desiredRenderedFile string,
 	log *log.PrefixLogger,
 	defaultLabels map[string]string,
 ) *Bootstrap {
 	return &Bootstrap{
 		deviceName:              deviceName,
 		executer:                executer,
-		deviceWriter:            deviceWriter,
-		deviceReader:            deviceReader,
+		deviceReadWriter:        deviceReadWriter,
 		enrollmentCSR:           enrollmentCSR,
+		specManager:             specManager,
 		statusManager:           statusManager,
 		enrollmentClient:        enrollmentClient,
 		enrollmentUIEndpoint:    enrollmentUIEndpoint,
 		managementServiceConfig: managementServiceConfig,
 		bootcClient:             container.NewBootcCmd(executer),
 		backoff:                 backoff,
-		currentRenderedFile:     currentRenderedFile,
-		desiredRenderedFile:     desiredRenderedFile,
 		log:                     log,
 		defaultLabels:           defaultLabels,
 	}
@@ -83,6 +80,11 @@ func NewBootstrap(
 
 func (b *Bootstrap) Initialize(ctx context.Context) error {
 	b.log.Infof("Bootstrapping device: %s", b.deviceName)
+
+	if err := b.ensureSpecFiles(); err != nil {
+		return err
+	}
+
 	if err := b.ensureEnrollment(ctx); err != nil {
 		return err
 	}
@@ -117,35 +119,40 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 	return nil
 }
 
+func (b *Bootstrap) ensureSpecFiles() error {
+	currentExists, err := b.specManager.Exists(spec.Current)
+	if err != nil {
+		return err
+	}
+	// If the current spec file does not exist and the device is not enrolled, we are in the initial bootstrap.
+	if !currentExists {
+		if b.isEnrolled() {
+			// If the device is enrolled, we are in a recovery scenario, resetting current spec.
+			b.log.Info("Device is enrolled, but current spec file does not exist. Recovering...")
+			if err := b.specManager.Write(spec.Current, spec.NewRendered()); err != nil {
+				return fmt.Errorf("writing current rendered spec: %w", err)
+			}
+		} else {
+			if err := b.specManager.Initialize(); err != nil {
+				return fmt.Errorf("initializing spec files: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
-	if err := b.ensureCurrentRenderedSpecUpToDate(ctx); err != nil {
+	desiredSpec, err := b.specManager.Read(spec.Desired)
+	if err != nil {
 		return err
 	}
 
-	return b.ensureRenderedSpec(ctx)
-}
-
-func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error {
-	currentSpec, err := spec.ReadRenderedSpecFromFile(b.deviceReader, b.currentRenderedFile)
+	updating, err := b.specManager.IsOSUpdateInProgress()
 	if err != nil {
-		// During the initial bootstrap it is expected that the spec does not exist yet.  This assumption is validated later.
-		if errors.Is(err, spec.ErrMissingRenderedSpec) {
-			return nil
-		}
-		return fmt.Errorf("getting current rendered spec: %w", err)
+		return err
 	}
-
-	desiredSpec, err := spec.ReadRenderedSpecFromFile(b.deviceReader, b.desiredRenderedFile)
-	if err != nil {
-		// During the initial bootstrap it is expected that the spec does not exist yet.  This assumption is validated later.
-		if errors.Is(err, spec.ErrMissingRenderedSpec) {
-			return nil
-		}
-		return fmt.Errorf("getting desired rendered spec: %w", err)
-	}
-
-	if !isOsImageInTransition(&currentSpec, &desiredSpec) {
-		// We didn't change the OS image, so nothing to do here
+	if !updating {
+		// We didn't change the OS image, so nothing else to do here
 		return nil
 	}
 
@@ -154,31 +161,18 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 		return fmt.Errorf("getting current bootc status: %w", err)
 	}
 
-	if container.IsOsImageReconciled(bootcHost, &desiredSpec) {
-		err = spec.WriteRenderedSpecToFile(b.deviceWriter, &desiredSpec, b.currentRenderedFile)
-		if err != nil {
-			return fmt.Errorf("writing rendered spec to file: %w", err)
-		}
+	// note: empty desired os will return here
+	imageReconciled, err := b.specManager.IsOsImageReconciled(bootcHost)
+	if err != nil {
+		return fmt.Errorf("checking if OS image is reconciled: %w", err)
+	}
 
-		updateFns := []status.UpdateStatusFn{
-			status.SetOSImage(v1alpha1.DeviceOSStatus{
-				Image: desiredSpec.Os.Image,
-			}),
-			status.SetConfig(v1alpha1.DeviceConfigStatus{
-				RenderedVersion: desiredSpec.RenderedVersion,
-			}),
-		}
-
-		_, updateErr := b.statusManager.Update(ctx, updateFns...)
-		if updateErr != nil {
-			b.log.Warnf("Failed setting status: %v", updateErr)
-		}
-	} else {
+	if !imageReconciled {
 		// We rebooted without applying the new OS image - something went wrong
 		b.log.Warn("Started bootstrap with OS image not equal to desired image")
 		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 			Status: v1alpha1.DeviceSummaryStatusDegraded,
-			Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", container.GetImage(bootcHost), desiredSpec.Os.Image)),
+			Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootcHost.GetBootedImage(), desiredSpec.Os.Image)),
 		}))
 		if updateErr != nil {
 			b.log.Warnf("Failed setting status: %v", updateErr)
@@ -186,37 +180,29 @@ func (b *Bootstrap) ensureCurrentRenderedSpecUpToDate(ctx context.Context) error
 		return nil
 	}
 
-	return nil
-}
-
-func isOsImageInTransition(current *v1alpha1.RenderedDeviceSpec, desired *v1alpha1.RenderedDeviceSpec) bool {
-	currentImage := ""
-	if current.Os != nil {
-		currentImage = current.Os.Image
-	}
-	desiredImage := ""
-	if desired.Os != nil {
-		desiredImage = desired.Os.Image
-	}
-	return currentImage != desiredImage
-}
-
-func (b *Bootstrap) ensureRenderedSpec(ctx context.Context) error {
-	_, err := spec.EnsureDesiredRenderedSpec(ctx, b.log, b.deviceWriter, b.deviceReader, b.managementClient, b.deviceName, b.desiredRenderedFile, b.backoff)
-	if err != nil {
-		return fmt.Errorf("ensure desired rendered spec: %w", err)
+	// image is reconciled upgrade was a success update the current spec
+	if err := b.specManager.Write(spec.Current, desiredSpec); err != nil {
+		return fmt.Errorf("writing current rendered spec: %w", err)
 	}
 
-	_, err = spec.EnsureCurrentRenderedSpec(ctx, b.log, b.deviceWriter, b.deviceReader, b.currentRenderedFile)
-	if err != nil {
-		return fmt.Errorf("ensure current rendered spec: %w", err)
+	updateFns := []status.UpdateStatusFn{
+		status.SetOSImage(v1alpha1.DeviceOSStatus{
+			Image: desiredSpec.Os.Image,
+		}),
+		status.SetConfig(v1alpha1.DeviceConfigStatus{
+			RenderedVersion: desiredSpec.RenderedVersion,
+		}),
 	}
 
+	_, updateErr := b.statusManager.Update(ctx, updateFns...)
+	if updateErr != nil {
+		b.log.Warnf("Failed setting status: %v", updateErr)
+	}
 	return nil
 }
 
 func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
-	if !b.isBootstrapComplete() {
+	if !b.isEnrolled() {
 		if err := b.writeEnrollmentBanner(); err != nil {
 			return err
 		}
@@ -239,8 +225,8 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 }
 
 // TODO: make more robust
-func (b *Bootstrap) isBootstrapComplete() bool {
-	_, err := b.deviceReader.ReadFile(b.managementServiceConfig.GetClientCertificatePath())
+func (b *Bootstrap) isEnrolled() bool {
+	_, err := b.deviceReadWriter.ReadFile(b.managementServiceConfig.GetClientCertificatePath())
 	return !os.IsNotExist(err)
 }
 
@@ -259,10 +245,10 @@ func (b *Bootstrap) verifyEnrollment(ctx context.Context) (bool, error) {
 	approved := false
 	for _, cond := range enrollmentRequest.Status.Conditions {
 		if cond.Type == "Denied" {
-			return false, fmt.Errorf("enrollment request is denied, reason: %v, message: %v", cond.Reason, cond.Message)
+			return false, fmt.Errorf("%w: reason: %v, message: %v", ErrEnrollmentRequestDenied, cond.Reason, cond.Message)
 		}
 		if cond.Type == "Failed" {
-			return false, fmt.Errorf("enrollment request failed, reason: %v, message: %v", cond.Reason, cond.Message)
+			return false, fmt.Errorf("%w: reason: %v, message: %v", ErrEnrollmentRequestFailed, cond.Reason, cond.Message)
 		}
 		if cond.Type == "Approved" {
 			approved = true
@@ -283,12 +269,14 @@ func (b *Bootstrap) verifyEnrollment(ctx context.Context) (bool, error) {
 	}
 
 	b.log.Infof("Writing signed certificate to %s", b.managementServiceConfig.GetClientCertificatePath())
-	if err := b.deviceWriter.WriteFile(b.managementServiceConfig.GetClientCertificatePath(), []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
+	if err := b.deviceReadWriter.WriteFile(b.managementServiceConfig.GetClientCertificatePath(), []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
 		return false, fmt.Errorf("writing signed certificate: %v", err)
 	}
 
 	return true, nil
 }
+
+// we want to look at the desired spec
 
 func (b *Bootstrap) writeEnrollmentBanner() error {
 	if b.enrollmentUIEndpoint == "" {
@@ -332,7 +320,7 @@ func (b *Bootstrap) writeQRBanner(message, url string) error {
 	fmt.Fprintf(buffer, message, url)
 
 	// duplicate file to /etc/issue.d/flightctl-banner.issue
-	if err := b.deviceWriter.WriteFile("/etc/issue.d/flightctl-banner.issue", buffer.Bytes(), os.FileMode(0666)); err != nil {
+	if err := b.deviceReadWriter.WriteFile("/etc/issue.d/flightctl-banner.issue", buffer.Bytes(), os.FileMode(0666)); err != nil {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
@@ -372,10 +360,10 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 }
 
 func (b *Bootstrap) setManagementClient() error {
-	if err := b.deviceReader.CheckPathExists(b.managementServiceConfig.GetClientCertificatePath()); err != nil {
-		return fmt.Errorf("generated cert: %q: %w", b.managementServiceConfig.GetClientCertificatePath(), err)
+	// management client already set up (for testing)
+	if b.managementServiceConfig != nil {
+		return nil
 	}
-
 	// create the management client
 	managementHTTPClient, err := client.NewFromConfig(b.managementServiceConfig)
 	if err != nil {

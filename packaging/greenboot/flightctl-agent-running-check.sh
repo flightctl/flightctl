@@ -90,7 +90,6 @@ wait_for_success() {
   done
 }
 
-
 # Wait for flightctl-agent service to be active (failed status terminates the script)
 echo "Waiting ${TIMEOUT}s for flightctl-agent service to be active..."
 if ! wait_for_success "${TIMEOUT}" "${SUCCESS_DURATION}" verify_flightctl_agent_status ; then

@@ -2,42 +2,44 @@ package spec
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
+	gomock "go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestManager(t *testing.T) {
 	tests := []struct {
-		name           string
-		ensureRendered bool
-		wantSkipSync   bool
-		wantErr        error
+		name                    string
+		getRenderedResponseCode int
+		desiredRenderedVersion  string
+		wantErr                 error
+		wantReadErr             error
+		wantInitialize          bool
 	}{
 		{
 			name:           "happy path",
-			ensureRendered: true,
+			wantInitialize: true,
 		},
 		{
-			name:           "error getting rendered spec during runtime",
-			ensureRendered: false,
-			wantErr:        ErrMissingRenderedSpec,
+			name:                    "error getting rendered spec during runtime",
+			wantReadErr:             ErrMissingRenderedSpec,
+			getRenderedResponseCode: http.StatusOK,
+			desiredRenderedVersion:  "1",
+			wantInitialize:          false,
 		},
 		{
-			name:           "skip sync 204 from api",
-			ensureRendered: true,
-			wantSkipSync:   true,
+			name:                    "skip sync 204 from api",
+			getRenderedResponseCode: http.StatusNoContent,
+			wantInitialize:          true,
+			wantErr:                 ErrNoContent,
 		},
 	}
 	for _, tt := range tests {
@@ -46,88 +48,57 @@ func TestManager(t *testing.T) {
 			tmpDir := t.TempDir()
 			err := os.MkdirAll(tmpDir+"/etc/flightctl", 0755)
 			require.NoError(err)
-			currentSpecFilePath := "/etc/flightctl/" + "current-spec.json"
-			desiredSpecFilePath := "/etc/flightctl/" + "desired-spec.json"
 			backoff := wait.Backoff{
 				Steps:    1,
 				Duration: 1,
 				Factor:   1,
 				Jitter:   0,
 			}
-			server := createMockManagementServer(t, tt.wantSkipSync)
-			defer server.Close()
 
-			serverUrl := server.URL
-			httpClient, err := testutil.NewAgentClient(serverUrl, nil, nil)
-			require.NoError(err)
-			managementClient := client.NewManagement(httpClient)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockManagementClient := client.NewMockManagement(ctrl)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			log := log.NewPrefixLogger("")
-			writer := fileio.NewWriter()
-			writer.SetRootdir(tmpDir)
-			reader := fileio.NewReader()
-			reader.SetRootdir(tmpDir)
-
-			// ensure rendered spec
-			if tt.ensureRendered {
-				_, err := EnsureCurrentRenderedSpec(ctx, log, writer, reader, currentSpecFilePath)
-				require.NoError(err)
-			}
+			readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tmpDir))
 
 			manager := NewManager(
 				"testDeviceName",
-				currentSpecFilePath,
-				desiredSpecFilePath,
-				writer,
-				reader,
-				managementClient,
+				tmpDir,
+				readWriter,
 				backoff,
 				log,
 			)
-			current, desired, err := manager.GetRendered(ctx)
-			if tt.wantSkipSync {
-				require.Equal(current, desired)
+
+			// initialize writes empty spec files to disk for current, desired and rollback
+			if tt.wantInitialize {
+				err := manager.Initialize()
+				require.NoError(err)
+			}
+			_, err = manager.Read(Current)
+			if tt.wantReadErr != nil {
+				require.ErrorIs(err, tt.wantReadErr)
 				return
 			}
+			require.NoError(err)
+
+			mockManagementClient.EXPECT().GetRenderedDeviceSpec(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(&v1alpha1.RenderedDeviceSpec{RenderedVersion: tt.desiredRenderedVersion}, tt.getRenderedResponseCode, nil).Times(1)
+
+			manager.SetClient(mockManagementClient)
+			isRolledBack := false
+			desired, err := manager.GetDesired(ctx, "1", isRolledBack)
 			if tt.wantErr != nil {
 				require.ErrorIs(err, tt.wantErr)
 				return
 			}
 			require.NoError(err)
-			// eval current
-			require.Equal("", current.RenderedVersion)
-			// eval desired
-			require.Equal("mockRenderedVersion", desired.RenderedVersion)
+			require.Equal(tt.desiredRenderedVersion, desired.RenderedVersion)
 		})
 	}
 
-}
-
-func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mockRenderedVersion := "mockRenderedVersion"
-		resp := v1alpha1.RenderedDeviceSpec{
-			RenderedVersion: mockRenderedVersion,
-			Config:          util.StrToPtr("ignitionConfig"),
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if noChange {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		respBytes, err := json.Marshal(resp)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = w.Write(respBytes)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}))
 }

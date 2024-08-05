@@ -8,7 +8,7 @@ import (
 	"os/exec"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/sync/errgroup"
@@ -34,7 +34,7 @@ func NewConsoleController(grpcClient grpc_v1.RouterServiceClient, deviceName str
 	}
 }
 
-func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *ConsoleController) Sync(ctx context.Context, desired *spec.Rendered) error {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 

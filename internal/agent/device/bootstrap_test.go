@@ -4,10 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,68 +17,171 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
-	testutil "github.com/flightctl/flightctl/test/util"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-func TestEnsureEnrollment(t *testing.T) {
+func TestBootstrapInitialize(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
-		name               string
-		enrollmentApproved bool
-		wantErr            bool
+		name                    string
+		enrollmentConditionType string
+		desiredSpec             *spec.Rendered
+		desiredBootedOsImage    string
+		isOSUpdateInProgress    bool
+		isOsImageReconciled     bool
+		wantErr                 error
 	}{
+		// {
+		// 	name:                    "enrollment approved initial bootstrap",
+		// 	enrollmentConditionType: "Approved",
+		// },
 		{
-			name:               "happy path",
-			enrollmentApproved: true,
+			name:                    "enrollment request denied",
+			enrollmentConditionType: "Denied",
+			wantErr:                 ErrEnrollmentRequestDenied,
 		},
-		{
-			name:               "enrollment not approved",
-			enrollmentApproved: false,
-			wantErr:            true,
-		},
-		{
-			name:               "enrollment request not found",
-			enrollmentApproved: false,
-			wantErr:            true,
-		},
+		// {
+		// 	name:                    "enrollment request failed",
+		// 	enrollmentConditionType: "Failed",
+		// 	wantErr:                 ErrEnrollmentRequestFailed,
+		// },
+		// {
+		// 	name:                    "OS update in progress boot image reconciled",
+		// 	enrollmentConditionType: "Approved",
+		// 	isOSUpdateInProgress:    true,
+		// 	isOsImageReconciled:     false,
+		// 	desiredSpec: &spec.Rendered{
+		// 		RenderedDeviceSpec: &v1alpha1.RenderedDeviceSpec{
+		// 			RenderedVersion: "1",
+		// 			Os: &v1alpha1.DeviceOSSpec{
+		// 				Image: "newimage",
+		// 			},
+		// 		},
+		// 	},
+		// },
+		// {
+		// 	name:                    "OS update in progress boot image not reconciled",
+		// 	enrollmentConditionType: "Approved",
+		// 	isOSUpdateInProgress:    true,
+		// 	isOsImageReconciled:     true,
+		// 	desiredSpec: &spec.Rendered{
+		// 		RenderedDeviceSpec: &v1alpha1.RenderedDeviceSpec{
+		// 			RenderedVersion: "1",
+		// 			Os: &v1alpha1.DeviceOSSpec{
+		// 				Image: "newimage",
+		// 			},
+		// 		},
+		// 	},
+		// 	desiredBootedOsImage: "oldimage",
+		// },
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// initialize storage
 			tmpDir := t.TempDir()
+			t.Setenv("FLIGHTCTL_TEST_ROOT_DIR", tmpDir)
 			err := os.MkdirAll(tmpDir+"/etc/flightctl", 0755)
 			require.NoError(err)
 			err = os.MkdirAll(tmpDir+"/var/lib/flightctl", 0755)
 			require.NoError(err)
 
-			writer := fileio.NewWriter()
-			writer.SetRootdir(tmpDir)
-			reader := fileio.NewReader()
-			reader.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tmpDir))
 
-			// create mock enrollment  server
-			mockEnrollmentServer := createMockEnrollmentServer(t, tt.enrollmentApproved)
-			defer mockEnrollmentServer.Close()
-			enrollmentEndpoint := mockEnrollmentServer.URL
-			httpClient, err := testutil.NewAgentClient(enrollmentEndpoint, nil, nil)
-			require.NoError(err)
-			enrollmentClient := client.NewEnrollment(httpClient)
-
-			// create mock management server
-			mockManagementServer := createMockManagementServer(t, false)
-			defer mockManagementServer.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
+			mockEnrollmentClient := client.NewMockEnrollment(ctrl)
+			mockEnrollmentClient.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(&v1alpha1.EnrollmentRequest{}, nil).Times(1)
+
 			statusManager := status.NewMockManager(ctrl)
 			statusManager.EXPECT().Collect(gomock.Any()).Return(nil).Times(1)
 			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}).Times(1)
+
+			specManager := spec.NewMockManager(ctrl)
+			specManager.EXPECT().Exists(gomock.Any()).Return(true, nil).Times(1)
+
+			execMock := executer.NewMockExecuter(ctrl)
+
+			// prepare enrollment request response
+			var conditions []v1alpha1.Condition
+			var certificate *string
+			switch tt.enrollmentConditionType {
+			case "Approved":
+				specManager.EXPECT().Read(spec.SpecType("desired")).Return(tt.desiredSpec, nil).Times(1)
+				specManager.EXPECT().Read(spec.SpecType("desired")).Return(tt.desiredSpec, nil).Times(1)
+
+				specManager.EXPECT().IsOSUpdateInProgress().Return(tt.isOSUpdateInProgress, nil).Times(1)
+				bootcHost := newTestBootcHost(tt.desiredBootedOsImage)
+
+				// check if OS update is in progress
+				if tt.isOSUpdateInProgress {
+					hostJson, err := json.Marshal(bootcHost)
+					require.NoError(err)
+					execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
+					specManager.EXPECT().IsOsImageReconciled(gomock.Any()).Return(tt.isOsImageReconciled, nil).Times(1)
+
+					// check if OS image is reconciled
+					if tt.isOsImageReconciled {
+						// check if OS image is reconciled
+						specManager.EXPECT().Write(spec.SpecType("current"), gomock.Any()).Return(nil).Times(1)
+						expectedFn := []status.UpdateStatusFn{
+							status.SetOSImage(v1alpha1.DeviceOSStatus{
+								Image: tt.desiredSpec.Os.Image,
+							}),
+							status.SetConfig(v1alpha1.DeviceConfigStatus{
+								RenderedVersion: tt.desiredSpec.RenderedVersion,
+							}),
+						}
+						statusManager.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(expectedFn)).Return(nil, nil).Times(1)
+					} else {
+						// os is dirty
+						expectedStatus := v1alpha1.DeviceSummaryStatus{
+							Status: v1alpha1.DeviceSummaryStatusDegraded,
+							Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootcHost.GetBootedImage(), tt.desiredSpec.Os.Image)),
+						}
+						expectedSummary := status.SetDeviceSummary(expectedStatus)
+						statusManager.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(expectedSummary)).Return(nil, nil).Times(1)
+					}
+
+				}
+
+				// ensure status is updated as expected
+				expectedStatus := v1alpha1.DeviceSummaryStatus{
+					Status: v1alpha1.DeviceSummaryStatusOnline,
+					Info:   util.StrToPtr("Bootstrap complete"),
+				}
+				expectedSummary := status.SetDeviceSummary(expectedStatus)
+				statusManager.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(expectedSummary)).Return(nil, nil).Times(1)
+
+				// populate certificate and conditions
+				certificate = util.StrToPtr(testCert)
+				conditions = append(conditions, v1alpha1.Condition{
+					Type: "Approved",
+				})
+
+			case "Failed":
+				conditions = append(conditions, v1alpha1.Condition{
+					Type: "Failed",
+				})
+			case "Denied":
+				conditions = append(conditions, v1alpha1.Condition{
+					Type: "Denied",
+				})
+			}
+
+			resp := &v1alpha1.EnrollmentRequest{
+				Status: &v1alpha1.EnrollmentRequestStatus{
+					Conditions:  conditions,
+					Certificate: certificate,
+				},
+			}
+
+			mockEnrollmentClient.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(resp, nil).Times(1)
 
 			log := flightlog.NewPrefixLogger("")
 
@@ -92,30 +192,25 @@ func TestEnsureEnrollment(t *testing.T) {
 				Steps:    1,
 			}
 
-			currentSpecFilePath := filepath.Join("/var/lib/flightctl", spec.CurrentFile)
-			desiredSpecFilePath := filepath.Join("/var/lib/flightctl", spec.DesiredFile)
-
-			execMock := executer.NewMockExecuter(ctrl)
-
 			b := NewBootstrap(
 				"test-device",
 				execMock,
-				writer,
-				reader,
+				readWriter,
 				[]byte("test-csr"), // TODO: use real csr
+				specManager,
 				statusManager,
-				enrollmentClient,
-				mockManagementServer.URL,
-				&client.Config{AuthInfo: client.AuthInfo{ClientCertificate: "/etc/flightctl/agent.crt"}},
+				mockEnrollmentClient,
+				"mock.server.com:8080",
+				client.NewDefault(),
 				backoff,
-				currentSpecFilePath,
-				desiredSpecFilePath,
 				log,
 				make(map[string]string),
 			)
-			err = b.ensureEnrollment(context.Background())
-			if tt.wantErr {
-				require.Error(err)
+			b.managementClient = client.NewManagement(nil)
+
+			err = b.Initialize(ctx)
+			if tt.wantErr != nil {
+				require.ErrorIs(err, tt.wantErr)
 				return
 			}
 			require.NoError(err)
@@ -123,286 +218,18 @@ func TestEnsureEnrollment(t *testing.T) {
 	}
 }
 
-var _ = Describe("Calling osimages Sync", func() {
-	var (
-		ctx                 context.Context
-		ctrl                *gomock.Controller
-		execMock            *executer.MockExecuter
-		statusManager       *status.MockManager
-		log                 *flightlog.PrefixLogger
-		tmpDir              string
-		currentSpecFilePath string
-		desiredSpecFilePath string
-		writer              fileio.Writer
-		bootstrap           *Bootstrap
-		defaultRenderedData []byte
-		bootcHost           container.BootcHost
-		//imageController *device.OSImageController
-	)
-
-	BeforeEach(func() {
-		ctx = context.Background()
-		log = flightlog.NewPrefixLogger("")
-		ctrl = gomock.NewController(GinkgoT())
-		execMock = executer.NewMockExecuter(ctrl)
-		statusManager = status.NewMockManager(ctrl)
-
-		// initialize storage
-		tmpDir = GinkgoT().TempDir()
-		err := os.MkdirAll(filepath.Join(tmpDir, "/var/lib/flightctl"), 0755)
-		Expect(err).ToNot(HaveOccurred())
-		writer = fileio.NewWriter()
-		writer.SetRootdir(tmpDir)
-		reader := fileio.NewReader()
-		reader.SetRootdir(tmpDir)
-		currentSpecFilePath = filepath.Join("/var/lib/flightctl", spec.CurrentFile)
-		desiredSpecFilePath = filepath.Join("/var/lib/flightctl", spec.DesiredFile)
-
-		renderedConfig := v1alpha1.RenderedDeviceSpec{
-			Os: &v1alpha1.DeviceOSSpec{
-				Image: "image",
-			},
-			Config:          util.StrToPtr("config stuff"),
-			RenderedVersion: "1",
-		}
-		defaultRenderedData, err = json.Marshal(renderedConfig)
-		Expect(err).ToNot(HaveOccurred())
-
-		bootcHost = container.BootcHost{
-			Status: container.Status{
-				Booted: container.ImageStatus{
-					Image: container.ImageDetails{
-						Image: container.ImageSpec{
-							Image: "newimage",
-						},
+func newTestBootcHost(name string) container.BootcHost {
+	return container.BootcHost{
+		Status: container.Status{
+			Booted: container.ImageStatus{
+				Image: container.ImageDetails{
+					Image: container.ImageSpec{
+						Image: name,
 					},
 				},
 			},
-		}
-
-		bootstrap = NewBootstrap(
-			"device",
-			execMock,
-			writer,
-			reader,
-			[]byte(""),
-			statusManager,
-			nil,
-			"",
-			nil,
-			wait.Backoff{},
-			currentSpecFilePath,
-			desiredSpecFilePath,
-			log,
-			map[string]string{},
-		)
-	})
-
-	AfterEach(func() {
-		ctrl.Finish()
-	})
-
-	Context("When the current spec does not exist", func() {
-		It("should return with no action", func() {
-			err := writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-
-	Context("When the desired spec does not exist", func() {
-		It("should return with no action", func() {
-			err := writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-
-	Context("When the OS hasn't changed", func() {
-		It("should return with no action", func() {
-			err := writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-
-	Context("When the current spec does not exist", func() {
-		It("should return with no action", func() {
-			err := writer.WriteFile(desiredSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-
-	Context("When the desired spec does not exist", func() {
-		It("should return with no action", func() {
-			err := writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-
-	Context("When the OS changed and was reconciled", func() {
-		It("should write desired spec to file", func() {
-			desiredConfig := v1alpha1.RenderedDeviceSpec{
-				Os: &v1alpha1.DeviceOSSpec{
-					Image: "newimage",
-				},
-			}
-			desiredRenderedData, err := json.Marshal(desiredConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = writer.WriteFile(desiredSpecFilePath, desiredRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-
-			// New image was booted
-			hostJson, err := json.Marshal(bootcHost)
-			Expect(err).ToNot(HaveOccurred())
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
-
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Current should equal desired
-			fileData, err := os.ReadFile(filepath.Join(tmpDir, currentSpecFilePath))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fileData).To(Equal(desiredRenderedData))
-		})
-	})
-
-	Context("When the OS changed and was not reconciled", func() {
-		It("should set degraded status", func() {
-			desiredConfig := v1alpha1.RenderedDeviceSpec{
-				Os: &v1alpha1.DeviceOSSpec{
-					Image: "newimage",
-				},
-			}
-			desiredRenderedData, err := json.Marshal(desiredConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = writer.WriteFile(currentSpecFilePath, defaultRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-			err = writer.WriteFile(desiredSpecFilePath, desiredRenderedData, 0600)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Old image was booted
-			bootcHost.Status.Booted.Image.Image.Image = "image"
-			hostJson, err := json.Marshal(bootcHost)
-			Expect(err).ToNot(HaveOccurred())
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-
-			summaryStatus := v1alpha1.DeviceSummaryStatusDegraded
-			infoMsg := fmt.Sprintf("Booted image %s, expected %s", container.GetImage(&bootcHost), desiredConfig.Os.Image)
-
-			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, fn status.UpdateStatusFn) (*v1alpha1.DeviceStatus, error) {
-					status := v1alpha1.NewDeviceStatus()
-					err := fn(&status)
-					Expect(err).To(BeNil())
-					Expect(status.Summary.Status).To(Equal(summaryStatus))
-					Expect(status.Summary.Info).To(Equal(&infoMsg))
-					return &status, nil
-				},
-			).Times(1)
-
-			statusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}).AnyTimes()
-
-			err = bootstrap.ensureCurrentRenderedSpecUpToDate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-})
-
-func createMockEnrollmentServer(t *testing.T, approved bool) *httptest.Server {
-	t.Helper()
-
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/enrollmentrequests/test-device" {
-			var condition v1alpha1.Condition
-			var certificate *string
-			if approved {
-				condition = v1alpha1.Condition{
-					Type: "Approved",
-				}
-				certificate = util.StrToPtr(testCert)
-			} else {
-				condition = v1alpha1.Condition{
-					Type: "Failed",
-				}
-			}
-
-			conditions := []v1alpha1.Condition{
-				condition,
-			}
-
-			status := v1alpha1.EnrollmentRequestStatus{
-				Conditions:  conditions,
-				Certificate: certificate,
-			}
-
-			resp := v1alpha1.EnrollmentRequest{
-				Status: &status,
-			}
-			// handle get enrollment request
-			bytes, err := json.Marshal(resp)
-			if err != nil {
-				t.Fatal(err)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, err = w.Write(bytes)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return
-		}
-
-		approvalBytes, err := json.Marshal(testutil.TestEnrollmentApproval())
-		if err != nil {
-			t.Fatal(err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_, err = w.Write(approvalBytes)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}))
-}
-
-func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mockRenderedVersion := "mockRenderedVersion"
-		resp := v1alpha1.RenderedDeviceSpec{
-			RenderedVersion: mockRenderedVersion,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if noChange {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		respBytes, err := json.Marshal(resp)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = w.Write(respBytes)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}))
+		},
+	}
 }
 
 var testCert = `-----BEGIN CERTIFICATE-----

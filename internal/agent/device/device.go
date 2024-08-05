@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,7 +23,7 @@ type Agent struct {
 	name               string
 	deviceWriter       fileio.Writer
 	statusManager      status.Manager
-	specManager        *spec.Manager
+	specManager        spec.Manager
 	hookManager        hook.Manager
 	configController   *config.Controller
 	osImageController  *OSImageController
@@ -40,7 +41,7 @@ func NewAgent(
 	name string,
 	deviceWriter fileio.Writer,
 	statusManager status.Manager,
-	specManager *spec.Manager,
+	specManager spec.Manager,
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
@@ -83,6 +84,11 @@ func (a *Agent) Run(ctx context.Context) error {
 			deviceUpdated, err := a.syncDevice(ctx)
 			if err != nil {
 				infoMsg := fmt.Sprintf("Failed to sync device: %v", err)
+				rollbackErr := a.specManager.Rollback()
+				if rollbackErr != nil {
+					a.log.Errorf("Failed to rollback: %v", rollbackErr)
+					infoMsg = fmt.Sprintf("%s: rollback error: %v", infoMsg, rollbackErr)
+				}
 				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 					Status: v1alpha1.DeviceSummaryStatusDegraded,
 					Info:   util.StrToPtr(infoMsg),
@@ -122,8 +128,17 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
-	current, desired, err := a.specManager.GetRendered(ctx)
+	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
+		return false, err
+	}
+
+	desired, err := a.specManager.GetDesired(ctx, current.RenderedVersion, current.Rollback)
+	if err != nil {
+		if errors.Is(err, spec.ErrNoContent) {
+			a.log.Debug("No content from management API")
+			return false, nil
+		}
 		return false, err
 	}
 
@@ -131,50 +146,53 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	if err := a.consoleController.Sync(ctx, &desired); err != nil {
+	if err := a.consoleController.Sync(ctx, desired); err != nil {
 		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
-	if current.RenderedVersion != desired.RenderedVersion {
-		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.DeviceUpdating,
-			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  "Update",
-			Message: fmt.Sprintf("The device is updating to renderedVersion: %s", desired.RenderedVersion),
-		})
-		if updateErr != nil {
-			a.log.Warnf("Failed setting status: %v", updateErr)
+	if spec.IsUpdate(current, desired) {
+		reason := "Update"
+		message := fmt.Sprintf("The device is updating to renderedVersion: %s", desired.RenderedVersion)
+		if err := a.setUpdateCondition(ctx, v1alpha1.ConditionStatusTrue, reason, message); err != nil {
+			a.log.Warnf("Failed setting status: %v", err)
+		}
+	} else if desired.IsRollback() {
+		reason := "RollingBack"
+		message := fmt.Sprintf("The device is rolling back to renderedVersion: %s", desired.RenderedVersion)
+		if err := a.setUpdateCondition(ctx, v1alpha1.ConditionStatusTrue, reason, message); err != nil {
+			a.log.Warnf("Failed setting status: %v", err)
 		}
 	}
 
-	if err := a.hookManager.Sync(&current, &desired); err != nil {
+	if err := a.hookManager.Sync(current.RenderedDeviceSpec, desired.RenderedDeviceSpec); err != nil {
 		return false, err
 	}
 
-	if err := a.configController.Sync(ctx, &current, &desired); err != nil {
+	if err := a.configController.Sync(ctx, current.RenderedDeviceSpec, desired.RenderedDeviceSpec); err != nil {
 		return false, err
 	}
 
-	if err := a.resourceController.Sync(ctx, &desired); err != nil {
+	if err := a.resourceController.Sync(ctx, desired.RenderedDeviceSpec); err != nil {
 		return false, err
 	}
 
-	if err := a.osImageController.Sync(ctx, &desired); err != nil {
+	if err := a.osImageController.Sync(ctx, desired.RenderedDeviceSpec); err != nil {
 		return false, err
 	}
 
 	// set status collector properties based on new desired spec
-	a.statusManager.SetProperties(&desired)
+	a.statusManager.SetProperties(desired.RenderedDeviceSpec)
 
-	// we have ensured that the desired spec is applied to the device. if the
-	// rendered versions are the same no more work is needed.
-	if current.RenderedVersion == desired.RenderedVersion {
+	// The desired spec has been applied to the device. If the rendered versions
+	// are the same, no further action is required.  In rollback mode, the
+	// desired spec must be reconciled with the current spec.
+	if !spec.IsUpdate(current, desired) || !desired.IsRollback() {
 		return false, nil
 	}
 
 	// write the desired spec to the current spec file this would only happen if
 	// there was no os image change as that requires a reboot
-	if err := a.specManager.WriteCurrentRendered(&desired); err != nil {
+	if err := a.specManager.Write(spec.Current, desired); err != nil {
 		return false, err
 	}
 
@@ -206,4 +224,13 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (a *Agent) setUpdateCondition(ctx context.Context, status v1alpha1.ConditionStatus, reason, message string) error {
+	return a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceUpdating,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	})
 }

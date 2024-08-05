@@ -15,8 +15,47 @@ import (
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
+	client0 "github.com/flightctl/flightctl/internal/client"
 	gomock "go.uber.org/mock/gomock"
 )
+
+// MockClientFactory is a mock of ClientFactory interface.
+type MockClientFactory[T any] struct {
+	ctrl     *gomock.Controller
+	recorder *MockClientFactoryMockRecorder[T]
+}
+
+// MockClientFactoryMockRecorder is the mock recorder for MockClientFactory.
+type MockClientFactoryMockRecorder[T any] struct {
+	mock *MockClientFactory[T]
+}
+
+// NewMockClientFactory creates a new mock instance.
+func NewMockClientFactory[T any](ctrl *gomock.Controller) *MockClientFactory[T] {
+	mock := &MockClientFactory[T]{ctrl: ctrl}
+	mock.recorder = &MockClientFactoryMockRecorder[T]{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockClientFactory[T]) EXPECT() *MockClientFactoryMockRecorder[T] {
+	return m.recorder
+}
+
+// CreateClient mocks base method.
+func (m *MockClientFactory[T]) CreateClient(config *client0.Config) (T, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateClient", config)
+	ret0, _ := ret[0].(T)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateClient indicates an expected call of CreateClient.
+func (mr *MockClientFactoryMockRecorder[T]) CreateClient(config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateClient", reflect.TypeOf((*MockClientFactory[T])(nil).CreateClient), config)
+}
 
 // MockManagement is a mock of Management interface.
 type MockManagement struct {

@@ -13,6 +13,10 @@ import (
 	"github.com/go-chi/chi/middleware"
 )
 
+type ClientFactory[T any] interface {
+	CreateClient(config *baseclient.Config) (T, error)
+}
+
 // NewFromConfig returns a new FlightCtl API client from the given config.
 func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, error) {
 
