@@ -31,9 +31,32 @@ jobs:
           name: ${{ env.NAME }}
           path: ${{ github.workspace }}/bin/${{ env.NAME }}
 
+  verify:
+    strategy:
+      matrix:
+        env: 
+          - runner: ubuntu-latest
+            build: linux-amd64
+          - runner: macos-latest
+            build: darwin-arm64
+    runs-on: ${{ matrix.env.runner }}
+    needs: [build]
+    
+    steps: 
+      - name: "Load binary"
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-${{ matrix.env.build }}
+
+      - name: "Verify"
+        run: |
+          chmod +x flightctl-${{ matrix.env.build }}
+          ./flightctl-${{ matrix.env.build }} version
+          exit $?
+
   publish:
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [verify]
 
     steps:
       - name: "Checkout"
