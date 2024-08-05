@@ -52,7 +52,7 @@ and the client configuration in `$HOME/.flightctl/client.yaml`.
 Use the `flightctl` CLI to login and then apply, get, or delete resources:
 
 ```
-bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web
+bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web --certificate-authority ~/.flightctl/certs/ca.crt
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```
