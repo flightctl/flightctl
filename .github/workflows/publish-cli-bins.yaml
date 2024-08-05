@@ -31,9 +31,39 @@ jobs:
           name: ${{ env.NAME }}
           path: ${{ github.workspace }}/bin/${{ env.NAME }}
 
-  publish:
+  verify-darwin:
+    runs-on: macos-latest
+    needs: [build]
+    
+    steps: 
+      - name: "Load binary"
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-darwin-arm64
+
+      - name: "Verify"
+        run: |
+          ./flightctl version
+          exit $?
+
+  verify-linux:
     runs-on: ubuntu-latest
     needs: [build]
+    
+    steps:
+      - name: "Load binary"
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-linux-amd64
+
+      - name: "Verify"
+        run: |
+          ./flightctl version
+          exit $?
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [verify-darwin, verify-linux]
 
     steps:
       - name: "Checkout"
