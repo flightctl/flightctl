@@ -2,10 +2,10 @@ package authn
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+
+	"github.com/flightctl/flightctl/internal/auth/common"
 )
 
 type OpenShiftAuthN struct {
@@ -35,19 +35,9 @@ func (o OpenShiftAuthN) ValidateToken(ctx context.Context, token string) (bool, 
 	return res.StatusCode == http.StatusOK, nil
 }
 
-func (o OpenShiftAuthN) GetTokenRequestURL(ctx context.Context) (string, error) {
-	res, err := http.Get(fmt.Sprintf("%s/.well-known/oauth-authorization-server", o.OpenShiftApiUrl))
-	if err != nil {
-		return "", err
+func (o OpenShiftAuthN) GetAuthConfig() common.AuthConfig {
+	return common.AuthConfig{
+		Type: "OpenShift",
+		Url:  o.OpenShiftApiUrl,
 	}
-	oauthResponse := OauthServerResponse{}
-	defer res.Body.Close()
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", err
-	}
-	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s/request", oauthResponse.TokenEndpoint), nil
 }

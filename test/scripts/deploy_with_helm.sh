@@ -4,19 +4,17 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 METHOD=install
 ONLY_DB=
-NO_AUTH=
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-docker.io/rabbitmq:3.13}
 IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,no-auth,help -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,auth,help -n "$0" -- "$@")
 eval set -- "$options"
 
 while true; do
   case "$1" in
     -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false" ; shift ;;
-    -d|--no-auth) NO_AUTH="--set flightctl.keycloak.enabled=false"; shift ;;
-    -h|--help) echo "Usage: $0 [--only-db] [--no-auth]"; exit 0 ;;
+    -h|--help) echo "Usage: $0 [--only-db]"; exit 0 ;;
     --) shift; break ;;
     *) echo "Invalid option: $1" >&2; exit 1 ;;
   esac
@@ -64,12 +62,18 @@ if [ ! -z "$PGSQL_IMAGE" ]; then
   DB_IMG="--set flightctl.db.image=${DB_IMG}"
 fi
 
+AUTH_ARGS=""
+if [ "$AUTH" ]; then
+  AUTH_ARGS="--set keycloak.enabled=true --set flightctl.api.auth.enabled=true"
+fi
+
 helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml \
                   --set flightctl.api.hostName=${IP} \
                   --set flightctl.api.agentAPIHostName=${IP} \
                   --set flightctl.api.agentGrpcHostName=${IP} \
                   --set flightctl.api.agentGrpcBaseURL=grpcs://${IP}:7444 \
-                   ${ONLY_DB} ${NO_AUTH} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
+                  --set flightctl.api.auth.oidcAuthority=http://${IP}:8080/realms/flightctl \
+                   ${ONLY_DB} ${AUTH_ARGS} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s

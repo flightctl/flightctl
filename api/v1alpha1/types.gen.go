@@ -140,6 +140,15 @@ type ApplicationsSummaryStatus struct {
 // ApplicationsSummaryStatusType defines model for ApplicationsSummaryStatusType.
 type ApplicationsSummaryStatusType string
 
+// AuthConfig Auth config.
+type AuthConfig struct {
+	// AuthType Auth type
+	AuthType string `json:"authType"`
+
+	// AuthURL Auth URL
+	AuthURL string `json:"authURL"`
+}
+
 // CPUResourceMonitorSpec defines model for CPUResourceMonitorSpec.
 type CPUResourceMonitorSpec = ResourceMonitorSpec
 
@@ -876,6 +885,11 @@ type TemplateVersionStatus_Config_Item struct {
 	union json.RawMessage
 }
 
+// AuthValidateParams defines parameters for AuthValidate.
+type AuthValidateParams struct {
+	Authentication *string `json:"Authentication,omitempty"`
+}
+
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -961,11 +975,6 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// TokenValidateParams defines parameters for TokenValidate.
-type TokenValidateParams struct {
-	Authentication *string `json:"Authentication,omitempty"`
 }
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
