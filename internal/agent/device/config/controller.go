@@ -11,13 +11,13 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceWriter *fileio.Writer
+	deviceWriter fileio.Writer
 	log          *log.PrefixLogger
 }
 
 // NewController creates a new config controller.
 func NewController(
-	deviceWriter *fileio.Writer,
+	deviceWriter fileio.Writer,
 	log *log.PrefixLogger,
 ) *Controller {
 	return &Controller{

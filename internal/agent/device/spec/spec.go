@@ -6,20 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/util/wait"
-)
-
-const (
-	// name of the file which stores the current device spec
-	CurrentFile = "current-spec.json"
-	// name of the file which stores the desired device spec
-	DesiredFile = "desired-spec.json"
 )
 
 var (
@@ -27,14 +22,46 @@ var (
 	ErrNoContent           = fmt.Errorf("no content")
 )
 
+type SpecType string
+
+const (
+	TypeCurrent  SpecType = "current"
+	TypeDesired  SpecType = "desired"
+	TypeRollback SpecType = "rollback"
+)
+
+type ManagerNoClient interface {
+	// Initialize initializes the current, desired and rollback spec files on disk if they do not exist.
+	Initialize() error
+	// ReadSpec returns the rendered device spec of the specified type from disk.
+	Read(specType SpecType) (*v1alpha1.RenderedDeviceSpec, error)
+	// WriteSpec writes the rendered device spec of the specified type to disk.
+	Write(specType SpecType, rendered *v1alpha1.RenderedDeviceSpec) error
+	// SpecExists returns true if the rendered device spec of the specified type exists on disk.
+	Exists(specType SpecType) (bool, error)
+	// IsOSUpdateInProgress returns true if an OS update is in progress by checking the current rendered spec.
+	IsOSUpdateInProgress() (bool, error)
+	// IsOsImageReconciled returns true if the desired OS image matches the booted OS image.
+	IsOsImageReconciled(bootcHost *container.BootcHost) (bool, error)
+}
+
+type Manager interface {
+	ManagerNoClient
+	// SetClient sets the management API client.
+	SetClient(client.Management)
+	// GetDesired returns the desired rendered device spec from the management API.
+	GetDesired(ctx context.Context, renderedVersion string) (*v1alpha1.RenderedDeviceSpec, error)
+}
+
 // Manager is responsible for managing the rendered device spec.
-type Manager struct {
-	deviceName              string
-	currentRenderedFilePath string
-	desiredRenderedFilePath string
-	deviceWriter            *fileio.Writer
-	deviceReader            *fileio.Reader
-	managementClient        client.Management
+type SpecManager struct {
+	deviceName   string
+	currentPath  string
+	desiredPath  string
+	rollbackPath string
+
+	deviceReadWriter fileio.ReadWriter
+	managementClient client.Management
 
 	log     *log.PrefixLogger
 	backoff wait.Backoff
@@ -43,86 +70,136 @@ type Manager struct {
 // NewManager creates a new device spec manager.
 func NewManager(
 	deviceName string,
-	currentRenderedFilePath string,
-	desiredRenderedFilePath string,
-	deviceWriter *fileio.Writer,
-	deviceReader *fileio.Reader,
-	managementClient client.Management,
+	dataDir string,
+	deviceReadWriter fileio.ReadWriter,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
-) *Manager {
-	return &Manager{
-		deviceName:              deviceName,
-		deviceWriter:            deviceWriter,
-		deviceReader:            deviceReader,
-		currentRenderedFilePath: currentRenderedFilePath,
-		desiredRenderedFilePath: desiredRenderedFilePath,
-		managementClient:        managementClient,
-		log:                     log,
-		backoff:                 backoff,
+) *SpecManager {
+	return &SpecManager{
+		deviceName:       deviceName,
+		currentPath:      filepath.Join(dataDir, string(TypeCurrent)+".json"),
+		desiredPath:      filepath.Join(dataDir, string(TypeDesired)+".json"),
+		rollbackPath:     filepath.Join(dataDir, string(TypeRollback)+".json"),
+		deviceReadWriter: deviceReadWriter,
+		backoff:          backoff,
+		log:              log,
 	}
 }
 
-// WriteCurrentRendered writes the rendered device spec to disk
-func (s *Manager) WriteCurrentRendered(rendered *v1alpha1.RenderedDeviceSpec) error {
-	return WriteRenderedSpecToFile(s.deviceWriter, rendered, s.currentRenderedFilePath)
+func (s *SpecManager) Initialize() error {
+	if err := s.Write(TypeCurrent, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+		return fmt.Errorf("writing current rendered spec: %w", err)
+	}
+	// desired
+	if err := s.Write(TypeDesired, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+		return fmt.Errorf("writing desired rendered spec: %w", err)
+	}
+	// rollback
+	if err := s.Write(TypeRollback, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+		return fmt.Errorf("writing rollback rendered spec: %w", err)
+	}
+	return nil
 }
 
-// GetRendered returns the current and desired rendered device specs.
-func (s *Manager) GetRendered(ctx context.Context) (v1alpha1.RenderedDeviceSpec, v1alpha1.RenderedDeviceSpec, error) {
-	current, err := ReadRenderedSpecFromFile(s.deviceReader, s.currentRenderedFilePath)
+func (s *SpecManager) Write(specType SpecType, spec *v1alpha1.RenderedDeviceSpec) error {
+	filePath, err := s.pathFromType(specType)
 	if err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, err
+		return err
 	}
-
-	desired, err := s.getDesiredRenderedSpec(ctx, current.RenderedVersion)
-	if err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("get rendered spec: %w", err)
-	}
-	return current, desired, nil
+	return writeRenderedSpecToFile(s.deviceReadWriter, spec, filePath)
 }
 
-// getDesiredRenderedSpec returns the desired rendered device spec from the management API or from disk if the API is unavailable.
-func (m *Manager) getDesiredRenderedSpec(ctx context.Context, renderedVersion string) (v1alpha1.RenderedDeviceSpec, error) {
+func (s *SpecManager) Read(specType SpecType) (*v1alpha1.RenderedDeviceSpec, error) {
+	filePath, err := s.pathFromType(specType)
+	if err != nil {
+		return nil, err
+	}
+	return readRenderedSpecFromFile(s.deviceReadWriter, filePath)
+}
+
+func (s *SpecManager) Exists(specType SpecType) (bool, error) {
+	filePath, err := s.pathFromType(specType)
+	if err != nil {
+		return false, err
+	}
+	return s.deviceReadWriter.FileExists(filePath)
+}
+
+func (s *SpecManager) GetDesired(ctx context.Context, renderedVersion string) (*v1alpha1.RenderedDeviceSpec, error) {
 	var desired v1alpha1.RenderedDeviceSpec
-	err := wait.ExponentialBackoff(m.backoff, func() (bool, error) {
-		return m.getRenderedSpecFromManagementAPIWithRetry(ctx, renderedVersion, &desired)
+	err := wait.ExponentialBackoff(s.backoff, func() (bool, error) {
+		return s.getRenderedSpecFromManagementAPIWithRetry(ctx, renderedVersion, &desired)
 	})
 	if err != nil {
 		if !errors.Is(err, ErrNoContent) {
-			m.log.Warnf("Failed to get rendered device spec after retry: %v", err)
+			s.log.Warnf("Failed to get rendered device spec after retry: %v", err)
 		}
-	} else {
-		// write to disk
-		m.log.Infof("Writing desired rendered spec to disk with rendered version: %s", desired.RenderedVersion)
-		if err := WriteRenderedSpecToFile(m.deviceWriter, &desired, m.desiredRenderedFilePath); err != nil {
-			return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("write rendered spec to disk: %w", err)
-		}
-		return desired, nil
+		return nil, err
 	}
 
-	// fall back to latest from disk
-	m.log.Debug("Falling back to latest rendered spec from disk")
-
-	renderedBytes, err := os.ReadFile(m.desiredRenderedFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// TODO: handle this case better
-			// if the file does not exist, this means it has been removed/corrupted
-			return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("%w: rendered device has been deleted: %w", ErrMissingRenderedSpec, err)
-		}
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read from '%s': %w", m.desiredRenderedFilePath, err)
+	// write to disk
+	s.log.Infof("Writing desired rendered spec to disk with rendered version: %s", desired.RenderedVersion)
+	if err := writeRenderedSpecToFile(s.deviceReadWriter, &desired, s.desiredPath); err != nil {
+		return nil, fmt.Errorf("write rendered spec to disk: %w", err)
 	}
-
-	// read bytes from file
-	if err := json.Unmarshal(renderedBytes, &desired); err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("unmarshal %T: %w", desired, err)
-	}
-
-	return desired, nil
+	return &desired, nil
 }
 
-func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
+func (s *SpecManager) SetClient(client client.Management) {
+	s.managementClient = client
+}
+
+func (s *SpecManager) IsOSUpdateInProgress() (bool, error) {
+	current, err := s.Read(TypeCurrent)
+	if err != nil {
+		return false, err
+	}
+	desired, err := s.Read(TypeDesired)
+	if err != nil {
+		return false, err
+	}
+
+	currentImage := ""
+	if current.Os != nil {
+		currentImage = current.Os.Image
+	}
+	desiredImage := ""
+	if desired.Os != nil {
+		desiredImage = desired.Os.Image
+	}
+	return currentImage != desiredImage, nil
+}
+
+func (s *SpecManager) IsOsImageReconciled(bootcHost *container.BootcHost) (bool, error) {
+	desired, err := s.Read(TypeDesired)
+	if err != nil {
+		return false, err
+	}
+
+	if desired.Os == nil {
+		return false, nil
+	}
+
+	return desired.Os.Image == bootcHost.GetBootedImage(), nil
+
+}
+
+func (s *SpecManager) pathFromType(specType SpecType) (string, error) {
+	var filePath string
+	switch specType {
+	case TypeCurrent:
+		filePath = s.currentPath
+	case TypeDesired:
+		filePath = s.desiredPath
+	case TypeRollback:
+		filePath = s.rollbackPath
+	default:
+		return "", fmt.Errorf("unknown spec type: %s", specType)
+	}
+	return filePath, nil
+}
+
+func (m *SpecManager) getRenderedSpecFromManagementAPIWithRetry(
 	ctx context.Context,
 	renderedVersion string,
 	rendered *v1alpha1.RenderedDeviceSpec,
@@ -148,115 +225,29 @@ func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
 	return false, fmt.Errorf("received nil response for rendered device spec")
 }
 
-// EnsureCurrentRenderedSpec ensures the current rendered spec exists on disk or is initialized as empty.
-func EnsureCurrentRenderedSpec(
-	ctx context.Context,
-	log *log.PrefixLogger,
-	writer *fileio.Writer,
-	reader *fileio.Reader,
+func readRenderedSpecFromFile(
+	reader fileio.Reader,
 	filePath string,
-) (v1alpha1.RenderedDeviceSpec, error) {
-	current, err := ReadRenderedSpecFromFile(reader, filePath)
-	if err != nil {
-		if errors.Is(err, ErrMissingRenderedSpec) {
-			log.Info("Current rendered spec file does not exist, initializing as empty")
-			if err := WriteRenderedSpecToFile(writer, &v1alpha1.RenderedDeviceSpec{}, filePath); err != nil {
-				return v1alpha1.RenderedDeviceSpec{}, err
-			}
-			log.Info("Wrote initial current rendered spec to disk")
-
-			return v1alpha1.RenderedDeviceSpec{}, nil
-		}
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read device specification from '%s': %w", filePath, err)
-	}
-
-	return current, nil
-}
-
-// EnsureDesiredRenderedSpec ensures the desired rendered spec exists on disk or is initialized from the management API.
-func EnsureDesiredRenderedSpec(
-	ctx context.Context,
-	log *log.PrefixLogger,
-	writer *fileio.Writer,
-	reader *fileio.Reader,
-	managementClient client.Management,
-	deviceName string,
-	filePath string,
-	backoff wait.Backoff,
-) (v1alpha1.RenderedDeviceSpec, error) {
-	var desired v1alpha1.RenderedDeviceSpec
-	renderedBytes, err := reader.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Info("Desired rendered spec file does not exist, fetching from management API")
-			var rendered *v1alpha1.RenderedDeviceSpec
-			// retry on failure
-			err := wait.ExponentialBackoffWithContext(ctx, backoff, func() (bool, error) {
-				var statusCode int
-				log.Info("Attempting to fetch desired spec from management API")
-				rendered, statusCode, err = managementClient.GetRenderedDeviceSpec(ctx, deviceName, &v1alpha1.GetRenderedDeviceSpecParams{})
-				if err != nil && statusCode != http.StatusConflict {
-					return false, err
-				}
-				if statusCode != http.StatusOK {
-					log.Warnf("Received %d from management API", statusCode)
-				}
-
-				return true, nil
-			})
-			if err != nil {
-				log.Errorf("Failed to get desired spec after retry: %v", err)
-				// this could mean the management API is not available, or the internet connection is down.
-				// we really can't make progress here without the desired rendered spec. this should fail the service
-				// and require a restart.
-				return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("get rendered device spec: %w", err)
-			}
-			// on StatusConflict the response object is nil
-			if rendered == nil {
-				rendered = &v1alpha1.RenderedDeviceSpec{}
-			}
-
-			if err := WriteRenderedSpecToFile(writer, rendered, filePath); err != nil {
-				return v1alpha1.RenderedDeviceSpec{}, err
-			}
-			log.Info("Wrote initial rendered spec to disk")
-
-			return *rendered, nil
-		}
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read device specification from '%s': %w", filePath, err)
-	}
-
-	// read bytes from file
-	if err := json.Unmarshal(renderedBytes, &desired); err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("unmarshal device specification: %w", err)
-	}
-
-	return desired, nil
-}
-
-func ReadRenderedSpecFromFile(
-	reader *fileio.Reader,
-	filePath string,
-) (v1alpha1.RenderedDeviceSpec, error) {
+) (*v1alpha1.RenderedDeviceSpec, error) {
 	var current v1alpha1.RenderedDeviceSpec
 	renderedBytes, err := reader.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// if the file does not exist, this means it has been removed/corrupted
-			return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("%w: current: %w", ErrMissingRenderedSpec, err)
+			return nil, fmt.Errorf("%w: current: %w", ErrMissingRenderedSpec, err)
 		}
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("read device specification from '%s': %w", filePath, err)
+		return nil, fmt.Errorf("read device specification from '%s': %w", filePath, err)
 	}
 
 	// read bytes from file
 	if err := json.Unmarshal(renderedBytes, &current); err != nil {
-		return v1alpha1.RenderedDeviceSpec{}, fmt.Errorf("unmarshal device specification: %w", err)
+		return nil, fmt.Errorf("unmarshal device specification: %w", err)
 	}
 
-	return current, nil
+	return &current, nil
 }
 
-func WriteRenderedSpecToFile(writer *fileio.Writer, rendered *v1alpha1.RenderedDeviceSpec, filePath string) error {
+func writeRenderedSpecToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDeviceSpec, filePath string) error {
 	renderedBytes, err := json.Marshal(rendered)
 	if err != nil {
 		return err

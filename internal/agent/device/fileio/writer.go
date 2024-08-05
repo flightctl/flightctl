@@ -13,7 +13,6 @@ import (
 	"strconv"
 
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/renameio"
 	"github.com/vincent-petithory/dataurl"
 	"k8s.io/klog/v2"
@@ -26,30 +25,32 @@ const (
 	DefaultFilePermissions os.FileMode = 0o644
 )
 
+var _ Writer = (*FileWriter)(nil)
+
 // Writer is responsible for writing files to the device
-type Writer struct {
+type FileWriter struct {
 	// rootDir is the root directory for the device writer useful for testing
 	rootDir string
 }
 
 // New creates a new writer
-func NewWriter() *Writer {
-	return &Writer{}
+func NewWriter() *FileWriter {
+	return &FileWriter{}
 }
 
 // SetRootdir sets the root directory for the writer, useful for testing
-func (w *Writer) SetRootdir(path string) {
+func (w *FileWriter) SetRootdir(path string) {
 	w.rootDir = path
 }
 
 // WriteIgnitionFiles writes the provided files to the device
-func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
+func (w *FileWriter) WriteIgnitionFiles(files ...ign3types.File) error {
 	var testMode bool
 	if len(w.rootDir) > 0 {
 		testMode = true
 	}
 	for _, file := range files {
-		decodedContents, err := DecodeIgnitionFileContents(file.Contents.Source, file.Contents.Compression)
+		decodedContents, err := decodeIgnitionFileContents(file.Contents.Source, file.Contents.Compression)
 		if err != nil {
 			return fmt.Errorf("could not decode file %q: %w", file.Path, err)
 		}
@@ -75,7 +76,7 @@ func (w *Writer) WriteIgnitionFiles(files ...ign3types.File) error {
 }
 
 // WriteFile writes the provided data to the file at the path with the provided permissions
-func (w *Writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
+func (w *FileWriter) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	uid, gid, err := getUserIdentity()
 	if err != nil {
 		return err
@@ -182,7 +183,7 @@ func lookupGID(group string) (int, error) {
 	return gid, nil
 }
 
-func DecodeIgnitionFileContents(source, compression *string) ([]byte, error) {
+func decodeIgnitionFileContents(source, compression *string) ([]byte, error) {
 	var contentsBytes []byte
 
 	// To allow writing of "empty" files we'll allow source to be nil
@@ -213,21 +214,4 @@ func DecodeIgnitionFileContents(source, compression *string) ([]byte, error) {
 		}
 	}
 	return contentsBytes, nil
-}
-
-// NewIgnFileBytes is like NewIgnFile, but accepts binary data
-func NewIgnFileBytes(path string, contents []byte, mode os.FileMode) ign3types.File {
-	fileMode := int(mode.Perm())
-	return ign3types.File{
-		Node: ign3types.Node{
-			Path: path,
-		},
-		FileEmbedded1: ign3types.FileEmbedded1{
-			Mode: &fileMode,
-			Contents: ign3types.Resource{
-				Source:      util.StrToPtr(dataurl.EncodeBytes(contents)),
-				Compression: util.StrToPtr(""),
-			},
-		},
-	}
 }

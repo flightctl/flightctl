@@ -152,9 +152,20 @@ func IsOsImageDirty(host *BootcHost) bool {
 // IsOsImageReconciled returns true if the booted image equals the spec image.
 func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
 	// If the booted image equals the desired image, the OS image is reconciled
+	if desiredSpec.Os == nil {
+		return false
+	}
 	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
 }
 
-func GetImage(host *BootcHost) string {
-	return host.Status.Booted.Image.Image.Image
+func (b *BootcHost) GetBootedImage() string {
+	return b.Status.Booted.Image.Image.Image
+}
+
+func (b *BootcHost) GetStagedImage() string {
+	return b.Status.Staged.Image.Image.Image
+}
+
+func (b *BootcHost) GetRollbackImage() string {
+	return b.Status.Rollback.Image.Image.Image
 }

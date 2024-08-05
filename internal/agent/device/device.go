@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,9 +20,9 @@ import (
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	name               string
-	deviceWriter       *fileio.Writer
+	deviceWriter       fileio.Writer
 	statusManager      status.Manager
-	specManager        *spec.Manager
+	specManager        spec.Manager
 	configController   *config.Controller
 	osImageController  *OSImageController
 	resourceController *resource.Controller
@@ -36,9 +37,9 @@ type Agent struct {
 // NewAgent creates a new device agent.
 func NewAgent(
 	name string,
-	deviceWriter *fileio.Writer,
+	deviceWriter fileio.Writer,
 	statusManager status.Manager,
-	specManager *spec.Manager,
+	specManager spec.Manager,
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	configController *config.Controller,
@@ -118,8 +119,17 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
-	current, desired, err := a.specManager.GetRendered(ctx)
+	current, err := a.specManager.Read(spec.TypeCurrent)
 	if err != nil {
+		return false, err
+	}
+
+	desired, err := a.specManager.GetDesired(ctx, current.RenderedVersion)
+	if err != nil {
+		if errors.Is(err, spec.ErrNoContent) {
+			a.log.Debug("No content from management API")
+			return false, nil
+		}
 		return false, err
 	}
 
@@ -127,7 +137,9 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	if err := a.consoleController.Sync(ctx, &desired); err != nil {
+	// set rollback
+
+	if err := a.consoleController.Sync(ctx, desired); err != nil {
 		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
@@ -143,20 +155,20 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 		}
 	}
 
-	if err := a.configController.Sync(&desired); err != nil {
+	if err := a.configController.Sync(desired); err != nil {
 		return false, err
 	}
 
-	if err := a.resourceController.Sync(ctx, &desired); err != nil {
+	if err := a.resourceController.Sync(ctx, desired); err != nil {
 		return false, err
 	}
 
-	if err := a.osImageController.Sync(ctx, &desired); err != nil {
+	if err := a.osImageController.Sync(ctx, desired); err != nil {
 		return false, err
 	}
 
 	// set status collector properties based on new desired spec
-	a.statusManager.SetProperties(&desired)
+	a.statusManager.SetProperties(desired)
 
 	// we have ensured that the desired spec is applied to the device. if the
 	// rendered versions are the same no more work is needed.
@@ -166,7 +178,7 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 
 	// write the desired spec to the current spec file this would only happen if
 	// there was no os image change as that requires a reboot
-	if err := a.specManager.WriteCurrentRendered(&desired); err != nil {
+	if err := a.specManager.Write(spec.TypeCurrent, desired); err != nil {
 		return false, err
 	}
 
