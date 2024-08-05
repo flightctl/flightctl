@@ -9,6 +9,9 @@ flightctl:
     nodePort: 3443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentNodePort: 7443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentGrpcNodePort: 7444 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+    auth:
+      enabled: false
+      internalOidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8080/realms/flightctl
   worker:
     image: localhost/flightctl-worker
     imagePullPolicy: IfNotPresent
@@ -22,3 +25,12 @@ flightctl:
 
 storageClassName: standard
 storageClassNameRWM: standard
+
+keycloak:
+  namespace: flightctl-external
+  service:
+    nodePorts:
+      http: 8080
+      https: 8443
+  db:
+    namespace: flightctl-external
