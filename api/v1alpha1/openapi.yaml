@@ -2181,6 +2181,125 @@ components:
         - "ResourceAlertSeverityTypeWarning"
         - "ResourceAlertSeverityTypeCritical"
         - "ResourceAlertSeverityTypeInfo"
+    DeviceHookSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string 
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/HookAction'
+          description: 'The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.'
+        path:
+          type: string
+          description: 'The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.'
+      required:
+        - actions
+    FileOperation:
+      type: string
+      description: 'The type of operation that was observed on the file.'
+      enum:
+        - "Create"
+        - "Remove"
+        - "Update"
+      x-enum-varnames:
+        - "FileOperationCreate"
+        - "FileOperationRemove" # by convention remove is fired before the file is removed.
+        - "FileOperationUpdate"
+    HookAction:
+      type: object
+      oneOf:
+        - type: object
+        - $ref: '#/components/schemas/HookActionSystemdSpec'
+        - $ref: '#/components/schemas/HookActionExecutableSpec'
+    HookActionSpec:
+      type: object
+      properties:
+        on:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileOperation'
+        timeout:
+             type: string
+             pattern: '^[1-9]\d*[smhd]$'
+             description: |
+              The maximum duration allowed for the action to complete. 
+              The duration should be specified as a positive integer 
+              followed by a time unit. Supported time units are:
+              - 's' for seconds
+              - 'm' for minutes
+              - 'h' for hours
+              - 'd' for days
+    HookActionSystemdSpec:
+       allOf:
+        - $ref: '#/components/schemas/HookActionSpec'
+        - type: object
+          properties:
+            unit:
+              $ref: '#/components/schemas/HookActionSystemdUnit'
+          required:
+            - unit
+    HookActionSystemdUnit:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 'The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.'
+        operations:
+          type: array
+          items:
+            type: string
+            enum:
+              - "Enable"
+              - "Disable"
+              - "Start"
+              - "Stop"
+              - "Restart"
+              - "Reload"
+              - "DaemonReload"
+            x-enum-varnames:
+              - "SystemdEnable"
+              - "SystemdDisable"
+              - "SystemdStart"
+              - "SystemdStop"
+              - "SystemdRestart"
+              - "SystemdReload"
+              - "SystemdDaemonReload"
+          description: 'The specific systemd operations to perform on the specified unit.'
+        workDir:
+            type: string
+            description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
+      required:
+        - name
+        - operations 
+    HookActionExecutableSpec:
+      allOf:
+        - $ref: '#/components/schemas/HookActionSpec'
+        - type: object
+          properties:
+            executable:
+              $ref: '#/components/schemas/HookActionExecutable'
+          required:
+            - executable
+    HookActionExecutable:
+          type: object
+          properties:
+            run:
+              type: string
+              description: 'The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.'
+            envVars: 
+              type: array
+              items:
+                type: string
+              description: 'An optional list of KEY=VALUE pairs to set as environment variables for the executable.'
+            workDir:
+              type: string
+              description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
+          required:
+            - run
     DeviceList:
       type: object
       properties:
@@ -2730,6 +2849,8 @@ components:
                 type: string
         config:
           type: string
+        hooks:
+          $ref: '#/components/schemas/DeviceHooksSpec'
         systemd:
           type: object
           properties:
@@ -2747,6 +2868,37 @@ components:
 
       required:
         - renderedVersion
+    DeviceHooksSpec:
+      type: object
+      properties:
+        beforeUpdating:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceHookSpec'
+          description: |
+            Hooks executed before updating allow for custom actions and integration with other systems
+            or services. These actions occur before configuration changes are applied to the device.
+        afterUpdating:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceHookSpec'
+          description: |
+            Hooks executed after updating enable custom actions and integration with other systems
+            or services. These actions occur after configuration changes have been applied to the device.
+        beforeRebooting:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceHookSpec'
+          description: |
+            Hooks executed before rebooting allow for custom actions and integration with other systems
+            or services. These actions occur before the device is rebooted.
+        afterRebooting:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceHookSpec'
+          description: |
+            Hooks executed after rebooting enable custom actions and integration with other systems
+            or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
     DeviceSpec:
       type: object
       properties:
@@ -2764,6 +2916,8 @@ components:
               - $ref: "#/components/schemas/HttpConfigProviderSpec"
             discriminator:
               propertyName: configType
+        hooks:
+          $ref: '#/components/schemas/DeviceHooksSpec' 
         containers:
           type: object
           properties:
