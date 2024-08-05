@@ -84,6 +84,11 @@ func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredD
 		c.hookManager.OnAfterRemove(ctx, file)
 	}
 
+	if len(desiredIgnition.Storage.Files) == 0 {
+		// no files to write
+		return nil
+	}
+
 	// write ignition files to disk and trigger pre hooks
 	c.log.Info("writing ignition files")
 	err = c.WriteIgnitionFiles(ctx, desiredIgnition.Storage.Files)
