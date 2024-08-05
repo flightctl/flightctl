@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/container"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -70,23 +71,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	}(ctx)
 
 	// create file io writer and reader
-	deviceWriter, deviceReader := initializeFileIO(a.config)
-
-	currentSpecFilePath := filepath.Join(a.config.DataDir, spec.CurrentFile)
-	desiredSpecFilePath := filepath.Join(a.config.DataDir, spec.DesiredFile)
+	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.testRootDir))
 
 	// ensure the agent key exists if not create it.
 	if !a.config.ManagementService.Config.HasCredentials() {
 		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, DefaultCertsDirName, GeneratedCertFile)
 		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, DefaultCertsDirName, KeyFile)
 	}
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReader.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
-	if err != nil {
-		return err
-	}
-
-	// create enrollment client
-	enrollmentClient, err := newEnrollmentClient(a.config)
+	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
 	if err != nil {
 		return err
 	}
@@ -103,6 +95,39 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	executer := &executer.CommonExecuter{}
+
+	// create enrollment client
+	enrollmentClient, err := newEnrollmentClient(a.config)
+	if err != nil {
+		return err
+	}
+
+	// create the gRPC client
+	grpcClient, err := newGrpcClient(a.config)
+	if err != nil {
+		a.log.Warnf("Failed to create gRPC client: %v", err)
+	}
+
+	// create bootc client
+	bootcClient := container.NewBootcCmd(executer)
+
+	// TODO: this needs tuned
+	backoff := wait.Backoff{
+		Cap:      3 * time.Minute,
+		Duration: 10 * time.Second,
+		Factor:   1.5,
+		Steps:    24,
+	}
+
+	// create spec manager
+	specManager := spec.NewManager(
+		deviceName,
+		a.config.DataDir,
+		deviceReadWriter,
+		bootcClient,
+		backoff,
+		a.log,
+	)
 
 	// create resource manager
 	resourceManager := resource.NewManager(
@@ -121,27 +146,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// TODO: this needs tuned
-	backoff := wait.Backoff{
-		Cap:      3 * time.Minute,
-		Duration: 10 * time.Second,
-		Factor:   1.5,
-		Steps:    24,
-	}
-
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		executer,
-		deviceWriter,
-		deviceReader,
+		deviceReadWriter,
 		csr,
+		specManager,
 		statusManager,
 		enrollmentClient,
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		&a.config.ManagementService.Config,
 		backoff,
-		currentSpecFilePath,
-		desiredSpecFilePath,
 		a.log,
 		a.config.DefaultLabels,
 	)
@@ -150,32 +165,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err := bootstrap.Initialize(ctx); err != nil {
 		return fmt.Errorf("bootstrap failed: %w", err)
 	}
-
-	// create the management client
-	managementClient, err := newManagementClient(a.config)
-	if err != nil {
-		return err
-	}
-
-	// create the gRPC client
-	grpcClient, err := newGrpcClient(a.config)
-	if err != nil {
-		a.log.Warnf("Failed to create gRPC client: %v", err)
-	}
-
-	statusManager.SetClient(managementClient)
-
-	// create spec manager
-	specManager := spec.NewManager(
-		deviceName,
-		currentSpecFilePath,
-		desiredSpecFilePath,
-		deviceWriter,
-		deviceReader,
-		managementClient,
-		backoff,
-		a.log,
-	)
 
 	// create resource controller
 	resourceController := resource.NewController(
@@ -186,7 +175,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create config controller
 	configController := config.NewController(
 		hookManager,
-		deviceWriter,
+		deviceReadWriter,
 		a.log,
 	)
 
@@ -194,6 +183,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osImageController := device.NewOSImageController(
 		executer,
 		statusManager,
+		specManager,
 		a.log,
 	)
 
@@ -207,7 +197,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
-		deviceWriter,
+		deviceReadWriter,
 		statusManager,
 		specManager,
 		a.config.SpecFetchInterval,
@@ -234,14 +224,6 @@ func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newManagementClient(cfg *Config) (client.Management, error) {
-	httpClient, err := client.NewFromConfig(&cfg.ManagementService.Config)
-	if err != nil {
-		return nil, err
-	}
-	return client.NewManagement(httpClient), nil
-}
-
 func newGrpcClient(cfg *Config) (grpc_v1.RouterServiceClient, error) {
 	if cfg.GrpcManagementEndpoint == "" {
 		return nil, fmt.Errorf("no gRPC endpoint, disabling console functionality")
@@ -251,15 +233,4 @@ func newGrpcClient(cfg *Config) (grpc_v1.RouterServiceClient, error) {
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
 	return client, nil
-}
-
-func initializeFileIO(cfg *Config) (fileio.Writer, *fileio.Reader) {
-	deviceWriter := fileio.NewWriter()
-	deviceReader := fileio.NewReader()
-	testRootDir := cfg.GetTestRootDir()
-	if testRootDir != "" {
-		deviceWriter.SetRootdir(testRootDir)
-		deviceReader.SetRootdir(testRootDir)
-	}
-	return deviceWriter, deviceReader
 }
