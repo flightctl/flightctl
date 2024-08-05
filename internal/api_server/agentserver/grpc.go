@@ -9,13 +9,18 @@ import (
 	"sync"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
+	middlewareMetadata "github.com/grpc-ecosystem/go-grpc-middleware/v2/metadata"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -43,11 +48,51 @@ func NewAgentGrpcServer(
 		pendingStreams: &sync.Map{},
 	}
 }
+func validateClientTlsCert(ctx context.Context) (context.Context, error) {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return ctx, status.Error(codes.Unauthenticated, "no peer found")
+	}
+
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
+		return ctx, status.Error(codes.Unauthenticated, "failed to verify client certificate")
+	}
+	return ctx, nil
+}
+
+// client has to present either client TLS certificate or valid Authorization header
+func authFn(ctx context.Context) (context.Context, error) {
+	authHeader := middlewareMetadata.ExtractIncoming(ctx).Get(common.AuthHeader)
+	if authHeader == "" {
+		return validateClientTlsCert(ctx)
+	}
+	authn := auth.GetAuthN()
+	if _, ok := authn.(auth.NilAuth); ok {
+		// auth disabled
+		return ctx, nil
+	}
+	token, ok := auth.ParseAuthHeader(authHeader)
+	if !ok {
+		return ctx, status.Error(codes.Unauthenticated, "invalid authentication token")
+	}
+	ok, err := authn.ValidateToken(ctx, token)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, err.Error())
+	}
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "invalid auth token")
+	}
+	return ctx, nil
+}
 
 func (s *AgentGrpcServer) Run(ctx context.Context) error {
 	s.log.Printf("Initializing Agent-side gRPC server: %s", s.cfg.Service.AgentGrpcAddress)
 	tlsCredentials := credentials.NewTLS(s.tlsConfig)
-	server := grpc.NewServer(grpc.Creds(tlsCredentials))
+	server := grpc.NewServer(
+		grpc.Creds(tlsCredentials),
+		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(authFn)),
+	)
 	pb.RegisterRouterServiceServer(server, s)
 
 	listener, err := net.Listen("tcp", s.cfg.Service.AgentGrpcAddress)
