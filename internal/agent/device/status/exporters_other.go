@@ -6,13 +6,15 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
 func newExporters(
-	resourceManager resource.Manager,
+	_ resource.Manager,
+	_ config.HookManager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) []Exporter {
@@ -21,6 +23,7 @@ func newExporters(
 		newContainer(executer),
 		newSystemInfo(executer),
 		newUnsupportedExporter(log, "resources"),
+		newUnsupportedExporter(log, "postHooks"),
 	}
 }
 

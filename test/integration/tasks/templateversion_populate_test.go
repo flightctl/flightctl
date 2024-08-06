@@ -49,7 +49,6 @@ var _ = Describe("TVPopulate", func() {
 
 		fleet = &api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet")},
-			Spec:     api.FleetSpec{},
 		}
 		_, err := storeInst.Fleet().Create(ctx, orgId, fleet, fleetCallback)
 		Expect(err).ToNot(HaveOccurred())

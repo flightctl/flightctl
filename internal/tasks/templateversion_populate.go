@@ -57,6 +57,7 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 		return t.setStatus(ctx, err)
 	}
 
+	// freeze the config source
 	if t.fleet.Spec.Template.Spec.Config != nil {
 		t.frozenConfig = []api.TemplateVersionStatus_Config_Item{}
 
@@ -90,6 +91,7 @@ func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Co
 	if err != nil {
 		return fmt.Errorf("failed fetching fleet: %w", err)
 	}
+
 	t.fleet = fleet
 
 	return nil
@@ -243,10 +245,9 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
+		t.templateVersion.Status.Hooks = t.fleet.Spec.Template.Spec.Hooks
 		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
 	}
-
-	t.templateVersion.Status.Conditions = []api.Condition{}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)
 
 	err := t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(validationErr == nil), t.callbackManager.TemplateVersionValidatedCallback)
