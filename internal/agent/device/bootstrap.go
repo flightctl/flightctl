@@ -26,7 +26,7 @@ import (
 type Bootstrap struct {
 	deviceName           string
 	executer             executer.Executer
-	deviceWriter         *fileio.Writer
+	deviceWriter         fileio.Writer
 	deviceReader         *fileio.Reader
 	enrollmentClient     client.Enrollment
 	enrollmentUIEndpoint string
@@ -49,7 +49,7 @@ type Bootstrap struct {
 func NewBootstrap(
 	deviceName string,
 	executer executer.Executer,
-	deviceWriter *fileio.Writer,
+	deviceWriter fileio.Writer,
 	deviceReader *fileio.Reader,
 	enrollmentCSR []byte,
 	statusManager status.Manager,
