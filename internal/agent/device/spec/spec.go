@@ -32,7 +32,7 @@ type Manager struct {
 	deviceName              string
 	currentRenderedFilePath string
 	desiredRenderedFilePath string
-	deviceWriter            *fileio.Writer
+	deviceWriter            fileio.Writer
 	deviceReader            *fileio.Reader
 	managementClient        client.Management
 
@@ -45,7 +45,7 @@ func NewManager(
 	deviceName string,
 	currentRenderedFilePath string,
 	desiredRenderedFilePath string,
-	deviceWriter *fileio.Writer,
+	deviceWriter fileio.Writer,
 	deviceReader *fileio.Reader,
 	managementClient client.Management,
 	backoff wait.Backoff,
@@ -152,7 +152,7 @@ func (m *Manager) getRenderedSpecFromManagementAPIWithRetry(
 func EnsureCurrentRenderedSpec(
 	ctx context.Context,
 	log *log.PrefixLogger,
-	writer *fileio.Writer,
+	writer fileio.Writer,
 	reader *fileio.Reader,
 	filePath string,
 ) (v1alpha1.RenderedDeviceSpec, error) {
@@ -177,7 +177,7 @@ func EnsureCurrentRenderedSpec(
 func EnsureDesiredRenderedSpec(
 	ctx context.Context,
 	log *log.PrefixLogger,
-	writer *fileio.Writer,
+	writer fileio.Writer,
 	reader *fileio.Reader,
 	managementClient client.Management,
 	deviceName string,
@@ -256,7 +256,7 @@ func ReadRenderedSpecFromFile(
 	return current, nil
 }
 
-func WriteRenderedSpecToFile(writer *fileio.Writer, rendered *v1alpha1.RenderedDeviceSpec, filePath string) error {
+func WriteRenderedSpecToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDeviceSpec, filePath string) error {
 	renderedBytes, err := json.Marshal(rendered)
 	if err != nil {
 		return err
