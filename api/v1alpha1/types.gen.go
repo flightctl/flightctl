@@ -1092,6 +1092,18 @@ type AuthValidateParams struct {
 	Authentication *string `json:"Authentication,omitempty"`
 }
 
+// ListCertificateSigningRequestsParams defines parameters for ListCertificateSigningRequests.
+type ListCertificateSigningRequestsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -1178,6 +1190,24 @@ type ListResourceSyncParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
+type CreateCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
+
+// PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequest for application/json-patch+json ContentType.
+type PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// ReplaceCertificateSigningRequestJSONRequestBody defines body for ReplaceCertificateSigningRequest for application/json ContentType.
+type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
+
+// PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequestApproval for application/json-patch+json ContentType.
+type PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequestStatus for application/json-patch+json ContentType.
+type PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// ReplaceCertificateSigningRequestStatusJSONRequestBody defines body for ReplaceCertificateSigningRequestStatus for application/json ContentType.
+type ReplaceCertificateSigningRequestStatusJSONRequestBody = CertificateSigningRequest
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
