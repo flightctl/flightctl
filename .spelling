@@ -4,6 +4,7 @@
 # one word per line, to define a file override use ' - filename'
 # where filename is relative to this configuration file
 AAP
+ACM
 API
 APIs
 apiVersion
@@ -26,11 +27,15 @@ fleetless
 flightctl
 frontend
 GitOps
+greenboot
 hostname
+HTTPS
 i.e.
 IP
+JWT
 Keycloak
 Kubernetes
+kustomize
 KVM
 lifecycle
 lifecycle-bound
@@ -42,14 +47,18 @@ NAT
 OCI
 OCI-compliant
 OIDC
+onboard
 onboarding
 OpenShift
 OSes
 ostree
 OTA
+pluggable
 Podman
+PostgreSQL
 qcow2
 QEMU
+Quadlets
 RabbitMQ
 RBAC
 resource-unintensive
@@ -59,6 +68,7 @@ RFE
 RHEL
 rollbacks
 rollout
+runtime
 schemas
 spec
 specs
@@ -68,12 +78,16 @@ TemplateVersion
 TemplateVersions
 TLS
 toolchains
+TPM
 transactionally
 UI
 versioned
 versioning
+virtualization
+VM
 VMware
 vSphere
+webhook
 webhooks
 workflows
 X.509
@@ -83,3 +97,9 @@ creationTimestamp
 deletionTimestamp
 resourceVersion
 approvedBy
+ - docs/user/introduction.md
+emea
+hw-model
+jetson
+hw-generation
+orin
