@@ -2,13 +2,13 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"github.com/RangelReale/osincli"
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -17,21 +17,30 @@ import (
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	certutil "k8s.io/client-go/util/cert"
 )
 
 type LoginOptions struct {
 	GlobalOptions
-	Token    string
-	Web      bool
-	ClientId string
+	Token                  string
+	Web                    bool
+	ClientId               string
+	InsecureSkipVerify     bool
+	CAFile                 string
+	AuthInsecureSkipVerify bool
+	AuthCAFile             string
 }
 
 func DefaultLoginOptions() *LoginOptions {
 	return &LoginOptions{
-		GlobalOptions: DefaultGlobalOptions(),
-		Token:         "",
-		Web:           false,
-		ClientId:      "",
+		GlobalOptions:          DefaultGlobalOptions(),
+		Token:                  "",
+		Web:                    false,
+		ClientId:               "",
+		InsecureSkipVerify:     false,
+		CAFile:                 "",
+		AuthInsecureSkipVerify: false,
+		AuthCAFile:             "",
 	}
 }
 
@@ -63,7 +72,10 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Token, "token", "t", o.Token, "Bearer token for authentication to the API server")
 	fs.BoolVarP(&o.Web, "web", "w", o.Web, "Login via browser")
 	fs.StringVarP(&o.ClientId, "client-id", "", o.ClientId, "ClientId to be used for Oauth2 requests")
-
+	fs.StringVarP(&o.CAFile, "certificate-authority", "", o.CAFile, "Path to a cert file for the certificate authority")
+	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
+	fs.StringVarP(&o.AuthCAFile, "auth-certificate-authority", "", o.AuthCAFile, "Path to a cert file for the auth certificate authority")
+	fs.BoolVarP(&o.AuthInsecureSkipVerify, "auth-insecure-skip-tls-verify", "", o.AuthInsecureSkipVerify, "If true, the auth's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -85,7 +97,7 @@ type OauthServerResponse struct {
 	AuthEndpoint  string `json:"authorization_endpoint"`
 }
 
-func getOauth2Token(oauthConfigUrl string, clientId string, scope string) (string, error) {
+func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, scope string) (string, error) {
 	token := ""
 
 	req, err := http.NewRequest(http.MethodGet, oauthConfigUrl, nil)
@@ -93,7 +105,30 @@ func getOauth2Token(oauthConfigUrl string, clientId string, scope string) (strin
 		return token, fmt.Errorf("failed to create http request: %w", err)
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	authTransport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: o.AuthInsecureSkipVerify, //nolint:gosec
+		},
+	}
+
+	if o.AuthCAFile != "" {
+		caData, err := os.ReadFile(o.CAFile)
+		if err != nil {
+			return token, fmt.Errorf("failed to read Auth CA file: %w", err)
+		}
+		caPool, err := certutil.NewPoolFromBytes(caData)
+		if err != nil {
+			return token, fmt.Errorf("failed parsing Auth CA certs: %w", err)
+		}
+
+		authTransport.TLSClientConfig.RootCAs = caPool
+	}
+
+	httpClient := &http.Client{
+		Transport: authTransport,
+	}
+
+	res, err := httpClient.Do(req)
 	if err != nil {
 		return token, fmt.Errorf("failed to fetch oidc config: %w", err)
 	}
@@ -166,6 +201,7 @@ func getOauth2Token(oauthConfigUrl string, clientId string, scope string) (strin
 	}
 
 	client, err = osincli.NewClient(config)
+	client.Transport = authTransport
 	if err != nil {
 		return token, fmt.Errorf("failed to create oauth2 client: %w", err)
 	}
@@ -184,17 +220,20 @@ func getOauth2Token(oauthConfigUrl string, clientId string, scope string) (strin
 }
 
 func (o *LoginOptions) Run(ctx context.Context, args []string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	configFilePath := filepath.Join(homeDir, ".flightctl", "client.yaml")
-	config, err := client.ParseConfigFile(configFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to parse config file: %w", err)
+	config := &client.Config{
+		Service: client.Service{
+			Server:             args[0],
+			InsecureSkipVerify: o.InsecureSkipVerify,
+		},
 	}
 
-	config.Service.Server = args[0]
+	if o.CAFile != "" {
+		caData, err := os.ReadFile(o.CAFile)
+		if err != nil {
+			return fmt.Errorf("failed to read CA file: %w", err)
+		}
+		config.Service.CertificateAuthorityData = caData
+	}
 
 	httpClient, err := client.NewHTTPClientFromConfig(config)
 	if err != nil {
@@ -226,7 +265,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			if o.ClientId != "" {
 				clientId = o.ClientId
 			}
-			token, err = getOauth2Token(fmt.Sprintf("%s/.well-known/openid-configuration", resp.JSON200.AuthURL), clientId, "openid")
+			token, err = o.getOauth2Token(fmt.Sprintf("%s/.well-known/openid-configuration", resp.JSON200.AuthURL), clientId, "openid")
 			if err != nil {
 				return err
 			}
@@ -242,7 +281,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			if o.ClientId != "" {
 				clientId = o.ClientId
 			}
-			token, err = getOauth2Token(fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL), clientId, "")
+			token, err = o.getOauth2Token(fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL), clientId, "")
 			if err != nil {
 				return err
 			}

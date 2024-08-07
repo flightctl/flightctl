@@ -27,7 +27,7 @@ var _ = Describe("cli operation", func() {
 
 	BeforeEach(func() {
 		harness = e2e.NewTestHarness()
-		out, err := harness.CLI("login", "${API_ENDPOINT}")
+		out, err := harness.CLI("login", "${API_ENDPOINT}", "--insecure-skip-tls-verify")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(ContainSubstring("Auth is disabled"))
 	})
