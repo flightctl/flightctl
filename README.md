@@ -7,7 +7,7 @@ Flight Control is a service for declarative, GitOps-driven management of edge de
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.21), `openssl`, `openssl-devel`, and `podman-compose`
+* `git`, `make`, and `go` (>= 1.21), `openssl`, `openssl-devel` and `podman-compose`
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
@@ -25,7 +25,7 @@ To run unit tests, use `make unit-test`.  This requires installing gotestsum:
 
 To generate API code and mocks, use `make generate`  This requires installing mockgen:
 
-`go install github.com/golang/mock/mockgen@v1.6.0`
+`go install go.uber.org/mock/mockgen@v0.4.0`
 
 ## Running
 
@@ -52,7 +52,7 @@ and the client configuration in `$HOME/.flightctl/client.yaml`.
 Use the `flightctl` CLI to login and then apply, get, or delete resources:
 
 ```
-bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web
+bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web --certificate-authority ~/.flightctl/certs/ca.crt
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```
