@@ -55,6 +55,7 @@ type Service struct {
 	CertificateAuthority string `json:"certificate-authority,omitempty"`
 	// CertificateAuthorityData contains PEM-encoded certificate authority certificates. Overrides CertificateAuthority
 	CertificateAuthorityData []byte `json:"certificate-authority-data,omitempty"`
+	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
 // AuthInfo contains information for authenticating FlightCtl API clients.
@@ -192,11 +193,6 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 		return nil, err
 	}
 
-	caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
-	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
-	}
-
 	tlsServerName := config.Service.TLSServerName
 	if len(tlsServerName) == 0 {
 		u, err := url.Parse(config.Service.Server)
@@ -206,19 +202,32 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 		tlsServerName = u.Hostname()
 	}
 
-	clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
-	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
+	tlsConfig := tls.Config{
+		ServerName:         tlsServerName,
+		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
+	}
+
+	if len(config.Service.CertificateAuthorityData) > 0 {
+		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+		if err != nil {
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+		}
+
+		tlsConfig.RootCAs = caPool
+	}
+
+	if len(config.AuthInfo.ClientCertificateData) > 0 {
+		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
+		if err != nil {
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{clientCert}
 	}
 
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:      caPool,
-				ServerName:   tlsServerName,
-				Certificates: []tls.Certificate{clientCert},
-				MinVersion:   tls.VersionTLS13,
-			},
+			TLSClientConfig: &tlsConfig,
 		},
 	}
 	return httpClient, nil
@@ -231,9 +240,17 @@ func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.Route
 		return nil, err
 	}
 
-	caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
-	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+	tlsConfig := tls.Config{
+		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
+	}
+
+	if string(config.Service.CertificateAuthorityData) != "" {
+		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+		if err != nil {
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+		}
+		tlsConfig.RootCAs = caPool
 	}
 
 	u, err := url.Parse(grpcEndpoint)
@@ -241,17 +258,14 @@ func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.Route
 		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
 	}
 	tlsServerName := u.Hostname()
+	tlsConfig.ServerName = tlsServerName
 
-	clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
-	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
-	}
-
-	tlsConfig := tls.Config{
-		RootCAs:      caPool,
-		ServerName:   tlsServerName,
-		Certificates: []tls.Certificate{clientCert},
-		MinVersion:   tls.VersionTLS13,
+	if len(config.AuthInfo.ClientCertificateData) > 0 {
+		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
+		if err != nil {
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{clientCert}
 	}
 
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "grpcs://")
@@ -324,10 +338,6 @@ func WriteConfig(filename string, server string, tlsServerName string, ca *crypt
 	if err != nil {
 		return fmt.Errorf("PEM-encoding CA certs: %w", err)
 	}
-	clientCertPEM, clientKeyPEM, err := client.GetPEMBytes()
-	if err != nil {
-		return fmt.Errorf("PEM-encoding client cert and key: %w", err)
-	}
 
 	config := NewDefault()
 	config.Service = Service{
@@ -335,9 +345,16 @@ func WriteConfig(filename string, server string, tlsServerName string, ca *crypt
 		TLSServerName:            tlsServerName,
 		CertificateAuthorityData: caCertPEM,
 	}
-	config.AuthInfo = AuthInfo{
-		ClientCertificateData: clientCertPEM,
-		ClientKeyData:         clientKeyPEM,
+
+	if client != nil {
+		clientCertPEM, clientKeyPEM, err := client.GetPEMBytes()
+		if err != nil {
+			return fmt.Errorf("PEM-encoding client cert and key: %w", err)
+		}
+		config.AuthInfo = AuthInfo{
+			ClientCertificateData: clientCertPEM,
+			ClientKeyData:         clientKeyPEM,
+		}
 	}
 
 	return config.Persist(filename)
