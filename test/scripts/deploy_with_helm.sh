@@ -4,7 +4,9 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 METHOD=install
 ONLY_DB=
-RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-docker.io/rabbitmq:3.13}
+RABBITMQ_VERSION="3.13"
+RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq:${RABBITMQ_VERSION}"}
+RABBITMQ_TAR_FILENAME="rabbitmq_${RABBITMQ_VERSION}.tar"
 IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
 
 # Use external getopt for long options
@@ -46,11 +48,22 @@ if [ -z "$ONLY_DB" ]; then
       rm flightctl-${suffix}.tar
     fi
   done
-  podman pull ${RABBITMQ_IMAGE} || true
-  podman save ${RABBITMQ_IMAGE} -o rabbitmq.tar
-  kind load image-archive rabbitmq.tar
-  rm rabbitmq.tar
+
+  if [ -f "${RABBITMQ_TAR_FILENAME}" ]; then
+    echo "File ${RABBITMQ_TAR_FILENAME} already exists. Skipping save."
+  else
+    echo "Saving RabbitMQ image to ${RABBITMQ_TAR_FILENAME}..."
+    podman pull "${RABBITMQ_IMAGE}" || true
+    podman save "${RABBITMQ_IMAGE}" -o "${RABBITMQ_TAR_FILENAME}"
+    if [ $? -eq 0 ]; then
+      echo "Image saved successfully to ${RABBITMQ_TAR_FILENAME}."
+    else
+      echo "Failed to save image."
+    fi
+  fi
+  kind load image-archive "${RABBITMQ_TAR_FILENAME}"
 fi
+
 
 # if we need another database image we can set it with PGSQL_IMAGE (i.e. arm64 images)
 if [ ! -z "$PGSQL_IMAGE" ]; then
