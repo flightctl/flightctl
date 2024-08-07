@@ -10,10 +10,10 @@ GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
+SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --exclude latest --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null)
-BIN_TIMESTAMP ?=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
 MAJOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$1}')
 MINOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$2}')
 PATCH := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$3}')
@@ -166,6 +166,16 @@ tools: $(GOBIN)/golangci-lint
 
 $(GOBIN)/golangci-lint:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.54.0
+
+.PHONY: lint-docs
+lint-docs:
+	@echo "Linting user documentation markdown files"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:latest "docs/user/**/*.md"
+
+.PHONY: spellcheck-docs
+spellcheck-docs:
+	@echo "Checking user documentation for spelling issues"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --report "docs/user/**/*.md"
 
 # include the deployment targets
 include deploy/deploy.mk

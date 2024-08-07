@@ -26,7 +26,6 @@ var _ = Describe("Low level server behavior", func() {
 	var (
 		ca             *crypto.CA
 		enrollmentCert *crypto.TLSCertificateConfig
-		clientCert     *crypto.TLSCertificateConfig
 		noSubjectCert  *crypto.TLSCertificateConfig
 		listener       net.Listener
 	)
@@ -40,13 +39,13 @@ var _ = Describe("Low level server behavior", func() {
 
 		var serverCerts *crypto.TLSCertificateConfig
 
-		ca, serverCerts, enrollmentCert, clientCert, err = testutil.NewTestCerts(config)
+		ca, serverCerts, enrollmentCert, err = testutil.NewTestCerts(config)
 		Expect(err).ToNot(HaveOccurred())
 
 		noSubjectCert, _, err = ca.EnsureClientCertificate(filepath.Join(tempDir, "no-subject.crt"), filepath.Join(tempDir, "no-subject.key"), "", 365)
 		Expect(err).NotTo(HaveOccurred())
 
-		tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+		_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 		Expect(err).ToNot(HaveOccurred())
 
 		// create a listener using the next available port
@@ -75,12 +74,6 @@ var _ = Describe("Low level server behavior", func() {
 			dataStr := requestFromTLSCNServer(ca.Config, enrollmentCert, listener)
 			Expect(dataStr).To(Equal(crypto.ClientBootstrapCommonName))
 		})
-
-		It("should be included as context in the request for admin cert", func() {
-			dataStr := requestFromTLSCNServer(ca.Config, clientCert, listener)
-			Expect(dataStr).To(Equal(crypto.AdminCommonName))
-		})
-
 	})
 
 	Context("TLS client peer with no subject/common name", func() {
