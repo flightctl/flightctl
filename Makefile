@@ -10,7 +10,7 @@ GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
+SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --exclude latest --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null)
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
