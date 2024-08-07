@@ -85,7 +85,7 @@ jobs:
 
       - name: Push to Quay.io
         id: push
-        uses: redhat-actions/push-to-registry@v2.7
+        uses: redhat-actions/push-to-registry@v2.8
         with:
           image: ${{ steps.build.outputs.image }}
           tags: ${{ steps.build.outputs.tags }}
