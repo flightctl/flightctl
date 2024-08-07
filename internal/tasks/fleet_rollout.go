@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
@@ -200,13 +201,13 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 			return nil, fmt.Errorf("failed converting configuration to json: %w", err)
 		}
 
-		cfgJson, err = ReplaceParameters(cfgJson, device.Metadata)
-		if err != nil {
-			return nil, fmt.Errorf("failed replacing parameters: %w", err)
+		cfgJsonReplaced, warnings := ReplaceParameters(cfgJson, device.Metadata)
+		if len(warnings) > 0 {
+			f.log.Infof("failed replacing parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
 		}
 
 		var newConfigItem api.DeviceSpec_Config_Item
-		err = newConfigItem.UnmarshalJSON(cfgJson)
+		err = newConfigItem.UnmarshalJSON(cfgJsonReplaced)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting configuration from json: %w", err)
 		}
