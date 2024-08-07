@@ -47,6 +47,13 @@ func DefaultIfNil(s *string, defaultS string) string {
 	return *s
 }
 
+func IsEmptyString(s *string) bool {
+	if s == nil {
+		return true
+	}
+	return len(*s) == 0
+}
+
 func StrToPtr(s string) *string {
 	return &s
 }

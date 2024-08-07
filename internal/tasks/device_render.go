@@ -14,6 +14,7 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -63,7 +64,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		config = device.Spec.Config
 	}
 
-	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, config, false)
+	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, config, !util.IsEmptyString(device.Metadata.Owner), false)
 
 	// Set the many-to-many relationship with the repos (we do this even if the render failed so that we will
 	// render the device again if the repository is updated, and then it might be fixed).
@@ -104,15 +105,16 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 }
 
 type renderConfigArgs struct {
-	orgId          uuid.UUID
-	store          store.Store
-	k8sClient      k8sclient.K8SClient
-	ignitionConfig *config_latest_types.Config
-	repoNames      []string
-	validateOnly   bool
+	orgId                uuid.UUID
+	store                store.Store
+	k8sClient            k8sclient.K8SClient
+	ignitionConfig       *config_latest_types.Config
+	repoNames            []string
+	validateOnly         bool
+	deviceBelongsToFleet bool
 }
 
-func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
+func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, deviceBelongsToFleet bool, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
 	args := renderConfigArgs{}
 	emptyIgnitionConfig := config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
@@ -124,6 +126,7 @@ func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sCl
 	args.orgId = orgId
 	args.store = store
 	args.k8sClient = k8sClient
+	args.deviceBelongsToFleet = deviceBelongsToFleet
 
 	err = renderConfigItems(ctx, config, &args)
 	if err != nil {
@@ -152,10 +155,19 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 	for i := range *config {
 		configItem := (*config)[i]
 		name, err := renderConfigItem(ctx, &configItem, args)
+		paramErr := validateConfigParameters(&configItem, args)
+
+		if err != nil && errors.Is(err, ErrUnknownConfigName) {
+			name = "<unknown>"
+		}
+
+		// An error message regarding invalid parameters should take precedence
+		// because it may be the cause of the render error
+		if paramErr != nil {
+			err = paramErr
+		}
+
 		if err != nil {
-			if errors.Is(err, ErrUnknownConfigName) {
-				name = "<unknown>"
-			}
 			invalidConfigs = append(invalidConfigs, name)
 			if len(invalidConfigs) == 1 {
 				firstError = err
@@ -171,6 +183,28 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 			errorStr = "First error"
 		}
 		return fmt.Errorf("%d invalid %s: %s. %s: %v", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
+	}
+
+	return nil
+}
+
+func validateConfigParameters(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) error {
+	cfgJson, err := configItem.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("failed converting configuration to json: %w", err)
+	}
+	if args.validateOnly {
+		// Make sure all parameters are in the proper format
+		return ValidateParameterFormat(cfgJson)
+	}
+
+	// If we're rendering the device config and it still has parameters, something went wrong
+	if ContainsParameter(cfgJson) {
+		if args.deviceBelongsToFleet {
+			return fmt.Errorf("configuration contains parameter, perhaps due to a missing device label")
+		} else {
+			return fmt.Errorf("configuration contains parameter, but parameters can only be used in fleet templates")
+		}
 	}
 
 	return nil
