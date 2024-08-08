@@ -241,6 +241,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
 
 	var updateCallback func(before *model.Device, after *model.Device)
 

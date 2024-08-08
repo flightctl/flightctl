@@ -251,6 +251,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
 
 	var updateCallback func(before *model.Fleet, after *model.Fleet)
 
