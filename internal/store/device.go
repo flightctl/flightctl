@@ -38,11 +38,15 @@ type Device interface {
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	InitialMigration() error
+	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
 
+type IntegrationTestCallback func()
 type DeviceStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
+
+	IntegrationTestCreateOrUpdateCallback IntegrationTestCallback
 }
 
 type DeviceStoreCallback func(before *model.Device, after *model.Device)
@@ -52,7 +56,11 @@ type DeviceStoreAllDeletedCallback func(orgId uuid.UUID)
 var _ Device = (*DeviceStore)(nil)
 
 func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
-	return &DeviceStore{db: db, log: log}
+	return &DeviceStore{db: db, log: log, IntegrationTestCreateOrUpdateCallback: func() {}}
+}
+
+func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTestCallback) {
+	s.IntegrationTestCreateOrUpdateCallback = c
 }
 
 func (s *DeviceStore) InitialMigration() error {
@@ -247,6 +255,7 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+	s.IntegrationTestCreateOrUpdateCallback()
 	if !exists {
 		if retry, err := s.createDevice(device); err != nil {
 			return nil, false, retry, err
