@@ -143,7 +143,7 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 		}
 	}
 
-	if err := a.configController.Sync(&desired); err != nil {
+	if err := a.configController.Sync(&current, &desired); err != nil {
 		return false, err
 	}
 
