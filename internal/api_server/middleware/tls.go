@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 )
 
 type contextKey string
@@ -58,4 +62,17 @@ func NewTLSListener(address string, tlsConfig *tls.Config) (net.Listener, error)
 		return nil, err
 	}
 	return tls.NewListener(ln, tlsConfig), nil
+}
+
+func ValidateClientTlsCert(ctx context.Context) (context.Context, error) {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return ctx, status.Error(codes.Unauthenticated, "no peer found")
+	}
+
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
+		return ctx, status.Error(codes.Unauthenticated, "failed to verify client certificate")
+	}
+	return ctx, nil
 }
