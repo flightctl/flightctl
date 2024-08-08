@@ -116,6 +116,11 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 	return t.CloseAtomicallyReplace()
 }
 
+// RemoveFile removes the file at the provided path
+func (w *Writer) RemoveFile(path string) error {
+	return os.Remove(filepath.Join(w.rootDir, path))
+}
+
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
 // In testMode the permissions will be defined user
 func getFileOwnership(file ign3types.File, testMode bool) (int, int, error) {
