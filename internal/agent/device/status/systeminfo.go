@@ -49,9 +49,9 @@ func (s *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) 
 		return fmt.Errorf("getting bootc status: %w", err)
 	}
 
-	osImage := container.GetImage(bootcInfo)
+	osImage := bootcInfo.GetBootedImage()
 	if osImage == "" {
-		return fmt.Errorf("getting os image: %w", err)
+		return fmt.Errorf("getting booted os image: %w", err)
 	}
 
 	status.Os.Image = osImage
