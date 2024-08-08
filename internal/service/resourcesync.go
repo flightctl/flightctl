@@ -191,6 +191,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
 	result, _, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, newObj)
 
 	switch err {

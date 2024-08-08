@@ -2,10 +2,13 @@ package tasks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -44,6 +47,7 @@ type FleetRolloutsLogic struct {
 	tvStore         store.TemplateVersion
 	resourceRef     ResourceReference
 	itemsPerPage    int
+	owner           string
 }
 
 func NewFleetRolloutsLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
@@ -72,6 +76,7 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 
 	failureCount := 0
 	owner := util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)
+	f.owner = *owner
 
 	listParams := store.ListParams{Owners: []string{*owner}, Limit: ItemsPerPage}
 
@@ -134,6 +139,7 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	if !isFleetOwner {
 		return nil
 	}
+	f.owner = *device.Metadata.Owner
 
 	templateVersion, err := f.tvStore.GetNewestValid(ctx, f.resourceRef.OrgID, ownerName)
 	if err != nil {
@@ -170,9 +176,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
-
-	device.Spec = &newDeviceSpec
-	_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
+	err = f.updateDeviceInStore(ctx, device, &newDeviceSpec)
 	if err != nil {
 		return fmt.Errorf("failed updating device spec: %w", err)
 	}
@@ -200,13 +204,13 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 			return nil, fmt.Errorf("failed converting configuration to json: %w", err)
 		}
 
-		cfgJson, err = ReplaceParameters(cfgJson, device.Metadata)
-		if err != nil {
-			return nil, fmt.Errorf("failed replacing parameters: %w", err)
+		cfgJsonReplaced, warnings := ReplaceParameters(cfgJson, device.Metadata)
+		if len(warnings) > 0 {
+			f.log.Infof("failed replacing parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
 		}
 
 		var newConfigItem api.DeviceSpec_Config_Item
-		err = newConfigItem.UnmarshalJSON(cfgJson)
+		err = newConfigItem.UnmarshalJSON(cfgJsonReplaced)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting configuration from json: %w", err)
 		}
@@ -214,4 +218,31 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 	}
 
 	return &deviceConfig, nil
+}
+
+func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api.Device, newDeviceSpec *api.DeviceSpec) error {
+	var err error
+
+	for i := 0; i < 10; i++ {
+		if device.Metadata.Owner == nil || *device.Metadata.Owner != f.owner {
+			return fmt.Errorf("device owner changed, skipping rollout")
+		}
+
+		device.Spec = newDeviceSpec
+		_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
+		if err != nil {
+			if errors.Is(err, flterrors.ErrResourceVersionConflict) {
+				device, err = f.devStore.Get(ctx, f.resourceRef.OrgID, *device.Metadata.Name)
+				if err != nil {
+					return fmt.Errorf("the device changed before we could update it, and we failed to fetch it again: %v", err)
+				}
+			} else {
+				return err
+			}
+		} else {
+			break
+		}
+	}
+
+	return err
 }
