@@ -38,6 +38,10 @@ help:
 	@echo "    generate:        regenerate all generated files"
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
+	@echo "    lint-docs:       run markdownlint on documentation"
+	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
+	@echo "    spellcheck-docs: run markdown-spellcheck on documentation"
+	@echo "    fix-spelling:    run markdown-spellcheck interactively to fix spelling issues"
 	@echo "    build:           run all builds"
 	@echo "    integration-test: run integration tests"
 	@echo "    unit-test:       run unit tests"
@@ -172,10 +176,31 @@ lint-docs:
 	@echo "Linting user documentation markdown files"
 	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:latest "docs/user/**/*.md"
 
+.PHONY: lint-diagrams
+lint-diagrams:
+	@echo "Verifying Excalidraw diagrams have scene embedded"
+	@for d in $$(find . -type d); do \
+		for f in $$(find $$d -maxdepth 1 -type f -iname '*.svg'); do \
+			if [ -f "$$d/.excalidraw-ignore" ] && $$(basename "$$f" | grep -q --basic-regexp --file=$$d/.excalidraw-ignore); then continue ; fi ; \
+			if ! grep -q "excalidraw+json" $$f; then \
+				echo "$$f was not exported from excalidraw with 'Embed Scene' enabled." ; \
+				echo "If this is not an excalidraw file, add it to $$d/.excalidraw-ignore" ; \
+				exit 1 ; \
+			fi ; \
+		done ; \
+	done
+
+# 	if basename "$$f" | grep -q --basic-regexp --file=$d/.excalidraw-ignore; then continue ; fi ; \
+
 .PHONY: spellcheck-docs
 spellcheck-docs:
 	@echo "Checking user documentation for spelling issues"
 	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --report "docs/user/**/*.md"
+
+.PHONY: fix-spelling
+fix-spelling:
+	@echo "Running markdown-spellcheck interactively to allow fixing spelling issues"
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us "docs/user/**/*.md"
 
 # include the deployment targets
 include deploy/deploy.mk
