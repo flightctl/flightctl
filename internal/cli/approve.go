@@ -85,7 +85,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating enrollmentrequestapproval: %w, http response: %+v", err, resp)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("creating enrollmentrequestapproval: %+v", resp)
+		return fmt.Errorf("%s", resp.Status)
 	}
 	return nil
 }
