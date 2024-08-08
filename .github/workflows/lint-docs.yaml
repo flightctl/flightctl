@@ -32,3 +32,6 @@ jobs:
 
       - name: Running Spellchecker
         run: make spellcheck-docs
+
+      - name: Verifying diagrams have source embedded
+        run: make lint-diagrams
