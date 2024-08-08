@@ -153,6 +153,7 @@ make run-e2e-test GO_E2E_DIRS=test/e2e/cli
 ### Local testing side services
 For the purpose of providing a local testing environment, we have a set of side services
 that run inside the kind cluster to provide a complete testing environment.
+Therefore, [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) and [kind](https://kind.sigs.k8s.io/) must be installed.
 
 #### Local container registry
 

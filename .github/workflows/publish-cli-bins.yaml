@@ -1,4 +1,4 @@
-name: "Publish GitHub CLI Binaries"
+name: "Release CLI Binaries on GH"
 on:
   workflow_dispatch:
   push:
@@ -24,12 +24,27 @@ jobs:
           GOOS: ${{ matrix.os }}
         run: |       
           make build
-          mv bin/flightctl bin/${{ env.NAME }}
+          SHA=$(sha256sum bin/flightctl | awk '{ print $1 }')
+          echo $SHA > ${{ env.NAME }}-sha256.txt
+          tar cvf ${{ env.NAME }}.tar.gz  bin/flightctl
+          mv bin/flightctl ${{ env.NAME }} 
+      - name: "Save tar binary"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}.tar.gz
+          path: ${{ env.NAME }}.tar.gz
+      
       - name: "Save binary"
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.NAME }}
-          path: ${{ github.workspace }}/bin/${{ env.NAME }}
+          path: ${{ env.NAME }}
+    
+      - name: "Save checksum"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}-sha256.txt
+          path: ${{ env.NAME }}-sha256.txt
 
   verify:
     strategy:
@@ -64,15 +79,24 @@ jobs:
       - name: "Checkout"
         uses: actions/checkout@v4
 
-      - name: "Load binaries"
+      - name: "Load binary archives"
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+          path: release
 
       - name: "Publish"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG=flightctl-cli-$(date +%Y%m%d)-$(git describe --always)
-          gh release create $TAG flightctl-*
+          OLD_RELEASE=$(gh release list | awk '/^latest\s/ { print $1 }')
+          if [ $OLD_RELEASE ]; then
+            gh release delete $OLD_RELEASE
+          fi
+          OLD_TAG=$(git tag | awk '/^latest\s/ { print $1 }')
+          if [ $OLD_TAG ]; then
+            git push --delete origin $OLD_TAG
+          fi
+          
+          gh release create -p -n "Flightctl CLI pre-release" latest release/*
 

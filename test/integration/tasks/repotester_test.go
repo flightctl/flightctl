@@ -54,7 +54,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), crypto.AdminCommonName, 1)
 	require.NoError(err)
 
-	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	require.NoError(err)
 
 	go startHttpsMTLSRepo(tlsConfig, require)
