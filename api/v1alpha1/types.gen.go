@@ -136,30 +136,44 @@ const (
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
 
-// ApplicationConfigRef Represents a configuration mount inside an application.
-// - The key is a configuration name reference.
-// - The value is the path where the configuration is mounted.
-type ApplicationConfigRef map[string]string
+// ApplicationProviderSpec defines model for ApplicationProviderSpec.
+type ApplicationProviderSpec struct {
+	Compose *ComposeProviderSpec `json:"compose,omitempty"`
+	union   json.RawMessage
+}
+
+// ApplicationProviderSpec0 defines model for .
+type ApplicationProviderSpec0 = interface{}
+
+// ApplicationRepositorySpec defines model for ApplicationRepositorySpec.
+type ApplicationRepositorySpec struct {
+	GitRef    *GitRepositoryRef              `json:"gitRef,omitempty"`
+	HttpRef   *HttpRepositoryRef             `json:"httpRef,omitempty"`
+	SecretRef *KubernetesSecretRepositoryRef `json:"secretRef,omitempty"`
+	union     json.RawMessage
+}
+
+// ApplicationRepositorySpec0 defines model for .
+type ApplicationRepositorySpec0 = interface{}
+
+// ApplicationRepositorySpec1 defines model for .
+type ApplicationRepositorySpec1 = interface{}
+
+// ApplicationRepositorySpec2 defines model for .
+type ApplicationRepositorySpec2 = interface{}
 
 // ApplicationSpec Defines the specification for an application
 type ApplicationSpec struct {
-	// ConfigRef A reference to the name of a config which is used as the configuration for the application
-	ConfigRef string `json:"configRef"`
-
 	// Description A brief description of the application
 	Description *string `json:"description,omitempty"`
 
 	// Name The name of the application
-	Name          string                     `json:"name"`
-	PodmanCompose *PodmanComposeProviderSpec `json:"podmanCompose,omitempty"`
+	Name     string                  `json:"name"`
+	Provider ApplicationProviderSpec `json:"provider"`
 
 	// Version The version of the application
 	Version *string `json:"version,omitempty"`
-	union   json.RawMessage
 }
-
-// ApplicationSpec0 defines model for .
-type ApplicationSpec0 = interface{}
 
 // ApplicationStatus defines model for ApplicationStatus.
 type ApplicationStatus struct {
@@ -265,6 +279,29 @@ type CertificateSigningRequestStatus struct {
 	Conditions []Condition `json:"conditions"`
 }
 
+// ComposeProviderSpec defines model for ComposeProviderSpec.
+type ComposeProviderSpec struct {
+	EnvFiles *[]ApplicationRepositorySpec `json:"envFiles,omitempty"`
+
+	// EnvVars Environment variables for the application
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Image OCI image which contains the compose manifest
+	Image        string `json:"image"`
+	VolumeMounts *struct {
+		// MountPath The path where the volume is mounted
+		MountPath *string `json:"mountPath,omitempty"`
+
+		// Name A reference to the name of the volume
+		Name *string `json:"name,omitempty"`
+	} `json:"volumeMounts,omitempty"`
+	Volumes *struct {
+		// Name The name of the volume
+		Name   *string                    `json:"name,omitempty"`
+		Source *ApplicationRepositorySpec `json:"source,omitempty"`
+	} `json:"volumes,omitempty"`
+}
+
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
@@ -287,10 +324,6 @@ type ConditionStatus string
 
 // ConditionType defines model for ConditionType.
 type ConditionType string
-
-// ConfigMounts An array of config mounts.
-// Each item maps a device.config.name reference to a mount point inside the application.
-type ConfigMounts = []ApplicationConfigRef
 
 // CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
 type CustomResourceMonitorSpec struct {
@@ -652,14 +685,21 @@ type GenericRepoSpec struct {
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
 type GitConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
-	GitRef     struct {
-		Path string `json:"path"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
 
-		// Repository The name of the repository resource to use as the sync source
-		Repository     string `json:"repository"`
-		TargetRevision string `json:"targetRevision"`
-	} `json:"gitRef"`
-	Name string `json:"name"`
+	// Repository The name of the repository resource to use as the sync source
+	Repository     string `json:"repository"`
+	TargetRevision string `json:"targetRevision"`
+}
+
+// GitRepositoryRef defines model for GitRepositoryRef.
+type GitRepositoryRef struct {
+	Path string `json:"path"`
+
+	// Repository The name of the repository resource to use as the sync source
+	Repository     string `json:"repository"`
+	TargetRevision string `json:"targetRevision"`
 }
 
 // HookAction defines model for HookAction.
@@ -768,18 +808,17 @@ type HttpConfig struct {
 // HttpConfigProviderSpec defines model for HttpConfigProviderSpec.
 type HttpConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
-	HttpRef    struct {
-		// FilePath The path of the file where the response is stored in the filesystem of the device.
-		FilePath string `json:"filePath"`
 
-		// Repository The name of the repository resource to use as the sync source
-		Repository string `json:"repository"`
+	// FilePath The path of the file where the response is stored in the filesystem of the device.
+	FilePath string `json:"filePath"`
+	Name     string `json:"name"`
 
-		// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
-		// /path/to/endpoint?query=param
-		Suffix *string `json:"suffix,omitempty"`
-	} `json:"httpRef"`
-	Name string `json:"name"`
+	// Repository The name of the repository resource to use as the sync source
+	Repository string `json:"repository"`
+
+	// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
+	// /path/to/endpoint?query=param
+	Suffix *string `json:"suffix,omitempty"`
 }
 
 // HttpRepoSpec defines model for HttpRepoSpec.
@@ -793,6 +832,19 @@ type HttpRepoSpec struct {
 	Url string `json:"url"`
 }
 
+// HttpRepositoryRef defines model for HttpRepositoryRef.
+type HttpRepositoryRef struct {
+	// FilePath The path of the file where the response is stored in the filesystem of the device.
+	FilePath string `json:"filePath"`
+
+	// Repository The name of the repository resource to use as the sync source
+	Repository string `json:"repository"`
+
+	// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
+	// /path/to/endpoint?query=param
+	Suffix *string `json:"suffix,omitempty"`
+}
+
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
 	ConfigType string                 `json:"configType"`
@@ -803,12 +855,16 @@ type InlineConfigProviderSpec struct {
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
 	ConfigType string `json:"configType"`
+	MountPath  string `json:"mountPath"`
 	Name       string `json:"name"`
-	SecretRef  struct {
-		MountPath string `json:"mountPath"`
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
-	} `json:"secretRef"`
+	Namespace  string `json:"namespace"`
+}
+
+// KubernetesSecretRepositoryRef defines model for KubernetesSecretRepositoryRef.
+type KubernetesSecretRepositoryRef struct {
+	MountPath string `json:"mountPath"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
 // LabelSelector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
@@ -865,19 +921,6 @@ type PatchRequest = []struct {
 
 // PatchRequestOp The operation to perform.
 type PatchRequestOp string
-
-// PodmanComposeProviderSpec defines model for PodmanComposeProviderSpec.
-type PodmanComposeProviderSpec struct {
-	// ComposeFile The path to the Podman Compose file
-	ComposeFile string `json:"composeFile"`
-
-	// ConfigMounts An array of config mounts.
-	// Each item maps a device.config.name reference to a mount point inside the application.
-	ConfigMounts *ConfigMounts `json:"configMounts,omitempty"`
-
-	// Environment Environment variables for the application
-	Environment *map[string]string `json:"environment,omitempty"`
-}
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
@@ -1306,22 +1349,22 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
-// AsApplicationSpec0 returns the union data inside the ApplicationSpec as a ApplicationSpec0
-func (t ApplicationSpec) AsApplicationSpec0() (ApplicationSpec0, error) {
-	var body ApplicationSpec0
+// AsApplicationProviderSpec0 returns the union data inside the ApplicationProviderSpec as a ApplicationProviderSpec0
+func (t ApplicationProviderSpec) AsApplicationProviderSpec0() (ApplicationProviderSpec0, error) {
+	var body ApplicationProviderSpec0
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromApplicationSpec0 overwrites any union data inside the ApplicationSpec as the provided ApplicationSpec0
-func (t *ApplicationSpec) FromApplicationSpec0(v ApplicationSpec0) error {
+// FromApplicationProviderSpec0 overwrites any union data inside the ApplicationProviderSpec as the provided ApplicationProviderSpec0
+func (t *ApplicationProviderSpec) FromApplicationProviderSpec0(v ApplicationProviderSpec0) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeApplicationSpec0 performs a merge with any union data inside the ApplicationSpec, using the provided ApplicationSpec0
-func (t *ApplicationSpec) MergeApplicationSpec0(v ApplicationSpec0) error {
+// MergeApplicationProviderSpec0 performs a merge with any union data inside the ApplicationProviderSpec, using the provided ApplicationProviderSpec0
+func (t *ApplicationProviderSpec) MergeApplicationProviderSpec0(v ApplicationProviderSpec0) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1332,7 +1375,7 @@ func (t *ApplicationSpec) MergeApplicationSpec0(v ApplicationSpec0) error {
 	return err
 }
 
-func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	if err != nil {
 		return nil, err
@@ -1345,41 +1388,17 @@ func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	object["configRef"], err = json.Marshal(t.ConfigRef)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'configRef': %w", err)
-	}
-
-	if t.Description != nil {
-		object["description"], err = json.Marshal(t.Description)
+	if t.Compose != nil {
+		object["compose"], err = json.Marshal(t.Compose)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'description': %w", err)
-		}
-	}
-
-	object["name"], err = json.Marshal(t.Name)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'name': %w", err)
-	}
-
-	if t.PodmanCompose != nil {
-		object["podmanCompose"], err = json.Marshal(t.PodmanCompose)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'podmanCompose': %w", err)
-		}
-	}
-
-	if t.Version != nil {
-		object["version"], err = json.Marshal(t.Version)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'version': %w", err)
+			return nil, fmt.Errorf("error marshaling 'compose': %w", err)
 		}
 	}
 	b, err = json.Marshal(object)
 	return b, err
 }
 
-func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	if err != nil {
 		return err
@@ -1390,38 +1409,160 @@ func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	if raw, found := object["configRef"]; found {
-		err = json.Unmarshal(raw, &t.ConfigRef)
+	if raw, found := object["compose"]; found {
+		err = json.Unmarshal(raw, &t.Compose)
 		if err != nil {
-			return fmt.Errorf("error reading 'configRef': %w", err)
+			return fmt.Errorf("error reading 'compose': %w", err)
 		}
 	}
 
-	if raw, found := object["description"]; found {
-		err = json.Unmarshal(raw, &t.Description)
+	return err
+}
+
+// AsApplicationRepositorySpec0 returns the union data inside the ApplicationRepositorySpec as a ApplicationRepositorySpec0
+func (t ApplicationRepositorySpec) AsApplicationRepositorySpec0() (ApplicationRepositorySpec0, error) {
+	var body ApplicationRepositorySpec0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationRepositorySpec0 overwrites any union data inside the ApplicationRepositorySpec as the provided ApplicationRepositorySpec0
+func (t *ApplicationRepositorySpec) FromApplicationRepositorySpec0(v ApplicationRepositorySpec0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationRepositorySpec0 performs a merge with any union data inside the ApplicationRepositorySpec, using the provided ApplicationRepositorySpec0
+func (t *ApplicationRepositorySpec) MergeApplicationRepositorySpec0(v ApplicationRepositorySpec0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsApplicationRepositorySpec1 returns the union data inside the ApplicationRepositorySpec as a ApplicationRepositorySpec1
+func (t ApplicationRepositorySpec) AsApplicationRepositorySpec1() (ApplicationRepositorySpec1, error) {
+	var body ApplicationRepositorySpec1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationRepositorySpec1 overwrites any union data inside the ApplicationRepositorySpec as the provided ApplicationRepositorySpec1
+func (t *ApplicationRepositorySpec) FromApplicationRepositorySpec1(v ApplicationRepositorySpec1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationRepositorySpec1 performs a merge with any union data inside the ApplicationRepositorySpec, using the provided ApplicationRepositorySpec1
+func (t *ApplicationRepositorySpec) MergeApplicationRepositorySpec1(v ApplicationRepositorySpec1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsApplicationRepositorySpec2 returns the union data inside the ApplicationRepositorySpec as a ApplicationRepositorySpec2
+func (t ApplicationRepositorySpec) AsApplicationRepositorySpec2() (ApplicationRepositorySpec2, error) {
+	var body ApplicationRepositorySpec2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationRepositorySpec2 overwrites any union data inside the ApplicationRepositorySpec as the provided ApplicationRepositorySpec2
+func (t *ApplicationRepositorySpec) FromApplicationRepositorySpec2(v ApplicationRepositorySpec2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationRepositorySpec2 performs a merge with any union data inside the ApplicationRepositorySpec, using the provided ApplicationRepositorySpec2
+func (t *ApplicationRepositorySpec) MergeApplicationRepositorySpec2(v ApplicationRepositorySpec2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationRepositorySpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
 		if err != nil {
-			return fmt.Errorf("error reading 'description': %w", err)
+			return nil, err
 		}
 	}
 
-	if raw, found := object["name"]; found {
-		err = json.Unmarshal(raw, &t.Name)
+	if t.GitRef != nil {
+		object["gitRef"], err = json.Marshal(t.GitRef)
 		if err != nil {
-			return fmt.Errorf("error reading 'name': %w", err)
+			return nil, fmt.Errorf("error marshaling 'gitRef': %w", err)
 		}
 	}
 
-	if raw, found := object["podmanCompose"]; found {
-		err = json.Unmarshal(raw, &t.PodmanCompose)
+	if t.HttpRef != nil {
+		object["httpRef"], err = json.Marshal(t.HttpRef)
 		if err != nil {
-			return fmt.Errorf("error reading 'podmanCompose': %w", err)
+			return nil, fmt.Errorf("error marshaling 'httpRef': %w", err)
 		}
 	}
 
-	if raw, found := object["version"]; found {
-		err = json.Unmarshal(raw, &t.Version)
+	if t.SecretRef != nil {
+		object["secretRef"], err = json.Marshal(t.SecretRef)
 		if err != nil {
-			return fmt.Errorf("error reading 'version': %w", err)
+			return nil, fmt.Errorf("error marshaling 'secretRef': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationRepositorySpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["gitRef"]; found {
+		err = json.Unmarshal(raw, &t.GitRef)
+		if err != nil {
+			return fmt.Errorf("error reading 'gitRef': %w", err)
+		}
+	}
+
+	if raw, found := object["httpRef"]; found {
+		err = json.Unmarshal(raw, &t.HttpRef)
+		if err != nil {
+			return fmt.Errorf("error reading 'httpRef': %w", err)
+		}
+	}
+
+	if raw, found := object["secretRef"]; found {
+		err = json.Unmarshal(raw, &t.SecretRef)
+		if err != nil {
+			return fmt.Errorf("error reading 'secretRef': %w", err)
 		}
 	}
 

@@ -2505,43 +2505,59 @@ components:
     GitConfigProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            gitRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                targetRevision:
-                  type: string
-                path:
-                  type: string
-              required:
-                - repository
-                - targetRevision
-                - path
+        - $ref: '#/components/schemas/GitRepositoryRef'
           required:
           - gitRef
+    GitRepositoryRef:
+      type: object
+      properties:
+        repository:
+          type: string
+          description: 'The name of the repository resource to use as the sync source'
+        targetRevision:
+          type: string
+        path:
+          type: string
+      required:
+        - repository
+        - targetRevision
+        - path
+    KubernetesSecretRepositoryRef:
+      type: object
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+        mountPath:
+          type: string
+      required:
+        - name
+        - namespace
+        - mountPath
+    HttpRepositoryRef:
+      type: object
+      properties:
+        repository:
+          type: string
+          description: |
+            The name of the repository resource to use as the sync source
+        suffix:
+          type: string
+          description: |
+            Part of the URL that comes after the base URL. It can include query parameters such as:
+            /path/to/endpoint?query=param
+        filePath:
+          type: string
+          description: |
+            The path of the file where the response is stored in the filesystem of the device.
+      required:
+        - repository
+        - filePath
     KubernetesSecretProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            secretRef:
-              type: object
-              properties:
-                name:
-                  type: string
-                namespace:
-                  type: string
-                mountPath:
-                  type: string
-              required:
-                - name
-                - namespace
-                - mountPath
+        - $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
           required:
           - secretRef
     InlineConfigProviderSpec:
@@ -2557,27 +2573,7 @@ components:
     HttpConfigProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            httpRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                suffix:
-                  type: string
-                  description: |
-                    Part of the URL that comes after the base URL. It can include query parameters such as:
-                    /path/to/endpoint?query=param
-                filePath:
-                  type: string
-                  description: |
-                    The path of the file where the response is stored in the filesystem of the device.
-              required:
-              - repository
-              - filePath
+        - $ref: '#/components/schemas/HttpRepositoryRef'
           required:
           - httpRef
     ApplicationSpec:
@@ -2593,51 +2589,68 @@ components:
         description:
           type: string
           description: "A brief description of the application"
-        configRef:
-          type: string
-          description: "A reference to the name of a config which is used as the configuration for the application"
-        podmanCompose:
-          $ref: '#/components/schemas/PodmanComposeProviderSpec'
+        provider:
+          $ref: '#/components/schemas/ApplicationProviderSpec'
       required:
         - name
-        - configRef
-      oneOf: # extend this list with more providers to ensure that only one provider is used
-        - required: ["podmanCompose"]
-        # - required: ["quadlets"]
-    ConfigMounts:
-      type: array
-      items:
-        $ref: '#/components/schemas/ApplicationConfigRef'
-      description: |
-        An array of config mounts. 
-        Each item maps a device.config.name reference to a mount point inside the application.
-    PodmanComposeProviderSpec:
+        - provider
+    ApplicationProviderSpec:
       type: object
       properties:
-        composeFile:
+        compose:
+          $ref: '#/components/schemas/ComposeProviderSpec'
+      oneOf: 
+        - required: ["compose"]
+        # - required: ["quadlets"]
+    ComposeProviderSpec:
+      type: object
+      properties:
+        image:
           type: string
-          description: "The path to the Podman Compose file"
-          example: "/path/to/docker-compose.yml"
-        configMounts:
-          $ref: '#/components/schemas/ConfigMounts'
-        environment:
+          description: "OCI image which contains the compose manifest"
+          example: "quay.io/someorg/somecompose:version"
+          # add regex for image
+        volumes:
+          type: object
+          properties:
+            name:
+              type: string
+              description: "The name of the volume"
+            source:
+              $ref: '#/components/schemas/ApplicationRepositorySpec'
+        volumeMounts:
+          type: object
+          properties:
+            name:
+              type: string
+              description: "A reference to the name of the volume"
+            mountPath:
+              type: string
+              description: "The path where the volume is mounted"
+        envVars:
           type: object
           description: "Environment variables for the application"
           additionalProperties:
             type: string
-            pattern: "^[A-Z0-9_]+$"
+        envFiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApplicationRepositorySpec'
       required:
-        - composeFile
-    ApplicationConfigRef:
+        - image
+    ApplicationRepositorySpec:
       type: object
-      additionalProperties:
-        type: string
-        description: |
-          The value is the path where the configuration is mounted inside the application.
-      description: |
-        Represents a configuration mount inside an application.
-        - The key is a configuration name reference.
-        - The value is the path where the configuration is mounted.
+      properties:
+        gitRef:
+          $ref: '#/components/schemas/GitRepositoryRef'
+        secretRef:
+          $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
+        httpRef:
+          $ref: '#/components/schemas/HttpRepositoryRef'
+      oneOf: # extend this list with more providers to ensure that only one provider is used
+        - required: ["gitRef"]
+        - required: ["secretRef"]
+        - required: ["httpRef"]
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'
