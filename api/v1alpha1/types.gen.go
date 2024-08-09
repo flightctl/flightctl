@@ -288,8 +288,8 @@ type ConditionStatus string
 // ConditionType defines model for ConditionType.
 type ConditionType string
 
-// ConfigMounts An array of configuration mounts.
-// Each item maps a configuration name reference to a mount point inside the application.
+// ConfigMounts An array of config mounts.
+// Each item maps a device.config.name reference to a mount point inside the application.
 type ConfigMounts = []ApplicationConfigRef
 
 // CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
@@ -871,8 +871,8 @@ type PodmanComposeProviderSpec struct {
 	// ComposeFile The path to the Podman Compose file
 	ComposeFile string `json:"composeFile"`
 
-	// ConfigMounts An array of configuration mounts.
-	// Each item maps a configuration name reference to a mount point inside the application.
+	// ConfigMounts An array of config mounts.
+	// Each item maps a device.config.name reference to a mount point inside the application.
 	ConfigMounts *ConfigMounts `json:"configMounts,omitempty"`
 
 	// Environment Environment variables for the application

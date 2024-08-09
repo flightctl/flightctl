@@ -2609,8 +2609,8 @@ components:
       items:
         $ref: '#/components/schemas/ApplicationConfigRef'
       description: |
-        An array of configuration mounts. 
-        Each item maps a configuration name reference to a mount point inside the application.
+        An array of config mounts. 
+        Each item maps a device.config.name reference to a mount point inside the application.
     PodmanComposeProviderSpec:
       type: object
       properties:
