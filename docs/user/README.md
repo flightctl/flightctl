@@ -4,7 +4,7 @@ Welcome to the Flight Control user documentation.
 
 **[Introduction](introduction.md)** - An introduction to the project, basic concepts, and Flight Control's high-level architecture.
 
-**Getting Started** - How to get started with Flight Control by deploying the service and enrolling your first device.
+**[Getting Started](getting-started.md)** - How to get started with Flight Control by deploying the service and enrolling your first device.
 
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 
