@@ -2508,40 +2508,16 @@ components:
         - type: object
           properties:
             gitRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                targetRevision:
-                  type: string
-                path:
-                  type: string
-              required:
-                - repository
-                - targetRevision
-                - path
+              $ref: '#/components/schemas/GitRepositoryRef'
           required:
-          - gitRef
+          - gitRef 
     KubernetesSecretProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'
         - type: object
           properties:
             secretRef:
-              type: object
-              properties:
-                name:
-                  type: string
-                namespace:
-                  type: string
-                mountPath:
-                  type: string
-              required:
-                - name
-                - namespace
-                - mountPath
+              $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
           required:
           - secretRef
     InlineConfigProviderSpec:
@@ -2560,26 +2536,146 @@ components:
         - type: object
           properties:
             httpRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                suffix:
-                  type: string
-                  description: |
-                    Part of the URL that comes after the base URL. It can include query parameters such as:
-                    /path/to/endpoint?query=param
-                filePath:
-                  type: string
-                  description: |
-                    The path of the file where the response is stored in the filesystem of the device.
-              required:
-              - repository
-              - filePath
+              $ref: '#/components/schemas/HttpRepositoryRef'
           required:
           - httpRef
+    GitRepositoryRef:
+      type: object
+      properties:
+        repository:
+          type: string
+          description: 'The name of the repository resource to use as the sync source'
+        targetRevision:
+          type: string
+        path:
+          type: string
+      required:
+        - repository
+        - targetRevision
+        - path
+    KubernetesSecretRepositoryRef:
+      type: object
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+        mountPath:
+          type: string
+      required:
+        - name
+        - namespace
+        - mountPath
+    HttpRepositoryRef:
+      type: object
+      properties:
+        repository:
+          type: string
+          description: |
+            The name of the repository resource to use as the sync source
+        suffix:
+          type: string
+          description: |
+            Part of the URL that comes after the base URL. It can include query parameters such as:
+            /path/to/endpoint?query=param
+        filePath:
+          type: string
+          description: |
+            The path of the file where the response is stored in the filesystem of the device.
+      required:
+        - repository
+        - filePath
+    ApplicationSpec:
+      type: object
+      description: "Defines the specification for an application"
+      properties:
+        name:
+          type: string
+          description: "The name of the application"
+        version:
+          type: string
+          description: "The version of the application"
+        description:
+          type: string
+          description: "A brief description of the application"
+        compose:
+          $ref: '#/components/schemas/ComposeProviderSpec'
+      oneOf: 
+        - required: ["compose"]
+        # - required: ["quadlets"]
+      required:
+        - name
+    ApplicationProviderSpec:
+      type: object
+      properties:
+        compose:
+          $ref: '#/components/schemas/ComposeProviderSpec'
+      oneOf: 
+        - required: ["compose"]
+        # - required: ["quadlets"]
+    ApplicationsVolumes:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the volume"
+        gitRef:
+          $ref: '#/components/schemas/GitRepositoryRef'
+        secretRef:
+          $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
+        httpRef:
+          $ref: '#/components/schemas/HttpRepositoryRef'
+      oneOf: 
+        - required: ["gitRef"]
+        - required: ["secretRef"]
+        - required: ["httpRef"]
+      required:
+        - name
+    ApplicationVolumeMounts:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "A reference to the name of the volume"
+        mountPath:
+          type: string
+          description: "The path where the volume is mounted"
+    ComposeProviderSpec:
+      type: object
+      properties:
+        image:
+          type: string
+          description: "OCI container image reference which contains the compose manifest"
+          example: "quay.io/someorg/somecompose:version"
+          # add regex for image
+        volumes:
+          $ref: '#/components/schemas/ApplicationsVolumes'
+        volumeMounts:
+          $ref: '#/components/schemas/ApplicationVolumeMounts'
+        envVars:
+          type: object
+          description: "Environment variables for the application"
+          additionalProperties:
+            type: string
+        envFiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApplicationRepositorySpec'
+      required:
+        - image
+    ApplicationRepositorySpec:
+      type: object
+      properties:
+        gitRef:
+          $ref: '#/components/schemas/GitRepositoryRef'
+        secretRef:
+          $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
+        httpRef:
+          $ref: '#/components/schemas/HttpRepositoryRef'
+      oneOf: # extend this list with more providers to ensure that only one provider is used
+        - required: ["gitRef"]
+        - required: ["secretRef"]
+        - required: ["httpRef"]
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'
