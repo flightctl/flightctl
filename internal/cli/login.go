@@ -305,15 +305,18 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
-
 	headerVal := "Bearer " + token
 	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authentication: &headerVal})
 	if err != nil {
 		return fmt.Errorf("validating token: %w", err)
 	}
 
-	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("the token provided is invalid or expired")
+	if o.VerboseHttp {
+		printRawHttpResponse(res.HTTPResponse, res.Body)
+	}
+
+	if res.HTTPResponse.StatusCode != http.StatusOK {
+		return fmt.Errorf("the token provided is invalid or expired: %s", res.HTTPResponse.Status)
 	}
 
 	config.AuthInfo.Token = token

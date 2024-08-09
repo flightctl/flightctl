@@ -18,17 +18,20 @@ const (
 type GlobalOptions struct {
 	ConfigFilePath string
 	Context        string
+	VerboseHttp    bool
 }
 
 func DefaultGlobalOptions() GlobalOptions {
 	return GlobalOptions{
 		ConfigFilePath: ConfigFilePath(""),
 		Context:        "",
+		VerboseHttp:    false,
 	}
 }
 
 func (o *GlobalOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Context, "context", "c", o.Context, "Read client config from 'client_<context>.yaml' instead of 'client.yaml'.")
+	fs.BoolVarP(&o.VerboseHttp, "verbose-http", "H", o.VerboseHttp, "Print all HTTP requests and responses")
 }
 
 func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
