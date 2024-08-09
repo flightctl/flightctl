@@ -2505,9 +2505,40 @@ components:
     GitConfigProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'
-        - $ref: '#/components/schemas/GitRepositoryRef'
+        - type: object
+          properties:
+            gitRef:
+              $ref: '#/components/schemas/GitRepositoryRef'
           required:
-          - gitRef
+          - gitRef 
+    KubernetesSecretProviderSpec:
+      allOf:
+        - $ref: '#/components/schemas/GenericConfigSpec'
+        - type: object
+          properties:
+            secretRef:
+              $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
+          required:
+          - secretRef
+    InlineConfigProviderSpec:
+      allOf:
+        - $ref: '#/components/schemas/GenericConfigSpec'
+        - type: object
+          properties:
+            inline:
+              type: object
+              additionalProperties: true
+          required:
+          - inline
+    HttpConfigProviderSpec:
+      allOf:
+        - $ref: '#/components/schemas/GenericConfigSpec'
+        - type: object
+          properties:
+            httpRef:
+              $ref: '#/components/schemas/HttpRepositoryRef'
+          required:
+          - httpRef
     GitRepositoryRef:
       type: object
       properties:
@@ -2554,28 +2585,6 @@ components:
       required:
         - repository
         - filePath
-    KubernetesSecretProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
-          required:
-          - secretRef
-    InlineConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            inline:
-              type: object
-              additionalProperties: true
-          required:
-          - inline
-    HttpConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - $ref: '#/components/schemas/HttpRepositoryRef'
-          required:
-          - httpRef
     ApplicationSpec:
       type: object
       description: "Defines the specification for an application"

@@ -708,13 +708,9 @@ type GenericRepoSpec struct {
 
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
 type GitConfigProviderSpec struct {
-	ConfigType string `json:"configType"`
-	Name       string `json:"name"`
-	Path       string `json:"path"`
-
-	// Repository The name of the repository resource to use as the sync source
-	Repository     string `json:"repository"`
-	TargetRevision string `json:"targetRevision"`
+	ConfigType string           `json:"configType"`
+	GitRef     GitRepositoryRef `json:"gitRef"`
+	Name       string           `json:"name"`
 }
 
 // GitRepositoryRef defines model for GitRepositoryRef.
@@ -831,18 +827,9 @@ type HttpConfig struct {
 
 // HttpConfigProviderSpec defines model for HttpConfigProviderSpec.
 type HttpConfigProviderSpec struct {
-	ConfigType string `json:"configType"`
-
-	// FilePath The path of the file where the response is stored in the filesystem of the device.
-	FilePath string `json:"filePath"`
-	Name     string `json:"name"`
-
-	// Repository The name of the repository resource to use as the sync source
-	Repository string `json:"repository"`
-
-	// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
-	// /path/to/endpoint?query=param
-	Suffix *string `json:"suffix,omitempty"`
+	ConfigType string            `json:"configType"`
+	HttpRef    HttpRepositoryRef `json:"httpRef"`
+	Name       string            `json:"name"`
 }
 
 // HttpRepoSpec defines model for HttpRepoSpec.
@@ -878,10 +865,9 @@ type InlineConfigProviderSpec struct {
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
-	ConfigType string `json:"configType"`
-	MountPath  string `json:"mountPath"`
-	Name       string `json:"name"`
-	Namespace  string `json:"namespace"`
+	ConfigType string                        `json:"configType"`
+	Name       string                        `json:"name"`
+	SecretRef  KubernetesSecretRepositoryRef `json:"secretRef"`
 }
 
 // KubernetesSecretRepositoryRef defines model for KubernetesSecretRepositoryRef.
