@@ -17,6 +17,15 @@ flightctl:
     agentAPIHostName: agent-api.flightctl.example.com
     agentGrpcHostName: agent-grpc.flightctl.example.com
     agentGrpcBaseURL: grpcs://agent-grpc.flightctl.example.com
+    auth:
+      ## @param enabled True if auth should be enabled. One of 'openShiftApiUrl' or 'oidcAuthority' params will be required.
+      enabled: false
+      ## @param openShiftApiUrl the API URL of OpenShift cluster. This will enable OCP auth. Example: https://api.foo.openshiftapps.com:6443/
+      openShiftApiUrl: ""
+      ## @param oidcAuthority The base URL for the Keycloak realm that is reachable by clients. This will enable OIDC auth. Example: https://keycloak.foo.net/realms/flightctl
+      oidcAuthority: ""
+      ## @param internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl-api. Example: https://keycloak.foo.internal/realms/flightctl
+      internalOidcAuthority: ""
   worker:
     enabled: true
     namespace: flightctl-internal
@@ -49,15 +58,6 @@ flightctl:
       type: ClusterIP
       amqpPort: 5672
       managementPort: 15672
-  auth:
-    ## @param enabled True if auth should be enabled. One of 'openShiftApiUrl' or 'oidcAuthority' params will be required.
-    enabled: false
-    ## @param openShiftApiUrl the API URL of OpenShift cluster. This will enable OCP auth. Example: https://api.foo.openshiftapps.com:6443/
-    openShiftApiUrl: "" 
-    ## @param oidcAuthority The base URL for the Keycloak realm that is reachable by clients. This will enable OIDC auth. Example: https://keycloak.foo.net/realms/flightctl
-    oidcAuthority: ""
-    ## @param internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl-api. Example: https://keycloak.foo.internal/realms/flightctl
-    internalOidcAuthority: "" 
 
 
 storageClassName: aws-ebs
