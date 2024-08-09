@@ -164,16 +164,21 @@ type ApplicationRepositorySpec2 = interface{}
 
 // ApplicationSpec Defines the specification for an application
 type ApplicationSpec struct {
+	Compose *ComposeProviderSpec `json:"compose,omitempty"`
+
 	// Description A brief description of the application
 	Description *string `json:"description,omitempty"`
 
 	// Name The name of the application
-	Name     string                  `json:"name"`
-	Provider ApplicationProviderSpec `json:"provider"`
+	Name string `json:"name"`
 
 	// Version The version of the application
 	Version *string `json:"version,omitempty"`
+	union   json.RawMessage
 }
+
+// ApplicationSpec0 defines model for .
+type ApplicationSpec0 = interface{}
 
 // ApplicationStatus defines model for ApplicationStatus.
 type ApplicationStatus struct {
@@ -191,6 +196,15 @@ type ApplicationStatus struct {
 // ApplicationStatusType defines model for ApplicationStatusType.
 type ApplicationStatusType string
 
+// ApplicationVolumeMounts defines model for ApplicationVolumeMounts.
+type ApplicationVolumeMounts struct {
+	// MountPath The path where the volume is mounted
+	MountPath *string `json:"mountPath,omitempty"`
+
+	// Name A reference to the name of the volume
+	Name *string `json:"name,omitempty"`
+}
+
 // ApplicationsSummaryStatus defines model for ApplicationsSummaryStatus.
 type ApplicationsSummaryStatus struct {
 	// Info Human readable information detailing the last system application transition.
@@ -200,6 +214,26 @@ type ApplicationsSummaryStatus struct {
 
 // ApplicationsSummaryStatusType defines model for ApplicationsSummaryStatusType.
 type ApplicationsSummaryStatusType string
+
+// ApplicationsVolumes defines model for ApplicationsVolumes.
+type ApplicationsVolumes struct {
+	GitRef  *GitRepositoryRef  `json:"gitRef,omitempty"`
+	HttpRef *HttpRepositoryRef `json:"httpRef,omitempty"`
+
+	// Name The name of the volume
+	Name      string                         `json:"name"`
+	SecretRef *KubernetesSecretRepositoryRef `json:"secretRef,omitempty"`
+	union     json.RawMessage
+}
+
+// ApplicationsVolumes0 defines model for .
+type ApplicationsVolumes0 = interface{}
+
+// ApplicationsVolumes1 defines model for .
+type ApplicationsVolumes1 = interface{}
+
+// ApplicationsVolumes2 defines model for .
+type ApplicationsVolumes2 = interface{}
 
 // AuthConfig Auth config.
 type AuthConfig struct {
@@ -286,20 +320,10 @@ type ComposeProviderSpec struct {
 	// EnvVars Environment variables for the application
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
-	// Image OCI image which contains the compose manifest
-	Image        string `json:"image"`
-	VolumeMounts *struct {
-		// MountPath The path where the volume is mounted
-		MountPath *string `json:"mountPath,omitempty"`
-
-		// Name A reference to the name of the volume
-		Name *string `json:"name,omitempty"`
-	} `json:"volumeMounts,omitempty"`
-	Volumes *struct {
-		// Name The name of the volume
-		Name   *string                    `json:"name,omitempty"`
-		Source *ApplicationRepositorySpec `json:"source,omitempty"`
-	} `json:"volumes,omitempty"`
+	// Image OCI container image reference which contains the compose manifest
+	Image        string                   `json:"image"`
+	VolumeMounts *ApplicationVolumeMounts `json:"volumeMounts,omitempty"`
+	Volumes      *ApplicationsVolumes     `json:"volumes,omitempty"`
 }
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
@@ -1556,6 +1580,278 @@ func (t *ApplicationRepositorySpec) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.HttpRef)
 		if err != nil {
 			return fmt.Errorf("error reading 'httpRef': %w", err)
+		}
+	}
+
+	if raw, found := object["secretRef"]; found {
+		err = json.Unmarshal(raw, &t.SecretRef)
+		if err != nil {
+			return fmt.Errorf("error reading 'secretRef': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsApplicationSpec0 returns the union data inside the ApplicationSpec as a ApplicationSpec0
+func (t ApplicationSpec) AsApplicationSpec0() (ApplicationSpec0, error) {
+	var body ApplicationSpec0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationSpec0 overwrites any union data inside the ApplicationSpec as the provided ApplicationSpec0
+func (t *ApplicationSpec) FromApplicationSpec0(v ApplicationSpec0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationSpec0 performs a merge with any union data inside the ApplicationSpec, using the provided ApplicationSpec0
+func (t *ApplicationSpec) MergeApplicationSpec0(v ApplicationSpec0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.Compose != nil {
+		object["compose"], err = json.Marshal(t.Compose)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'compose': %w", err)
+		}
+	}
+
+	if t.Description != nil {
+		object["description"], err = json.Marshal(t.Description)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'description': %w", err)
+		}
+	}
+
+	object["name"], err = json.Marshal(t.Name)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'name': %w", err)
+	}
+
+	if t.Version != nil {
+		object["version"], err = json.Marshal(t.Version)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'version': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["compose"]; found {
+		err = json.Unmarshal(raw, &t.Compose)
+		if err != nil {
+			return fmt.Errorf("error reading 'compose': %w", err)
+		}
+	}
+
+	if raw, found := object["description"]; found {
+		err = json.Unmarshal(raw, &t.Description)
+		if err != nil {
+			return fmt.Errorf("error reading 'description': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["version"]; found {
+		err = json.Unmarshal(raw, &t.Version)
+		if err != nil {
+			return fmt.Errorf("error reading 'version': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsApplicationsVolumes0 returns the union data inside the ApplicationsVolumes as a ApplicationsVolumes0
+func (t ApplicationsVolumes) AsApplicationsVolumes0() (ApplicationsVolumes0, error) {
+	var body ApplicationsVolumes0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationsVolumes0 overwrites any union data inside the ApplicationsVolumes as the provided ApplicationsVolumes0
+func (t *ApplicationsVolumes) FromApplicationsVolumes0(v ApplicationsVolumes0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationsVolumes0 performs a merge with any union data inside the ApplicationsVolumes, using the provided ApplicationsVolumes0
+func (t *ApplicationsVolumes) MergeApplicationsVolumes0(v ApplicationsVolumes0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsApplicationsVolumes1 returns the union data inside the ApplicationsVolumes as a ApplicationsVolumes1
+func (t ApplicationsVolumes) AsApplicationsVolumes1() (ApplicationsVolumes1, error) {
+	var body ApplicationsVolumes1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationsVolumes1 overwrites any union data inside the ApplicationsVolumes as the provided ApplicationsVolumes1
+func (t *ApplicationsVolumes) FromApplicationsVolumes1(v ApplicationsVolumes1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationsVolumes1 performs a merge with any union data inside the ApplicationsVolumes, using the provided ApplicationsVolumes1
+func (t *ApplicationsVolumes) MergeApplicationsVolumes1(v ApplicationsVolumes1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsApplicationsVolumes2 returns the union data inside the ApplicationsVolumes as a ApplicationsVolumes2
+func (t ApplicationsVolumes) AsApplicationsVolumes2() (ApplicationsVolumes2, error) {
+	var body ApplicationsVolumes2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApplicationsVolumes2 overwrites any union data inside the ApplicationsVolumes as the provided ApplicationsVolumes2
+func (t *ApplicationsVolumes) FromApplicationsVolumes2(v ApplicationsVolumes2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApplicationsVolumes2 performs a merge with any union data inside the ApplicationsVolumes, using the provided ApplicationsVolumes2
+func (t *ApplicationsVolumes) MergeApplicationsVolumes2(v ApplicationsVolumes2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationsVolumes) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.GitRef != nil {
+		object["gitRef"], err = json.Marshal(t.GitRef)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'gitRef': %w", err)
+		}
+	}
+
+	if t.HttpRef != nil {
+		object["httpRef"], err = json.Marshal(t.HttpRef)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'httpRef': %w", err)
+		}
+	}
+
+	object["name"], err = json.Marshal(t.Name)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'name': %w", err)
+	}
+
+	if t.SecretRef != nil {
+		object["secretRef"], err = json.Marshal(t.SecretRef)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'secretRef': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationsVolumes) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["gitRef"]; found {
+		err = json.Unmarshal(raw, &t.GitRef)
+		if err != nil {
+			return fmt.Errorf("error reading 'gitRef': %w", err)
+		}
+	}
+
+	if raw, found := object["httpRef"]; found {
+		err = json.Unmarshal(raw, &t.HttpRef)
+		if err != nil {
+			return fmt.Errorf("error reading 'httpRef': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
 		}
 	}
 

@@ -2589,11 +2589,13 @@ components:
         description:
           type: string
           description: "A brief description of the application"
-        provider:
-          $ref: '#/components/schemas/ApplicationProviderSpec'
+        compose:
+          $ref: '#/components/schemas/ComposeProviderSpec'
+      oneOf: 
+        - required: ["compose"]
+        # - required: ["quadlets"]
       required:
         - name
-        - provider
     ApplicationProviderSpec:
       type: object
       properties:
@@ -2602,31 +2604,45 @@ components:
       oneOf: 
         - required: ["compose"]
         # - required: ["quadlets"]
+    ApplicationsVolumes:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the volume"
+        gitRef:
+          $ref: '#/components/schemas/GitRepositoryRef'
+        secretRef:
+          $ref: '#/components/schemas/KubernetesSecretRepositoryRef'
+        httpRef:
+          $ref: '#/components/schemas/HttpRepositoryRef'
+      oneOf: 
+        - required: ["gitRef"]
+        - required: ["secretRef"]
+        - required: ["httpRef"]
+      required:
+        - name
+    ApplicationVolumeMounts:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "A reference to the name of the volume"
+        mountPath:
+          type: string
+          description: "The path where the volume is mounted"
     ComposeProviderSpec:
       type: object
       properties:
         image:
           type: string
-          description: "OCI image which contains the compose manifest"
+          description: "OCI container image reference which contains the compose manifest"
           example: "quay.io/someorg/somecompose:version"
           # add regex for image
         volumes:
-          type: object
-          properties:
-            name:
-              type: string
-              description: "The name of the volume"
-            source:
-              $ref: '#/components/schemas/ApplicationRepositorySpec'
+          $ref: '#/components/schemas/ApplicationsVolumes'
         volumeMounts:
-          type: object
-          properties:
-            name:
-              type: string
-              description: "A reference to the name of the volume"
-            mountPath:
-              type: string
-              description: "The path where the volume is mounted"
+          $ref: '#/components/schemas/ApplicationVolumeMounts'
         envVars:
           type: object
           description: "Environment variables for the application"
