@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -64,68 +65,68 @@ func NewManager(exec executer.Executer, log *log.PrefixLogger) Manager {
 	}
 }
 
-func (m *manager) createExecutableActionHook(action v1alpha1.HookAction) (ActionHook, []v1alpha1.FileOperation, error) {
-	executableSpec, err := action.AsHookActionExecutableSpec()
+func (m *manager) createExecutableActionHook(action v1alpha1.HookAction) (ActionHook, error) {
+	spec, err := action.AsHookAction0()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	actionTimeout, err := parseTimeout(executableSpec.Timeout)
+	actionTimeout, err := parseTimeout(spec.Executable.Timeout)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	envVars := lo.FromPtr(executableSpec.Executable.EnvVars)
+	envVars := lo.FromPtr(spec.Executable.EnvVars)
 	if err = validateEnvVars(envVars); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return newExecutableActionHook(executableSpec.Executable.Run,
-		lo.FromPtr(executableSpec.Executable.EnvVars),
+	return newExecutableActionHook(spec.Executable.Run,
+		lo.FromPtr(spec.Executable.EnvVars),
 		m.exec,
 		actionTimeout,
-		executableSpec.Executable.WorkDir,
-		m.log), lo.FromPtr(executableSpec.On), nil
+		spec.Executable.WorkDir,
+		m.log), nil
 }
 
-func (m *manager) createSystemdActionHook(action v1alpha1.HookAction) (ActionHook, []v1alpha1.FileOperation, error) {
-	systemdSpec, err := action.AsHookActionSystemdSpec()
+func (m *manager) createSystemdActionHook(action v1alpha1.HookAction) (ActionHook, error) {
+	spec, err := action.AsHookAction1()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	actionTimeout, err := parseTimeout(systemdSpec.Timeout)
+	actionTimeout, err := parseTimeout(spec.Systemd.Timeout)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return newSystemdActionHook(systemdSpec.Unit.Name,
-		systemdSpec.Unit.Operations,
+	return newSystemdActionHook(spec.Systemd.Unit.Name,
+		spec.Systemd.Unit.Operations,
 		m.exec,
 		actionTimeout,
-		m.log), lo.FromPtr(systemdSpec.On), nil
+		m.log), nil
 }
 
-func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceHookSpec) (ActionMap, ActionMap, ActionMap, error) {
+func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec) (ActionMap, ActionMap, ActionMap, error) {
 	createMap := make(ActionMap)
 	updateMap := make(ActionMap)
 	removeMap := make(ActionMap)
 	for _, hookSpec := range hookSpecs {
 		for _, action := range hookSpec.Actions {
-			hookActionType, err := getHookActionType(action)
+			hookActionType, err := action.Type()
 			if err != nil {
 				return nil, nil, nil, err
 			}
 			var actionHook ActionHook
-			var ops []v1alpha1.FileOperation
 			switch hookActionType {
 			case ExecutableActionType:
-				actionHook, ops, err = m.createExecutableActionHook(action)
+				actionHook, err = m.createExecutableActionHook(action)
 			case SystemdActionType:
-				actionHook, ops, err = m.createSystemdActionHook(action)
+				actionHook, err = m.createSystemdActionHook(action)
 			default:
-				return nil, nil, nil, ErrActionTypeNotFound
+				return nil, nil, nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)
 			}
 			if err != nil {
 				return nil, nil, nil, err
 			}
 			path := lo.FromPtr(hookSpec.Path)
-			for _, op := range ops {
+			opts := lo.FromPtr(hookSpec.OnFile)
+			for _, op := range opts {
 				switch op {
 				case v1alpha1.FileOperationCreate:
 					createMap[path] = append(createMap[path], actionHook)

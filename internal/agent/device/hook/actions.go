@@ -150,20 +150,6 @@ func parseTimeout(timeout *string) (time.Duration, error) {
 	return time.ParseDuration(*timeout)
 }
 
-func getHookActionType(action v1alpha1.HookAction) (string, error) {
-	actionMap, err := action.AsHookAction0()
-	if err != nil {
-		return "", err
-	}
-	if _, ok := actionMap["executable"]; ok {
-		return ExecutableActionType, nil
-	} else if _, ok := actionMap["systemd"]; ok {
-		return SystemdActionType, nil
-	} else {
-		return "", fmt.Errorf("unknown hook action type: %v", action)
-	}
-}
-
 func validateEnvVars(envVars []string) error {
 	for _, envVar := range envVars {
 		parts := strings.SplitN(envVar, "=", 2)

@@ -54,17 +54,18 @@ var _ = Describe("Hook manager test", func() {
 		wg.Wait()
 	})
 	addWatch := func(before, after bool, ops ...v1alpha1.FileOperation) {
-		hooks := []v1alpha1.DeviceHookSpec{
+		hooks := []v1alpha1.DeviceUpdateHookSpec{
 			{
 				Actions: []v1alpha1.HookAction{
 					marshalExecutable("run-action", lo.ToPtr([]string{"VAR=VAL"}),
-						"/tmp", "1m", ops),
+						"/tmp", "1m"),
 				},
-				Name: lo.ToPtr("test"),
-				Path: lo.ToPtr("/tmp"),
+				OnFile: lo.ToPtr(ops),
+				Name:   lo.ToPtr("test"),
+				Path:   lo.ToPtr("/tmp"),
 			},
 		}
-		var beforeHooks, afterHooks []v1alpha1.DeviceHookSpec
+		var beforeHooks, afterHooks []v1alpha1.DeviceUpdateHookSpec
 		if before {
 			beforeHooks = hooks
 		}
