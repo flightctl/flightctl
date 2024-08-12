@@ -110,7 +110,7 @@ func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.Delete
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.WithSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
 	switch err {
 	case nil:
 		return server.ReadFleet200JSONResponse(*result), nil

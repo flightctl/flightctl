@@ -461,6 +461,18 @@ type DeviceUpdatedStatus struct {
 // DeviceUpdatedStatusType defines model for DeviceUpdatedStatusType.
 type DeviceUpdatedStatusType string
 
+// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
+type DevicesSummary struct {
+	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
+	SummaryStatus map[string]int `json:"summaryStatus"`
+
+	// Total The total number of devices in the fleet.
+	Total int `json:"total"`
+
+	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
+	UpdateStatus map[string]int `json:"updateStatus"`
+}
+
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
 type DiskResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
@@ -602,6 +614,9 @@ type FleetSpec struct {
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
+
+	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
+	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
 }
 
 // GenericConfigSpec defines model for GenericConfigSpec.
@@ -1165,6 +1180,12 @@ type ListTemplateVersionsParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ReadFleetParams defines parameters for ReadFleet.
+type ReadFleetParams struct {
+	// AddDevicesSummary include a summary of the devices in the fleet
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
 
 // ListRepositoriesParams defines parameters for ListRepositories.
