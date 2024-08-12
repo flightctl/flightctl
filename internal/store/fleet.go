@@ -23,7 +23,7 @@ import (
 type Fleet interface {
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error)
 	CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, fleets ...*api.Fleet) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
@@ -138,7 +138,24 @@ func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback Fl
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
-func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
+type GetOption func(*getOptions)
+
+type getOptions struct {
+	withSummary bool
+}
+
+func WithSummary(val bool) GetOption {
+	return func(o *getOptions) {
+		o.withSummary = val
+	}
+}
+
+func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error) {
+	options := getOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	fleet := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
@@ -147,8 +164,58 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*ap
 		return nil, flterrors.ErrorFromGormError(result.Error)
 	}
 
-	apiFleet := fleet.ToApiResource()
+	summary := api.DevicesSummary{}
+	if options.withSummary {
+		_, statusMap, err := s.getDeviceSummary(ctx, orgId, name, "summary")
+		if err != nil {
+			return nil, flterrors.ErrorFromGormError(err)
+		}
+		summary.SummaryStatus = statusMap
+
+		totalDevices, updateMap, err := s.getDeviceSummary(ctx, orgId, name, "updated")
+		if err != nil {
+			return nil, flterrors.ErrorFromGormError(err)
+		}
+		summary.UpdateStatus = updateMap
+		summary.Total = totalDevices
+	}
+
+	apiFleet := fleet.ToApiResource(model.WithSummary(&summary))
 	return &apiFleet, nil
+}
+
+type StatusCount struct {
+	Status string
+	Count  int64
+}
+
+func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summaryField string) (int, map[string]int, error) {
+	queryStr := `
+	SELECT count(*) as count, status::jsonb->'%s'->>'status' as status
+	FROM devices
+	WHERE owner = '%s' AND org_id = '%s'
+	GROUP BY status::jsonb->'%s'->>'status'`
+	summaryQueryStr := fmt.Sprintf(queryStr, summaryField, *util.SetResourceOwner(model.FleetKind, fleetName), orgId, summaryField)
+
+	rows, err := s.db.WithContext(ctx).Raw(summaryQueryStr).Rows()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	resultMap := map[string]int{}
+
+	var statusCount StatusCount
+	total := 0
+	for rows.Next() {
+		err = s.db.ScanRows(rows, &statusCount)
+		if err != nil {
+			return 0, nil, err
+		}
+		resultMap[statusCount.Status] = int(statusCount.Count)
+		total += int(statusCount.Count)
+	}
+
+	return total, resultMap, nil
 }
 
 func (s *FleetStore) createFleet(fleet *model.Fleet) (bool, error) {
