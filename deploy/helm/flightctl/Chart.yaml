@@ -1,5 +1,5 @@
 apiVersion: v2
-name: flightctl-helm
+name: flightctl
 description: A helm chart for flightctl
 home: https://github.com/flightctl/flightctl
 type: application
