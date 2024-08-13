@@ -34,3 +34,12 @@ keycloak:
       https: 8443
   db:
     namespace: flightctl-external
+  realm:
+    redirectUris:
+      - /realms/flightctl/account/*
+      - http://127.0.0.1/callback
+      - http://localhost:9000/
+    webOrigins:
+      - https://api.flightctl.127.0.0.1.nip.io
+      - https://ui.flightctl.127.0.0.1.nip.io
+      - http://localhost:9000
