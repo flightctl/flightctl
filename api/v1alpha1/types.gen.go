@@ -676,7 +676,7 @@ type HookActionExecutable struct {
 	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
 	EnvVars *[]string `json:"envVars,omitempty"`
 
-	// Run The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.
+	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
 	Run string `json:"run"`
 
 	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
@@ -688,7 +688,7 @@ type HookActionExecutableSpec struct {
 	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
 	EnvVars *[]string `json:"envVars,omitempty"`
 
-	// Run The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.
+	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
 	Run string `json:"run"`
 
 	// Timeout The maximum duration allowed for the action to complete.
