@@ -34,9 +34,11 @@ func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, ad
 		// We need to ensure TLS handshake is complete before
 		// we try to get anything useful from the ConnectionState
 		// tls delays handshake until the first Read of Write
-		err := tc.Handshake()
+		err := tc.HandshakeContext(ctx)
 		if err != nil {
-			log.Errorf("TLS handshake error: %v", err)
+			remoteAddr := tc.RemoteAddr().String()
+			log.Errorf("TLS handshake error from %s: %v", remoteAddr, err)
+			log.Errorf("TLS ConnectionState: %#v", tc.ConnectionState())
 			return ctx
 		}
 
