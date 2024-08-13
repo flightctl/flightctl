@@ -2672,7 +2672,7 @@ components:
         - "ResourceAlertSeverityTypeWarning"
         - "ResourceAlertSeverityTypeCritical"
         - "ResourceAlertSeverityTypeInfo"
-    DeviceHookSpec:
+    DeviceUpdateHookSpec:
       type: object
       properties:
         name:
@@ -2684,9 +2684,27 @@ components:
           items:
             $ref: '#/components/schemas/HookAction'
           description: 'The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.'
+        onFile:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileOperation'
         path:
           type: string
           description: 'The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.'
+      required:
+        - actions
+    DeviceRebootHookSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string 
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/HookAction'
+          description: 'The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.'
       required:
         - actions
     FileOperation:
@@ -2703,16 +2721,19 @@ components:
     HookAction:
       type: object
       oneOf:
-        - type: object
-        - $ref: '#/components/schemas/HookActionSystemdSpec'
-        - $ref: '#/components/schemas/HookActionExecutableSpec'
+        - properties:
+            executable:
+              $ref: '#/components/schemas/HookActionExecutableSpec'
+          required:
+           - "executable"
+        - properties:
+            systemd:
+              $ref: '#/components/schemas/HookActionSystemdSpec'
+          required:
+           - "systemd"
     HookActionSpec:
       type: object
       properties:
-        on:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileOperation'
         timeout:
              type: string
              pattern: '^[1-9]\d*[smhd]$'
@@ -2769,18 +2790,13 @@ components:
     HookActionExecutableSpec:
       allOf:
         - $ref: '#/components/schemas/HookActionSpec'
-        - type: object
-          properties:
-            executable:
-              $ref: '#/components/schemas/HookActionExecutable'
-          required:
-            - executable
+        - $ref: '#/components/schemas/HookActionExecutable'
     HookActionExecutable:
           type: object
           properties:
             run:
               type: string
-              description: 'The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.'
+              description: 'The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.'
             envVars: 
               type: array
               items:
@@ -3365,28 +3381,28 @@ components:
         beforeUpdating:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceUpdateHookSpec'
           description: |
             Hooks executed before updating allow for custom actions and integration with other systems
             or services. These actions occur before configuration changes are applied to the device.
         afterUpdating:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceUpdateHookSpec'
           description: |
             Hooks executed after updating enable custom actions and integration with other systems
             or services. These actions occur after configuration changes have been applied to the device.
         beforeRebooting:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceRebootHookSpec'
           description: |
             Hooks executed before rebooting allow for custom actions and integration with other systems
             or services. These actions occur before the device is rebooted.
         afterRebooting:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceRebootHookSpec'
           description: |
             Hooks executed after rebooting enable custom actions and integration with other systems
             or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
