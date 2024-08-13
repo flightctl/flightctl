@@ -70,6 +70,13 @@ func BoolToPtr(b bool) *bool {
 	return &b
 }
 
+func DefaultBoolIfNil(b *bool, defaultB bool) bool {
+	if b == nil {
+		return defaultB
+	}
+	return *b
+}
+
 func TimeToPtr(t time.Time) *time.Time {
 	return &t
 }

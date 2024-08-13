@@ -1909,6 +1909,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: addDevicesSummary
+          in: query
+          description: include a summary of the devices in the fleet
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -3433,9 +3439,32 @@ components:
           description: 'Current state of the fleet.'
           items:
             $ref: '#/components/schemas/Condition'
+        devicesSummary:
+          $ref: '#/components/schemas/DevicesSummary'
       required:
         - conditions
       description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
+    DevicesSummary:
+      type: object
+      description: A summary of the devices in the fleet returned when fetching a single Fleet.
+      required:
+      - total
+      - summaryStatus
+      - updateStatus
+      properties:
+        total:
+          type: integer
+          description: The total number of devices in the fleet.
+        summaryStatus:
+          type: object
+          additionalProperties:
+            type: integer
+          description: A breakdown of the devices in the fleet by "summary" status.
+        updateStatus:
+          type: object
+          additionalProperties:
+            type: integer
+          description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object
       properties:
