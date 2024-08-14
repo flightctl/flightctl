@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -19,9 +20,10 @@ import (
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	name               string
-	deviceWriter       *fileio.Writer
+	deviceWriter       fileio.Writer
 	statusManager      status.Manager
 	specManager        *spec.Manager
+	hookManager        hook.Manager
 	configController   *config.Controller
 	osImageController  *OSImageController
 	resourceController *resource.Controller
@@ -36,11 +38,12 @@ type Agent struct {
 // NewAgent creates a new device agent.
 func NewAgent(
 	name string,
-	deviceWriter *fileio.Writer,
+	deviceWriter fileio.Writer,
 	statusManager status.Manager,
 	specManager *spec.Manager,
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
+	hookManager hook.Manager,
 	configController *config.Controller,
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
@@ -52,6 +55,7 @@ func NewAgent(
 		deviceWriter:        deviceWriter,
 		statusManager:       statusManager,
 		specManager:         specManager,
+		hookManager:         hookManager,
 		fetchSpecInterval:   fetchSpecInterval,
 		fetchStatusInterval: fetchStatusInterval,
 		configController:    configController,
@@ -143,7 +147,11 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 		}
 	}
 
-	if err := a.configController.Sync(&current, &desired); err != nil {
+	if err := a.hookManager.Sync(&current, &desired); err != nil {
+		return false, err
+	}
+
+	if err := a.configController.Sync(ctx, &current, &desired); err != nil {
 		return false, err
 	}
 

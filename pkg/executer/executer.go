@@ -10,6 +10,7 @@ import (
 type Executer interface {
 	Execute(command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int)
+	ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int)
 	TempFile(dir, pattern string) (f *os.File, err error)
 	LookPath(file string) (string, error)
 }
@@ -27,6 +28,15 @@ func (e *CommonExecuter) Execute(command string, args ...string) (stdout string,
 
 func (e *CommonExecuter) ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int) {
 	cmd := exec.CommandContext(ctx, command, args...)
+	return e.execute(cmd)
+}
+
+func (e *CommonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int) {
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Dir = workingDir
+	if len(env) > 0 {
+		cmd.Env = env
+	}
 	return e.execute(cmd)
 }
 

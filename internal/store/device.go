@@ -474,6 +474,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,
 		Resources:       device.Spec.Data.Resources,
+		Hooks:           device.Spec.Data.Hooks,
 		Console:         console,
 	}
 
