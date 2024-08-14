@@ -133,7 +133,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		tmpDir              string
 		currentSpecFilePath string
 		desiredSpecFilePath string
-		writer              *fileio.Writer
+		writer              fileio.Writer
 		bootstrap           *Bootstrap
 		defaultRenderedData []byte
 		bootcHost           container.BootcHost

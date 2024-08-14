@@ -32,11 +32,7 @@ func (c *Controller) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceS
 		return c.manager.ResetAlertDefaults()
 	}
 
-	if err := c.ensureMonitors(desired.Resources); err != nil {
-		return err
-	}
-
-	return nil
+	return c.ensureMonitors(desired.Resources)
 }
 
 func (c *Controller) ensureMonitors(monitors *[]v1alpha1.ResourceMonitor) error {
