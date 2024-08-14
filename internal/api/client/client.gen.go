@@ -250,7 +250,7 @@ type ClientInterface interface {
 	DeleteFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReadFleet request
-	ReadFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ReadFleet(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchFleetWithBody request with any body
 	PatchFleetWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1021,8 +1021,8 @@ func (c *Client) DeleteFleet(ctx context.Context, name string, reqEditors ...Req
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadFleetRequest(c.Server, name)
+func (c *Client) ReadFleet(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadFleetRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3286,7 +3286,7 @@ func NewDeleteFleetRequest(server string, name string) (*http.Request, error) {
 }
 
 // NewReadFleetRequest generates requests for ReadFleet
-func NewReadFleetRequest(server string, name string) (*http.Request, error) {
+func NewReadFleetRequest(server string, name string, params *ReadFleetParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3309,6 +3309,28 @@ func NewReadFleetRequest(server string, name string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.AddDevicesSummary != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesSummary", runtime.ParamLocationQuery, *params.AddDevicesSummary); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -4317,7 +4339,7 @@ type ClientWithResponsesInterface interface {
 	DeleteFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteFleetResponse, error)
 
 	// ReadFleetWithResponse request
-	ReadFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error)
+	ReadFleetWithResponse(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error)
 
 	// PatchFleetWithBodyWithResponse request with any body
 	PatchFleetWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchFleetResponse, error)
@@ -6413,8 +6435,8 @@ func (c *ClientWithResponses) DeleteFleetWithResponse(ctx context.Context, name 
 }
 
 // ReadFleetWithResponse request returning *ReadFleetResponse
-func (c *ClientWithResponses) ReadFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error) {
-	rsp, err := c.ReadFleet(ctx, name, reqEditors...)
+func (c *ClientWithResponses) ReadFleetWithResponse(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error) {
+	rsp, err := c.ReadFleet(ctx, name, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}

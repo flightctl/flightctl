@@ -185,7 +185,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		}
 		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
-		response, err = c.ReadFleetWithResponse(ctx, name)
+		response, err = c.ReadFleetWithResponse(ctx, name, nil)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),

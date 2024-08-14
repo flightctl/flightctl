@@ -148,7 +148,7 @@ type ServerInterface interface {
 	DeleteFleet(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/fleets/{name})
-	ReadFleet(w http.ResponseWriter, r *http.Request, name string)
+	ReadFleet(w http.ResponseWriter, r *http.Request, name string, params ReadFleetParams)
 
 	// (PATCH /api/v1/fleets/{name})
 	PatchFleet(w http.ResponseWriter, r *http.Request, name string)
@@ -425,7 +425,7 @@ func (_ Unimplemented) DeleteFleet(w http.ResponseWriter, r *http.Request, name 
 }
 
 // (GET /api/v1/fleets/{name})
-func (_ Unimplemented) ReadFleet(w http.ResponseWriter, r *http.Request, name string) {
+func (_ Unimplemented) ReadFleet(w http.ResponseWriter, r *http.Request, name string, params ReadFleetParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1729,8 +1729,19 @@ func (siw *ServerInterfaceWrapper) ReadFleet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReadFleetParams
+
+	// ------------- Optional query parameter "addDevicesSummary" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "addDevicesSummary", r.URL.Query(), &params.AddDevicesSummary)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "addDevicesSummary", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadFleet(w, r, name)
+		siw.Handler.ReadFleet(w, r, name, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4194,7 +4205,8 @@ func (response DeleteFleet409JSONResponse) VisitDeleteFleetResponse(w http.Respo
 }
 
 type ReadFleetRequestObject struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Params ReadFleetParams
 }
 
 type ReadFleetResponseObject interface {
@@ -6382,10 +6394,11 @@ func (sh *strictHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, nam
 }
 
 // ReadFleet operation middleware
-func (sh *strictHandler) ReadFleet(w http.ResponseWriter, r *http.Request, name string) {
+func (sh *strictHandler) ReadFleet(w http.ResponseWriter, r *http.Request, name string, params ReadFleetParams) {
 	var request ReadFleetRequestObject
 
 	request.Name = name
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReadFleet(ctx, request.(ReadFleetRequestObject))

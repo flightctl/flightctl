@@ -307,34 +307,23 @@ type DeviceConsole struct {
 	SessionID    string `json:"sessionID"`
 }
 
-// DeviceHookSpec defines model for DeviceHookSpec.
-type DeviceHookSpec struct {
-	// Actions The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.
-	Actions     []HookAction `json:"actions"`
-	Description *string      `json:"description,omitempty"`
-	Name        *string      `json:"name,omitempty"`
-
-	// Path The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
-	Path *string `json:"path,omitempty"`
-}
-
 // DeviceHooksSpec defines model for DeviceHooksSpec.
 type DeviceHooksSpec struct {
 	// AfterRebooting Hooks executed after rebooting enable custom actions and integration with other systems
 	// or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
-	AfterRebooting *[]DeviceHookSpec `json:"afterRebooting,omitempty"`
+	AfterRebooting *[]DeviceRebootHookSpec `json:"afterRebooting,omitempty"`
 
 	// AfterUpdating Hooks executed after updating enable custom actions and integration with other systems
 	// or services. These actions occur after configuration changes have been applied to the device.
-	AfterUpdating *[]DeviceHookSpec `json:"afterUpdating,omitempty"`
+	AfterUpdating *[]DeviceUpdateHookSpec `json:"afterUpdating,omitempty"`
 
 	// BeforeRebooting Hooks executed before rebooting allow for custom actions and integration with other systems
 	// or services. These actions occur before the device is rebooted.
-	BeforeRebooting *[]DeviceHookSpec `json:"beforeRebooting,omitempty"`
+	BeforeRebooting *[]DeviceRebootHookSpec `json:"beforeRebooting,omitempty"`
 
 	// BeforeUpdating Hooks executed before updating allow for custom actions and integration with other systems
 	// or services. These actions occur before configuration changes are applied to the device.
-	BeforeUpdating *[]DeviceHookSpec `json:"beforeUpdating,omitempty"`
+	BeforeUpdating *[]DeviceUpdateHookSpec `json:"beforeUpdating,omitempty"`
 }
 
 // DeviceIntegrityStatus defines model for DeviceIntegrityStatus.
@@ -377,6 +366,14 @@ type DeviceOSSpec struct {
 type DeviceOSStatus struct {
 	// Image Version of the OS image.
 	Image string `json:"image"`
+}
+
+// DeviceRebootHookSpec defines model for DeviceRebootHookSpec.
+type DeviceRebootHookSpec struct {
+	// Actions The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.
+	Actions     []HookAction `json:"actions"`
+	Description *string      `json:"description,omitempty"`
+	Name        *string      `json:"name,omitempty"`
 }
 
 // DeviceResourceStatus defines model for DeviceResourceStatus.
@@ -451,6 +448,18 @@ type DeviceSystemInfo struct {
 	OperatingSystem string `json:"operatingSystem"`
 }
 
+// DeviceUpdateHookSpec defines model for DeviceUpdateHookSpec.
+type DeviceUpdateHookSpec struct {
+	// Actions The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.
+	Actions     []HookAction     `json:"actions"`
+	Description *string          `json:"description,omitempty"`
+	Name        *string          `json:"name,omitempty"`
+	OnFile      *[]FileOperation `json:"onFile,omitempty"`
+
+	// Path The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
+	Path *string `json:"path,omitempty"`
+}
+
 // DeviceUpdatedStatus defines model for DeviceUpdatedStatus.
 type DeviceUpdatedStatus struct {
 	// Info Human readable information about the last device update transition.
@@ -460,6 +469,18 @@ type DeviceUpdatedStatus struct {
 
 // DeviceUpdatedStatusType defines model for DeviceUpdatedStatusType.
 type DeviceUpdatedStatusType string
+
+// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
+type DevicesSummary struct {
+	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
+	SummaryStatus map[string]int `json:"summaryStatus"`
+
+	// Total The total number of devices in the fleet.
+	Total int `json:"total"`
+
+	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
+	UpdateStatus map[string]int `json:"updateStatus"`
+}
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
 type DiskResourceMonitorSpec struct {
@@ -602,6 +623,9 @@ type FleetSpec struct {
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
+
+	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
+	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
 }
 
 // GenericConfigSpec defines model for GenericConfigSpec.
@@ -638,14 +662,21 @@ type HookAction struct {
 }
 
 // HookAction0 defines model for .
-type HookAction0 = map[string]interface{}
+type HookAction0 struct {
+	Executable HookActionExecutableSpec `json:"executable"`
+}
+
+// HookAction1 defines model for .
+type HookAction1 struct {
+	Systemd HookActionSystemdSpec `json:"systemd"`
+}
 
 // HookActionExecutable defines model for HookActionExecutable.
 type HookActionExecutable struct {
 	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
 	EnvVars *[]string `json:"envVars,omitempty"`
 
-	// Run The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.
+	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
 	Run string `json:"run"`
 
 	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
@@ -654,8 +685,11 @@ type HookActionExecutable struct {
 
 // HookActionExecutableSpec defines model for HookActionExecutableSpec.
 type HookActionExecutableSpec struct {
-	Executable HookActionExecutable `json:"executable"`
-	On         *[]FileOperation     `json:"on,omitempty"`
+	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
+	EnvVars *[]string `json:"envVars,omitempty"`
+
+	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
+	Run string `json:"run"`
 
 	// Timeout The maximum duration allowed for the action to complete.
 	// The duration should be specified as a positive integer
@@ -665,12 +699,13 @@ type HookActionExecutableSpec struct {
 	// - 'h' for hours
 	// - 'd' for days
 	Timeout *string `json:"timeout,omitempty"`
+
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir *string `json:"workDir,omitempty"`
 }
 
 // HookActionSpec defines model for HookActionSpec.
 type HookActionSpec struct {
-	On *[]FileOperation `json:"on,omitempty"`
-
 	// Timeout The maximum duration allowed for the action to complete.
 	// The duration should be specified as a positive integer
 	// followed by a time unit. Supported time units are:
@@ -683,8 +718,6 @@ type HookActionSpec struct {
 
 // HookActionSystemdSpec defines model for HookActionSystemdSpec.
 type HookActionSystemdSpec struct {
-	On *[]FileOperation `json:"on,omitempty"`
-
 	// Timeout The maximum duration allowed for the action to complete.
 	// The duration should be specified as a positive integer
 	// followed by a time unit. Supported time units are:
@@ -1167,6 +1200,12 @@ type ListTemplateVersionsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ReadFleetParams defines parameters for ReadFleet.
+type ReadFleetParams struct {
+	// AddDevicesSummary include a summary of the devices in the fleet
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
+}
+
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -1438,48 +1477,22 @@ func (t *HookAction) MergeHookAction0(v HookAction0) error {
 	return err
 }
 
-// AsHookActionSystemdSpec returns the union data inside the HookAction as a HookActionSystemdSpec
-func (t HookAction) AsHookActionSystemdSpec() (HookActionSystemdSpec, error) {
-	var body HookActionSystemdSpec
+// AsHookAction1 returns the union data inside the HookAction as a HookAction1
+func (t HookAction) AsHookAction1() (HookAction1, error) {
+	var body HookAction1
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromHookActionSystemdSpec overwrites any union data inside the HookAction as the provided HookActionSystemdSpec
-func (t *HookAction) FromHookActionSystemdSpec(v HookActionSystemdSpec) error {
+// FromHookAction1 overwrites any union data inside the HookAction as the provided HookAction1
+func (t *HookAction) FromHookAction1(v HookAction1) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeHookActionSystemdSpec performs a merge with any union data inside the HookAction, using the provided HookActionSystemdSpec
-func (t *HookAction) MergeHookActionSystemdSpec(v HookActionSystemdSpec) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsHookActionExecutableSpec returns the union data inside the HookAction as a HookActionExecutableSpec
-func (t HookAction) AsHookActionExecutableSpec() (HookActionExecutableSpec, error) {
-	var body HookActionExecutableSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromHookActionExecutableSpec overwrites any union data inside the HookAction as the provided HookActionExecutableSpec
-func (t *HookAction) FromHookActionExecutableSpec(v HookActionExecutableSpec) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeHookActionExecutableSpec performs a merge with any union data inside the HookAction, using the provided HookActionExecutableSpec
-func (t *HookAction) MergeHookActionExecutableSpec(v HookActionExecutableSpec) error {
+// MergeHookAction1 performs a merge with any union data inside the HookAction, using the provided HookAction1
+func (t *HookAction) MergeHookAction1(v HookAction1) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

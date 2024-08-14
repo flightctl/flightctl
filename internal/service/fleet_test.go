@@ -27,7 +27,7 @@ type DummyFleet struct {
 	FleetVal v1alpha1.Fleet
 }
 
-func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.Fleet, error) {
+func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*v1alpha1.Fleet, error) {
 	if name == *s.FleetVal.Metadata.Name {
 		return &s.FleetVal, nil
 	}

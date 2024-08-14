@@ -100,6 +100,12 @@ kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- createdb a
 
 
 if [ -z "$ONLY_DB" ]; then
+
+  if [ "$AUTH" ]; then
+    kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
+    kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
+  fi
+
   mkdir -p  ~/.flightctl/certs
 
   # Extract .fligthctl files from the api pod, but we must wait for the server to be ready

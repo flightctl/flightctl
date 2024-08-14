@@ -195,12 +195,12 @@ lint-diagrams:
 .PHONY: spellcheck-docs
 spellcheck-docs:
 	@echo "Checking user documentation for spelling issues"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --report "docs/user/**/*.md"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
 
 .PHONY: fix-spelling
 fix-spelling:
 	@echo "Running markdown-spellcheck interactively to allow fixing spelling issues"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us "docs/user/**/*.md"
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers "docs/user/**/*.md"
 
 # include the deployment targets
 include deploy/deploy.mk
