@@ -1,0 +1,8 @@
+apiVersion: v1alpha1
+kind: CertificateSigningRequest
+metadata:
+  name: myCSR
+spec:
+  expirationSeconds: 600
+  request: cmVxdWVzdCBzdHJpbmc=
+  signerName: signer

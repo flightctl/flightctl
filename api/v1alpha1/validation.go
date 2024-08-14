@@ -96,6 +96,10 @@ func (r EnrollmentRequestApproval) Validate() []error {
 	return allErrs
 }
 
+func (r CertificateSigningRequest) Validate() []error {
+	return []error{}
+}
+
 func (r Fleet) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
