@@ -1239,15 +1239,6 @@ type PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody = Pat
 // ReplaceCertificateSigningRequestJSONRequestBody defines body for ReplaceCertificateSigningRequest for application/json ContentType.
 type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
-// PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequestApproval for application/json-patch+json ContentType.
-type PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody = PatchRequest
-
-// PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequestStatus for application/json-patch+json ContentType.
-type PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
-
-// ReplaceCertificateSigningRequestStatusJSONRequestBody defines body for ReplaceCertificateSigningRequestStatus for application/json ContentType.
-type ReplaceCertificateSigningRequestStatusJSONRequestBody = CertificateSigningRequest
-
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
@@ -1266,8 +1257,8 @@ type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
 // ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
 type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
-// CreateEnrollmentRequestApprovalJSONRequestBody defines body for CreateEnrollmentRequestApproval for application/json ContentType.
-type CreateEnrollmentRequestApprovalJSONRequestBody = EnrollmentRequestApproval
+// ApproveEnrollmentRequestJSONRequestBody defines body for ApproveEnrollmentRequest for application/json ContentType.
+type ApproveEnrollmentRequestJSONRequestBody = EnrollmentRequestApproval
 
 // ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
 type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest

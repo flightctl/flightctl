@@ -132,7 +132,7 @@ func (h *Harness) ApproveEnrollment(id string, approval *v1alpha1.EnrollmentRequ
 	Expect(approval).NotTo(BeNil())
 
 	logrus.Infof("Approving device enrollment: %s", id)
-	apr, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, id, *approval)
+	apr, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, id, *approval)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(apr.JSON200).NotTo(BeNil())
 	logrus.Infof("Approved device enrollment: %s", id)
