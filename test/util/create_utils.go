@@ -64,7 +64,6 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 			Labels: selector,
 			Owner:  owner,
 		},
-		Spec: api.FleetSpec{},
 	}
 
 	if selector != nil {
