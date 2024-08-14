@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -28,8 +29,8 @@ func DefaultApproveOptions() *ApproveOptions {
 func NewCmdApprove() *cobra.Command {
 	o := DefaultApproveOptions()
 	cmd := &cobra.Command{
-		Use:   "approve NAME",
-		Short: "Approve an enrollment request.",
+		Use:   "approve TYPE/NAME",
+		Short: "Approve a request.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -65,6 +66,23 @@ func (o *ApproveOptions) Validate(args []string) error {
 		return err
 	}
 
+	kind, name, err := parseAndValidateKindName(args[0])
+	if err != nil {
+		return err
+	}
+
+	if kind != EnrollmentRequestKind && kind != CertificateSigningRequestKind {
+		return fmt.Errorf("kind must be either %s or %s", EnrollmentRequestKind, CertificateSigningRequestKind)
+	}
+
+	if len(name) == 0 {
+		return fmt.Errorf("specify a specific request resource to approve")
+	}
+
+	if len(o.ApproveLabels) > 0 && kind != EnrollmentRequestKind {
+		return fmt.Errorf("labels only apply to %s approval", EnrollmentRequestKind)
+	}
+
 	return nil
 }
 
@@ -74,18 +92,40 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	enrollmentRequestName := args[0]
-	labels := util.LabelArrayToMap(o.ApproveLabels)
-	approval := api.EnrollmentRequestApproval{
-		Approved: true,
-		Labels:   &labels,
-	}
-	resp, err := c.CreateEnrollmentRequestApproval(ctx, enrollmentRequestName, approval)
+	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
-		return fmt.Errorf("creating enrollmentrequestapproval: %w, http response: %+v", err, resp)
+		return err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("creating enrollmentrequestapproval: %+v", resp)
+
+	var response interface{}
+
+	switch {
+	case kind == EnrollmentRequestKind:
+		labels := util.LabelArrayToMap(o.ApproveLabels)
+		approval := api.EnrollmentRequestApproval{
+			Approved: true,
+			Labels:   &labels,
+		}
+		response, err = c.ApproveEnrollmentRequest(ctx, name, approval)
+	case kind == CertificateSigningRequestKind:
+		response, err = c.ApproveCertificateSigningRequest(ctx, name)
+	default:
+		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
+
+	return processApprovalReponse(response, err, kind, name)
+}
+
+func processApprovalReponse(response interface{}, err error, kind string, name string) error {
+	errorPrefix := fmt.Sprintf("approving %s/%s", kind, name)
+	if err != nil {
+		return fmt.Errorf("%s: %w", errorPrefix, err)
+	}
+
+	v := reflect.ValueOf(response).Elem()
+	if v.FieldByName("StatusCode").Int() != http.StatusOK {
+		return fmt.Errorf(errorPrefix+": %s (%d)", v.FieldByName("Status").String(), v.FieldByName("StatusCode").Int())
+	}
+
 	return nil
 }
