@@ -5,6 +5,7 @@ package status
 import (
 	"os"
 
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -12,6 +13,7 @@ import (
 
 func newExporters(
 	resourceManager resource.Manager,
+	hookManager hook.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) []Exporter {
@@ -20,6 +22,7 @@ func newExporters(
 		newContainer(executer),
 		newSystemInfo(executer),
 		newResources(log, resourceManager),
+		newHooks(log, hookManager),
 	}
 }
 
