@@ -8,7 +8,7 @@ import (
 )
 
 // (DELETE /api/v1/certificatesigningrequests)
-func (h *ServiceHandler) DeleteCollectionCertificateSigningRequest(ctx context.Context, request server.DeleteCollectionCertificateSigningRequestRequestObject) (server.DeleteCollectionCertificateSigningRequestResponseObject, error) {
+func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, request server.DeleteCertificateSigningRequestsRequestObject) (server.DeleteCertificateSigningRequestsResponseObject, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -42,32 +42,12 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 	return nil, errors.New("not implemented")
 }
 
-// (GET /api/v1/certificatesigningrequests/{name}/approval)
-func (h *ServiceHandler) ReadCertificateSigningRequestApproval(ctx context.Context, request server.ReadCertificateSigningRequestApprovalRequestObject) (server.ReadCertificateSigningRequestApprovalResponseObject, error) {
+// (POST /api/v1/certificatesigningrequests/{name}/approval)
+func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, request server.ApproveCertificateSigningRequestRequestObject) (server.ApproveCertificateSigningRequestResponseObject, error) {
 	return nil, errors.New("Not implemented")
 }
 
-// (PATCH /api/v1/certificatesigningrequests/{name}/approval)
-func (h *ServiceHandler) PatchCertificateSigningRequestApproval(ctx context.Context, request server.PatchCertificateSigningRequestApprovalRequestObject) (server.PatchCertificateSigningRequestApprovalResponseObject, error) {
-	return nil, errors.New("Not implemented")
-}
-
-// (PUT /api/v1/certificatesigningrequests/{name}/approval)
-func (h *ServiceHandler) ReplaceCertificateSigningRequestApproval(ctx context.Context, request server.ReplaceCertificateSigningRequestApprovalRequestObject) (server.ReplaceCertificateSigningRequestApprovalResponseObject, error) {
-	return nil, errors.New("Not implemented")
-}
-
-// (GET /api/v1/certificatesigningrequests/{name}/status)
-func (h *ServiceHandler) ReadCertificateSigningRequestStatus(ctx context.Context, request server.ReadCertificateSigningRequestStatusRequestObject) (server.ReadCertificateSigningRequestStatusResponseObject, error) {
-	return nil, errors.New("Not implemented")
-}
-
-// (PATCH /api/v1/certificatesigningrequests/{name}/status)
-func (h *ServiceHandler) PatchCertificateSigningRequestStatus(ctx context.Context, request server.PatchCertificateSigningRequestStatusRequestObject) (server.PatchCertificateSigningRequestStatusResponseObject, error) {
-	return nil, errors.New("Not implemented")
-}
-
-// (PUT /api/v1/certificatesigningrequests/{name}/status)
-func (h *ServiceHandler) ReplaceCertificateSigningRequestStatus(ctx context.Context, request server.ReplaceCertificateSigningRequestStatusRequestObject) (server.ReplaceCertificateSigningRequestStatusResponseObject, error) {
+// (DELETE /api/v1/certificatesigningrequests/{name}/approval)
+func (h *ServiceHandler) DenyCertificateSigningRequest(ctx context.Context, request server.DenyCertificateSigningRequestRequestObject) (server.DenyCertificateSigningRequestResponseObject, error) {
 	return nil, errors.New("Not implemented")
 }
