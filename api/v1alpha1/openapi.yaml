@@ -1339,6 +1339,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequestList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1598,6 +1604,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:

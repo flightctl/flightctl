@@ -2464,6 +2464,15 @@ func (response ListCertificateSigningRequests200JSONResponse) VisitListCertifica
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListCertificateSigningRequests400JSONResponse Error
+
+func (response ListCertificateSigningRequests400JSONResponse) VisitListCertificateSigningRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListCertificateSigningRequests401JSONResponse Error
 
 func (response ListCertificateSigningRequests401JSONResponse) VisitListCertificateSigningRequestsResponse(w http.ResponseWriter) error {
@@ -2779,6 +2788,15 @@ type ApproveCertificateSigningRequest404JSONResponse Error
 func (response ApproveCertificateSigningRequest404JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveCertificateSigningRequest409JSONResponse Error
+
+func (response ApproveCertificateSigningRequest409JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }

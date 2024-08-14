@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -24,6 +25,7 @@ type CertificateSigningRequest interface {
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	InitialMigration() error
 }
 
@@ -215,4 +217,45 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 		return nil
 	}
 	return flterrors.ErrorFromGormError(result.Error)
+}
+
+func (s *CertificateSigningRequestStore) updateConditions(orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
+	existingRecord := model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+
+	if existingRecord.Status == nil {
+		existingRecord.Status = model.MakeJSONField(api.CertificateSigningRequestStatus{})
+	}
+	if existingRecord.Status.Data.Conditions == nil {
+		existingRecord.Status.Data.Conditions = []api.Condition{}
+	}
+	changed := false
+	for _, condition := range conditions {
+		changed = api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
+	}
+	if !changed {
+		return false, nil
+	}
+
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"status":           existingRecord.Status,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	err := flterrors.ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+	return retryUpdate(func() (bool, error) {
+		return s.updateConditions(orgId, name, conditions)
+	})
 }
