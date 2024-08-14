@@ -217,7 +217,7 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
-	_, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, deviceName, *approval)
+	_, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, deviceName, *approval)
 	Expect(err).ToNot(HaveOccurred())
 }
 
