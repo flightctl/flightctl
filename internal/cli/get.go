@@ -435,7 +435,7 @@ func printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
 
 		duration := NoneString
 		if csr.Spec.ExpirationSeconds != nil {
-			duration = time.Duration(*csr.Spec.ExpirationSeconds * int32(time.Second)).String()
+			duration = time.Duration(int64(*csr.Spec.ExpirationSeconds) * int64(time.Second)).String()
 		}
 
 		condition := "Pending"

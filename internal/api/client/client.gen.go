@@ -4189,6 +4189,7 @@ type ListCertificateSigningRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequestList
+	JSON400      *Error
 	JSON401      *Error
 }
 
@@ -4365,6 +4366,7 @@ type ApproveCertificateSigningRequestResponse struct {
 	JSON200      *CertificateSigningRequest
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -6319,6 +6321,13 @@ func ParseListCertificateSigningRequestsResponse(rsp *http.Response) (*ListCerti
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -6654,6 +6663,13 @@ func ParseApproveCertificateSigningRequestResponse(rsp *http.Response) (*Approve
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
