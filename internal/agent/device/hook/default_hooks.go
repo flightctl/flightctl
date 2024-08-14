@@ -31,6 +31,16 @@ func defaultAfterUpdateHooks() []v1alpha1.DeviceUpdateHookSpec {
 					"/var/run/flightctl/compose", "1m"),
 			},
 		},
+		{
+			Name:        util.StrToPtr("microshift manifest up"),
+			Path:        util.StrToPtr("/var/usr/klusterlet-manifests"),
+			Description: util.StrToPtr("Apply the provided microshift manifest"),
+			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate},
+			Actions: []v1alpha1.HookAction{
+				marshalExecutable("kubectl apply -f {{ .FileName }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
+					"/var/usr/klusterlet-manifests", "1m"),
+			},
+		},
 	}
 }
 
@@ -44,6 +54,16 @@ func defaultBeforeUpdateHooks() []v1alpha1.DeviceUpdateHookSpec {
 			Actions: []v1alpha1.HookAction{
 				marshalExecutable("podman-compose -f {{ .FilePath }} down", nil,
 					"/var/run/flightctl/compose", "1m"),
+			},
+		},
+		{
+			Name:        util.StrToPtr("microshift manifest down"),
+			Path:        util.StrToPtr("/var/usr/klusterlet-manifests"),
+			Description: util.StrToPtr("Delete the provided microshift manifest"),
+			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationRemove},
+			Actions: []v1alpha1.HookAction{
+				marshalExecutable("kubectl delete -f {{ .FileName }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
+					"/var/usr/klusterlet-manifests", "1m"),
 			},
 		},
 	}
