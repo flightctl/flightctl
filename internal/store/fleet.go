@@ -22,7 +22,7 @@ import (
 
 type Fleet interface {
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error)
 	CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, fleets ...*api.Fleet) error
@@ -76,25 +76,50 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	return resource, err
 }
 
-func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error) {
-	var fleets model.FleetList
+type ListOption func(*listOptions)
+
+type listOptions struct {
+	withDeviceCount bool
+}
+
+func WithDeviceCount(val bool) ListOption {
+	return func(o *listOptions) {
+		o.withDeviceCount = val
+	}
+}
+
+type fleetWithCount struct {
+	model.Fleet
+	DeviceCount int
+}
+
+func fleetSelectStr(withDeviceCount bool) string {
+	return lo.Ternary(withDeviceCount,
+		fmt.Sprintf("*, (select count(*) from devices where org_id = fleets.org_id and owner = CONCAT('%s/', fleets.name)) as device_count", model.FleetKind),
+		"*")
+}
+
+func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error) {
+	var fleetsWithCount []fleetWithCount
 	var nextContinue *string
 	var numRemaining *int64
-
-	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams)
+	var options listOptions
+	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })
+	dbModel := s.db.Table("fleets").Select(fleetSelectStr(options.withDeviceCount))
+	query := BuildBaseListQuery(dbModel, orgId, listParams)
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	}
-	result := query.Find(&fleets)
+	result := query.Scan(&fleetsWithCount)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(fleets) > listParams.Limit {
+	if listParams.Limit > 0 && len(fleetsWithCount) > listParams.Limit {
 		nextContinueStruct := Continue{
-			Name:    fleets[len(fleets)-1].Name,
+			Name:    fleetsWithCount[len(fleetsWithCount)-1].Name,
 			Version: CurrentContinueVersion,
 		}
-		fleets = fleets[:len(fleets)-1]
+		fleetsWithCount = fleetsWithCount[:len(fleetsWithCount)-1]
 
 		var numRemainingVal int64
 		if listParams.Continue != nil {
@@ -103,7 +128,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams)
+			countQuery := BuildBaseListQuery(s.db.Model(&model.Fleet{}), orgId, listParams)
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -112,7 +137,15 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 		nextContinue = &contStr
 		numRemaining = &numRemainingVal
 	}
-
+	fleets := model.FleetList(lo.Map(fleetsWithCount, func(f fleetWithCount, _ int) model.Fleet {
+		if options.withDeviceCount {
+			if f.Fleet.Status.Data.DevicesSummary == nil {
+				f.Fleet.Status.Data.DevicesSummary = &api.DevicesSummary{}
+			}
+			f.Fleet.Status.Data.DevicesSummary.Total = f.DeviceCount
+		}
+		return f.Fleet
+	}))
 	apiFleetList := fleets.ToApiResource(nextContinue, numRemaining)
 	return &apiFleetList, flterrors.ErrorFromGormError(result.Error)
 }
@@ -156,28 +189,30 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		opt(&options)
 	}
 
-	fleet := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: name},
-	}
-	result := s.db.First(&fleet)
+	var fleet fleetWithCount
+	result := s.db.Table("fleets").Where("org_id = ? and name = ?", orgId, name).
+		Select(fleetSelectStr(true)).
+		Scan(&fleet)
 	if result.Error != nil {
 		return nil, flterrors.ErrorFromGormError(result.Error)
+	} else if result.RowsAffected == 0 {
+		return nil, flterrors.ErrResourceNotFound
 	}
 
-	summary := api.DevicesSummary{}
+	summary := api.DevicesSummary{
+		Total: fleet.DeviceCount,
+	}
 	if options.withSummary {
-		_, statusMap, err := s.getDeviceSummary(ctx, orgId, name, "summary")
+		var err error
+		summary.SummaryStatus, err = s.getDeviceSummary(ctx, orgId, name, "summary")
 		if err != nil {
 			return nil, flterrors.ErrorFromGormError(err)
 		}
-		summary.SummaryStatus = statusMap
 
-		totalDevices, updateMap, err := s.getDeviceSummary(ctx, orgId, name, "updated")
+		summary.UpdateStatus, err = s.getDeviceSummary(ctx, orgId, name, "updated")
 		if err != nil {
 			return nil, flterrors.ErrorFromGormError(err)
 		}
-		summary.UpdateStatus = updateMap
-		summary.Total = totalDevices
 	}
 
 	apiFleet := fleet.ToApiResource(model.WithSummary(&summary))
@@ -186,10 +221,10 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 
 type StatusCount struct {
 	Status string
-	Count  int64
+	Count  int
 }
 
-func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summaryField string) (int, map[string]int, error) {
+func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summaryField string) (map[string]int, error) {
 	queryStr := `
 	SELECT count(*) as count, status::jsonb->'%s'->>'status' as status
 	FROM devices
@@ -197,25 +232,11 @@ func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, flee
 	GROUP BY status::jsonb->'%s'->>'status'`
 	summaryQueryStr := fmt.Sprintf(queryStr, summaryField, *util.SetResourceOwner(model.FleetKind, fleetName), orgId, summaryField)
 
-	rows, err := s.db.WithContext(ctx).Raw(summaryQueryStr).Rows()
-	if err != nil {
-		return 0, nil, err
+	var statusCounts []StatusCount
+	if err := s.db.WithContext(ctx).Raw(summaryQueryStr).Scan(&statusCounts).Error; err != nil {
+		return nil, err
 	}
-
-	resultMap := map[string]int{}
-
-	var statusCount StatusCount
-	total := 0
-	for rows.Next() {
-		err = s.db.ScanRows(rows, &statusCount)
-		if err != nil {
-			return 0, nil, err
-		}
-		resultMap[statusCount.Status] = int(statusCount.Count)
-		total += int(statusCount.Count)
-	}
-
-	return total, resultMap, nil
+	return lo.SliceToMap(statusCounts, func(s StatusCount) (string, int) { return s.Status, s.Count }), nil
 }
 
 func (s *FleetStore) createFleet(fleet *model.Fleet) (bool, error) {
