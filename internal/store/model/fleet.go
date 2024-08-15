@@ -128,7 +128,11 @@ func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetLi
 
 	fleetList := make([]api.Fleet, len(dl))
 	for i, fleet := range dl {
-		fleetList[i] = fleet.ToApiResource()
+		var opts []APIResourceOption
+		if fleet.Status.Data.DevicesSummary != nil {
+			opts = append(opts, WithSummary(fleet.Status.Data.DevicesSummary))
+		}
+		fleetList[i] = fleet.ToApiResource(opts...)
 	}
 	ret := api.FleetList{
 		ApiVersion: FleetAPI,
