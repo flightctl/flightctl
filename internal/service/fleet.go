@@ -84,7 +84,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
-	result, err := h.store.Fleet().List(ctx, orgId, listParams)
+	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.WithDeviceCount(true))
 	switch err {
 	case nil:
 		return server.ListFleets200JSONResponse(*result), nil

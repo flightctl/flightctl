@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -220,6 +221,31 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(1))
 			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+		})
+
+		It("List with device count", func() {
+			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
+			testutil.CreateTestDevicesWithOffset(ctx, 3, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-2"), true, 5)
+			fleets, err := storeInst.Fleet().List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			lo.ForEach(fleets.Items, func(f api.Fleet, _ int) { Expect(f.Status.DevicesSummary).To(BeNil()) })
+			fleets, err = storeInst.Fleet().List(ctx, orgId, store.ListParams{}, store.WithDeviceCount(true))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			for _, fleet := range fleets.Items {
+				Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
+				switch lo.FromPtr(fleet.Metadata.Name) {
+				case "myfleet-1":
+					Expect(fleet.Status.DevicesSummary.Total).To(Equal(5))
+				case "myfleet-2":
+					Expect(fleet.Status.DevicesSummary.Total).To(Equal(3))
+				case "myfleet-3":
+					Expect(fleet.Status.DevicesSummary.Total).To(Equal(0))
+				default:
+					Fail(fmt.Sprintf("unexpected fleet %s", lo.FromPtr(fleet.Metadata.Name)))
+				}
+			}
 		})
 
 		It("CreateOrUpdate create mode", func() {
