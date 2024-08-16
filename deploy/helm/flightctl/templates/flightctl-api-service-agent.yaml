@@ -5,7 +5,7 @@ metadata:
   labels:
     flightctl.service: flightctl-api
   name: flightctl-api-agent
-  namespace: {{ .Values.flightctl.api.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   {{ if .Values.flightctl.api.agentNodePort }}
   type: NodePort
