@@ -6,9 +6,9 @@ metadata:
   labels:
     paas.redhat.com/appcode: {{ .Values.appCode }}
   name: flightctl-db
-  namespace: {{ .Values.flightctl.db.namespace }}
+  namespace:  {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
 spec:
-  storageClassName: {{ .Values.storageClassName }}
+  storageClassName: {{ .Values.global.flightctl.storageClassName }}
   accessModes:
     - ReadWriteOnce
   resources:

@@ -5,7 +5,7 @@ metadata:
   labels:
     flightctl.service: flightctl-api
   name: flightctl-api-agent-grpc
-  namespace: {{ .Values.flightctl.api.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   {{ if .Values.flightctl.api.agentGrpcNodePort }}
   type: NodePort

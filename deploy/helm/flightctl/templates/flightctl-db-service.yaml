@@ -4,7 +4,7 @@ metadata:
   labels:
     flightctl.service: flightctl-db
   name: flightctl-db
-  namespace: {{ .Values.flightctl.db.namespace }}
+  namespace:  {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
 spec:
   {{ if .Values.flightctl.db.nodePort }}
   type: NodePort

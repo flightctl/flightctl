@@ -1,11 +1,14 @@
+global:
+  flightctl:
+    internalNamespace: flightctl-internal
 flightctl:
   db:
     nodePort: 5432 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     imagePullPolicy: IfNotPresent
   api:
-    image: localhost/flightctl-api
-    imagePullPolicy: IfNotPresent
-    hostName: localhost
+    image:
+      image:  localhost/flightctl-api
+      pullPolicy: IfNotPresent
     nodePort: 3443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentNodePort: 7443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentGrpcNodePort: 7444 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
@@ -13,18 +16,20 @@ flightctl:
       enabled: false
       internalOidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8080/realms/flightctl
   worker:
-    image: localhost/flightctl-worker
-    imagePullPolicy: IfNotPresent
+    image:
+      image: localhost/flightctl-worker
+      pullPolicy: IfNotPresent
   periodic:
-    image: localhost/flightctl-periodic
-    imagePullPolicy: IfNotPresent
+    image:
+      image: localhost/flightctl-periodic
+      pullPolicy: IfNotPresent
   rabbitmq:
-    image: rabbitmq:3.13-management
-    imagePullPolicy: IfNotPresent
+    image:
+      image: docker.io/rabbitmq
+      tag: 3.13-management
+      pullPolicy: IfNotPresent
     nodePort: 15672 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
 
-storageClassName: standard
-storageClassNameRWM: standard
 
 keycloak:
   namespace: flightctl-external
