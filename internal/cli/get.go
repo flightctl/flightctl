@@ -436,7 +436,7 @@ func printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
 	for _, csr := range csrs {
 		age := NoneString
 		if csr.Metadata.CreationTimestamp != nil {
-			age = time.Since(*csr.Metadata.CreationTimestamp).String()
+			age = time.Since(*csr.Metadata.CreationTimestamp).Round(time.Second).String()
 		}
 
 		duration := NoneString
