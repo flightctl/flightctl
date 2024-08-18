@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  pull_request:
 
 jobs:
   build:
@@ -23,11 +24,12 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           GOOS: ${{ matrix.os }}
         run: |       
-          make build
-          SHA=$(sha256sum bin/flightctl | awk '{ print $1 }')
+          make build-cli
+          SHA=$(sha256sum bin | awk '{ print $1 }')
           echo $SHA > ${{ env.NAME }}-sha256.txt
-          tar cvf ${{ env.NAME }}.tar.gz  bin/flightctl
-          mv bin/flightctl ${{ env.NAME }} 
+          tar cvf ${{ env.NAME }}.tar.gz  bin
+          mv bin ${{ env.NAME }}
+
       - name: "Save tar binary"
         uses: actions/upload-artifact@v4
         with:
@@ -70,6 +72,7 @@ jobs:
           exit $?
 
   publish:
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     needs: [verify]
     permissions:
