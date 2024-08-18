@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net/http"
-	"testing"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -51,11 +50,6 @@ func generateDummyX509KeyPair() ([]byte, []byte, error) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
 
 	return certPEM, keyPEM, nil
-}
-
-func TestHttpHelpers(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "HttpHelpers Suite")
 }
 
 var _ = Describe("buildHttpRepoRequestAuth", func() {
