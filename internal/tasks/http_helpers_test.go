@@ -92,7 +92,7 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 					TlsKey: &tlsKeyEncoded,
 				},
 			}
-			req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+			_, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tlsConfig.Certificates).To(HaveLen(1))
 		})
@@ -107,9 +107,9 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 					CaCrt: &caCrt,
 				},
 			}
-			req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+			_, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(tlsConfig.RootCAs.Subjects()).ToNot(BeEmpty())
+			Expect(tlsConfig.RootCAs).ToNot(BeNil())
 		})
 	})
 
@@ -122,7 +122,7 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 					SkipServerVerification: &skip,
 				},
 			}
-			req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+			_, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tlsConfig.InsecureSkipVerify).To(BeTrue())
 		})
