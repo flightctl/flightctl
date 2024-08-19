@@ -4,7 +4,7 @@ metadata:
   labels:
     flightctl.service: flightctl-db
   name: flightctl-db
-  namespace: {{ .Values.flightctl.db.namespace }}
+  namespace:  {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
 spec:
   replicas: 1
   selector:
@@ -31,8 +31,8 @@ spec:
               value: {{ .Values.flightctl.db.userPassword }}
             - name: POSTGRESQL_USER
               value: {{ .Values.flightctl.db.user }}
-          image: {{ .Values.flightctl.db.image }}
-          imagePullPolicy: {{ .Values.flightctl.db.imagePullPolicy }}
+          image: {{ .Values.flightctl.db.image.image }}:{{ .Values.flightctl.db.image.tag }}
+          imagePullPolicy: {{ .Values.flightctl.db.image.pullPolicy }}
           name: flightctl-db
           ports:
             - containerPort: 5432
