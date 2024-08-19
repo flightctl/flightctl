@@ -8,12 +8,64 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-openapi/swag"
+	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/labels"
 )
+
+const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
+
+func signApprovedCertificateSigningRequest(ca *crypto.CA, request *api.CertificateSigningRequest) error {
+	if request == nil {
+		return errors.New("signApprovedCertificateSigningRequest: CertificateSigningRequest is nil")
+	}
+
+	// NOTE: this currently only requires one approval; this will change in the future based on policy
+	if api.IsStatusConditionTrue(request.Status.Conditions, api.CertificateSigningRequestDenied) {
+		return fmt.Errorf("signApprovedCertificateSigningRequest: certificate signing request has been denied and cannot be signed")
+	}
+	if !api.IsStatusConditionTrue(request.Status.Conditions, api.CertificateSigningRequestApproved) {
+		return fmt.Errorf("signApprovedCertificateSigningRequest: certificate signing request is not approved and cannot be signed")
+	}
+
+	csr, err := crypto.ParseCSR(request.Spec.Request)
+	if err != nil {
+		return fmt.Errorf("signApprovedCertificateSigningRequest: error parsing CSR: %w", err)
+	}
+
+	if err := csr.CheckSignature(); err != nil {
+		return err
+	}
+
+	// the CN will need the enrollment prefix applied;
+	// if a CN is not specified in the CSR, generate a UUID to represent the future device
+	u := csr.Subject.CommonName
+	if u == "" {
+		u = uuid.NewString()
+	}
+	csr.Subject.CommonName, err = crypto.CNFromRequestedName(u)
+	if err != nil {
+		return fmt.Errorf("signApprovedCertificateRequest: error setting CN in CSR: %w", err)
+	}
+
+	expiry := DefaultEnrollmentCertExpirySeconds
+	if request.Spec.ExpirationSeconds != nil {
+		expiry = *request.Spec.ExpirationSeconds
+	}
+
+	certData, err := ca.IssueRequestedClientCertificate(csr, int(expiry))
+	if err != nil {
+		return err
+	}
+
+	request.Status.Certificate = &certData
+
+	return nil
+}
 
 // (DELETE /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, request server.DeleteCertificateSigningRequestsRequestObject) (server.DeleteCertificateSigningRequestsResponseObject, error) {
@@ -212,6 +264,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 }
 
 // (POST /api/v1/certificatesigningrequests/{name}/approval)
+// NOTE: Approval currently also issues a certificate - this will change in the future based on policy
 func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, request server.ApproveCertificateSigningRequestRequestObject) (server.ApproveCertificateSigningRequestResponseObject, error) {
 	orgId := store.NullOrgId
 
@@ -235,17 +288,22 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		Message: "Approved",
 	}
 	err = h.store.CertificateSigningRequest().UpdateConditions(ctx, orgId, request.Name, []api.Condition{approvedCondition})
-
-	switch err {
-	case nil:
-		return server.ApproveCertificateSigningRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.ApproveCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated:
-		return server.ApproveCertificateSigningRequest409JSONResponse{}, nil
-	default:
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return server.ApproveCertificateSigningRequest404JSONResponse{}, nil
+		}
 		return nil, err
 	}
+
+	err = signApprovedCertificateSigningRequest(h.ca, csr)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return server.ApproveCertificateSigningRequest404JSONResponse{}, nil
+		}
+		return nil, err
+	}
+
+	return server.ApproveCertificateSigningRequest200JSONResponse{}, nil
 }
 
 // (DELETE /api/v1/certificatesigningrequests/{name}/approval)
