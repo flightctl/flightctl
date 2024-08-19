@@ -43,7 +43,8 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		return err
 	}
 
-	certData, err := ca.IssueRequestedClientCertificate(csr, ClientCertExpiryDays)
+	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
+	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
 	if err != nil {
 		return err
 	}
