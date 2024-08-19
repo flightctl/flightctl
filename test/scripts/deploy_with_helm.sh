@@ -5,7 +5,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 METHOD=install
 ONLY_DB=
 RABBITMQ_VERSION="3.13"
-RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq:${RABBITMQ_VERSION}"}
+RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
 RABBITMQ_TAR_FILENAME="rabbitmq_${RABBITMQ_VERSION}.tar"
 IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
 
@@ -22,7 +22,7 @@ while true; do
   esac
 done
 
-RABBITMQ_ARG="--set flightctl.rabbitmq.image=${RABBITMQ_IMAGE}"
+RABBITMQ_ARG="--set flightctl.rabbitmq.image.image=${RABBITMQ_IMAGE} --set flightctl.rabbitmq.image.tag=${RABBITMQ_VERSION}"
 
 # if we have an existing deployment, try to upgrade it instead
 if helm list --kube-context kind-kind -A | grep flightctl > /dev/null; then
@@ -72,7 +72,7 @@ if [ ! -z "$PGSQL_IMAGE" ]; then
   podman pull "${PGSQL_IMAGE}"
   podman tag "${PGSQL_IMAGE}" "${DB_IMG}"
   kind load docker-image "${DB_IMG}"
-  DB_IMG="--set flightctl.db.image=${DB_IMG}"
+  DB_IMG="--set flightctl.db.image.image=${DB_IMG} --set flightctl.db.image.tag=latest"
 fi
 
 AUTH_ARGS=""
@@ -80,11 +80,9 @@ if [ "$AUTH" ]; then
   AUTH_ARGS="--set keycloak.enabled=true --set flightctl.api.auth.enabled=true"
 fi
 
-helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml \
-                  --set flightctl.api.hostName=${IP} \
-                  --set flightctl.api.agentAPIHostName=${IP} \
-                  --set flightctl.api.agentGrpcHostName=${IP} \
-                  --set flightctl.api.agentGrpcBaseURL=grpcs://${IP}:7444 \
+helm ${METHOD} --namespace flightctl-external \
+                  --values ./deploy/helm/flightctl/values.kind.yaml \
+                  --set global.flightctl.baseDomain=${IP}.nip.io \
                   --set flightctl.api.auth.oidcAuthority=http://${IP}:8080/realms/flightctl \
                    ${ONLY_DB} ${AUTH_ARGS} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
