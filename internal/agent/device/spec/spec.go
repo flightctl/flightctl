@@ -247,9 +247,13 @@ func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion str
 		return s.getRenderedFromManagementAPIWithRetry(ctx, renderedVersion, newDesired)
 	})
 	if err != nil {
-		if !errors.Is(err, ErrNoContent) {
-			s.log.Warnf("Failed to get rendered device spec after retry: %v", err)
+		// no content means there is no new rendered version
+		if errors.Is(err, ErrNoContent) {
+			s.log.Debug("No content from management API, falling back to the desired spec on disk")
+			// TODO: can we avoid resync or is this necessary?
+			return desired, nil
 		}
+		s.log.Warnf("Failed to get rendered device spec after retry: %v", err)
 		return nil, err
 	}
 

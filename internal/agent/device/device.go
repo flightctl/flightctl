@@ -2,7 +2,6 @@ package device
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -132,10 +131,6 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 
 	desired, err := a.specManager.GetDesired(ctx, current.RenderedVersion)
 	if err != nil {
-		if errors.Is(err, spec.ErrNoContent) {
-			a.log.Debug("No content from management API")
-			return false, nil
-		}
 		return false, err
 	}
 
@@ -178,8 +173,10 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	// set status collector properties based on new desired spec
 	a.statusManager.SetProperties(desired)
 
-	// write the desired spec to the current spec file this would only happen if
-	// there was no os image change as that requires a reboot
+	if !spec.IsUpdating(current, desired) {
+		return false, nil
+	}
+
 	if err := a.specManager.Upgrade(); err != nil {
 		return false, err
 	}

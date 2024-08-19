@@ -90,10 +90,10 @@ func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredD
 	}
 
 	// write ignition files to disk and trigger pre hooks
-	c.log.Info("writing ignition files")
+	c.log.Info("Writing ignition files")
 	err = c.WriteIgnitionFiles(ctx, desiredIgnition.Storage.Files)
 	if err != nil {
-		c.log.Warnf("writing ignition files failed: %+v", err)
+		c.log.Warnf("Writing ignition files failed: %+v", err)
 		return fmt.Errorf("writing ignition files failed: %w", err)
 	}
 	return nil
