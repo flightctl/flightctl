@@ -102,12 +102,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// create the gRPC client
-	grpcClient, err := newGrpcClient(a.config)
-	if err != nil {
-		a.log.Warnf("Failed to create gRPC client: %v", err)
-	}
-
 	// create bootc client
 	bootcClient := container.NewBootcCmd(executer)
 
@@ -164,6 +158,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	// bootstrap
 	if err := bootstrap.Initialize(ctx); err != nil {
 		return fmt.Errorf("bootstrap failed: %w", err)
+	}
+
+	// create the gRPC client this must be done after bootstrap
+	grpcClient, err := newGrpcClient(a.config)
+	if err != nil {
+		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
 
 	// create resource controller
