@@ -51,3 +51,6 @@ jobs:
 
       - name: Apply resourcesync
         run: bin/flightctl apply -f examples/resourcesync.yaml
+
+      - name: Simulator run
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml -count 1 -stop-after 1m
