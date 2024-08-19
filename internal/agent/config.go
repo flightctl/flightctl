@@ -121,7 +121,7 @@ func NewDefault() *Config {
 		ManagementService:    ManagementService{Config: *client.NewDefault()},
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
-		reader:               fileio.NewReadWriter(),
+		reader:               fileio.NewReader(),
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
 	}
