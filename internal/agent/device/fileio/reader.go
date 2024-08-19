@@ -41,11 +41,11 @@ func (r *reader) FileExists(filePath string) (bool, error) {
 
 func checkPathExists(filePath string) (bool, error) {
 	_, err := os.Stat(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("error checking path: %w", err)
+	if err == nil {
+		return true, nil
 	}
-	return true, nil
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("error checking path: %w", err)
 }
