@@ -4292,6 +4292,7 @@ type PatchCertificateSigningRequestResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4318,6 +4319,7 @@ type ReplaceCertificateSigningRequestResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4342,6 +4344,7 @@ type DenyCertificateSigningRequestResponse struct {
 	JSON200      *CertificateSigningRequest
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4513,6 +4516,7 @@ type PatchDeviceResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4564,6 +4568,7 @@ type RequestConsoleResponse struct {
 	JSON200      *DeviceConsole
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4785,6 +4790,7 @@ type ReplaceEnrollmentRequestResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5100,6 +5106,7 @@ type PatchFleetResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5320,6 +5327,7 @@ type PatchRepositoryResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5346,6 +5354,7 @@ type ReplaceRepositoryResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5491,6 +5500,7 @@ type PatchResourceSyncResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5517,6 +5527,7 @@ type ReplaceResourceSyncResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -6530,6 +6541,13 @@ func ParsePatchCertificateSigningRequestResponse(rsp *http.Response) (*PatchCert
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -6584,6 +6602,13 @@ func ParseReplaceCertificateSigningRequestResponse(rsp *http.Response) (*Replace
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -6623,6 +6648,13 @@ func ParseDenyCertificateSigningRequestResponse(rsp *http.Response) (*DenyCertif
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -6925,6 +6957,13 @@ func ParsePatchDeviceResponse(rsp *http.Response) (*PatchDeviceResponse, error) 
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -7025,6 +7064,13 @@ func ParseRequestConsoleResponse(rsp *http.Response) (*RequestConsoleResponse, e
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -7420,6 +7466,13 @@ func ParseReplaceEnrollmentRequestResponse(rsp *http.Response) (*ReplaceEnrollme
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -7962,6 +8015,13 @@ func ParsePatchFleetResponse(rsp *http.Response) (*PatchFleetResponse, error) {
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -8350,6 +8410,13 @@ func ParsePatchRepositoryResponse(rsp *http.Response) (*PatchRepositoryResponse,
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -8403,6 +8470,13 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -8651,6 +8725,13 @@ func ParsePatchResourceSyncResponse(rsp *http.Response) (*PatchResourceSyncRespo
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -8704,6 +8785,13 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
