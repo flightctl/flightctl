@@ -153,7 +153,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceFleet404JSONResponse{}, nil
-	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed, flterrors.ErrNoRowsUpdated:
 		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -267,6 +267,8 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchFleet404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated:
+		return server.PatchFleet409JSONResponse{}, nil
 	default:
 		return nil, err
 	}

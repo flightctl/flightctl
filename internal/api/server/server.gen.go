@@ -2668,6 +2668,15 @@ func (response PatchCertificateSigningRequest404JSONResponse) VisitPatchCertific
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchCertificateSigningRequest409JSONResponse Error
+
+func (response PatchCertificateSigningRequest409JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceCertificateSigningRequestRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceCertificateSigningRequestJSONRequestBody
@@ -2722,6 +2731,15 @@ func (response ReplaceCertificateSigningRequest404JSONResponse) VisitReplaceCert
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ReplaceCertificateSigningRequest409JSONResponse Error
+
+func (response ReplaceCertificateSigningRequest409JSONResponse) VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type DenyCertificateSigningRequestRequestObject struct {
 	Name string `json:"name"`
 }
@@ -2753,6 +2771,15 @@ type DenyCertificateSigningRequest404JSONResponse Error
 func (response DenyCertificateSigningRequest404JSONResponse) VisitDenyCertificateSigningRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DenyCertificateSigningRequest409JSONResponse Error
+
+func (response DenyCertificateSigningRequest409JSONResponse) VisitDenyCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3029,6 +3056,15 @@ func (response PatchDevice404JSONResponse) VisitPatchDeviceResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchDevice409JSONResponse Error
+
+func (response PatchDevice409JSONResponse) VisitPatchDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceDeviceRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceDeviceJSONRequestBody
@@ -3123,6 +3159,15 @@ type RequestConsole404JSONResponse Error
 func (response RequestConsole404JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RequestConsole409JSONResponse Error
+
+func (response RequestConsole409JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3493,6 +3538,15 @@ type ReplaceEnrollmentRequest404JSONResponse Error
 func (response ReplaceEnrollmentRequest404JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceEnrollmentRequest409JSONResponse Error
+
+func (response ReplaceEnrollmentRequest409JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3985,6 +4039,15 @@ func (response PatchFleet404JSONResponse) VisitPatchFleetResponse(w http.Respons
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchFleet409JSONResponse Error
+
+func (response PatchFleet409JSONResponse) VisitPatchFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceFleetRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceFleetJSONRequestBody
@@ -4338,6 +4401,15 @@ func (response PatchRepository404JSONResponse) VisitPatchRepositoryResponse(w ht
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchRepository409JSONResponse Error
+
+func (response PatchRepository409JSONResponse) VisitPatchRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceRepositoryRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceRepositoryJSONRequestBody
@@ -4388,6 +4460,15 @@ type ReplaceRepository404JSONResponse Error
 func (response ReplaceRepository404JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceRepository409JSONResponse Error
+
+func (response ReplaceRepository409JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -4611,6 +4692,15 @@ func (response PatchResourceSync404JSONResponse) VisitPatchResourceSyncResponse(
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchResourceSync409JSONResponse Error
+
+func (response PatchResourceSync409JSONResponse) VisitPatchResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceResourceSyncRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceResourceSyncJSONRequestBody
@@ -4661,6 +4751,15 @@ type ReplaceResourceSync404JSONResponse Error
 func (response ReplaceResourceSync404JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceResourceSync409JSONResponse Error
+
+func (response ReplaceResourceSync409JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
