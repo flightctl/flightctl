@@ -103,6 +103,20 @@ func (s *DataStore) InitialMigration() error {
 	if err := s.ResourceSync().InitialMigration(); err != nil {
 		return err
 	}
+	return s.customizeMigration()
+}
+
+func (s *DataStore) customizeMigration() error {
+	if s.db.Migrator().HasConstraint("fleet_repos", "fk_fleet_repos_repository") {
+		if err := s.db.Migrator().DropConstraint("fleet_repos", "fk_fleet_repos_repository"); err != nil {
+			return err
+		}
+	}
+	if s.db.Migrator().HasConstraint("device_repos", "fk_device_repos_repository") {
+		if err := s.db.Migrator().DropConstraint("device_repos", "fk_device_repos_repository"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
