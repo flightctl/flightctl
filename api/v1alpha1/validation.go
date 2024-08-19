@@ -86,6 +86,7 @@ func (r EnrollmentRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
+	allErrs = append(allErrs, validation.ValidateCSR([]byte(r.Spec.Csr))...)
 	return allErrs
 }
 
@@ -97,7 +98,15 @@ func (r EnrollmentRequestApproval) Validate() []error {
 }
 
 func (r CertificateSigningRequest) Validate() []error {
-	return []error{}
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
+	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
+	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
+	allErrs = append(allErrs, validation.ValidateCSRUsages(r.Spec.Usages)...)
+	allErrs = append(allErrs, validation.ValidateExpirationSeconds(r.Spec.ExpirationSeconds)...)
+	allErrs = append(allErrs, validation.ValidateSignerName(r.Spec.SignerName)...)
+	allErrs = append(allErrs, validation.ValidateCSR(r.Spec.Request)...)
+	return allErrs
 }
 
 func (r Fleet) Validate() []error {
