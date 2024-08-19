@@ -64,7 +64,7 @@ this only works on a Linux host.
 ```
 # will create the cluster, and the agent config files in bin/agent which will be embedded in the image
 make deploy
-make agent-vm agent-vm-console # user/password is redhat/redhat
+make agent-vm agent-vm-console # user/password is user/user
 ```
 
 The agent-vm target accepts multiple parameters:
@@ -101,9 +101,9 @@ NOTE: You can exit the console with Ctrl + ] , and `stty rows 80` and `stty colu
 
 If you created individual devices you need to clean them one by one:
 ```
-make agent-vm-clean VMNAME=flightctl-device-1
-make agent-vm-clean VMNAME=flightctl-device-2
-make agent-vm-clean VMNAME=flightctl-device-3
+make clean-agent-vm VMNAME=flightctl-device-1
+make clean-agent-vm VMNAME=flightctl-device-2
+make clean-agent-vm VMNAME=flightctl-device-3
 ```
 
 Use the `devicesimulator` to simulate load from devices:
