@@ -24,6 +24,7 @@ import (
 
 type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
@@ -113,17 +114,15 @@ func (s *DeviceStore) InitialMigration() error {
 }
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback) (*api.Device, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	device, err := model.NewDeviceFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	device.OrgID = orgId
-	_, err = s.createDevice(device)
-	callback(nil, device)
-	return resource, err
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, nil, true, ModeCreateOnly, callback)
+	return updatedResource, err
+}
+
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, callback)
+	})
+	return updatedResource, err
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
@@ -233,7 +232,7 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 	return false, nil
 }
 
-func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
+func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -255,6 +254,14 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	s.IntegrationTestCreateOrUpdateCallback()
 	if !exists {
 		if retry, err := s.createDevice(device); err != nil {
@@ -274,7 +281,7 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
 	return retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback)
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, callback)
 	})
 }
 

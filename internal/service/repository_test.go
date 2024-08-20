@@ -34,6 +34,10 @@ func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string)
 	return nil, flterrors.ErrResourceNotFound
 }
 
+func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repository *v1alpha1.Repository, callback store.RepositoryStoreCallback) (*v1alpha1.Repository, error) {
+	return repository, nil
+}
+
 func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *v1alpha1.Repository, callback store.RepositoryStoreCallback) (*v1alpha1.Repository, bool, error) {
 	return repository, false, nil
 }
