@@ -47,7 +47,7 @@ func (m *managedFile) decodeFile() error {
 	if m.contents != nil {
 		return nil
 	}
-	contents, err := DecodeIgnitionFileContents(m.Contents.Source, m.Contents.Compression)
+	contents, err := decodeIgnitionFileContents(m.Contents.Source, m.Contents.Compression)
 	if err != nil {
 		return err
 	}
