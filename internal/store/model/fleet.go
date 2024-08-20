@@ -69,15 +69,33 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 	}, nil
 }
 
-func (f *Fleet) ToApiResource() api.Fleet {
+type APIResourceOption func(*apiResourceOptions)
+
+type apiResourceOptions struct {
+	summary *api.DevicesSummary
+}
+
+func WithSummary(summary *api.DevicesSummary) APIResourceOption {
+	return func(o *apiResourceOptions) {
+		o.summary = summary
+	}
+}
+
+func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 	if f == nil {
 		return api.Fleet{}
+	}
+
+	options := apiResourceOptions{}
+	for _, opt := range opts {
+		opt(&options)
 	}
 
 	status := api.FleetStatus{Conditions: []api.Condition{}}
 	if f.Status != nil {
 		status = f.Status.Data
 	}
+	status.DevicesSummary = options.summary
 
 	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
 	metadataAnnotations := util.LabelArrayToMap(f.Resource.Annotations)
@@ -110,7 +128,11 @@ func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetLi
 
 	fleetList := make([]api.Fleet, len(dl))
 	for i, fleet := range dl {
-		fleetList[i] = fleet.ToApiResource()
+		var opts []APIResourceOption
+		if fleet.Status.Data.DevicesSummary != nil {
+			opts = append(opts, WithSummary(fleet.Status.Data.DevicesSummary))
+		}
+		fleetList[i] = fleet.ToApiResource(opts...)
 	}
 	ret := api.FleetList{
 		ApiVersion: FleetAPI,

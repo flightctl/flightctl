@@ -3,11 +3,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-api-config
-  namespace: {{ .Values.flightctl.api.namespace }}
+  namespace: {{ .Release.Namespace }}
 data:
   config.yaml: |-
     database:
-        hostname: flightctl-db.{{ .Values.flightctl.db.namespace }}.svc.cluster.local
+        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}.svc.cluster.local
         type: pgsql
         port: 5432
         name: flightctl
@@ -17,26 +17,55 @@ data:
         address: :3443
         agentEndpointAddress: :7443
         agentGrpcAddress: :7444
-        baseUrl: https://{{ .Values.flightctl.api.hostName }}:3443/
-        {{ if .Values.flightctl.api.agentAPIHostName }}
-        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.agentAPIHostName }}:7443/
+        {{ if .Values.flightctl.api.hostName }}
+        baseUrl: https://{{ .Values.flightctl.api.hostName }}{{ if .Values.flightctl.api.nodePort }}:{{ .Values.flightctl.api.nodePort }}{{ end }}/
         {{ else }}
-        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.hostName }}:7443/
+        baseUrl: https://api.{{ .Values.global.flightctl.baseDomain }}{{ if .Values.flightctl.api.nodePort }}:{{ .Values.flightctl.api.nodePort }}{{ end }}/
         {{ end }}
+
+        {{ if .Values.flightctl.api.agentAPIHostName }}
+        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.agentAPIHostName }}{{ if .Values.flightctl.api.agentAPINodePort }}:{{ .Values.flightctl.api.agentAPINodePort }}{{ end }}/
+        {{ else }}
+        baseAgentEndpointUrl:  https://agent-api.{{ .Values.global.flightctl.baseDomain }}{{ if .Values.flightctl.api.agentAPINodePort }}:{{ .Values.flightctl.api.agentAPINodePort }}{{ end }}/
+        {{ end }}
+
         {{ if .Values.flightctl.api.agentGrpcBaseURL }}
         baseAgentGrpcUrl:  {{ .Values.flightctl.api.agentGrpcBaseURL }}
+        {{ else }}
+        baseAgentGrpcUrl:  grpcs://agent-grpc.{{ .Values.global.flightctl.baseDomain }}{{ if .Values.flightctl.api.agentGrpcNodePort }}:{{ .Values.flightctl.api.agentGrpcNodePort }}{{ end }}
         {{ end }}
+
         altNames:
+          {{ if .Values.flightctl.api.hostName }}
           - {{ .Values.flightctl.api.hostName }}
+          {{ else }}
+          - api.{{ .Values.global.flightctl.baseDomain }}
+          {{ end }}
           {{ if .Values.flightctl.api.agentAPIHostName }}
           - {{ .Values.flightctl.api.agentAPIHostName }}
+          {{ else }}
+          - agent-api.{{ .Values.global.flightctl.baseDomain }}
           {{ end }}
           {{ if .Values.flightctl.api.agentGrpcHostName }}
           - {{ .Values.flightctl.api.agentGrpcHostName }}
+          {{ else }}
+          - agent-grpc.{{ .Values.global.flightctl.baseDomain }}
           {{ end }} 
           - flightctl-api
-          - flightctl-api.{{ .Values.flightctl.api.namespace }}
-          - flightctl-api.{{ .Values.flightctl.api.namespace }}.svc.cluster.local
+          - flightctl-api.{{ .Release.Namespace }}
+          - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
     queue:
-        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@{{ .Values.flightctl.rabbitmq.name }}.{{ .Values.flightctl.rabbitmq.namespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
+        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
+    {{ if .Values.flightctl.api.auth.enabled }}
+    auth:
+        {{ if .Values.flightctl.api.auth.oidcAuthority }}
+        oidcAuthority: {{ .Values.flightctl.api.auth.oidcAuthority }}
+        {{ end }}
+        {{ if .Values.flightctl.api.auth.internalOidcAuthority }}
+        internalOidcAuthority: {{ .Values.flightctl.api.auth.internalOidcAuthority }}
+        {{ end }}
+        {{ if .Values.flightctl.api.auth.openShiftApiUrl }}
+        openShiftApiUrl: {{ .Values.flightctl.api.auth.openShiftApiUrl }}
+        {{ end }}
+    {{ end }}
 {{ end }}

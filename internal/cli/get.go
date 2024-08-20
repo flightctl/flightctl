@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -59,9 +60,10 @@ func DefaultGetOptions() *GetOptions {
 func NewCmdGet() *cobra.Command {
 	o := DefaultGetOptions()
 	cmd := &cobra.Command{
-		Use:   "get (TYPE | TYPE/NAME)",
-		Short: "Display one or many resources.",
-		Args:  cobra.ExactArgs(1),
+		Use:       "get (TYPE | TYPE/NAME)",
+		Short:     "Display one or many resources.",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: getValidResourceKinds(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -184,7 +186,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		}
 		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
-		response, err = c.ReadFleetWithResponse(ctx, name)
+		response, err = c.ReadFleetWithResponse(ctx, name, nil)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),
@@ -220,6 +222,15 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListResourceSyncWithResponse(ctx, &params)
+	case kind == CertificateSigningRequestKind && len(name) > 0:
+		response, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+	case kind == CertificateSigningRequestKind && len(name) == 0:
+		params := api.ListCertificateSigningRequestsParams{
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+		}
+		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -288,6 +299,10 @@ func printTable(response interface{}, kind string, name string) error {
 		printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse).JSON200.Items...)
 	case kind == ResourceSyncKind && len(name) > 0:
 		printResourceSyncsTable(w, *(response.(*apiclient.ReadResourceSyncResponse).JSON200))
+	case kind == CertificateSigningRequestKind && len(name) == 0:
+		printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
+	case kind == CertificateSigningRequestKind && len(name) > 0:
+		printCSRTable(w, *(response.(*apiclient.ReadCertificateSigningRequestResponse).JSON200))
 	default:
 		return fmt.Errorf("unknown resource type %s", kind)
 	}
@@ -299,8 +314,8 @@ func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range devices {
 		lastSeen := "<never>"
-		if !d.Status.UpdatedAt.IsZero() {
-			lastSeen = humanize.Time(d.Status.UpdatedAt)
+		if !d.Status.LastSeen.IsZero() {
+			lastSeen = humanize.Time(d.Status.LastSeen)
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			*d.Metadata.Name,
@@ -334,8 +349,9 @@ func printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequ
 }
 
 func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID")
-	for _, f := range fleets {
+	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID\tDEVICES")
+	for i := range fleets {
+		f := fleets[i]
 		selector := "<none>"
 		if f.Spec.Selector != nil {
 			selector = strings.Join(util.LabelMapToArray(&f.Spec.Selector.MatchLabels), ",")
@@ -347,11 +363,16 @@ func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
 				valid = string(condition.Status)
 			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		numDevices := "Unknown"
+		if f.Status.DevicesSummary != nil {
+			numDevices = fmt.Sprintf("%d", f.Status.DevicesSummary.Total)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			*f.Metadata.Name,
 			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
 			selector,
 			valid,
+			numDevices,
 		)
 	}
 }
@@ -410,6 +431,40 @@ func printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs ...api.ResourceS
 			accessible,
 			synced,
 			lastSynced,
+		)
+	}
+}
+
+func printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
+	fmt.Fprintln(w, "NAME\tAGE\tSIGNERNAME\tUSERNAME\tREQUESTEDDURATION\tCONDITION")
+
+	for _, csr := range csrs {
+		age := NoneString
+		if csr.Metadata.CreationTimestamp != nil {
+			age = time.Since(*csr.Metadata.CreationTimestamp).Round(time.Second).String()
+		}
+
+		duration := NoneString
+		if csr.Spec.ExpirationSeconds != nil {
+			duration = time.Duration(int64(*csr.Spec.ExpirationSeconds) * int64(time.Second)).String()
+		}
+
+		condition := "Pending"
+		if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
+			condition = "Approved"
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
+			condition = "Denied"
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestFailed) {
+			condition = "Failed"
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			*csr.Metadata.Name,
+			age,
+			csr.Spec.SignerName,
+			util.DefaultIfNil(csr.Spec.Username, NoneString),
+			duration,
+			condition,
 		)
 	}
 }

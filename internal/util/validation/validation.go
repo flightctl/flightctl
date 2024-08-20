@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/crypto"
 	k8sapivalidation "k8s.io/apimachinery/pkg/api/validation"
 	k8smetav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	k8sutilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -105,6 +106,66 @@ func ValidateBearerToken(token *string, path string) []error {
 		}
 	}
 	return asErrors(errs)
+}
+
+func ValidateCSRUsages(u *[]string) []error {
+	errs := field.ErrorList{}
+	requiredAllOf := map[string]struct{}{
+		"clientAuth": {},
+		"CA:false":   {},
+	}
+	notAllowed := map[string]struct{}{}
+
+	for _, usage := range *u {
+		if _, exists := notAllowed[usage]; exists {
+			err := fmt.Sprintf("usage not allowed: %s\n", usage)
+			errs = append(errs, field.Invalid(fieldPathFor("spec.usages"), u, err))
+		}
+		delete(requiredAllOf, usage)
+	}
+
+	l := len(requiredAllOf)
+	if l > 0 {
+		required := make([]string, l)
+		for k := range requiredAllOf {
+			required = append(required, k+", ")
+		}
+		err := fmt.Sprintf("required usages must be present in request: %s\n", required)
+		errs = append(errs, field.Invalid(fieldPathFor("spec.usages"), u, err))
+	}
+	return asErrors(errs)
+}
+
+// Currently every request is sent to the only signer, named "ca" and defined in cmd/flightctl-api/main.go
+func ValidateSignerName(s string) []error {
+	errs := field.ErrorList{}
+
+	validSigners := map[string]struct{}{
+		"ca": {},
+	}
+
+	if _, exists := validSigners[s]; exists {
+		return nil
+	}
+
+	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, "must specify a valid signer"))
+	return asErrors(errs)
+}
+
+// TODO: this should log a warning if less than minExpirationSeconds using the configured logger
+func ValidateExpirationSeconds(e *int32) []error {
+	return nil
+}
+
+func ValidateCSR(csr []byte) []error {
+	errs := field.ErrorList{}
+
+	_, err := crypto.ParseCSR(csr)
+	if err != nil {
+		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
+		return asErrors(errs)
+	}
+	return nil
 }
 
 func fieldPathFor(path string) *field.Path {

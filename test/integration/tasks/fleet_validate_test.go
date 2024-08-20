@@ -3,6 +3,7 @@ package tasks_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -58,7 +59,7 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
 			Metadata: api.ObjectMeta{
-				Name: util.StrToPtr("repo"),
+				Name: util.StrToPtr("git-repo"),
 			},
 			Spec: spec,
 		}
@@ -85,15 +86,14 @@ var _ = Describe("FleetValidate", func() {
 			Metadata: api.ObjectMeta{
 				Name: util.StrToPtr("myfleet"),
 			},
-			Spec: api.FleetSpec{},
 		}
 
 		goodGitConfig = &api.GitConfigProviderSpec{
 			ConfigType: string(api.TemplateDiscriminatorGitConfig),
 			Name:       "goodGitConfig",
 		}
-		goodGitConfig.GitRef.Path = "path"
-		goodGitConfig.GitRef.Repository = "repo"
+		goodGitConfig.GitRef.Path = "path-{{ device.metadata.name }}"
+		goodGitConfig.GitRef.Repository = "git-repo"
 		goodGitConfig.GitRef.TargetRevision = "rev"
 
 		badGitConfig = &api.GitConfigProviderSpec{
@@ -127,7 +127,7 @@ var _ = Describe("FleetValidate", func() {
 			Name:       "goodHttpConfig",
 		}
 		goodHttpConfig.HttpRef.Repository = "http-repo"
-		goodHttpConfig.HttpRef.FilePath = "http-path"
+		goodHttpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
 		goodHttpConfig.HttpRef.Suffix = util.StrToPtr("/suffix")
 
 		badHttpConfig = &api.HttpConfigProviderSpec{
@@ -190,8 +190,10 @@ var _ = Describe("FleetValidate", func() {
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
-			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("http-repo"))
+			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
+			slices.Sort(repoNames)
+			Expect(repoNames[0]).To(Equal("git-repo"))
+			Expect(repoNames[1]).To(Equal("http-repo"))
 
 		})
 	})
@@ -240,8 +242,10 @@ var _ = Describe("FleetValidate", func() {
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("http-repo"))
-			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("missingrepo"))
+			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
+			slices.Sort(repoNames)
+			Expect(repoNames[0]).To(Equal("http-repo"))
+			Expect(repoNames[1]).To(Equal("missingrepo"))
 		})
 	})
 
@@ -289,9 +293,10 @@ var _ = Describe("FleetValidate", func() {
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
-			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("http-repo"))
-
+			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
+			slices.Sort(repoNames)
+			Expect(repoNames[0]).To(Equal("git-repo"))
+			Expect(repoNames[1]).To(Equal("http-repo"))
 		})
 	})
 
@@ -339,8 +344,63 @@ var _ = Describe("FleetValidate", func() {
 			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
-			Expect(*((repos.Items[0]).Metadata.Name)).To(Equal("repo"))
-			Expect(*((repos.Items[1]).Metadata.Name)).To(Equal("http-missingrepo"))
+			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
+			slices.Sort(repoNames)
+			Expect(repoNames[0]).To(Equal("git-repo"))
+			Expect(repoNames[1]).To(Equal("http-missingrepo"))
+		})
+	})
+
+	When("a Fleet has a configuration with an invalid parameter", func() {
+		It("sets an error Condition", func() {
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
+
+			gitItem := api.DeviceSpec_Config_Item{}
+			// Set a parameter that we don't support
+			goodGitConfig.GitRef.Path = "path-{{ device.metadata.owner }}"
+			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			inlineItem := api.DeviceSpec_Config_Item{}
+			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			httpItem := api.DeviceSpec_Config_Item{}
+			err = httpItem.FromHttpConfigProviderSpec(*goodHttpConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem}
+
+			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(tvList.Items).To(HaveLen(0))
+
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
+			Expect(err).To(HaveOccurred())
+
+			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(tvList.Items).To(HaveLen(0))
+
+			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(fleet.Status.Conditions).ToNot(BeNil())
+			Expect(fleet.Status.Conditions).To(HaveLen(1))
+			Expect(fleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
+
+			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repos.Items).To(HaveLen(2))
+			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
+			slices.Sort(repoNames)
+			Expect(repoNames[0]).To(Equal("git-repo"))
+			Expect(repoNames[1]).To(Equal("http-repo"))
 		})
 	})
 
