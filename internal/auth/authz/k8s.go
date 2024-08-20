@@ -3,6 +3,7 @@ package authz
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,7 +12,8 @@ import (
 )
 
 type K8sAuthZ struct {
-	ApiUrl string
+	ApiUrl          string
+	ClientTlsConfig *tls.Config
 }
 
 func createSSAR(resource string, verb string) ([]byte, error) {
@@ -44,7 +46,10 @@ func (k8sAuth K8sAuthZ) CheckPermission(ctx context.Context, k8sToken string, re
 		"Content-Type":  {"application/json"},
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: k8sAuth.ClientTlsConfig,
+	}}
+	res, err := client.Do(req)
 	if err != nil {
 		return false, err
 	}
