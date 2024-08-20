@@ -211,7 +211,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, _, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, newObj)
+	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj)
 
 	switch err {
 	case nil:
