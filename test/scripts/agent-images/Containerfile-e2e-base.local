@@ -19,6 +19,7 @@ RUN dnf install -y /tmp/flightctl-agent-*.rpm && \
 
 RUN dnf install -y epel-release epel-next-release
 RUN dnf install -y greenboot greenboot-default-health-checks podman-compose
+COPY test/scripts/agent-images/greenboot.conf /etc/greenboot.conf
 
 RUN useradd -ms /bin/bash user && \
     echo "user:user" | chpasswd && \
