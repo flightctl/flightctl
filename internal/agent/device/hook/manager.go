@@ -144,13 +144,13 @@ func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpe
 }
 
 func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) error {
-	m.log.Info("Syncing hook manager")
-	defer m.log.Info("Finished syncing hook manager")
+	m.log.Debug("Syncing hook manager")
+	defer m.log.Debug("Finished syncing hook manager")
 
 	current := lo.FromPtr(currentPtr)
 	desired := lo.FromPtr(desiredPtr)
 	if m.initialized.Load() && reflect.DeepEqual(current.Hooks, desired.Hooks) {
-		m.log.Info("Hooks are equal.  Nothing to update")
+		m.log.Debug("Hooks are equal. Nothing to update")
 		return nil
 	}
 	desiredHooks := lo.FromPtr(desired.Hooks)
@@ -201,12 +201,12 @@ func (m *manager) Run(ctx context.Context) {
 		select {
 		case job, ok := <-m.backgroundJobs:
 			if !ok {
-				m.log.Warn("background jobs channel closed")
+				m.log.Warn("Background jobs channel closed")
 				return
 			}
 			job(ctx)
 		case <-ctx.Done():
-			m.log.Info("background jobs context closed")
+			m.log.Info("Background jobs context closed")
 			return
 		}
 	}
