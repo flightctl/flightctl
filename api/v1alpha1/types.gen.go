@@ -92,6 +92,7 @@ const (
 // Defines values for FileOperation.
 const (
 	FileOperationCreate FileOperation = "Create"
+	FileOperationReboot FileOperation = "Reboot"
 	FileOperationRemove FileOperation = "Remove"
 	FileOperationUpdate FileOperation = "Update"
 )
