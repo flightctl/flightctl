@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -65,17 +67,27 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		log.Warnln("Auth disabled")
 		authZ = NilAuth{}
 		authN = authZ.(AuthNMiddleware)
-	} else if cfg.Auth != nil && cfg.Auth.OpenShiftApiUrl != "" {
-		log.Println("OpenShift auth enabled")
-		authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: cfg.Auth.OpenShiftApiUrl}}
-		authN = authn.OpenShiftAuthN{OpenShiftApiUrl: cfg.Auth.OpenShiftApiUrl}
-	} else if cfg.Auth != nil && cfg.Auth.OIDCAuthority != "" {
-		log.Println("OIDC auth enabled")
-		authZ = NilAuth{}
-		var err error
-		authN, err = authn.NewJWTAuth(cfg.Auth.OIDCAuthority, cfg.Auth.InternalOIDCAuthority)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
+	} else {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
+		}
+		if cfg.Auth.CACert != "" {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
+			tlsConfig.RootCAs = caCertPool
+		}
+		if cfg.Auth != nil && cfg.Auth.OpenShiftApiUrl != "" {
+			log.Println(fmt.Sprintf("OpenShift auth enabled: %s", cfg.Auth.OpenShiftApiUrl))
+			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: cfg.Auth.OpenShiftApiUrl, ClientTlsConfig: tlsConfig}}
+			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: cfg.Auth.OpenShiftApiUrl, ClientTlsConfig: tlsConfig}
+		} else if cfg.Auth != nil && cfg.Auth.OIDCAuthority != "" {
+			log.Println(fmt.Sprintf("OIDC auth enabled: %s", cfg.Auth.OIDCAuthority))
+			authZ = NilAuth{}
+			var err error
+			authN, err = authn.NewJWTAuth(cfg.Auth.OIDCAuthority, cfg.Auth.InternalOIDCAuthority, tlsConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
+			}
 		}
 	}
 

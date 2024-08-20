@@ -67,5 +67,11 @@ data:
         {{ if .Values.flightctl.api.auth.openShiftApiUrl }}
         openShiftApiUrl: {{ .Values.flightctl.api.auth.openShiftApiUrl }}
         {{ end }}
+        {{ if .Values.flightctl.api.auth.caCert }}
+        caCert: {{ .Values.flightctl.api.auth.caCert }}
+        {{ end }}
+        {{ if .Values.flightctl.api.auth.insecureSkipTlsVerify }}
+        insecureSkipTlsVerify: {{ .Values.flightctl.api.auth.insecureSkipTlsVerify }}
+        {{ end }}
     {{ end }}
 {{ end }}
