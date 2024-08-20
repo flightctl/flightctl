@@ -38,16 +38,20 @@ const (
 
 // Defines values for ConditionType.
 const (
-	DeviceSpecValid            ConditionType = "SpecValid"
-	DeviceUpdating             ConditionType = "Updating"
-	EnrollmentRequestApproved  ConditionType = "Approved"
-	FleetOverlappingSelectors  ConditionType = "OverlappingSelectors"
-	FleetValid                 ConditionType = "Valid"
-	RepositoryAccessible       ConditionType = "Accessible"
-	ResourceSyncAccessible     ConditionType = "Accessible"
-	ResourceSyncResourceParsed ConditionType = "ResourceParsed"
-	ResourceSyncSynced         ConditionType = "Synced"
-	TemplateVersionValid       ConditionType = "Valid"
+	CertificateSigningRequestApproved ConditionType = "Approved"
+	CertificateSigningRequestDenied   ConditionType = "Denied"
+	CertificateSigningRequestFailed   ConditionType = "Failed"
+	DeviceMultipleOwners              ConditionType = "MultipleOwners"
+	DeviceSpecValid                   ConditionType = "SpecValid"
+	DeviceUpdating                    ConditionType = "Updating"
+	EnrollmentRequestApproved         ConditionType = "Approved"
+	FleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
+	FleetValid                        ConditionType = "Valid"
+	RepositoryAccessible              ConditionType = "Accessible"
+	ResourceSyncAccessible            ConditionType = "Accessible"
+	ResourceSyncResourceParsed        ConditionType = "ResourceParsed"
+	ResourceSyncSynced                ConditionType = "Synced"
+	TemplateVersionValid              ConditionType = "Valid"
 )
 
 // Defines values for DeviceIntegrityStatusSummaryType.
@@ -85,11 +89,35 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
+// Defines values for FileOperation.
+const (
+	FileOperationCreate FileOperation = "Create"
+	FileOperationRemove FileOperation = "Remove"
+	FileOperationUpdate FileOperation = "Update"
+)
+
+// Defines values for HookActionSystemdUnitOperations.
+const (
+	SystemdDaemonReload HookActionSystemdUnitOperations = "DaemonReload"
+	SystemdDisable      HookActionSystemdUnitOperations = "Disable"
+	SystemdEnable       HookActionSystemdUnitOperations = "Enable"
+	SystemdReload       HookActionSystemdUnitOperations = "Reload"
+	SystemdRestart      HookActionSystemdUnitOperations = "Restart"
+	SystemdStart        HookActionSystemdUnitOperations = "Start"
+	SystemdStop         HookActionSystemdUnitOperations = "Stop"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
 	Remove  PatchRequestOp = "remove"
 	Replace PatchRequestOp = "replace"
+)
+
+// Defines values for RepoSpecType.
+const (
+	Git  RepoSpecType = "git"
+	Http RepoSpecType = "http"
 )
 
 // Defines values for ResourceAlertSeverityType.
@@ -102,6 +130,7 @@ const (
 // Defines values for TemplateDiscriminators.
 const (
 	TemplateDiscriminatorGitConfig     TemplateDiscriminators = "GitConfigProviderSpec"
+	TemplateDiscriminatorHttpConfig    TemplateDiscriminators = "HttpConfigProviderSpec"
 	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
@@ -132,8 +161,83 @@ type ApplicationsSummaryStatus struct {
 // ApplicationsSummaryStatusType defines model for ApplicationsSummaryStatusType.
 type ApplicationsSummaryStatusType string
 
+// AuthConfig Auth config.
+type AuthConfig struct {
+	// AuthType Auth type
+	AuthType string `json:"authType"`
+
+	// AuthURL Auth URL
+	AuthURL string `json:"authURL"`
+}
+
 // CPUResourceMonitorSpec defines model for CPUResourceMonitorSpec.
 type CPUResourceMonitorSpec = ResourceMonitorSpec
+
+// CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA
+type CertificateSigningRequest struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec
+	Spec CertificateSigningRequestSpec `json:"spec"`
+
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists
+	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
+}
+
+// CertificateSigningRequestList CertificateSigningRequestList is a list of CertificateSigningRequest
+type CertificateSigningRequestList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of CertificateSigningRequest.
+	Items []CertificateSigningRequest `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// CertificateSigningRequestSpec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec
+type CertificateSigningRequestSpec struct {
+	// ExpirationSeconds Requested duration of validity for the certificate
+	ExpirationSeconds *int32 `json:"expirationSeconds,omitempty"`
+
+	// Extra Extra attributes of the user that created the CSR, populated by the API server on creation and immutable
+	Extra *map[string][]string `json:"extra,omitempty"`
+
+	// Request The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource
+	Request []byte `json:"request"`
+
+	// SignerName Indicates the requested signer, and is a qualified name
+	SignerName string `json:"signerName"`
+
+	// Uid UID of the user that created the CSR, populated by the API server on creation and immutable
+	Uid *string `json:"uid,omitempty"`
+
+	// Usages Usages specifies a set of key usages requested in the issued certificate.
+	Usages *[]string `json:"usages,omitempty"`
+
+	// Username Name of the user that created the CSR, populated by the API server on creation and immutable
+	Username *string `json:"username,omitempty"`
+}
+
+// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists
+type CertificateSigningRequestStatus struct {
+	// Certificate The issued signed certificate, immutable once populated
+	Certificate *[]byte `json:"certificate,omitempty"`
+
+	// Conditions Conditions applied to the request. Known conditions are Approved, Denied, and Failed
+	Conditions []Condition `json:"conditions"`
+}
 
 // Condition Condition contains details for one aspect of the current state of this API Resource.
 type Condition struct {
@@ -203,6 +307,25 @@ type DeviceConsole struct {
 	SessionID    string `json:"sessionID"`
 }
 
+// DeviceHooksSpec defines model for DeviceHooksSpec.
+type DeviceHooksSpec struct {
+	// AfterRebooting Hooks executed after rebooting enable custom actions and integration with other systems
+	// or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
+	AfterRebooting *[]DeviceRebootHookSpec `json:"afterRebooting,omitempty"`
+
+	// AfterUpdating Hooks executed after updating enable custom actions and integration with other systems
+	// or services. These actions occur after configuration changes have been applied to the device.
+	AfterUpdating *[]DeviceUpdateHookSpec `json:"afterUpdating,omitempty"`
+
+	// BeforeRebooting Hooks executed before rebooting allow for custom actions and integration with other systems
+	// or services. These actions occur before the device is rebooted.
+	BeforeRebooting *[]DeviceRebootHookSpec `json:"beforeRebooting,omitempty"`
+
+	// BeforeUpdating Hooks executed before updating allow for custom actions and integration with other systems
+	// or services. These actions occur before configuration changes are applied to the device.
+	BeforeUpdating *[]DeviceUpdateHookSpec `json:"beforeUpdating,omitempty"`
+}
+
 // DeviceIntegrityStatus defines model for DeviceIntegrityStatus.
 type DeviceIntegrityStatus struct {
 	Summary DeviceIntegrityStatusSummary `json:"summary"`
@@ -245,6 +368,14 @@ type DeviceOSStatus struct {
 	Image string `json:"image"`
 }
 
+// DeviceRebootHookSpec defines model for DeviceRebootHookSpec.
+type DeviceRebootHookSpec struct {
+	// Actions The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.
+	Actions     []HookAction `json:"actions"`
+	Description *string      `json:"description,omitempty"`
+	Name        *string      `json:"name,omitempty"`
+}
+
 // DeviceResourceStatus defines model for DeviceResourceStatus.
 type DeviceResourceStatus struct {
 	Cpu    DeviceResourceStatusType `json:"cpu"`
@@ -262,7 +393,8 @@ type DeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	Hooks *DeviceHooksSpec `json:"hooks,omitempty"`
+	Os    *DeviceOSSpec    `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -284,6 +416,7 @@ type DeviceStatus struct {
 	Conditions []Condition           `json:"conditions"`
 	Config     DeviceConfigStatus    `json:"config"`
 	Integrity  DeviceIntegrityStatus `json:"integrity"`
+	LastSeen   time.Time             `json:"lastSeen"`
 	Os         DeviceOSStatus        `json:"os"`
 	Resources  DeviceResourceStatus  `json:"resources"`
 	Summary    DeviceSummaryStatus   `json:"summary"`
@@ -291,7 +424,6 @@ type DeviceStatus struct {
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 	SystemInfo DeviceSystemInfo    `json:"systemInfo"`
 	Updated    DeviceUpdatedStatus `json:"updated"`
-	UpdatedAt  time.Time           `json:"updatedAt"`
 }
 
 // DeviceSummaryStatus defines model for DeviceSummaryStatus.
@@ -316,6 +448,18 @@ type DeviceSystemInfo struct {
 	OperatingSystem string `json:"operatingSystem"`
 }
 
+// DeviceUpdateHookSpec defines model for DeviceUpdateHookSpec.
+type DeviceUpdateHookSpec struct {
+	// Actions The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.
+	Actions     []HookAction     `json:"actions"`
+	Description *string          `json:"description,omitempty"`
+	Name        *string          `json:"name,omitempty"`
+	OnFile      *[]FileOperation `json:"onFile,omitempty"`
+
+	// Path The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
+	Path *string `json:"path,omitempty"`
+}
+
 // DeviceUpdatedStatus defines model for DeviceUpdatedStatus.
 type DeviceUpdatedStatus struct {
 	// Info Human readable information about the last device update transition.
@@ -325,6 +469,18 @@ type DeviceUpdatedStatus struct {
 
 // DeviceUpdatedStatusType defines model for DeviceUpdatedStatusType.
 type DeviceUpdatedStatusType string
+
+// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
+type DevicesSummary struct {
+	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
+	SummaryStatus map[string]int `json:"summaryStatus"`
+
+	// Total The total number of devices in the fleet.
+	Total int `json:"total"`
+
+	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
+	UpdateStatus map[string]int `json:"updateStatus"`
+}
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
 type DiskResourceMonitorSpec struct {
@@ -394,6 +550,9 @@ type EnrollmentRequestSpec struct {
 
 	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
+
+	// Labels A set of labels that the service will apply to this device when its enrollment is approved
+	Labels *map[string]string `json:"labels,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -412,6 +571,9 @@ type Error struct {
 	// Message Error message
 	Message string `json:"message"`
 }
+
+// FileOperation The type of operation that was observed on the file.
+type FileOperation string
 
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
@@ -461,12 +623,24 @@ type FleetSpec struct {
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
+
+	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
+	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
 }
 
 // GenericConfigSpec defines model for GenericConfigSpec.
 type GenericConfigSpec struct {
 	ConfigType string `json:"configType"`
 	Name       string `json:"name"`
+}
+
+// GenericRepoSpec defines model for GenericRepoSpec.
+type GenericRepoSpec struct {
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
+
+	// Url The (possibly remote) repository URL
+	Url string `json:"url"`
 }
 
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
@@ -482,14 +656,96 @@ type GitConfigProviderSpec struct {
 	Name string `json:"name"`
 }
 
-// GitGenericRepoSpec defines model for GitGenericRepoSpec.
-type GitGenericRepoSpec struct {
-	// Repo The (possibly remote) repository URL to clone from
-	Repo string `json:"repo"`
+// HookAction defines model for HookAction.
+type HookAction struct {
+	union json.RawMessage
 }
 
-// GitHttpConfig defines model for GitHttpConfig.
-type GitHttpConfig struct {
+// HookAction0 defines model for .
+type HookAction0 struct {
+	Executable HookActionExecutableSpec `json:"executable"`
+}
+
+// HookAction1 defines model for .
+type HookAction1 struct {
+	Systemd HookActionSystemdSpec `json:"systemd"`
+}
+
+// HookActionExecutable defines model for HookActionExecutable.
+type HookActionExecutable struct {
+	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
+	EnvVars *[]string `json:"envVars,omitempty"`
+
+	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
+	Run string `json:"run"`
+
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir *string `json:"workDir,omitempty"`
+}
+
+// HookActionExecutableSpec defines model for HookActionExecutableSpec.
+type HookActionExecutableSpec struct {
+	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
+	EnvVars *[]string `json:"envVars,omitempty"`
+
+	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
+	Run string `json:"run"`
+
+	// Timeout The maximum duration allowed for the action to complete.
+	// The duration should be specified as a positive integer
+	// followed by a time unit. Supported time units are:
+	// - 's' for seconds
+	// - 'm' for minutes
+	// - 'h' for hours
+	// - 'd' for days
+	Timeout *string `json:"timeout,omitempty"`
+
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir *string `json:"workDir,omitempty"`
+}
+
+// HookActionSpec defines model for HookActionSpec.
+type HookActionSpec struct {
+	// Timeout The maximum duration allowed for the action to complete.
+	// The duration should be specified as a positive integer
+	// followed by a time unit. Supported time units are:
+	// - 's' for seconds
+	// - 'm' for minutes
+	// - 'h' for hours
+	// - 'd' for days
+	Timeout *string `json:"timeout,omitempty"`
+}
+
+// HookActionSystemdSpec defines model for HookActionSystemdSpec.
+type HookActionSystemdSpec struct {
+	// Timeout The maximum duration allowed for the action to complete.
+	// The duration should be specified as a positive integer
+	// followed by a time unit. Supported time units are:
+	// - 's' for seconds
+	// - 'm' for minutes
+	// - 'h' for hours
+	// - 'd' for days
+	Timeout *string               `json:"timeout,omitempty"`
+	Unit    HookActionSystemdUnit `json:"unit"`
+}
+
+// HookActionSystemdUnit defines model for HookActionSystemdUnit.
+type HookActionSystemdUnit struct {
+	// Name The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.
+	Name string `json:"name"`
+
+	// Operations The specific systemd operations to perform on the specified unit.
+	Operations []HookActionSystemdUnitOperations `json:"operations"`
+
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir *string `json:"workDir,omitempty"`
+}
+
+// HookActionSystemdUnitOperations defines model for HookActionSystemdUnit.Operations.
+type HookActionSystemdUnitOperations string
+
+// HttpConfig defines model for HttpConfig.
+type HttpConfig struct {
 	// CaCrt Base64 encoded root CA
 	CaCrt *string `json:"ca.crt,omitempty"`
 
@@ -505,35 +761,39 @@ type GitHttpConfig struct {
 	// TlsKey Base64 encoded TLS cert key
 	TlsKey *string `json:"tls.key,omitempty"`
 
+	// Token The token for auth with HTTP transport
+	Token *string `json:"token,omitempty"`
+
 	// Username The username for auth with HTTP transport
 	Username *string `json:"username,omitempty"`
 }
 
-// GitHttpRepoSpec defines model for GitHttpRepoSpec.
-type GitHttpRepoSpec struct {
-	HttpConfig GitHttpConfig `json:"httpConfig"`
+// HttpConfigProviderSpec defines model for HttpConfigProviderSpec.
+type HttpConfigProviderSpec struct {
+	ConfigType string `json:"configType"`
+	HttpRef    struct {
+		// FilePath The path of the file where the response is stored in the filesystem of the device.
+		FilePath string `json:"filePath"`
 
-	// Repo The HTTP Git repository URL to clone from
-	Repo string `json:"repo"`
+		// Repository The name of the repository resource to use as the sync source
+		Repository string `json:"repository"`
+
+		// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
+		// /path/to/endpoint?query=param
+		Suffix *string `json:"suffix,omitempty"`
+	} `json:"httpRef"`
+	Name string `json:"name"`
 }
 
-// GitSshConfig defines model for GitSshConfig.
-type GitSshConfig struct {
-	// PrivateKeyPassphrase The passphrase for sshPrivateKey
-	PrivateKeyPassphrase *string `json:"privateKeyPassphrase,omitempty"`
+// HttpRepoSpec defines model for HttpRepoSpec.
+type HttpRepoSpec struct {
+	HttpConfig HttpConfig `json:"httpConfig"`
 
-	// SkipServerVerification Skip remote server verification
-	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
 
-	// SshPrivateKey Base64 encoded private SSH key
-	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
-}
-
-// GitSshRepoSpec defines model for GitSshRepoSpec.
-type GitSshRepoSpec struct {
-	// Repo The SSH Git repository URL to clone from
-	Repo      string       `json:"repo"`
-	SshConfig GitSshConfig `json:"sshConfig"`
+	// Url The HTTP URL to call or clone from
+	Url string `json:"url"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -616,8 +876,9 @@ type RenderedDeviceSpec struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os              *DeviceOSSpec `json:"os,omitempty"`
-	RenderedVersion string        `json:"renderedVersion"`
+	Hooks           *DeviceHooksSpec `json:"hooks,omitempty"`
+	Os              *DeviceOSSpec    `json:"os,omitempty"`
+	RenderedVersion string           `json:"renderedVersion"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -626,7 +887,10 @@ type RenderedDeviceSpec struct {
 	} `json:"systemd,omitempty"`
 }
 
-// Repository Repository represents a git repository
+// RepoSpecType RepoSpecType is the type of the repository
+type RepoSpecType string
+
+// Repository Repository represents a Git repository or an HTTP endpoint
 type Repository struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
 	ApiVersion string `json:"apiVersion"`
@@ -757,6 +1021,29 @@ type ResourceSyncStatus struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
 
+// SshConfig defines model for SshConfig.
+type SshConfig struct {
+	// PrivateKeyPassphrase The passphrase for sshPrivateKey
+	PrivateKeyPassphrase *string `json:"privateKeyPassphrase,omitempty"`
+
+	// SkipServerVerification Skip remote server verification
+	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
+
+	// SshPrivateKey Base64 encoded private SSH key
+	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
+}
+
+// SshRepoSpec defines model for SshRepoSpec.
+type SshRepoSpec struct {
+	SshConfig SshConfig `json:"sshConfig"`
+
+	// Type RepoSpecType is the type of the repository
+	Type RepoSpecType `json:"type"`
+
+	// Url The SSH Git repository URL to clone from
+	Url string `json:"url"`
+}
+
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {
 	// Message A human-readable description of the status of this operation.
@@ -817,7 +1104,8 @@ type TemplateVersionStatus struct {
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	Hooks *DeviceHooksSpec `json:"hooks,omitempty"`
+	Os    *DeviceOSSpec    `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -830,6 +1118,23 @@ type TemplateVersionStatus struct {
 // TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.
 type TemplateVersionStatus_Config_Item struct {
 	union json.RawMessage
+}
+
+// AuthValidateParams defines parameters for AuthValidate.
+type AuthValidateParams struct {
+	Authentication *string `json:"Authentication,omitempty"`
+}
+
+// ListCertificateSigningRequestsParams defines parameters for ListCertificateSigningRequests.
+type ListCertificateSigningRequestsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListDevicesParams defines parameters for ListDevices.
@@ -895,6 +1200,12 @@ type ListTemplateVersionsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ReadFleetParams defines parameters for ReadFleet.
+type ReadFleetParams struct {
+	// AddDevicesSummary include a summary of the devices in the fleet
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
+}
+
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -919,10 +1230,14 @@ type ListResourceSyncParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// TokenValidateParams defines parameters for TokenValidate.
-type TokenValidateParams struct {
-	Authentication *string `json:"Authentication,omitempty"`
-}
+// CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
+type CreateCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
+
+// PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequest for application/json-patch+json ContentType.
+type PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// ReplaceCertificateSigningRequestJSONRequestBody defines body for ReplaceCertificateSigningRequest for application/json ContentType.
+type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
@@ -942,8 +1257,8 @@ type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
 // ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
 type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
-// CreateEnrollmentRequestApprovalJSONRequestBody defines body for CreateEnrollmentRequestApproval for application/json ContentType.
-type CreateEnrollmentRequestApprovalJSONRequestBody = EnrollmentRequestApproval
+// ApproveEnrollmentRequestJSONRequestBody defines body for ApproveEnrollmentRequest for application/json ContentType.
+type ApproveEnrollmentRequestJSONRequestBody = EnrollmentRequestApproval
 
 // ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
 type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest
@@ -1062,6 +1377,34 @@ func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigPro
 	return err
 }
 
+// AsHttpConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a HttpConfigProviderSpec
+func (t DeviceSpec_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
+	var body HttpConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHttpConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided HttpConfigProviderSpec
+func (t *DeviceSpec_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHttpConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided HttpConfigProviderSpec
+func (t *DeviceSpec_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t DeviceSpec_Config_Item) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"configType"`
@@ -1078,6 +1421,8 @@ func (t DeviceSpec_Config_Item) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "GitConfigProviderSpec":
 		return t.AsGitConfigProviderSpec()
+	case "HttpConfigProviderSpec":
+		return t.AsHttpConfigProviderSpec()
 	case "InlineConfigProviderSpec":
 		return t.AsInlineConfigProviderSpec()
 	case "KubernetesSecretProviderSpec":
@@ -1097,22 +1442,22 @@ func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsGitGenericRepoSpec returns the union data inside the RepositorySpec as a GitGenericRepoSpec
-func (t RepositorySpec) AsGitGenericRepoSpec() (GitGenericRepoSpec, error) {
-	var body GitGenericRepoSpec
+// AsHookAction0 returns the union data inside the HookAction as a HookAction0
+func (t HookAction) AsHookAction0() (HookAction0, error) {
+	var body HookAction0
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GitGenericRepoSpec
-func (t *RepositorySpec) FromGitGenericRepoSpec(v GitGenericRepoSpec) error {
+// FromHookAction0 overwrites any union data inside the HookAction as the provided HookAction0
+func (t *HookAction) FromHookAction0(v HookAction0) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitGenericRepoSpec
-func (t *RepositorySpec) MergeGitGenericRepoSpec(v GitGenericRepoSpec) error {
+// MergeHookAction0 performs a merge with any union data inside the HookAction, using the provided HookAction0
+func (t *HookAction) MergeHookAction0(v HookAction0) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1123,22 +1468,22 @@ func (t *RepositorySpec) MergeGitGenericRepoSpec(v GitGenericRepoSpec) error {
 	return err
 }
 
-// AsGitHttpRepoSpec returns the union data inside the RepositorySpec as a GitHttpRepoSpec
-func (t RepositorySpec) AsGitHttpRepoSpec() (GitHttpRepoSpec, error) {
-	var body GitHttpRepoSpec
+// AsHookAction1 returns the union data inside the HookAction as a HookAction1
+func (t HookAction) AsHookAction1() (HookAction1, error) {
+	var body HookAction1
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided GitHttpRepoSpec
-func (t *RepositorySpec) FromGitHttpRepoSpec(v GitHttpRepoSpec) error {
+// FromHookAction1 overwrites any union data inside the HookAction as the provided HookAction1
+func (t *HookAction) FromHookAction1(v HookAction1) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitHttpRepoSpec
-func (t *RepositorySpec) MergeGitHttpRepoSpec(v GitHttpRepoSpec) error {
+// MergeHookAction1 performs a merge with any union data inside the HookAction, using the provided HookAction1
+func (t *HookAction) MergeHookAction1(v HookAction1) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1149,22 +1494,84 @@ func (t *RepositorySpec) MergeGitHttpRepoSpec(v GitHttpRepoSpec) error {
 	return err
 }
 
-// AsGitSshRepoSpec returns the union data inside the RepositorySpec as a GitSshRepoSpec
-func (t RepositorySpec) AsGitSshRepoSpec() (GitSshRepoSpec, error) {
-	var body GitSshRepoSpec
+func (t HookAction) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *HookAction) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsGenericRepoSpec returns the union data inside the RepositorySpec as a GenericRepoSpec
+func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
+	var body GenericRepoSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitSshRepoSpec overwrites any union data inside the RepositorySpec as the provided GitSshRepoSpec
-func (t *RepositorySpec) FromGitSshRepoSpec(v GitSshRepoSpec) error {
+// FromGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GenericRepoSpec
+func (t *RepositorySpec) FromGenericRepoSpec(v GenericRepoSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitSshRepoSpec
-func (t *RepositorySpec) MergeGitSshRepoSpec(v GitSshRepoSpec) error {
+// MergeGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GenericRepoSpec
+func (t *RepositorySpec) MergeGenericRepoSpec(v GenericRepoSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsHttpRepoSpec returns the union data inside the RepositorySpec as a HttpRepoSpec
+func (t RepositorySpec) AsHttpRepoSpec() (HttpRepoSpec, error) {
+	var body HttpRepoSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided HttpRepoSpec
+func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided HttpRepoSpec
+func (t *RepositorySpec) MergeHttpRepoSpec(v HttpRepoSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsSshRepoSpec returns the union data inside the RepositorySpec as a SshRepoSpec
+func (t RepositorySpec) AsSshRepoSpec() (SshRepoSpec, error) {
+	var body SshRepoSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSshRepoSpec overwrites any union data inside the RepositorySpec as the provided SshRepoSpec
+func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided SshRepoSpec
+func (t *RepositorySpec) MergeSshRepoSpec(v SshRepoSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1388,6 +1795,34 @@ func (t *TemplateVersionStatus_Config_Item) MergeInlineConfigProviderSpec(v Inli
 	return err
 }
 
+// AsHttpConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a HttpConfigProviderSpec
+func (t TemplateVersionStatus_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
+	var body HttpConfigProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHttpConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided HttpConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHttpConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided HttpConfigProviderSpec
+func (t *TemplateVersionStatus_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+	v.ConfigType = "HttpConfigProviderSpec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t TemplateVersionStatus_Config_Item) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"configType"`
@@ -1404,6 +1839,8 @@ func (t TemplateVersionStatus_Config_Item) ValueByDiscriminator() (interface{}, 
 	switch discriminator {
 	case "GitConfigProviderSpec":
 		return t.AsGitConfigProviderSpec()
+	case "HttpConfigProviderSpec":
+		return t.AsHttpConfigProviderSpec()
 	case "InlineConfigProviderSpec":
 		return t.AsInlineConfigProviderSpec()
 	case "KubernetesSecretProviderSpec":

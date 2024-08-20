@@ -84,7 +84,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
-	result, err := h.store.Fleet().List(ctx, orgId, listParams)
+	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.WithDeviceCount(true))
 	switch err {
 	case nil:
 		return server.ListFleets200JSONResponse(*result), nil
@@ -110,7 +110,7 @@ func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.Delete
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.WithSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
 	switch err {
 	case nil:
 		return server.ReadFleet200JSONResponse(*result), nil
@@ -153,7 +153,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceFleet404JSONResponse{}, nil
-	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed, flterrors.ErrNoRowsUpdated:
 		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -251,6 +251,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
 
 	var updateCallback func(before *model.Fleet, after *model.Fleet)
 
@@ -266,6 +267,8 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchFleet404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated:
+		return server.PatchFleet409JSONResponse{}, nil
 	default:
 		return nil, err
 	}

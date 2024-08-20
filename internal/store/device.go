@@ -38,13 +38,15 @@ type Device interface {
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	InitialMigration() error
+	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
 
-const retryIterations = 10
-
+type IntegrationTestCallback func()
 type DeviceStore struct {
 	db  *gorm.DB
 	log logrus.FieldLogger
+
+	IntegrationTestCreateOrUpdateCallback IntegrationTestCallback
 }
 
 type DeviceStoreCallback func(before *model.Device, after *model.Device)
@@ -54,7 +56,11 @@ type DeviceStoreAllDeletedCallback func(orgId uuid.UUID)
 var _ Device = (*DeviceStore)(nil)
 
 func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
-	return &DeviceStore{db: db, log: log}
+	return &DeviceStore{db: db, log: log, IntegrationTestCreateOrUpdateCallback: func() {}}
+}
+
+func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTestCallback) {
+	s.IntegrationTestCreateOrUpdateCallback = c
 }
 
 func (s *DeviceStore) InitialMigration() error {
@@ -185,17 +191,6 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return &apiDevice, nil
 }
 
-func (s *DeviceStore) getExistingRecord(name string, orgId uuid.UUID) (*model.Device, bool, error) {
-	existingRecord := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	if err := s.db.First(existingRecord).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, false, nil
-		}
-		return nil, false, flterrors.ErrorFromGormError(err)
-	}
-	return existingRecord, true, nil
-}
-
 func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 	device.Generation = lo.ToPtr[int64](1)
 	device.ResourceVersion = lo.ToPtr[int64](1)
@@ -233,7 +228,7 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 		return false, flterrors.ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no rows were updated.  Assuming resource version was updated or resource was deleted")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -255,11 +250,13 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	// Use the dedicated API to update annotations
 	device.Annotations = nil
 
-	existingRecord, deviceExists, err := s.getExistingRecord(device.Name, orgId)
+	existingRecord, err := getExistingRecord[model.Device](s.db, device.Name, orgId)
 	if err != nil {
 		return nil, false, false, err
 	}
-	if !deviceExists {
+	exists := existingRecord != nil
+	s.IntegrationTestCreateOrUpdateCallback()
+	if !exists {
 		if retry, err := s.createDevice(device); err != nil {
 			return nil, false, retry, err
 		}
@@ -272,18 +269,13 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	callback(existingRecord, device)
 
 	updatedResource := device.ToApiResource()
-	return &updatedResource, !deviceExists, false, nil
+	return &updatedResource, !exists, false, nil
 }
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
-	var created, retry bool
-	var device *api.Device
-	var err error
-	i := 0
-	for device, created, retry, err = s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback); retry && i < retryIterations; device, created, retry, err = s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback) {
-		i++
-	}
-	return device, created, err
+	return retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback)
+	})
 }
 
 func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
@@ -391,7 +383,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no row was updated. assuming resource version mismatch")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -434,7 +426,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no row was updated. assuming resource version mismatch")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -482,6 +474,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,
 		Resources:       device.Spec.Data.Resources,
+		Hooks:           device.Spec.Data.Hooks,
 		Console:         console,
 	}
 
@@ -515,7 +508,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
 	if result.RowsAffected == 0 {
-		return true, errors.New("no row was updated. assuming resource version mismatch")
+		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
@@ -526,18 +519,6 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 	})
 }
 
-func retryUpdate(fn func() (bool, error)) error {
-	var (
-		retry bool
-		err   error
-	)
-	i := 0
-	for retry, err = fn(); retry && i < retryIterations; retry, err = fn() {
-		i++
-	}
-	return err
-}
-
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	repos := []model.Repository{}
 	for _, repoName := range repositoryNames {
@@ -545,12 +526,7 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 	}
 	return s.db.Transaction(func(innerTx *gorm.DB) error {
 		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		err := innerTx.Model(&device).Association("Repositories").Clear()
-		if err != nil {
-			return flterrors.ErrorFromGormError(err)
-		}
-		if len(repos) > 0 {
-			err = innerTx.Model(&device).Association("Repositories").Append(repos)
+		if err := innerTx.Model(&device).Association("Repositories").Replace(repos); err != nil {
 			return flterrors.ErrorFromGormError(err)
 		}
 		return nil

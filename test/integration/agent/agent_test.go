@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -218,7 +217,7 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
-	_, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, deviceName, *approval)
+	_, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, deviceName, *approval)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -254,7 +253,7 @@ func mockSecret(mockK8sClient *k8sclient.MockK8SClient, secrets map[string]strin
 				Namespace: "secret-namespace",
 			},
 			Data: lo.MapValues(secrets, func(v, _ string) []byte {
-				return []byte(base64.StdEncoding.EncodeToString([]byte(v)))
+				return []byte(v)
 			}),
 		}, nil).AnyTimes()
 }

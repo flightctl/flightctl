@@ -90,7 +90,6 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
-		tlsmiddleware.AdminTLSValidator,
 		authMiddleware,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	)
@@ -98,7 +97,7 @@ func (s *Server) Run(ctx context.Context) error {
 	h := service.NewServiceHandler(s.store, callbackManager, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
-	srv := tlsmiddleware.NewHTTPServerWithTLSContext(router, s.log, s.cfg.Service.Address)
+	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
 
 	go func() {
 		<-ctx.Done()

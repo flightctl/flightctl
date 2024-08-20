@@ -1,0 +1,32 @@
+{{ $password := include "keycloak.lookupOrGeneratePassword" (dict "secret" "keycloak-db-pguser-keycloak" "namespace" .Values.db.namespace "key" "password" "context" $) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db-pguser-keycloak
+  namespace: {{ .Values.db.namespace }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+data:
+  jdbcUrl: {{ printf "jdbc:postgresql://keycloak-db.%s:5432/%s" .Values.db.namespace .Values.db.auth.database | b64enc | quote }}
+  hostname: {{ printf "keycloak-db.%s" .Values.db.namespace | b64enc | quote }}
+  database: {{ .Values.db.auth.database | b64enc | quote }}
+  username: {{ .Values.db.auth.username | b64enc | quote }}
+  password: {{ $password | b64enc | quote }}
+{{- if ne .Values.namespace .Values.db.namespace }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db-pguser-keycloak
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+data:
+  jdbcUrl: {{ printf "jdbc:postgresql://keycloak-db.%s:5432/%s" .Values.db.namespace .Values.db.auth.database | b64enc | quote }}
+  hostname: {{ printf "keycloak-db.%s" .Values.db.namespace | b64enc | quote }}
+  database: {{ .Values.db.auth.database | b64enc | quote }}
+  username: {{ .Values.db.auth.username | b64enc | quote }}
+  password: {{ $password | b64enc | quote }}
+{{- end }}

@@ -78,7 +78,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 
 	// create certs
 	serverCfg.Service.CertStore = filepath.Join(testDirPath, "etc", "flightctl", "certs")
-	ca, serverCerts, _, clientCerts, err := testutil.NewTestCerts(&serverCfg)
+	ca, serverCerts, _, err := testutil.NewTestCerts(&serverCfg)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
@@ -164,7 +164,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}
 
 	// create client to talk to the server
-	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.Config, clientCerts)
+	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.Config)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}

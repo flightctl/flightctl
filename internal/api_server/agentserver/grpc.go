@@ -9,7 +9,9 @@ import (
 	"sync"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
+	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -47,7 +49,10 @@ func NewAgentGrpcServer(
 func (s *AgentGrpcServer) Run(ctx context.Context) error {
 	s.log.Printf("Initializing Agent-side gRPC server: %s", s.cfg.Service.AgentGrpcAddress)
 	tlsCredentials := credentials.NewTLS(s.tlsConfig)
-	server := grpc.NewServer(grpc.Creds(tlsCredentials))
+	server := grpc.NewServer(
+		grpc.Creds(tlsCredentials),
+		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
+	)
 	pb.RegisterRouterServiceServer(server, s)
 
 	listener, err := net.Listen("tcp", s.cfg.Service.AgentGrpcAddress)

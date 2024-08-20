@@ -47,6 +47,13 @@ func DefaultIfNil(s *string, defaultS string) string {
 	return *s
 }
 
+func IsEmptyString(s *string) bool {
+	if s == nil {
+		return true
+	}
+	return len(*s) == 0
+}
+
 func StrToPtr(s string) *string {
 	return &s
 }
@@ -61,6 +68,13 @@ func IntToPtr(i int) *int {
 
 func BoolToPtr(b bool) *bool {
 	return &b
+}
+
+func DefaultBoolIfNil(b *bool, defaultB bool) bool {
+	if b == nil {
+		return defaultB
+	}
+	return *b
 }
 
 func TimeToPtr(t time.Time) *time.Time {

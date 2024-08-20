@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -58,6 +57,7 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 		return t.setStatus(ctx, err)
 	}
 
+	// freeze the config source
 	if t.fleet.Spec.Template.Spec.Config != nil {
 		t.frozenConfig = []api.TemplateVersionStatus_Config_Item{}
 
@@ -91,6 +91,7 @@ func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Co
 	if err != nil {
 		return fmt.Errorf("failed fetching fleet: %w", err)
 	}
+
 	t.fleet = fleet
 
 	return nil
@@ -109,6 +110,8 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 		return t.handleK8sConfig(configItem)
 	case string(api.TemplateDiscriminatorInlineConfig):
 		return t.handleInlineConfig(configItem)
+	case string(api.TemplateDiscriminatorHttpConfig):
+		return t.handleHttpConfig(configItem)
 	default:
 		return fmt.Errorf("unsupported discriminator %s", disc)
 	}
@@ -179,11 +182,7 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 		return fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
-	for name, encodedContents := range secret.Data {
-		contents, err := base64.StdEncoding.DecodeString(string(encodedContents))
-		if err != nil {
-			return fmt.Errorf("failed to base64 decode secret %s: %w", name, err)
-		}
+	for name, contents := range secret.Data {
 		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
 	}
 	m, err := ignitionWrapper.AsMap()
@@ -219,6 +218,24 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	return nil
 }
 
+func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceSpec_Config_Item) error {
+	httpSpec, err := configItem.AsHttpConfigProviderSpec()
+	if err != nil {
+		return fmt.Errorf("failed getting config item as HttpConfigProviderSpec: %w", err)
+	}
+
+	// Just add the HTTP config as-is
+	// TODO(MGMT-18498): Freeze the config
+	newConfig := &api.TemplateVersionStatus_Config_Item{}
+	err = newConfig.FromHttpConfigProviderSpec(httpSpec)
+	if err != nil {
+		return fmt.Errorf("failed creating HTTP config from item %s: %w", httpSpec.Name, err)
+	}
+
+	t.frozenConfig = append(t.frozenConfig, *newConfig)
+	return nil
+}
+
 func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validationErr error) error {
 	t.templateVersion.Status = &api.TemplateVersionStatus{}
 	if validationErr != nil {
@@ -228,10 +245,9 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
+		t.templateVersion.Status.Hooks = t.fleet.Spec.Template.Spec.Hooks
 		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
 	}
-
-	t.templateVersion.Status.Conditions = []api.Condition{}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)
 
 	err := t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(validationErr == nil), t.callbackManager.TemplateVersionValidatedCallback)

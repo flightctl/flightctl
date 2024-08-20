@@ -124,7 +124,6 @@ var _ = Describe("RepoUpdate", func() {
 
 		fleet2 := api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet2")},
-			Spec:     api.FleetSpec{},
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 

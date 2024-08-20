@@ -37,5 +37,5 @@ func IgnParseWrapper(rawIgn []byte) (interface{}, error) {
 		return ignCfgV3, nil
 	}
 
-	return ignv3types.Config{}, fmt.Errorf("parsing Ignition config spec v3 failed with error: %v\nReport: %v", errV3, rptV3)
+	return ignv3types.Config{}, fmt.Errorf("parsing Ignition config spec v3 failed with error: %w\nReport: %v", errV3, rptV3)
 }

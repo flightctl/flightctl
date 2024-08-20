@@ -19,6 +19,7 @@ var (
 type Store interface {
 	Device() Device
 	EnrollmentRequest() EnrollmentRequest
+	CertificateSigningRequest() CertificateSigningRequest
 	Fleet() Fleet
 	TemplateVersion() TemplateVersion
 	Repository() Repository
@@ -28,25 +29,27 @@ type Store interface {
 }
 
 type DataStore struct {
-	device            Device
-	enrollmentRequest EnrollmentRequest
-	fleet             Fleet
-	templateVersion   TemplateVersion
-	repository        Repository
-	resourceSync      ResourceSync
+	device                    Device
+	enrollmentRequest         EnrollmentRequest
+	certificateSigningRequest CertificateSigningRequest
+	fleet                     Fleet
+	templateVersion           TemplateVersion
+	repository                Repository
+	resourceSync              ResourceSync
 
 	db *gorm.DB
 }
 
 func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 	return &DataStore{
-		device:            NewDevice(db, log),
-		enrollmentRequest: NewEnrollmentRequest(db, log),
-		fleet:             NewFleet(db, log),
-		templateVersion:   NewTemplateVersion(db, log),
-		repository:        NewRepository(db, log),
-		resourceSync:      NewResourceSync(db, log),
-		db:                db,
+		device:                    NewDevice(db, log),
+		enrollmentRequest:         NewEnrollmentRequest(db, log),
+		certificateSigningRequest: NewCertificateSigningRequest(db, log),
+		fleet:                     NewFleet(db, log),
+		templateVersion:           NewTemplateVersion(db, log),
+		repository:                NewRepository(db, log),
+		resourceSync:              NewResourceSync(db, log),
+		db:                        db,
 	}
 }
 
@@ -60,6 +63,10 @@ func (s *DataStore) Device() Device {
 
 func (s *DataStore) EnrollmentRequest() EnrollmentRequest {
 	return s.enrollmentRequest
+}
+
+func (s *DataStore) CertificateSigningRequest() CertificateSigningRequest {
+	return s.certificateSigningRequest
 }
 
 func (s *DataStore) Fleet() Fleet {
@@ -81,6 +88,9 @@ func (s *DataStore) InitialMigration() error {
 	if err := s.EnrollmentRequest().InitialMigration(); err != nil {
 		return err
 	}
+	if err := s.CertificateSigningRequest().InitialMigration(); err != nil {
+		return err
+	}
 	if err := s.Fleet().InitialMigration(); err != nil {
 		return err
 	}
@@ -92,6 +102,20 @@ func (s *DataStore) InitialMigration() error {
 	}
 	if err := s.ResourceSync().InitialMigration(); err != nil {
 		return err
+	}
+	return s.customizeMigration()
+}
+
+func (s *DataStore) customizeMigration() error {
+	if s.db.Migrator().HasConstraint("fleet_repos", "fk_fleet_repos_repository") {
+		if err := s.db.Migrator().DropConstraint("fleet_repos", "fk_fleet_repos_repository"); err != nil {
+			return err
+		}
+	}
+	if s.db.Migrator().HasConstraint("device_repos", "fk_device_repos_repository") {
+		if err := s.db.Migrator().DropConstraint("device_repos", "fk_device_repos_repository"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

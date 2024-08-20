@@ -3,11 +3,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-worker-config
-  namespace: {{.Values.flightctl.worker.namespace }}
+  namespace: {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
 data:
   config.yaml: |-
     database:
-        hostname: flightctl-db.{{ .Values.flightctl.db.namespace }}.svc.cluster.local
+        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}.svc.cluster.local
         type: pgsql
         port: 5432
         name: flightctl
@@ -15,5 +15,5 @@ data:
         password: {{ .Values.flightctl.db.masterPassword }}   # we should funnel this via secrets instead
     service: {}
     queue:
-        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@{{ .Values.flightctl.rabbitmq.name }}.{{ .Values.flightctl.rabbitmq.namespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
+        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
 {{ end }}

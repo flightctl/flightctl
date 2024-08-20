@@ -54,7 +54,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), crypto.AdminCommonName, 1)
 	require.NoError(err)
 
-	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	require.NoError(err)
 
 	go startHttpsMTLSRepo(tlsConfig, require)
@@ -70,9 +70,9 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	caB64 := b64.StdEncoding.EncodeToString(caCertPEM)
 
 	spec := api.RepositorySpec{}
-	err = spec.FromGitHttpRepoSpec(api.GitHttpRepoSpec{
-		Repo: "https://localhost:4443",
-		HttpConfig: api.GitHttpConfig{
+	err = spec.FromHttpRepoSpec(api.HttpRepoSpec{
+		Url: "https://localhost:4443",
+		HttpConfig: api.HttpConfig{
 			TlsKey: &clientKeyB64,
 			TlsCrt: &clientCrtB64,
 			CaCrt:  &caB64,
@@ -124,9 +124,9 @@ func TestSSHRepo(t *testing.T) {
 	privKey := b64.StdEncoding.EncodeToString(privatePEM)
 
 	spec := api.RepositorySpec{}
-	err = spec.FromGitSshRepoSpec(api.GitSshRepoSpec{
-		Repo: "ssh://root@127.0.0.1:2222",
-		SshConfig: api.GitSshConfig{
+	err = spec.FromSshRepoSpec(api.SshRepoSpec{
+		Url: "ssh://root@127.0.0.1:2222",
+		SshConfig: api.SshConfig{
 			SshPrivateKey:          &privKey,
 			SkipServerVerification: util.BoolToPtr(true),
 		}})

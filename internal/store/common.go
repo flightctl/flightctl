@@ -1,14 +1,18 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+const retryIterations = 10
 
 func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) *gorm.DB {
 	query = query.Where("org_id = ?", orgId).Order("name")
@@ -179,4 +183,40 @@ func createOrQuery(key string, values []string) (string, []interface{}) {
 		queryStr = strings.Join(queryParams, " OR ")
 	}
 	return queryStr, args
+}
+
+func getExistingRecord[R any](db *gorm.DB, name string, orgId uuid.UUID) (*R, error) {
+	var existingRecord R
+	if err := db.Where("name = ? and org_id = ?", name, orgId).First(&existingRecord).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+	return &existingRecord, nil
+}
+
+func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, error)) (*A, bool, error) {
+	var (
+		a              *A
+		created, retry bool
+		err            error
+	)
+	i := 0
+	for a, created, retry, err = fn(); retry && i < retryIterations; a, created, retry, err = fn() {
+		i++
+	}
+	return a, created, err
+}
+
+func retryUpdate(fn func() (bool, error)) error {
+	var (
+		retry bool
+		err   error
+	)
+	i := 0
+	for retry, err = fn(); retry && i < retryIterations; retry, err = fn() {
+		i++
+	}
+	return err
 }

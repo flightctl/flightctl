@@ -45,10 +45,10 @@ run-integration-test:
 integration-test: deploy-db run-integration-test kill-db
 
 e2e-test: deploy bin/output/qcow2/disk.qcow2
-	$(MAKE) _e2e_test TEST="$(or $(TEST),$(shell go list ./test/e2e/...))"
+	$(MAKE) _e2e_test
 
 run-e2e-test:
-	$(MAKE) _e2e_test TEST="$(or $(TEST),$(shell go list ./test/e2e/...))"
+	$(MAKE) _e2e_test
 
 
 view-coverage: $(REPORTS)/unit-coverage.out $(REPORTS)/unit-coverage.out

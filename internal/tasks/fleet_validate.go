@@ -44,7 +44,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		return fmt.Errorf("failed getting fleet %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
 	}
 
-	_, repoNames, validationErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, fleet.Spec.Template.Spec.Config, true)
+	_, repoNames, validationErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, fleet.Spec.Template.Spec.Config, true, true)
 
 	// Set the many-to-many relationship with the repos (we do this even if the validation failed so that we will
 	// validate the fleet again if the repository is updated, and then it might be fixed).

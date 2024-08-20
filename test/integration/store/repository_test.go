@@ -178,8 +178,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository create mode", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-				Repo: "myrepo",
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+				Url:  "myrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -195,17 +196,18 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myrepo"))
+			Expect(repoSpec.Url).To(Equal("myrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateRepository update mode", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-				Repo: "myotherrepo",
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+				Url:  "myotherrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -221,17 +223,18 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(false))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
+			Expect(repoSpec.Url).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
 		It("CreateOrUpdateRepository create nilspec", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGitGenericRepoSpec(api.GitGenericRepoSpec{
-				Repo: "myotherrepo",
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+				Url:  "myotherrepo",
+				Type: "git",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -247,9 +250,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
 			Expect(repo.Kind).To(Equal(model.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGitGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(repoSpec.Repo).To(Equal("myotherrepo"))
+			Expect(repoSpec.Url).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})

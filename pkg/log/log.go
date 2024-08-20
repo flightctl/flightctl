@@ -2,6 +2,8 @@ package log
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
@@ -26,7 +28,7 @@ func WithReqID(reqID string, inner logrus.FieldLogger) logrus.FieldLogger {
 
 // PrefixLogger is wrapper around a logrus with an optional prefix
 type PrefixLogger struct {
-	logger *logrus.Logger
+	*logrus.Logger
 	prefix string
 }
 
@@ -34,69 +36,86 @@ type PrefixLogger struct {
 func NewPrefixLogger(prefix string) *PrefixLogger {
 	logger := logrus.New()
 	logger.SetReportCaller(true)
+	logger.SetFormatter(&PrefixFormatter{
+		Prefix:     prefix,
+		CallLevels: 3,
+	})
 
 	return &PrefixLogger{
-		logger: logger,
-		prefix: prefix,
+		logger,
+		prefix,
 	}
 }
 
-func (p *PrefixLogger) Info(args ...interface{}) {
-	p.logger.Info(p.prependPrefix(args[0].(string)))
+// Prefix returns the prefix of the logger
+func (l *PrefixLogger) Prefix() string {
+	return l.prefix
 }
 
-func (p *PrefixLogger) Infof(format string, args ...interface{}) {
-	p.logger.Infof(p.prependPrefix(format), args...)
-}
-
-func (p *PrefixLogger) Error(args ...interface{}) {
-	p.logger.Error(p.prependPrefix(args[0].(string)))
-}
-
-func (p *PrefixLogger) Errorf(format string, args ...interface{}) {
-	p.logger.Errorf(p.prependPrefix(format), args...)
-}
-
-func (p *PrefixLogger) Debug(args ...interface{}) {
-	p.logger.Debug(p.prependPrefix(args[0].(string)))
-}
-
-func (p *PrefixLogger) Debugf(format string, args ...interface{}) {
-	p.logger.Debugf(p.prependPrefix(format), args...)
-}
-
-func (p *PrefixLogger) Warn(args ...interface{}) {
-	p.logger.Warn(p.prependPrefix(args[0].(string)))
-}
-
-func (p *PrefixLogger) Warnf(format string, args ...interface{}) {
-	p.logger.Warnf(p.prependPrefix(format), args...)
-}
-
-func (p *PrefixLogger) Fatal(args ...interface{}) {
-	p.logger.Fatal(p.prependPrefix(args[0].(string)))
-}
-
-func (p *PrefixLogger) Fatalf(format string, args ...interface{}) {
-	p.logger.Fatalf(p.prependPrefix(format), args...)
-}
-
-func (p *PrefixLogger) SetLevel(level string) {
+func (p *PrefixLogger) Level(level string) {
 	parsedLevel, err := logrus.ParseLevel(level)
 	if err != nil {
 		parsedLevel = logrus.InfoLevel
 	}
-	p.logger.SetLevel(parsedLevel)
+	p.SetLevel(parsedLevel)
 }
 
-func (p *PrefixLogger) Prefix() string {
-	return p.prefix
+type PrefixFormatter struct {
+	Prefix     string
+	CallLevels int
 }
 
-// prependPrefix checks if a prefix is set and prepends it to the message
-func (p *PrefixLogger) prependPrefix(msg string) string {
-	if p.prefix != "" {
-		return p.prefix + ": " + msg
+func (f *PrefixFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	// ref. https://stackoverflow.com/questions/1760757/how-to-efficiently-concatenate-strings-in-go
+	var sb strings.Builder
+
+	// timestamp (RFC3339)
+	sb.WriteString(`time="`)
+	sb.WriteString(entry.Time.Format("2006-01-02T15:04:05.000000Z"))
+	sb.WriteString(`" `)
+
+	// log level
+	sb.WriteString(`level=`)
+	sb.WriteString(entry.Level.String())
+	sb.WriteString(" ")
+
+	// message
+	sb.WriteString(`msg="`)
+	// prefix
+	if f.Prefix != "" {
+		sb.WriteString(f.Prefix)
+		sb.WriteString(": ")
 	}
-	return msg
+	sb.WriteString(entry.Message)
+	sb.WriteString(`" `)
+
+	// caller if available and not an info level log
+	if entry.HasCaller() && entry.Level != logrus.InfoLevel {
+		sb.WriteString(`file="`)
+		sb.WriteString(trimCallerLevels(entry.Caller.File, 3))
+		sb.WriteString(":")
+		sb.WriteString(strconv.Itoa(entry.Caller.Line))
+		sb.WriteString(`"`)
+	}
+	sb.WriteString("\n")
+
+	return []byte(sb.String()), nil
+}
+
+func trimCallerLevels(path string, levels int) string {
+	sep := "/"
+
+	// count the number of '/' in the full path string starting from the end
+	count := 0
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == sep[0] {
+			count++
+			if count == levels {
+				return path[i+1:]
+			}
+		}
+	}
+
+	// path is already shorter than levels
+	return path
 }

@@ -2,10 +2,11 @@ package tasks
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -62,7 +64,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		config = device.Spec.Config
 	}
 
-	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, config, false)
+	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, config, !util.IsEmptyString(device.Metadata.Owner), false)
 
 	// Set the many-to-many relationship with the repos (we do this even if the render failed so that we will
 	// render the device again if the repository is updated, and then it might be fixed).
@@ -103,15 +105,16 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 }
 
 type renderConfigArgs struct {
-	orgId          uuid.UUID
-	store          store.Store
-	k8sClient      k8sclient.K8SClient
-	ignitionConfig *config_latest_types.Config
-	repoNames      []string
-	validateOnly   bool
+	orgId                uuid.UUID
+	store                store.Store
+	k8sClient            k8sclient.K8SClient
+	ignitionConfig       *config_latest_types.Config
+	repoNames            []string
+	validateOnly         bool
+	deviceBelongsToFleet bool
 }
 
-func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
+func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, deviceBelongsToFleet bool, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
 	args := renderConfigArgs{}
 	emptyIgnitionConfig := config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
@@ -123,6 +126,7 @@ func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sCl
 	args.orgId = orgId
 	args.store = store
 	args.k8sClient = k8sClient
+	args.deviceBelongsToFleet = deviceBelongsToFleet
 
 	err = renderConfigItems(ctx, config, &args)
 	if err != nil {
@@ -151,10 +155,19 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 	for i := range *config {
 		configItem := (*config)[i]
 		name, err := renderConfigItem(ctx, &configItem, args)
+		paramErr := validateConfigParameters(&configItem, args)
+
+		if err != nil && errors.Is(err, ErrUnknownConfigName) {
+			name = "<unknown>"
+		}
+
+		// An error message regarding invalid parameters should take precedence
+		// because it may be the cause of the render error
+		if paramErr != nil {
+			err = paramErr
+		}
+
 		if err != nil {
-			if errors.Is(err, ErrUnknownConfigName) {
-				name = "<unknown>"
-			}
 			invalidConfigs = append(invalidConfigs, name)
 			if len(invalidConfigs) == 1 {
 				firstError = err
@@ -175,6 +188,28 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 	return nil
 }
 
+func validateConfigParameters(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) error {
+	cfgJson, err := configItem.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("failed converting configuration to json: %w", err)
+	}
+	if args.validateOnly {
+		// Make sure all parameters are in the proper format
+		return ValidateParameterFormat(cfgJson)
+	}
+
+	// If we're rendering the device config and it still has parameters, something went wrong
+	if ContainsParameter(cfgJson) {
+		if args.deviceBelongsToFleet {
+			return fmt.Errorf("configuration contains parameter, perhaps due to a missing device label")
+		} else {
+			return fmt.Errorf("configuration contains parameter, but parameters can only be used in fleet templates")
+		}
+	}
+
+	return nil
+}
+
 func renderConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
 	disc, err := configItem.Discriminator()
 	if err != nil {
@@ -188,6 +223,8 @@ func renderConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Ite
 		return renderK8sConfig(configItem, args)
 	case string(api.TemplateDiscriminatorInlineConfig):
 		return renderInlineConfig(configItem, args)
+	case string(api.TemplateDiscriminatorHttpConfig):
+		return renderHttpProviderConfig(ctx, configItem, args)
 	default:
 		return "", fmt.Errorf("%w: unsupported discriminator: %s", ErrUnknownConfigName, disc)
 	}
@@ -247,11 +284,7 @@ func renderK8sConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigA
 		return k8sSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
-	for name, encodedContents := range secret.Data {
-		contents, err := base64.StdEncoding.DecodeString(string(encodedContents))
-		if err != nil {
-			return k8sSpec.Name, fmt.Errorf("failed to base64 decode secret %s: %w", name, err)
-		}
+	for name, contents := range secret.Data {
 		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
 	}
 	if !args.validateOnly {
@@ -297,4 +330,77 @@ func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConf
 		args.ignitionConfig = &mergedConfig
 	}
 	return inlineSpec.Name, nil
+}
+
+func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
+	httpConfigProviderSpec, err := configItem.AsHttpConfigProviderSpec()
+	if err != nil {
+		return "", fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
+	}
+	args.repoNames = append(args.repoNames, httpConfigProviderSpec.HttpRef.Repository)
+	repo, err := args.store.Repository().GetInternal(ctx, args.orgId, httpConfigProviderSpec.HttpRef.Repository)
+	if err != nil {
+		return httpConfigProviderSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", args.orgId, httpConfigProviderSpec.HttpRef.Repository, err)
+	}
+	if repo.Spec == nil {
+		return httpConfigProviderSpec.Name, fmt.Errorf("empty Repository definition %s/%s: %w", args.orgId, httpConfigProviderSpec.HttpRef.Repository, err)
+	}
+	repoURL, err := repo.Spec.Data.GetRepoURL()
+	if err != nil {
+		return "", err
+	}
+
+	// Append the suffix only if exists (as it's optional)
+	if httpConfigProviderSpec.HttpRef.Suffix != nil {
+		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
+	}
+	if args.validateOnly {
+		return httpConfigProviderSpec.Name, nil
+	}
+	req, err := http.NewRequest("GET", repoURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	repoHttpSpec, err := repo.Spec.Data.GetHttpRepoSpec()
+	if err != nil {
+		return "", err
+	}
+
+	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+	if err != nil {
+		return "", fmt.Errorf("error building request authentication: %w", err)
+	}
+
+	// Set up the HTTP client with the configured TLS settings
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("sending request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response body: %w", err)
+	}
+
+	// Convert body to ignition config
+	ignitionWrapper, err := ignition.NewWrapper()
+	if err != nil {
+		return httpConfigProviderSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
+	}
+
+	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644)
+	if !args.validateOnly {
+		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
+	}
+
+	return httpConfigProviderSpec.Name, nil
 }

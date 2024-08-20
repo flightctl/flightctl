@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
@@ -21,17 +22,20 @@ const (
 type OSImageController struct {
 	bootc         *container.BootcCmd
 	statusManager status.Manager
+	specManager   spec.Manager
 	log           *log.PrefixLogger
 }
 
 func NewOSImageController(
 	executer executer.Executer,
 	statusManager status.Manager,
+	specManager spec.Manager,
 	log *log.PrefixLogger,
 ) *OSImageController {
 	return &OSImageController{
 		bootc:         container.NewBootcCmd(executer),
 		statusManager: statusManager,
+		specManager:   specManager,
 		log:           log,
 	}
 }
@@ -91,5 +95,10 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	c.log.Info(infoMsg)
+
+	if err := c.specManager.PrepareRollback(ctx); err != nil {
+		return err
+	}
+
 	return c.bootc.Apply(ctx)
 }

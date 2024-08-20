@@ -3,4 +3,5 @@ kind: Repository
 metadata:
   name: flightctl-demos
 spec:
-  repo: https://github.com/flightctl/flightctl-demos.git
+  url: https://github.com/flightctl/flightctl-demos.git
+  type: git

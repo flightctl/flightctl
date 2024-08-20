@@ -2,9 +2,12 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 )
 
 var (
@@ -30,23 +33,32 @@ func (r *ResourceSync) String() string {
 	return string(val)
 }
 
-func NewResourceSyncFromApiResource(resource *api.ResourceSync) *ResourceSync {
+func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, error) {
 	if resource == nil || resource.Metadata.Name == nil {
-		return &ResourceSync{}
+		return &ResourceSync{}, nil
 	}
 
 	status := api.ResourceSyncStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
+	var resourceVersion *int64
+	if resource.Metadata.ResourceVersion != nil {
+		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
+		if err != nil {
+			return nil, flterrors.ErrIllegalResourceVersionFormat
+		}
+		resourceVersion = &i
+	}
 	return &ResourceSync{
 		Resource: Resource{
-			Name:   *resource.Metadata.Name,
-			Labels: util.LabelMapToArray(resource.Metadata.Labels),
+			Name:            *resource.Metadata.Name,
+			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
-	}
+	}, nil
 }
 
 func (r *ResourceSync) ToApiResource() api.ResourceSync {
@@ -74,7 +86,7 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
 			Generation:        r.Generation,
-			ResourceVersion:   GetResourceVersion(r.UpdatedAt),
+			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
 		Status: &status,

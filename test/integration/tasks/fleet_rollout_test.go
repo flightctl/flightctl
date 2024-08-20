@@ -20,6 +20,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 func TestController(t *testing.T) {
@@ -37,6 +38,7 @@ var _ = Describe("FleetRollout", func() {
 		tvStore         store.TemplateVersion
 		storeInst       store.Store
 		cfg             *config.Config
+		db              *gorm.DB
 		dbName          string
 		numDevices      int
 		fleetName       string
@@ -51,7 +53,7 @@ var _ = Describe("FleetRollout", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -141,6 +143,7 @@ var _ = Describe("FleetRollout", func() {
 			var (
 				gitConfig    *api.GitConfigProviderSpec
 				inlineConfig *api.InlineConfigProviderSpec
+				httpConfig   *api.HttpConfigProviderSpec
 			)
 
 			BeforeEach(func() {
@@ -160,6 +163,13 @@ var _ = Describe("FleetRollout", func() {
 				err := json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.{{ device.metadata.labels[version] }}\"}}"), &inline)
 				Expect(err).ToNot(HaveOccurred())
 				inlineConfig.Inline = inline
+				httpConfig = &api.HttpConfigProviderSpec{
+					ConfigType: string(api.TemplateDiscriminatorHttpConfig),
+					Name:       "paramHttpConfig",
+				}
+				httpConfig.HttpRef.Repository = "http-repo"
+				httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
+				httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
 			})
 
 			It("its devices are rolled out successfully", func() {
@@ -177,7 +187,10 @@ var _ = Describe("FleetRollout", func() {
 				inlineItem := api.TemplateVersionStatus_Config_Item{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem}
+				httpItem := api.TemplateVersionStatus_Config_Item{}
+				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
+				Expect(err).ToNot(HaveOccurred())
+				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem, httpItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
 				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
 				Expect(err).ToNot(HaveOccurred())
@@ -203,7 +216,7 @@ var _ = Describe("FleetRollout", func() {
 					Expect(dev.Metadata.Annotations).ToNot(BeNil())
 					Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 					Expect(dev.Spec.Config).ToNot(BeNil())
-					Expect(*dev.Spec.Config).To(HaveLen(2))
+					Expect(*dev.Spec.Config).To(HaveLen(3))
 					for _, configItem := range *dev.Spec.Config {
 						disc, err := configItem.Discriminator()
 						Expect(err).ToNot(HaveOccurred())
@@ -222,6 +235,11 @@ var _ = Describe("FleetRollout", func() {
 							verStr, ok := ver.(string)
 							Expect(ok).To(BeTrue())
 							Expect(verStr).To(Equal(fmt.Sprintf("3.4.%d", i)))
+						case string(api.TemplateDiscriminatorHttpConfig):
+							httpSpec, err := configItem.AsHttpConfigProviderSpec()
+							Expect(err).ToNot(HaveOccurred())
+							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("http-path-value-%d", i)))
+							Expect(httpSpec.HttpRef.Suffix).To(Equal(util.StrToPtr("/http-suffix")))
 						default:
 							Expect("").To(Equal("unexpected discriminator"))
 						}
@@ -243,6 +261,9 @@ var _ = Describe("FleetRollout", func() {
 				Expect(err).ToNot(HaveOccurred())
 				inlineItem := api.TemplateVersionStatus_Config_Item{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
+				Expect(err).ToNot(HaveOccurred())
+				httpItem := api.TemplateVersionStatus_Config_Item{}
+				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
 				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
@@ -290,6 +311,98 @@ var _ = Describe("FleetRollout", func() {
 					}
 				}
 			})
+		})
+	})
+
+	When("a resourceversion race occurs while rolling out a device", func() {
+		It("fails if the owner changed", func() {
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.bad", "my bad OS", false)
+			Expect(err).ToNot(HaveOccurred())
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
+			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
+			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
+
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", "my first OS", true)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Somebody changed the owner just as it was being rolled out
+			raceCalled := false
+			race := func() {
+				if raceCalled {
+					return
+				}
+				raceCalled = true
+				otherupdate := api.Device{
+					Metadata: api.ObjectMeta{
+						Name:            util.StrToPtr("mydevice-1"),
+						Owner:           util.SetResourceOwner(model.FleetKind, "some-other-owner"),
+						ResourceVersion: util.StrToPtr("0"),
+					},
+					Spec:   &api.DeviceSpec{},
+					Status: &api.DeviceStatus{},
+				}
+				device, err := model.NewDeviceFromApiResource(&otherupdate)
+				Expect(err).ToNot(HaveOccurred())
+				device.OrgID = orgId
+				result := db.Updates(device)
+				Expect(result.Error).ToNot(HaveOccurred())
+			}
+			deviceStore.SetIntegrationTestCreateOrUpdateCallback(race)
+
+			err = logic.RolloutDevice(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(HaveSuffix("device owner changed, skipping rollout"))
+			dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(0))
+		})
+
+		It("succeeds if the owner does not change", func() {
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.bad", "my bad OS", false)
+			Expect(err).ToNot(HaveOccurred())
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
+			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
+			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
+
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", "my first OS", true)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Somebody changed the owner just as it was being rolled out
+			raceCalled := false
+			race := func() {
+				if raceCalled {
+					return
+				}
+				raceCalled = true
+				otherupdate := api.Device{
+					Metadata: api.ObjectMeta{
+						Name:            util.StrToPtr("mydevice-1"),
+						ResourceVersion: util.StrToPtr("0"),
+					},
+					Spec:   &api.DeviceSpec{},
+					Status: &api.DeviceStatus{},
+				}
+				device, err := model.NewDeviceFromApiResource(&otherupdate)
+				Expect(err).ToNot(HaveOccurred())
+				device.OrgID = orgId
+				result := db.Updates(device)
+				Expect(result.Error).ToNot(HaveOccurred())
+			}
+			deviceStore.SetIntegrationTestCreateOrUpdateCallback(race)
+
+			err = logic.RolloutDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(1))
 		})
 	})
 })

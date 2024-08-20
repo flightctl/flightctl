@@ -1,6 +1,0 @@
-apiVersion: v1alpha1
-kind: TemplateVersion
-metadata:
-  name: 1.0.0
-spec:
-  fleet: default

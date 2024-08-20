@@ -1,0 +1,37 @@
+name: "Documentation Quality"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - docs/**
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  lint:
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout
+        run: |
+          commits=${{ github.event.pull_request.commits }}
+          if [[ -n "$commits" ]]; then
+            # Prepare enough depth for diffs with master
+            git fetch --depth="$(( commits + 1 ))"
+          fi
+
+      - name: Running Markdown Linter
+        run: make lint-docs
+
+      - name: Running Spellchecker
+        run: make spellcheck-docs
+
+      - name: Verifying diagrams have source embedded
+        run: make lint-diagrams

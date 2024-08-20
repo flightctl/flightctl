@@ -1,5 +1,4 @@
 {{ if and (.Values.flightctl.api.enabled) (not .Values.flightctl.api.nodePort) }}
-
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -8,9 +7,13 @@ metadata:
     paas.redhat.com/appcode: {{ .Values.appCode }}
     shard: external
   name: flightctl-api-route
-  namespace: {{ .Values.flightctl.api.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
+  {{ if .Values.flightctl.api.hostName }}
   host: {{ .Values.flightctl.api.hostName }}
+  {{ else }}
+  host: api.{{ .Values.global.flightctl.baseDomain }}
+  {{ end }}
   port:
     targetPort: 3443
   tls:

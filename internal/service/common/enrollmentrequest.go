@@ -45,7 +45,7 @@ func CreateEnrollmentRequest(ctx context.Context, st store.Store, request server
 	switch err {
 	case nil:
 		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err

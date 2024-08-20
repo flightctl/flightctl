@@ -82,6 +82,27 @@ func (mr *MockExecuterMockRecorder) ExecuteWithContext(ctx, command any, args ..
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithContext", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithContext), varargs...)
 }
 
+// ExecuteWithContextFromDir mocks base method.
+func (m *MockExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir, command string, args []string, env ...string) (string, string, int) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, workingDir, command, args}
+	for _, a := range env {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ExecuteWithContextFromDir", varargs...)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(int)
+	return ret0, ret1, ret2
+}
+
+// ExecuteWithContextFromDir indicates an expected call of ExecuteWithContextFromDir.
+func (mr *MockExecuterMockRecorder) ExecuteWithContextFromDir(ctx, workingDir, command, args any, env ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, workingDir, command, args}, env...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithContextFromDir", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithContextFromDir), varargs...)
+}
+
 // LookPath mocks base method.
 func (m *MockExecuter) LookPath(file string) (string, error) {
 	m.ctrl.T.Helper()

@@ -23,11 +23,9 @@ const (
 	caCertValidityDays          = 365 * 10
 	serverCertValidityDays      = 365 * 1
 	clientBootStrapValidityDays = 365 * 1
-	adminCertValidityDays       = 365 * 1
 	signerCertName              = "ca"
 	serverCertName              = "server"
 	clientBootstrapCertName     = "client-enrollment"
-	flightctlAdminCertificate   = "flightctl-admin"
 )
 
 func main() {
@@ -67,12 +65,8 @@ func main() {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}
 
-	adminCert, _, err := ca.EnsureClientCertificate(certFile(flightctlAdminCertificate), keyFile(flightctlAdminCertificate), crypto.AdminCommonName, adminCertValidityDays)
-	if err != nil {
-		log.Fatalf("ensuring flightctl-admin client cert: %v", err)
-	}
 	// also write out a client config file
-	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, adminCert)
+	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, nil)
 	if err != nil {
 		log.Fatalf("writing client config: %v", err)
 	}
@@ -90,7 +84,7 @@ func main() {
 		log.Fatalf("running initial migration: %v", err)
 	}
 
-	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, agentTlsConfig, grpcTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
@@ -111,7 +105,7 @@ func main() {
 	}()
 
 	go func() {
-		listener, err := middleware.NewTLSListener(cfg.Service.AgentEndpointAddress, tlsConfig)
+		listener, err := middleware.NewTLSListener(cfg.Service.AgentEndpointAddress, agentTlsConfig)
 		if err != nil {
 			log.Fatalf("creating listener: %s", err)
 		}
@@ -125,7 +119,7 @@ func main() {
 
 	go func() {
 
-		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, tlsConfig)
+		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, grpcTlsConfig)
 		if err := grpcServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}

@@ -2,9 +2,12 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 )
 
 var (
@@ -30,23 +33,32 @@ func (e EnrollmentRequest) String() string {
 	return string(val)
 }
 
-func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) *EnrollmentRequest {
+func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) (*EnrollmentRequest, error) {
 	if resource == nil || resource.Metadata.Name == nil {
-		return &EnrollmentRequest{}
+		return &EnrollmentRequest{}, nil
 	}
 
 	status := api.EnrollmentRequestStatus{Conditions: []api.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
+	var resourceVersion *int64
+	if resource.Metadata.ResourceVersion != nil {
+		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
+		if err != nil {
+			return nil, flterrors.ErrIllegalResourceVersionFormat
+		}
+		resourceVersion = &i
+	}
 	return &EnrollmentRequest{
 		Resource: Resource{
-			Name:   *resource.Metadata.Name,
-			Labels: util.LabelMapToArray(resource.Metadata.Labels),
+			Name:            *resource.Metadata.Name,
+			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
 		Status: MakeJSONField(status),
-	}
+	}, nil
 }
 
 func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
@@ -68,7 +80,7 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 			Name:              util.StrToPtr(e.Name),
 			CreationTimestamp: util.TimeToPtr(e.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
-			ResourceVersion:   GetResourceVersion(e.UpdatedAt),
+			ResourceVersion:   lo.Ternary(e.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(e.ResourceVersion), 10)), nil),
 		},
 		Spec:   e.Spec.Data,
 		Status: &status,

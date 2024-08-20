@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: keycloak
-  namespace: {{ .Values.keycloak.namespace }}
+  namespace: {{ .Values.namespace }}
 spec:
   replicas: 1
   strategy:
@@ -17,46 +17,46 @@ spec:
         app: keycloak
     spec:
       containers:
-      - args:
+      - name: keycloak
+        image: {{ .Values.image }}
+        imagePullPolicy: {{ .Values.imagePullPolicy }}
+        args:
         - start-dev
         - --http-port=8080
+        - --https-port=8443
         - --proxy=edge
         - --import-realm
         env:
-          - name: KC_DB_URL
-            valueFrom:
-              secretKeyRef:
-                name: keycloak
-                key: KC_DB_URL
-          - name: KC_DB
-            valueFrom:
-              secretKeyRef:
-                name: keycloak
-                key: KC_DB
-          - name: KC_DB_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: keycloak
-                key: KC_DB_PASSWORD
-          - name: KC_DB_USERNAME
-            valueFrom:
-              secretKeyRef:
-                name: keycloak
-                key: KC_DB_USERNAME
           - name: KEYCLOAK_ADMIN
             valueFrom:
               secretKeyRef:
-                name: keycloak
-                key: KEYCLOAK_ADMIN
+                name: keycloak-admin-secret
+                key: username
           - name: KEYCLOAK_ADMIN_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: keycloak
-                key: KEYCLOAK_ADMIN_PASSWORD
-        image: {{ .Values.keycloak.image }}
-        name: keycloak
+                name: keycloak-admin-secret
+                key: password
+          - name: KC_DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: keycloak-db-pguser-keycloak
+                key: jdbcUrl
+          - name: KC_DB
+            value: postgres
+          - name: KC_DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: keycloak-db-pguser-keycloak
+                key: username
+          - name: KC_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: keycloak-db-pguser-keycloak
+                key: password
         ports:
         - containerPort: 8080
+        - containerPort: 8443
         resources: {}
         volumeMounts:
         - mountPath: /opt/keycloak/data/import/

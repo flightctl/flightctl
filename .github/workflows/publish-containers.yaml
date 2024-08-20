@@ -8,10 +8,12 @@ on:
 
 env:
   QUAY_ORG: quay.io/flightctl
+  QUAY_CHARTS: quay.io/flightctl/charts
 
 jobs:
   publish-helm-charts-containers:
     runs-on: ubuntu-latest
+    needs: publish-flightctl-containers
     steps:
       - uses: actions/checkout@v3
         with:
@@ -22,7 +24,7 @@ jobs:
 
       - name: Get version
         run: |
-          VERSION=$(git describe --long --tags)
+          VERSION=$(git describe --long --tags --exclude latest)
           VERSION=${VERSION#v} # remove the leading v prefix for version
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "VERSION=${VERSION}"
@@ -41,7 +43,7 @@ jobs:
 
       - name: Push helm charts
         run: |
-          helm push flightctl-helm-*.tgz oci://${{ env.QUAY_ORG }}/
+          helm push "flightctl-${VERSION}.tgz" oci://${{ env.QUAY_CHARTS }}/
 
   publish-flightctl-containers:
     strategy:
@@ -57,7 +59,7 @@ jobs:
       - name: Generate tags
         id: generate-tags
         run: |
-          VERSION=$(git describe --long --tags)
+          VERSION=$(git describe --long --tags --exclude latest)
           VERSION=${VERSION#v} # remove the leading v prefix for version
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "VERSION=${VERSION}"

@@ -37,7 +37,7 @@ func (t *DeviceDisconnected) Poll() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	statusInfoMessage := fmt.Sprintf("Did not check in for %d minutes", int(DeviceDisconnectedTimeout.Minutes()))
+	statusInfoMessage := fmt.Sprintf("Did not check in for more than %d minutes", int(DeviceDisconnectedTimeout.Minutes()))
 	// TODO: one thread per org?
 	orgID := uuid.UUID{}
 	// batch of 1000 devices
@@ -52,7 +52,7 @@ func (t *DeviceDisconnected) Poll() {
 		var batch []string
 		for _, device := range devices.Items {
 			if device.Status != nil && device.Status.Summary.Status != v1alpha1.DeviceSummaryStatusUnknown {
-				if device.Status.UpdatedAt.Add(DeviceDisconnectedTimeout).Before(time.Now()) {
+				if device.Status.LastSeen.Add(DeviceDisconnectedTimeout).Before(time.Now()) {
 					batch = append(batch, *device.Metadata.Name)
 				}
 			}

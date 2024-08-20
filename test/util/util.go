@@ -3,7 +3,6 @@ package util
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -105,7 +104,7 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
 func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig, provider queues.Provider) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port
-	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, _, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestServer: error creating TLS certs: %w", err)
 	}
@@ -122,7 +121,7 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
 func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
-	tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
@@ -167,11 +166,11 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 	return dbStore, randomDBName, nil
 }
 
-// NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and client certificate.
-func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
+// NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.
+func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
 	ca, _, err := crypto.EnsureCA(filepath.Join(cfg.Service.CertStore, "ca.crt"), filepath.Join(cfg.Service.CertStore, "ca.key"), "", "ca", caCertValidityDays)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
+		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
 	}
 
 	// default certificate hostnames to localhost if nothing else is configured
@@ -181,25 +180,20 @@ func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig,
 
 	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(cfg.Service.CertStore, "server.crt"), filepath.Join(cfg.Service.CertStore, "server.key"), cfg.Service.AltNames, serverCertValidityDays)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring server certificate: %w", err)
+		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring server certificate: %w", err)
 	}
 
 	enrollmentCerts, _, err := ca.EnsureClientCertificate(filepath.Join(cfg.Service.CertStore, "client-enrollment.crt"), filepath.Join(cfg.Service.CertStore, "client-enrollment.key"), clientBootstrapCertName, clientBootStrapValidityDays)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring client enrollment certificate: %w", err)
+		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring client enrollment certificate: %w", err)
 	}
 
-	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(cfg.Service.CertStore, "flightctl-admin.crt"), filepath.Join(cfg.Service.CertStore, "flightctl-admin.key"), crypto.AdminCommonName, adminCertValidityDays)
-	if err != nil {
-		log.Fatalf("ensuring flightctl-admin client cert: %v", err)
-	}
-
-	return ca, serverCerts, enrollmentCerts, adminCert, nil
+	return ca, serverCerts, enrollmentCerts, nil
 }
 
 // NewClient creates a new client with the given server URL and certificates. If the certs are nil a http client will be created.
-func NewClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateConfig) (*client.ClientWithResponses, error) {
-	httpClient, err := NewBareHTTPsClient(caCert, clientCert)
+func NewClient(serverUrl string, caCert *crypto.TLSCertificateConfig) (*client.ClientWithResponses, error) {
+	httpClient, err := NewBareHTTPsClient(caCert, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating TLS config: %v", err)
 	}
@@ -220,7 +214,7 @@ func NewAgentClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateC
 func NewBareHTTPsClient(caCert, clientCert *crypto.TLSCertificateConfig) (*http.Client, error) {
 
 	httpClient := &http.Client{}
-	if caCert != nil && clientCert != nil {
+	if caCert != nil || clientCert != nil {
 		var err error
 		tlsConfig, err := crypto.TLSConfigForClient(caCert, clientCert)
 		if err != nil {

@@ -7,7 +7,7 @@ Flight Control is a service for declarative, GitOps-driven management of edge de
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.20), `openssl-devel`, and `podman-compose`
+* `git`, `make`, and `go` (>= 1.21), `openssl`, `openssl-devel` and `podman-compose`
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
@@ -25,7 +25,7 @@ To run unit tests, use `make unit-test`.  This requires installing gotestsum:
 
 To generate API code and mocks, use `make generate`  This requires installing mockgen:
 
-`go install github.com/golang/mock/mockgen@v1.6.0`
+`go install go.uber.org/mock/mockgen@v0.4.0`
 
 ## Running
 
@@ -41,13 +41,18 @@ The service can be deployed locally in kind with the following command:
 make deploy
 ```
 
+To deploy with auth enabled:
+```
+AUTH=true make deploy
+```
+
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
 and the client configuration in `$HOME/.flightctl/client.yaml`.
 
 Use the `flightctl` CLI to login and then apply, get, or delete resources:
 
 ```
-bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}')
+bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web --certificate-authority ~/.flightctl/certs/ca.crt
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```
@@ -59,7 +64,7 @@ this only works on a Linux host.
 ```
 # will create the cluster, and the agent config files in bin/agent which will be embedded in the image
 make deploy
-make agent-vm agent-vm-console # user/password is redhat/redhat
+make agent-vm agent-vm-console # user/password is user/user
 ```
 
 The agent-vm target accepts multiple parameters:
@@ -96,9 +101,9 @@ NOTE: You can exit the console with Ctrl + ] , and `stty rows 80` and `stty colu
 
 If you created individual devices you need to clean them one by one:
 ```
-make agent-vm-clean VMNAME=flightctl-device-1
-make agent-vm-clean VMNAME=flightctl-device-2
-make agent-vm-clean VMNAME=flightctl-device-3
+make clean-agent-vm VMNAME=flightctl-device-1
+make clean-agent-vm VMNAME=flightctl-device-2
+make clean-agent-vm VMNAME=flightctl-device-3
 ```
 
 Use the `devicesimulator` to simulate load from devices:

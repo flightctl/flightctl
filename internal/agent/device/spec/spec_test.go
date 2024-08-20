@@ -3,131 +3,101 @@ package spec
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
-	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"go.uber.org/mock/gomock"
 )
 
-func TestManager(t *testing.T) {
-	tests := []struct {
-		name           string
-		ensureRendered bool
-		wantSkipSync   bool
-		wantErr        error
-	}{
-		{
-			name:           "happy path",
-			ensureRendered: true,
-		},
-		{
-			name:           "error getting rendered spec during runtime",
-			ensureRendered: false,
-			wantErr:        ErrMissingRenderedSpec,
-		},
-		{
-			name:           "skip sync 204 from api",
-			ensureRendered: true,
-			wantSkipSync:   true,
-		},
+func TestBootstrapCheckRollback(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockBootcClient := container.NewMockBootcClient(ctrl)
+
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+		bootcClient:      mockBootcClient,
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require := require.New(t)
-			tmpDir := t.TempDir()
-			err := os.MkdirAll(tmpDir+"/etc/flightctl", 0755)
-			require.NoError(err)
-			currentSpecFilePath := "/etc/flightctl/" + "current-spec.json"
-			desiredSpecFilePath := "/etc/flightctl/" + "desired-spec.json"
-			backoff := wait.Backoff{
-				Steps:    1,
-				Duration: 1,
-				Factor:   1,
-				Jitter:   0,
-			}
-			server := createMockManagementServer(t, tt.wantSkipSync)
-			defer server.Close()
 
-			serverUrl := server.URL
-			httpClient, err := testutil.NewAgentClient(serverUrl, nil, nil)
-			require.NoError(err)
-			managementClient := client.NewManagement(httpClient)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+	t.Run("no rollback: bootstrap case empty desired spec", func(t *testing.T) {
+		wantIsRollback := false
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil)
 
-			log := log.NewPrefixLogger("")
-			writer := fileio.NewWriter()
-			writer.SetRootdir(tmpDir)
-			reader := fileio.NewReader()
-			reader.SetRootdir(tmpDir)
+		isRollback, err := s.IsRollingBack(ctx)
+		require.NoError(err)
+		require.Equal(wantIsRollback, isRollback)
+	})
 
-			// ensure rendered spec
-			if tt.ensureRendered {
-				_, err := EnsureCurrentRenderedSpec(ctx, log, writer, reader, currentSpecFilePath)
-				require.NoError(err)
-			}
+	t.Run("no rollback: booted os is equal to desired", func(t *testing.T) {
+		wantIsRollback := false
+		rollbackImage := "flightctl-device:v1"
+		bootedImage := "flightctl-device:v2"
+		desiredImage := "flightctl-device:v2"
 
-			manager := NewManager(
-				"testDeviceName",
-				currentSpecFilePath,
-				desiredSpecFilePath,
-				writer,
-				reader,
-				managementClient,
-				backoff,
-				log,
-			)
-			current, desired, err := manager.GetRendered(ctx)
-			if tt.wantSkipSync {
-				require.Equal(current, desired)
-				return
-			}
-			if tt.wantErr != nil {
-				require.ErrorIs(err, tt.wantErr)
-				return
-			}
-			require.NoError(err)
-			// eval current
-			require.Equal("", current.RenderedVersion)
-			// eval desired
-			require.Equal("mockRenderedVersion", desired.RenderedVersion)
-		})
-	}
+		// desiredSpec
+		desiredSpec, err := createTestSpec(desiredImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(desiredSpec, nil)
+
+		// rollbackSpec
+		rollbackSpec, err := createTestSpec(rollbackImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(rollbackSpec, nil)
+
+		// bootcStatus
+		bootcStatus := &container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		isRollback, err := s.IsRollingBack(ctx)
+		require.NoError(err)
+		require.Equal(wantIsRollback, isRollback)
+	})
+
+	t.Run("rollback case: rollback os equal to booted os but not desired", func(t *testing.T) {
+		wantIsRollback := true
+		rollbackImage := "flightctl-device:v1"
+		bootedImage := "flightctl-device:v1"
+		desiredImage := "flightctl-device:v2"
+
+		// desiredSpec
+		desiredSpec, err := createTestSpec(desiredImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(desiredSpec, nil)
+
+		// rollbackSpec
+		rollbackSpec, err := createTestSpec(rollbackImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(rollbackSpec, nil)
+
+		// bootcStatus
+		bootcStatus := &container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		isRollback, err := s.IsRollingBack(ctx)
+		require.NoError(err)
+		require.Equal(wantIsRollback, isRollback)
+	})
 
 }
 
-func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mockRenderedVersion := "mockRenderedVersion"
-		resp := v1alpha1.RenderedDeviceSpec{
-			RenderedVersion: mockRenderedVersion,
-			Config:          util.StrToPtr("ignitionConfig"),
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if noChange {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		respBytes, err := json.Marshal(resp)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = w.Write(respBytes)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}))
+func createTestSpec(image string) ([]byte, error) {
+	spec := v1alpha1.RenderedDeviceSpec{
+		Os: &v1alpha1.DeviceOSSpec{
+			Image: image,
+		},
+	}
+	return json.Marshal(spec)
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -22,14 +23,15 @@ func BenchmarkAggregateDeviceStatus(b *testing.B) {
 
 	ctrl := gomock.NewController(b)
 	execMock := executer.NewMockExecuter(ctrl)
-	resourceMock := resource.NewMockManager(ctrl)
+	resourceManagerMock := resource.NewMockManager(ctrl)
+	hookManagerMock := hook.NewMockManager(ctrl)
 	execMock.EXPECT().LookPath("crictl").Return("/usr/bin/crictl", nil).AnyTimes()
 	execMock.EXPECT().LookPath("podman").Return("/usr/bin/podman", nil).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/crictl", "ps", "-a", "--output", "json").Return(crioListResult, "", 0).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json").Return(podmanListResult, "", 0).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "crio.service").Return(systemdUnitListResult, "", 0).AnyTimes()
 
-	manager := NewManager("test", resourceMock, execMock, log)
+	manager := NewManager("test", resourceManagerMock, hookManagerMock, execMock, log)
 	systemdPatterns := []string{"crio.service"}
 
 	spec := &v1alpha1.RenderedDeviceSpec{

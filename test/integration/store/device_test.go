@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -33,6 +34,7 @@ var _ = Describe("DeviceStore create", func() {
 		storeInst          store.Store
 		devStore           store.Device
 		cfg                *config.Config
+		db                 *gorm.DB
 		dbName             string
 		numDevices         int
 		called             bool
@@ -45,7 +47,7 @@ var _ = Describe("DeviceStore create", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(before *model.Device, after *model.Device) { called = true })
@@ -70,18 +72,20 @@ var _ = Describe("DeviceStore create", func() {
 			Status: nil,
 		}
 
-		callbackdb, err := store.InitDB(cfg, log)
-		defer store.CloseDB(callbackdb)
-		Expect(err).ToNot(HaveOccurred())
-		race := func(db *gorm.DB) {
-			result := callbackdb.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename"}})
+		raceCalled := false
+		race := func() {
+			if raceCalled {
+				return
+			}
+			raceCalled = true
+			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}})
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
-		err = callbackdb.Callback().Create().Before("gorm:create").Register("race", race)
-		Expect(err).ToNot(HaveOccurred())
+		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		_, _, err = devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
+		_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 		Expect(err).ToNot(HaveOccurred())
+		Expect(created).To(BeFalse())
 	})
 
 	It("CreateOrUpdateDevice update mode race", func() {
@@ -98,18 +102,20 @@ var _ = Describe("DeviceStore create", func() {
 			Status: &status,
 		}
 
-		callbackdb, err := store.InitDB(cfg, log)
-		defer store.CloseDB(callbackdb)
-		Expect(err).ToNot(HaveOccurred())
-		race := func(db *gorm.DB) {
+		raceCalled := false
+		race := func() {
+			if raceCalled {
+				return
+			}
 			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOSSpec{Image: "bah"}}}
 			device, err := model.NewDeviceFromApiResource(&otherupdate)
+			device.OrgID = orgId
+			device.ResourceVersion = lo.ToPtr(int64(5))
 			Expect(err).ToNot(HaveOccurred())
-			result := callbackdb.Updates(device)
+			result := db.Updates(device)
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
-		err = callbackdb.Callback().Update().Before("*").Register("race", race)
-		Expect(err).ToNot(HaveOccurred())
+		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
 		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, callback)
 		Expect(err).ToNot(HaveOccurred())
@@ -118,7 +124,7 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(dev.Kind).To(Equal(model.DeviceKind))
 		Expect(dev.Spec.Os.Image).To(Equal("newos"))
 		Expect(dev.Metadata.ResourceVersion).ToNot(BeNil())
-		Expect(*dev.Metadata.ResourceVersion).To(Equal("2"))
+		Expect(*dev.Metadata.ResourceVersion).To(Equal("6"))
 	})
 
 	It("CreateOrUpdateDevice update with stale resourceVersion", func() {

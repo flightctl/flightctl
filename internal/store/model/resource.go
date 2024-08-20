@@ -1,7 +1,6 @@
 package model
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,7 +11,7 @@ import (
 type Resource struct {
 	// Uniquely identifies the tenant the resource belongs to.
 	// Assigned by IAM. Immutable.
-	OrgID uuid.UUID `gorm:"type:uuid;primary_key;"`
+	OrgID uuid.UUID `gorm:"type:uuid;primary_key;index:owner_idx,priority:2"`
 
 	// Uniquely identifies the resource within a tenant and schema.
 	// Depending on the schema (kind), assigned by the device management system or the crypto identity of the device (public key). Immutable.
@@ -23,7 +22,7 @@ type Resource struct {
 	// DisplayName string
 
 	// The "kind/name" of the resource owner of this resource.
-	Owner *string
+	Owner *string `gorm:"index:owner_idx,priority:1"`
 
 	// User-defined labels, used to select resources in queries.
 	// Labels are inserted in the device column as a string array, in a way
@@ -44,9 +43,4 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 		r.Name = uuid.New().String()
 	}
 	return nil
-}
-
-func GetResourceVersion(updatedAt time.Time) *string {
-	resourceVersion := strconv.FormatInt(updatedAt.UnixNano(), 10)
-	return &resourceVersion
 }

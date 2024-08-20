@@ -5,7 +5,9 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -13,14 +15,15 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type Fleet interface {
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error)
 	CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, fleets ...*api.Fleet) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
@@ -60,40 +63,63 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
-	fleet := model.NewFleetFromApiResource(resource)
-	fleet.OrgID = orgId
-	if fleet.Spec.Data.Template.Metadata == nil {
-		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
+	fleet, err := model.NewFleetFromApiResource(resource)
+	if err != nil {
+		return nil, err
 	}
-	fleet.Generation = util.Int64ToPtr(1)
+	fleet.OrgID = orgId
 	fleet.Annotations = nil
-	fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
-	result := s.db.Create(fleet)
-	if result.Error == nil {
+	_, err = s.createFleet(fleet)
+	if err == nil {
 		callback(nil, fleet)
 	}
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	return resource, err
 }
 
-func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.FleetList, error) {
-	var fleets model.FleetList
+type ListOption func(*listOptions)
+
+type listOptions struct {
+	withDeviceCount bool
+}
+
+func WithDeviceCount(val bool) ListOption {
+	return func(o *listOptions) {
+		o.withDeviceCount = val
+	}
+}
+
+type fleetWithCount struct {
+	model.Fleet
+	DeviceCount int
+}
+
+func fleetSelectStr(withDeviceCount bool) string {
+	return lo.Ternary(withDeviceCount,
+		fmt.Sprintf("*, (select count(*) from devices where org_id = fleets.org_id and owner = CONCAT('%s/', fleets.name)) as device_count", model.FleetKind),
+		"*")
+}
+
+func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error) {
+	var fleetsWithCount []fleetWithCount
 	var nextContinue *string
 	var numRemaining *int64
-
-	query := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams)
+	var options listOptions
+	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })
+	dbModel := s.db.Table("fleets").Select(fleetSelectStr(options.withDeviceCount))
+	query := BuildBaseListQuery(dbModel, orgId, listParams)
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	}
-	result := query.Find(&fleets)
+	result := query.Scan(&fleetsWithCount)
 
 	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(fleets) > listParams.Limit {
+	if listParams.Limit > 0 && len(fleetsWithCount) > listParams.Limit {
 		nextContinueStruct := Continue{
-			Name:    fleets[len(fleets)-1].Name,
+			Name:    fleetsWithCount[len(fleetsWithCount)-1].Name,
 			Version: CurrentContinueVersion,
 		}
-		fleets = fleets[:len(fleets)-1]
+		fleetsWithCount = fleetsWithCount[:len(fleetsWithCount)-1]
 
 		var numRemainingVal int64
 		if listParams.Continue != nil {
@@ -102,7 +128,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&fleets), orgId, listParams)
+			countQuery := BuildBaseListQuery(s.db.Model(&model.Fleet{}), orgId, listParams)
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -111,7 +137,15 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 		nextContinue = &contStr
 		numRemaining = &numRemainingVal
 	}
-
+	fleets := model.FleetList(lo.Map(fleetsWithCount, func(f fleetWithCount, _ int) model.Fleet {
+		if options.withDeviceCount {
+			if f.Fleet.Status.Data.DevicesSummary == nil {
+				f.Fleet.Status.Data.DevicesSummary = &api.DevicesSummary{}
+			}
+			f.Fleet.Status.Data.DevicesSummary.Total = f.DeviceCount
+		}
+		return f.Fleet
+	}))
 	apiFleetList := fleets.ToApiResource(nextContinue, numRemaining)
 	return &apiFleetList, flterrors.ErrorFromGormError(result.Error)
 }
@@ -137,168 +171,200 @@ func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback Fl
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
-func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, error) {
-	fleet := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: name},
+type GetOption func(*getOptions)
+
+type getOptions struct {
+	withSummary bool
+}
+
+func WithSummary(val bool) GetOption {
+	return func(o *getOptions) {
+		o.withSummary = val
 	}
-	result := s.db.First(&fleet)
-	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+}
+
+func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error) {
+	options := getOptions{}
+	for _, opt := range opts {
+		opt(&options)
 	}
 
-	apiFleet := fleet.ToApiResource()
+	var fleet fleetWithCount
+	result := s.db.Table("fleets").Where("org_id = ? and name = ?", orgId, name).
+		Select(fleetSelectStr(true)).
+		Scan(&fleet)
+	if result.Error != nil {
+		return nil, flterrors.ErrorFromGormError(result.Error)
+	} else if result.RowsAffected == 0 {
+		return nil, flterrors.ErrResourceNotFound
+	}
+
+	summary := api.DevicesSummary{
+		Total: fleet.DeviceCount,
+	}
+	if options.withSummary {
+		var err error
+		summary.SummaryStatus, err = s.getDeviceSummary(ctx, orgId, name, "summary")
+		if err != nil {
+			return nil, flterrors.ErrorFromGormError(err)
+		}
+
+		summary.UpdateStatus, err = s.getDeviceSummary(ctx, orgId, name, "updated")
+		if err != nil {
+			return nil, flterrors.ErrorFromGormError(err)
+		}
+	}
+
+	apiFleet := fleet.ToApiResource(model.WithSummary(&summary))
 	return &apiFleet, nil
 }
 
-func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error) {
-	oldFleet, newFleet, err := s.createOrUpdateTx(s.db, orgId, resource)
-	if err == nil {
-		callback(oldFleet, newFleet)
-	}
-	updatedFleet := newFleet.ToApiResource()
-
-	return &updatedFleet, oldFleet == nil, err
+type StatusCount struct {
+	Status string
+	Count  int
 }
 
-func (s *FleetStore) createOrUpdateTx(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*model.Fleet, *model.Fleet, error) {
+func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summaryField string) (map[string]int, error) {
+	queryStr := `
+	SELECT count(*) as count, status::jsonb->'%s'->>'status' as status
+	FROM devices
+	WHERE owner = '%s' AND org_id = '%s'
+	GROUP BY status::jsonb->'%s'->>'status'`
+	summaryQueryStr := fmt.Sprintf(queryStr, summaryField, *util.SetResourceOwner(model.FleetKind, fleetName), orgId, summaryField)
+
+	var statusCounts []StatusCount
+	if err := s.db.WithContext(ctx).Raw(summaryQueryStr).Scan(&statusCounts).Error; err != nil {
+		return nil, err
+	}
+	return lo.SliceToMap(statusCounts, func(s StatusCount) (string, int) { return s.Status, s.Count }), nil
+}
+
+func (s *FleetStore) createFleet(fleet *model.Fleet) (bool, error) {
+	if fleet.Spec.Data.Template.Metadata == nil {
+		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
+	}
+	fleet.Spec.Data.Template.Metadata.Generation = lo.ToPtr[int64](1)
+	fleet.Generation = lo.ToPtr[int64](1)
+	fleet.ResourceVersion = lo.ToPtr[int64](1)
+	if result := s.db.Create(fleet); result.Error != nil {
+		err := flterrors.ErrorFromGormError(result.Error)
+		return err == flterrors.ErrDuplicateName, err
+	}
+	return false, nil
+}
+
+func (s *FleetStore) updateFleet(existingRecord, fleet *model.Fleet) (bool, error) {
+	if existingRecord.Owner != nil && *existingRecord.Owner != lo.FromPtr(fleet.Owner) {
+		return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+	}
+	if fleet.ResourceVersion != nil && lo.FromPtr(existingRecord.ResourceVersion) != lo.FromPtr(fleet.ResourceVersion) {
+		return false, flterrors.ErrResourceVersionConflict
+	}
+
+	sameSpec := reflect.DeepEqual(existingRecord.Spec, fleet.Spec)
+
+	// Update the generation if the spec was updated
+	fleet.Generation = lo.Ternary(!sameSpec, lo.ToPtr(lo.FromPtr(existingRecord.Generation)+1), existingRecord.Generation)
+
+	sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
+	if fleet.Spec.Data.Template.Metadata == nil {
+		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
+	}
+	var existingMetadataGeneration int64
+	if existingRecord.Spec.Data.Template.Metadata != nil {
+		existingMetadataGeneration = lo.FromPtr(existingRecord.Spec.Data.Template.Metadata.Generation)
+	}
+	fleet.Spec.Data.Template.Metadata.Generation = lo.Ternary(!sameTemplateSpec, lo.ToPtr(existingMetadataGeneration+1), lo.ToPtr(existingMetadataGeneration))
+
+	fleet.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
+
+	query := s.db.Model(&model.Fleet{}).Where("org_id = ? and name = ? and resource_version = ?", fleet.OrgID, fleet.Name, lo.FromPtr(existingRecord.ResourceVersion))
+
+	selectFields := []string{"spec"}
+	selectFields = append(selectFields, GetNonNilFieldsFromResource(fleet.Resource)...)
+	query = query.Select(selectFields)
+	result := query.Updates(&fleet)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *FleetStore) createOrUpdate(orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, bool, error) {
 	if resource == nil {
-		return nil, nil, flterrors.ErrResourceIsNil
+		return nil, false, false, flterrors.ErrResourceIsNil
 	}
 	if resource.Metadata.Name == nil {
-		return nil, nil, flterrors.ErrResourceNameIsNil
+		return nil, false, false, flterrors.ErrResourceNameIsNil
 	}
-	fleet := model.NewFleetFromApiResource(resource)
+
+	fleet, err := model.NewFleetFromApiResource(resource)
+	if err != nil {
+		return nil, false, false, err
+	}
 	fleet.OrgID = orgId
 
 	// Use the dedicated API to update annotations
 	fleet.Annotations = nil
 
-	var existingRecord *model.Fleet
+	fleet.Owner = resource.Metadata.Owner
 
-	err := tx.Transaction(func(innerTx *gorm.DB) (err error) {
-
-		existingRecord = &model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
-		result := innerTx.First(&existingRecord)
-		// NotFound is OK because in that case we will create the record, anything else is a real error
-		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-		if result.Error != nil {
-			existingRecord = nil
-			if fleet.Spec.Data.Template.Metadata == nil {
-				fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
-			}
-			fleet.Generation = util.Int64ToPtr(1)
-			fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
-
-			result = innerTx.Create(fleet)
-			if result.Error != nil {
-				return flterrors.ErrorFromGormError(result.Error)
-			}
-		} else {
-			// Compare owners
-			// To delete / modify owner - use a different func
-			resourceOwner := util.DefaultIfNil(resource.Metadata.Owner, "")
-			if existingRecord.Owner != nil && *existingRecord.Owner != resourceOwner {
-				return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-			}
-			sameSpec := reflect.DeepEqual(existingRecord.Spec.Data, fleet.Spec.Data)
-			sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
-
-			// Update the generation if the template was updated
-			if !sameSpec {
-				if existingRecord.Generation == nil {
-					fleet.Generation = util.Int64ToPtr(1)
-				} else {
-					fleet.Generation = util.Int64ToPtr(*existingRecord.Generation + 1)
-				}
-			} else {
-				fleet.Generation = existingRecord.Generation
-			}
-
-			if fleet.Spec.Data.Template.Metadata == nil {
-				fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
-			}
-			if !sameTemplateSpec {
-				if existingRecord.Spec.Data.Template.Metadata.Generation == nil {
-					fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(1)
-				} else {
-					fleet.Spec.Data.Template.Metadata.Generation = util.Int64ToPtr(*existingRecord.Spec.Data.Template.Metadata.Generation + 1)
-				}
-			} else {
-				fleet.Spec.Data.Template.Metadata.Generation = existingRecord.Spec.Data.Template.Metadata.Generation
-			}
-			fleet.Owner = resource.Metadata.Owner
-
-			where := model.Fleet{Resource: model.Resource{OrgID: fleet.OrgID, Name: fleet.Name}}
-			query := innerTx.Model(where)
-
-			selectFields := []string{"spec"}
-			selectFields = append(selectFields, GetNonNilFieldsFromResource(fleet.Resource)...)
-			query = query.Select(selectFields)
-			result = query.Updates(&fleet)
-			if result.Error != nil {
-				return flterrors.ErrorFromGormError(result.Error)
-			}
-		}
-		return nil
-	})
-
+	existingRecord, err := getExistingRecord[model.Fleet](s.db, fleet.Name, orgId)
 	if err != nil {
-		return nil, nil, err
+		return nil, false, false, err
+	}
+	exists := existingRecord != nil
+	if !exists {
+		if retry, err := s.createFleet(fleet); err != nil {
+			return nil, false, retry, err
+		}
+	} else {
+		if retry, err := s.updateFleet(existingRecord, fleet); err != nil {
+			return nil, false, retry, err
+		}
 	}
 
-	if existingRecord != nil {
-		existingRecord.Owner = nil // Match the incoming fleet
-	}
-	return existingRecord, fleet, nil
+	callback(existingRecord, fleet)
+
+	updatedResource := fleet.ToApiResource()
+	return &updatedResource, !exists, false, nil
+}
+
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error) {
+	return retryCreateOrUpdate(func() (*api.Fleet, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, callback)
+	})
 }
 
 func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, resources ...*api.Fleet) error {
-	type update struct {
-		oldFleet *model.Fleet
-		newFleet *model.Fleet
-	}
-	var updates []update
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		for _, resource := range resources {
-			oldFleet, newFleet, err := s.createOrUpdateTx(tx, orgId, resource)
-			if err == nil {
-				updates = append(updates, update{oldFleet: oldFleet, newFleet: newFleet})
-			}
-			if err != nil {
-				return err
-			}
+	var errs []error
+	for _, resource := range resources {
+		_, _, err := s.CreateOrUpdate(ctx, orgId, resource, callback)
+		if err == flterrors.ErrUpdatingResourceWithOwnerNotAllowed {
+			err = fmt.Errorf("one or more fleets are managed by a different resource. %w", err)
 		}
-		return nil
-	})
-
-	if err == nil {
-		for i := range updates {
-			callback(updates[i].oldFleet, updates[i].newFleet)
-		}
+		errs = append(errs, err)
 	}
-	return err
+	return errors.Join(lo.Uniq(errs)...)
 }
 
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
-	return s.updateStatusTx(s.db, orgId, resource)
+	return s.updateStatus(s.db, orgId, resource)
 }
 
 func (s *FleetStore) UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		for _, resource := range resources {
-			_, err := s.updateStatusTx(tx, orgId, resource)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	return err
+	var errs []error
+	for _, resource := range resources {
+		_, err := s.updateStatus(s.db, orgId, resource)
+		errs = append(errs, err)
+	}
+	return errors.Join(lo.Uniq(errs)...)
 }
 
-func (s *FleetStore) updateStatusTx(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+func (s *FleetStore) updateStatus(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
@@ -309,7 +375,8 @@ func (s *FleetStore) updateStatusTx(tx *gorm.DB, orgId uuid.UUID, resource *api.
 		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
 	}
 	result := tx.Model(&fleet).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(resource.Status),
+		"status":           model.MakeJSONField(resource.Status),
+		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 	return resource, flterrors.ErrorFromGormError(result.Error)
 }
@@ -322,7 +389,10 @@ func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUI
 	fleetCondition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId, Owner: &owner},
 	}
-	result := db.Model(fleetCondition).Where(fleetCondition).Select("owner").Updates(map[string]interface{}{"owner": nil})
+	result := db.Model(fleetCondition).Where("org_id = ? and owner = ?", orgId, owner).Updates(map[string]interface{}{
+		"owner":            nil,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
@@ -334,97 +404,96 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 	fleetCondition := model.Fleet{
 		Resource: model.Resource{OrgID: orgId},
 	}
-	result := db.Model(model.Fleet{}).Where(fleetCondition).Where("owner like ?", "%"+resourceKind+"/%").Select("owner").Updates(map[string]interface{}{"owner": nil})
+	result := db.Model(model.Fleet{}).Where(fleetCondition).Where("owner like ?", "%"+resourceKind+"/%").Updates(map[string]interface{}{
+		"owner":            nil,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
 	return flterrors.ErrorFromGormError(result.Error)
 }
 
 func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, names ...string) error {
 	deleted := []model.Fleet{}
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		for _, name := range names {
-			existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-			result := tx.First(&existingRecord)
-			if result.Error != nil {
-				if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-					continue
-				}
-				return flterrors.ErrorFromGormError(result.Error)
-			}
-			err := s.deleteTx(tx, orgId, name)
-			if err != nil {
-				return err
-			}
-			deleted = append(deleted, existingRecord)
-		}
-		return nil
-	})
-
-	if err == nil {
-		for i := range deleted {
-			callback(&deleted[i], nil)
-		}
+	if err := s.db.Raw(`delete from fleets where org_id = ? and name in (?) returning *`, orgId, names).Scan(&deleted).Error; err != nil {
+		return flterrors.ErrorFromGormError(err)
 	}
-	return err
+	for i := range deleted {
+		callback(&deleted[i], nil)
+	}
+	return nil
 }
 
-func (s *FleetStore) deleteTx(tx *gorm.DB, orgId uuid.UUID, name string) error {
-	condition := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: name},
+func (s *FleetStore) updateConditions(orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
+	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
 	}
-	result := tx.Unscoped().Delete(&condition)
-	return flterrors.ErrorFromGormError(result.Error)
+
+	if existingRecord.Status == nil {
+		existingRecord.Status = model.MakeJSONField(api.FleetStatus{})
+	}
+	if existingRecord.Status.Data.Conditions == nil {
+		existingRecord.Status.Data.Conditions = []api.Condition{}
+	}
+	changed := false
+	for _, condition := range conditions {
+		changed = api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
+	}
+	if !changed {
+		return false, nil
+	}
+
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"status":           existingRecord.Status,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	err := flterrors.ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
 }
 
 func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-
-		if existingRecord.Status == nil {
-			existingRecord.Status = model.MakeJSONField(api.FleetStatus{})
-		}
-		if existingRecord.Status.Data.Conditions == nil {
-			existingRecord.Status.Data.Conditions = []api.Condition{}
-		}
-		changed := false
-		for _, condition := range conditions {
-			changed = api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
-		}
-		if !changed {
-			return nil
-		}
-
-		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
-			"status": existingRecord.Status,
-		})
-		return flterrors.ErrorFromGormError(result.Error)
+	return retryUpdate(func() (bool, error) {
+		return s.updateConditions(orgId, name, conditions)
 	})
+}
 
-	return err
+func (s *FleetStore) updateAnnotations(orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
+	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return false, flterrors.ErrorFromGormError(result.Error)
+	}
+	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
+
+	for _, deleteKey := range deleteKeys {
+		delete(existingAnnotations, deleteKey)
+	}
+	annotationsArray := util.LabelMapToArray(&existingAnnotations)
+
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"annotations":      pq.StringArray(annotationsArray),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	err := flterrors.ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
 }
 
 func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
-	return s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
-		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
-		}
-		existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
-		existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
-
-		for _, deleteKey := range deleteKeys {
-			delete(existingAnnotations, deleteKey)
-		}
-		annotationsArray := util.LabelMapToArray(&existingAnnotations)
-
-		result = innerTx.Model(existingRecord).Updates(map[string]interface{}{
-			"annotations": pq.StringArray(annotationsArray),
-		})
-		return flterrors.ErrorFromGormError(result.Error)
+	return retryUpdate(func() (bool, error) {
+		return s.updateAnnotations(orgId, name, annotations, deleteKeys)
 	})
 }
 
@@ -435,12 +504,7 @@ func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUI
 	}
 	return s.db.Transaction(func(innerTx *gorm.DB) error {
 		fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-		err := innerTx.Model(&fleet).Association("Repositories").Clear()
-		if err != nil {
-			return flterrors.ErrorFromGormError(err)
-		}
-		if len(repos) > 0 {
-			err = innerTx.Model(&fleet).Association("Repositories").Append(repos)
+		if err := innerTx.Model(&fleet).Association("Repositories").Replace(repos); err != nil {
 			return flterrors.ErrorFromGormError(err)
 		}
 		return nil
