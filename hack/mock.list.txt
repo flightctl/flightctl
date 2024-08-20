@@ -7,5 +7,6 @@ internal/agent/device/status/status.go=internal/agent/device/status/mock_status.
 internal/agent/device/hook/manager.go=internal/agent/device/hook/mock_manager.go
 internal/agent/device/fileio/fileio.go=internal/agent/device/fileio/mock_fileio.go
 internal/agent/device/resource/resource.go=internal/agent/device/resource/mock_resource.go
+internal/agent/device/config/controller.go=internal/agent/device/config/mock_controller.go
 internal/tasks/callback_manager.go=internal/tasks/mock_callback_manager.go
 internal/container/container.go=internal/container/mock_container.go
