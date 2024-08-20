@@ -37,5 +37,6 @@ sudo podman run --rm \
                 -v $(pwd)/bin/output:/output \
                 -v /var/lib/containers/storage:/var/lib/containers/storage \
                 quay.io/centos-bootc/bootc-image-builder:latest \
+                build \
                 --type qcow2 \
                 --local "${IP}:5000/flightctl-device:base"
