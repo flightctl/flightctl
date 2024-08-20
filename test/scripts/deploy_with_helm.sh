@@ -1,13 +1,56 @@
 #!/usr/bin/env bash
 set -x -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-
 METHOD=install
 ONLY_DB=
-RABBITMQ_VERSION="3.13"
+RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
-RABBITMQ_TAR_FILENAME="rabbitmq_${RABBITMQ_VERSION}.tar"
+
 IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
+
+
+# Function to save images to kind, with workaround for github CI and other environment issues
+# In github CI, kind gets confused and tries to pull the image from docker instead
+# of podman, so if regular docker-image fails we need to:
+#   * save it to OCI image format
+#   * then load it into kind
+kind_load_image() {
+  local image=$1
+  local keep_tar=${2:-"do-not-keep-tar"}
+  local tar_filename=$(echo $image.tar | sed 's/[:\/]/_/g')
+
+  # First, try to load the image directly
+  if kind load docker-image "${image}"; then
+    echo "Image ${image} loaded successfully."
+    return
+  fi
+
+  # If that fails, we have the workaround in place
+  if [ -f "${tar_filename}" ] && [ "${keep_tar}" == "keep-tar" ]; then
+    echo "File ${tar_filename} already exists. Skipping save."
+  else
+    echo "Saving ${image} to ${tar_filename}..."
+
+    # If the image is not local we may need to pull it first
+    if [[ "${image}" != localhost* ]]; then
+      podman pull "${image}"
+    fi
+
+    # Save to tar file
+    podman save "${image}" -o "${tar_filename}"
+    if [ $? -eq 0 ]; then
+      echo "Image saved successfully to ${tar_filename}."
+    else
+      echo "Failed to save image to ${tar_filename}."
+      exit 1
+    fi
+  fi
+
+  kind load image-archive "${tar_filename}"
+  if [ "${keep_tar}" != "keep-tar" ]; then
+    rm -f "${tar_filename}"
+  fi
+}
 
 # Use external getopt for long options
 options=$(getopt -o adh --long only-db,auth,help -n "$0" -- "$@")
@@ -37,32 +80,14 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
-  # In github CI, kind gets confused and tries to pull the image from docker instead
-  # of podman, so if regular docker-image fails we need to:
-  #   * save it to OCI image format
-  #   * then load it into kind
+
   for suffix in periodic api worker ; do
-    if ! kind load docker-image localhost/flightctl-${suffix}:latest; then
-      podman save localhost/flightctl-${suffix}:latest -o flightctl-${suffix}.tar && \
-      kind load image-archive flightctl-${suffix}.tar
-      rm flightctl-${suffix}.tar
-    fi
+    kind_load_image localhost/flightctl-${suffix}:latest
   done
 
-  if [ -f "${RABBITMQ_TAR_FILENAME}" ]; then
-    echo "File ${RABBITMQ_TAR_FILENAME} already exists. Skipping save."
-  else
-    echo "Saving RabbitMQ image to ${RABBITMQ_TAR_FILENAME}..."
-    podman pull "${RABBITMQ_IMAGE}" || true
-    podman save "${RABBITMQ_IMAGE}" -o "${RABBITMQ_TAR_FILENAME}"
-    if [ $? -eq 0 ]; then
-      echo "Image saved successfully to ${RABBITMQ_TAR_FILENAME}."
-    else
-      echo "Failed to save image."
-    fi
-  fi
-  kind load image-archive "${RABBITMQ_TAR_FILENAME}"
+  kind_load_image "${RABBITMQ_IMAGE}:${RABBITMQ_VERSION}" keep-tar
 fi
+
 
 
 # if we need another database image we can set it with PGSQL_IMAGE (i.e. arm64 images)
@@ -71,8 +96,8 @@ if [ ! -z "$PGSQL_IMAGE" ]; then
   # we send the image directly to kind, so we don't need to inject the credentials in the kind cluster
   podman pull "${PGSQL_IMAGE}"
   podman tag "${PGSQL_IMAGE}" "${DB_IMG}"
-  kind load docker-image "${DB_IMG}"
-  DB_IMG="--set flightctl.db.image.image=${DB_IMG} --set flightctl.db.image.tag=latest"
+  kind_load_image ${DB_IMG}
+  HELM_DB_IMG="--set flightctl.db.image.image=${DB_IMG} --set flightctl.db.image.tag=latest"
 fi
 
 AUTH_ARGS=""
@@ -84,7 +109,7 @@ helm ${METHOD} --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.kind.yaml \
                   --set global.flightctl.baseDomain=${IP}.nip.io \
                   --set flightctl.api.auth.oidcAuthority=http://${IP}:8080/realms/flightctl \
-                   ${ONLY_DB} ${AUTH_ARGS} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
+                   ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s
@@ -131,11 +156,8 @@ if [ -z "$ONLY_DB" ]; then
 fi
 
 # in github CI load docker-image does not seem to work for our images
-if ! kind load docker-image localhost/git-server:latest; then
-  podman save localhost/git-server:latest -o git-server.tar && \
-  kind load image-archive git-server.tar
-  rm git-server.tar
-fi
+kind_load_image localhost/git-server:latest
+kind_load_image docker.io/library/registry:2
 
 # deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
 helm ${METHOD} --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
