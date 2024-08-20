@@ -49,7 +49,7 @@ func NewAgentCommand() *agentCmd {
 		a.log.Fatalf("Error validating config: %v", err)
 	}
 
-	a.log.SetLevel(a.config.LogLevel)
+	a.log.Level(a.config.LogLevel)
 
 	return a
 }

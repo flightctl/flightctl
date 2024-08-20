@@ -5,7 +5,7 @@ metadata:
   labels:
     flightctl.service: flightctl-api
   name: flightctl-api
-  namespace: {{ .Values.flightctl.api.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
@@ -20,13 +20,15 @@ spec:
     spec:
       containers:
         - name: flightctl-api
-          image: {{ .Values.flightctl.api.image }}:{{ default .Chart.AppVersion .Values.flightctl.api.imageTag }}
-          imagePullPolicy: {{ .Values.flightctl.api.imagePullPolicy }}
+          image: {{ .Values.flightctl.api.image.image }}:{{ default .Chart.AppVersion .Values.flightctl.api.image.tag }}
+          imagePullPolicy: {{ .Values.flightctl.api.image.pullPolicy }}
           env:
             - name: HOME
               value: "/root"
+            {{ if not .Values.flightctl.api.auth.enabled }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
+            {{ end }}
           ports:
             - containerPort: 3443
               name: service-api

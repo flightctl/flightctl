@@ -18,7 +18,7 @@ var (
 	minorFromGit string
 	// patch version
 	patchFromGit string
-	// build date in ISO8601 format, output of $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+	// build date, output of $(date +'%Y%m%d')
 	buildDate string
 	// state of git tree, either "clean" or "dirty"
 	gitTreeState string
@@ -38,7 +38,7 @@ type Info struct {
 }
 
 func (info Info) String() string {
-	return info.GitVersion
+	return fmt.Sprintf("%s-%s", info.BuildDate, info.GitVersion)
 }
 
 func Get() Info {

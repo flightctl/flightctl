@@ -18,6 +18,39 @@ import (
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (GET /api/v1/auth/config)
+	AuthConfig(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/auth/validate)
+	AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams)
+
+	// (DELETE /api/v1/certificatesigningrequests)
+	DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/certificatesigningrequests)
+	ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params ListCertificateSigningRequestsParams)
+
+	// (POST /api/v1/certificatesigningrequests)
+	CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /api/v1/certificatesigningrequests/{name})
+	DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/certificatesigningrequests/{name})
+	ReadCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PATCH /api/v1/certificatesigningrequests/{name})
+	PatchCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /api/v1/certificatesigningrequests/{name})
+	ReplaceCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (DELETE /api/v1/certificatesigningrequests/{name}/approval)
+	DenyCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (POST /api/v1/certificatesigningrequests/{name}/approval)
+	ApproveCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
 	// (DELETE /api/v1/devices)
 	DeleteDevices(w http.ResponseWriter, r *http.Request)
 
@@ -70,7 +103,7 @@ type ServerInterface interface {
 	ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
 	// (POST /api/v1/enrollmentrequests/{name}/approval)
-	CreateEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request, name string)
+	ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/enrollmentrequests/{name}/status)
 	ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
@@ -103,7 +136,7 @@ type ServerInterface interface {
 	DeleteFleet(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/fleets/{name})
-	ReadFleet(w http.ResponseWriter, r *http.Request, name string)
+	ReadFleet(w http.ResponseWriter, r *http.Request, name string, params ReadFleetParams)
 
 	// (PATCH /api/v1/fleets/{name})
 	PatchFleet(w http.ResponseWriter, r *http.Request, name string)
@@ -158,17 +191,66 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/resourcesyncs/{name})
 	ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string)
-
-	// (GET /api/v1/token/request)
-	TokenRequest(w http.ResponseWriter, r *http.Request)
-
-	// (GET /api/v1/token/validate)
-	TokenValidate(w http.ResponseWriter, r *http.Request, params TokenValidateParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// (GET /api/v1/auth/config)
+func (_ Unimplemented) AuthConfig(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/auth/validate)
+func (_ Unimplemented) AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/certificatesigningrequests)
+func (_ Unimplemented) DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/certificatesigningrequests)
+func (_ Unimplemented) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params ListCertificateSigningRequestsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/certificatesigningrequests)
+func (_ Unimplemented) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/certificatesigningrequests/{name})
+func (_ Unimplemented) DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/certificatesigningrequests/{name})
+func (_ Unimplemented) ReadCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /api/v1/certificatesigningrequests/{name})
+func (_ Unimplemented) PatchCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/certificatesigningrequests/{name})
+func (_ Unimplemented) ReplaceCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /api/v1/certificatesigningrequests/{name}/approval)
+func (_ Unimplemented) DenyCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/certificatesigningrequests/{name}/approval)
+func (_ Unimplemented) ApproveCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // (DELETE /api/v1/devices)
 func (_ Unimplemented) DeleteDevices(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +338,7 @@ func (_ Unimplemented) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.R
 }
 
 // (POST /api/v1/enrollmentrequests/{name}/approval)
-func (_ Unimplemented) CreateEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
+func (_ Unimplemented) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -311,7 +393,7 @@ func (_ Unimplemented) DeleteFleet(w http.ResponseWriter, r *http.Request, name 
 }
 
 // (GET /api/v1/fleets/{name})
-func (_ Unimplemented) ReadFleet(w http.ResponseWriter, r *http.Request, name string) {
+func (_ Unimplemented) ReadFleet(w http.ResponseWriter, r *http.Request, name string, params ReadFleetParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -405,16 +487,6 @@ func (_ Unimplemented) ReplaceResourceSync(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/token/request)
-func (_ Unimplemented) TokenRequest(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (GET /api/v1/token/validate)
-func (_ Unimplemented) TokenValidate(w http.ResponseWriter, r *http.Request, params TokenValidateParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -423,6 +495,292 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// AuthConfig operation middleware
+func (siw *ServerInterfaceWrapper) AuthConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthConfig(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// AuthValidate operation middleware
+func (siw *ServerInterfaceWrapper) AuthValidate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthValidateParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Authentication" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Authentication")]; found {
+		var Authentication string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Authentication", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Authentication", valueList[0], &Authentication, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Authentication", Err: err})
+			return
+		}
+
+		params.Authentication = &Authentication
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthValidate(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteCertificateSigningRequests operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCertificateSigningRequests(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ListCertificateSigningRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCertificateSigningRequestsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCertificateSigningRequests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// CreateCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCertificateSigningRequest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReadCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) ReadCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// PatchCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) PatchCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ReplaceCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DenyCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) DenyCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DenyCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ApproveCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) ApproveCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
 
 // DeleteDevices operation middleware
 func (siw *ServerInterfaceWrapper) DeleteDevices(w http.ResponseWriter, r *http.Request) {
@@ -885,8 +1243,8 @@ func (siw *ServerInterfaceWrapper) ReplaceEnrollmentRequest(w http.ResponseWrite
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// CreateEnrollmentRequestApproval operation middleware
-func (siw *ServerInterfaceWrapper) CreateEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request) {
+// ApproveEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var err error
@@ -901,7 +1259,7 @@ func (siw *ServerInterfaceWrapper) CreateEnrollmentRequestApproval(w http.Respon
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateEnrollmentRequestApproval(w, r, name)
+		siw.Handler.ApproveEnrollmentRequest(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1235,8 +1593,19 @@ func (siw *ServerInterfaceWrapper) ReadFleet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReadFleetParams
+
+	// ------------- Optional query parameter "addDevicesSummary" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "addDevicesSummary", r.URL.Query(), &params.AddDevicesSummary)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "addDevicesSummary", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadFleet(w, r, name)
+		siw.Handler.ReadFleet(w, r, name, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1706,62 +2075,6 @@ func (siw *ServerInterfaceWrapper) ReplaceResourceSync(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// TokenRequest operation middleware
-func (siw *ServerInterfaceWrapper) TokenRequest(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TokenRequest(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// TokenValidate operation middleware
-func (siw *ServerInterfaceWrapper) TokenValidate(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var err error
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params TokenValidateParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "Authentication" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Authentication")]; found {
-		var Authentication string
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Authentication", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Authentication", valueList[0], &Authentication, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Authentication", Err: err})
-			return
-		}
-
-		params.Authentication = &Authentication
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TokenValidate(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1876,6 +2189,39 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/auth/config", wrapper.AuthConfig)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/auth/validate", wrapper.AuthValidate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.DeleteCertificateSigningRequests)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.ListCertificateSigningRequests)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.CreateCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.DeleteCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.ReadCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.PatchCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.ReplaceCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/certificatesigningrequests/{name}/approval", wrapper.DenyCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/certificatesigningrequests/{name}/approval", wrapper.ApproveCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/devices", wrapper.DeleteDevices)
 	})
 	r.Group(func(r chi.Router) {
@@ -1927,7 +2273,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReplaceEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approval", wrapper.CreateEnrollmentRequestApproval)
+		r.Post(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approval", wrapper.ApproveEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.ReadEnrollmentRequestStatus)
@@ -2016,14 +2362,470 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/resourcesyncs/{name}", wrapper.ReplaceResourceSync)
 	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/token/request", wrapper.TokenRequest)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/token/validate", wrapper.TokenValidate)
-	})
 
 	return r
+}
+
+type AuthConfigRequestObject struct {
+}
+
+type AuthConfigResponseObject interface {
+	VisitAuthConfigResponse(w http.ResponseWriter) error
+}
+
+type AuthConfig200JSONResponse AuthConfig
+
+func (response AuthConfig200JSONResponse) VisitAuthConfigResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AuthConfig418Response struct {
+}
+
+func (response AuthConfig418Response) VisitAuthConfigResponse(w http.ResponseWriter) error {
+	w.WriteHeader(418)
+	return nil
+}
+
+type AuthValidateRequestObject struct {
+	Params AuthValidateParams
+}
+
+type AuthValidateResponseObject interface {
+	VisitAuthValidateResponse(w http.ResponseWriter) error
+}
+
+type AuthValidate200Response struct {
+}
+
+func (response AuthValidate200Response) VisitAuthValidateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type AuthValidate401Response struct {
+}
+
+func (response AuthValidate401Response) VisitAuthValidateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type AuthValidate418Response struct {
+}
+
+func (response AuthValidate418Response) VisitAuthValidateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(418)
+	return nil
+}
+
+type DeleteCertificateSigningRequestsRequestObject struct {
+}
+
+type DeleteCertificateSigningRequestsResponseObject interface {
+	VisitDeleteCertificateSigningRequestsResponse(w http.ResponseWriter) error
+}
+
+type DeleteCertificateSigningRequests200JSONResponse Status
+
+func (response DeleteCertificateSigningRequests200JSONResponse) VisitDeleteCertificateSigningRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteCertificateSigningRequests401JSONResponse Error
+
+func (response DeleteCertificateSigningRequests401JSONResponse) VisitDeleteCertificateSigningRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListCertificateSigningRequestsRequestObject struct {
+	Params ListCertificateSigningRequestsParams
+}
+
+type ListCertificateSigningRequestsResponseObject interface {
+	VisitListCertificateSigningRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListCertificateSigningRequests200JSONResponse CertificateSigningRequestList
+
+func (response ListCertificateSigningRequests200JSONResponse) VisitListCertificateSigningRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListCertificateSigningRequests400JSONResponse Error
+
+func (response ListCertificateSigningRequests400JSONResponse) VisitListCertificateSigningRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListCertificateSigningRequests401JSONResponse Error
+
+func (response ListCertificateSigningRequests401JSONResponse) VisitListCertificateSigningRequestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateCertificateSigningRequestRequestObject struct {
+	Body *CreateCertificateSigningRequestJSONRequestBody
+}
+
+type CreateCertificateSigningRequestResponseObject interface {
+	VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error
+}
+
+type CreateCertificateSigningRequest200JSONResponse CertificateSigningRequest
+
+func (response CreateCertificateSigningRequest200JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateCertificateSigningRequest201JSONResponse CertificateSigningRequest
+
+func (response CreateCertificateSigningRequest201JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateCertificateSigningRequest202JSONResponse CertificateSigningRequest
+
+func (response CreateCertificateSigningRequest202JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateCertificateSigningRequest208JSONResponse EnrollmentRequest
+
+func (response CreateCertificateSigningRequest208JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(208)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateCertificateSigningRequest400JSONResponse Error
+
+func (response CreateCertificateSigningRequest400JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateCertificateSigningRequest401JSONResponse Error
+
+func (response CreateCertificateSigningRequest401JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteCertificateSigningRequestRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DeleteCertificateSigningRequestResponseObject interface {
+	VisitDeleteCertificateSigningRequestResponse(w http.ResponseWriter) error
+}
+
+type DeleteCertificateSigningRequest200JSONResponse CertificateSigningRequest
+
+func (response DeleteCertificateSigningRequest200JSONResponse) VisitDeleteCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteCertificateSigningRequest401JSONResponse Error
+
+func (response DeleteCertificateSigningRequest401JSONResponse) VisitDeleteCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteCertificateSigningRequest404JSONResponse Error
+
+func (response DeleteCertificateSigningRequest404JSONResponse) VisitDeleteCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadCertificateSigningRequestRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReadCertificateSigningRequestResponseObject interface {
+	VisitReadCertificateSigningRequestResponse(w http.ResponseWriter) error
+}
+
+type ReadCertificateSigningRequest200JSONResponse CertificateSigningRequest
+
+func (response ReadCertificateSigningRequest200JSONResponse) VisitReadCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadCertificateSigningRequest401JSONResponse Error
+
+func (response ReadCertificateSigningRequest401JSONResponse) VisitReadCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReadCertificateSigningRequest404JSONResponse Error
+
+func (response ReadCertificateSigningRequest404JSONResponse) VisitReadCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchCertificateSigningRequestRequestObject struct {
+	Name string `json:"name"`
+	Body *PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody
+}
+
+type PatchCertificateSigningRequestResponseObject interface {
+	VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error
+}
+
+type PatchCertificateSigningRequest200JSONResponse CertificateSigningRequest
+
+func (response PatchCertificateSigningRequest200JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchCertificateSigningRequest201JSONResponse CertificateSigningRequest
+
+func (response PatchCertificateSigningRequest201JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchCertificateSigningRequest400JSONResponse Error
+
+func (response PatchCertificateSigningRequest400JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchCertificateSigningRequest401JSONResponse Error
+
+func (response PatchCertificateSigningRequest401JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchCertificateSigningRequest404JSONResponse Error
+
+func (response PatchCertificateSigningRequest404JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchCertificateSigningRequest409JSONResponse Error
+
+func (response PatchCertificateSigningRequest409JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceCertificateSigningRequestRequestObject struct {
+	Name string `json:"name"`
+	Body *ReplaceCertificateSigningRequestJSONRequestBody
+}
+
+type ReplaceCertificateSigningRequestResponseObject interface {
+	VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error
+}
+
+type ReplaceCertificateSigningRequest200JSONResponse CertificateSigningRequest
+
+func (response ReplaceCertificateSigningRequest200JSONResponse) VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceCertificateSigningRequest201JSONResponse CertificateSigningRequest
+
+func (response ReplaceCertificateSigningRequest201JSONResponse) VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceCertificateSigningRequest400JSONResponse Error
+
+func (response ReplaceCertificateSigningRequest400JSONResponse) VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceCertificateSigningRequest401JSONResponse Error
+
+func (response ReplaceCertificateSigningRequest401JSONResponse) VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceCertificateSigningRequest404JSONResponse Error
+
+func (response ReplaceCertificateSigningRequest404JSONResponse) VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceCertificateSigningRequest409JSONResponse Error
+
+func (response ReplaceCertificateSigningRequest409JSONResponse) VisitReplaceCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DenyCertificateSigningRequestRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DenyCertificateSigningRequestResponseObject interface {
+	VisitDenyCertificateSigningRequestResponse(w http.ResponseWriter) error
+}
+
+type DenyCertificateSigningRequest200JSONResponse CertificateSigningRequest
+
+func (response DenyCertificateSigningRequest200JSONResponse) VisitDenyCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DenyCertificateSigningRequest401JSONResponse Error
+
+func (response DenyCertificateSigningRequest401JSONResponse) VisitDenyCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DenyCertificateSigningRequest404JSONResponse Error
+
+func (response DenyCertificateSigningRequest404JSONResponse) VisitDenyCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DenyCertificateSigningRequest409JSONResponse Error
+
+func (response DenyCertificateSigningRequest409JSONResponse) VisitDenyCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveCertificateSigningRequestRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ApproveCertificateSigningRequestResponseObject interface {
+	VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error
+}
+
+type ApproveCertificateSigningRequest200JSONResponse CertificateSigningRequest
+
+func (response ApproveCertificateSigningRequest200JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveCertificateSigningRequest401JSONResponse Error
+
+func (response ApproveCertificateSigningRequest401JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveCertificateSigningRequest404JSONResponse Error
+
+func (response ApproveCertificateSigningRequest404JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveCertificateSigningRequest409JSONResponse Error
+
+func (response ApproveCertificateSigningRequest409JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteDevicesRequestObject struct {
@@ -2254,6 +3056,15 @@ func (response PatchDevice404JSONResponse) VisitPatchDeviceResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchDevice409JSONResponse Error
+
+func (response PatchDevice409JSONResponse) VisitPatchDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceDeviceRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceDeviceJSONRequestBody
@@ -2348,6 +3159,15 @@ type RequestConsole404JSONResponse Error
 func (response RequestConsole404JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RequestConsole409JSONResponse Error
+
+func (response RequestConsole409JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -2722,54 +3542,63 @@ func (response ReplaceEnrollmentRequest404JSONResponse) VisitReplaceEnrollmentRe
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApprovalRequestObject struct {
+type ReplaceEnrollmentRequest409JSONResponse Error
+
+func (response ReplaceEnrollmentRequest409JSONResponse) VisitReplaceEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveEnrollmentRequestRequestObject struct {
 	Name string `json:"name"`
-	Body *CreateEnrollmentRequestApprovalJSONRequestBody
+	Body *ApproveEnrollmentRequestJSONRequestBody
 }
 
-type CreateEnrollmentRequestApprovalResponseObject interface {
-	VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error
+type ApproveEnrollmentRequestResponseObject interface {
+	VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error
 }
 
-type CreateEnrollmentRequestApproval200JSONResponse EnrollmentRequestApproval
+type ApproveEnrollmentRequest200JSONResponse EnrollmentRequestApproval
 
-func (response CreateEnrollmentRequestApproval200JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+func (response ApproveEnrollmentRequest200JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApproval400JSONResponse Error
+type ApproveEnrollmentRequest400JSONResponse Error
 
-func (response CreateEnrollmentRequestApproval400JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+func (response ApproveEnrollmentRequest400JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApproval401JSONResponse Error
+type ApproveEnrollmentRequest401JSONResponse Error
 
-func (response CreateEnrollmentRequestApproval401JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+func (response ApproveEnrollmentRequest401JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApproval404JSONResponse Error
+type ApproveEnrollmentRequest404JSONResponse Error
 
-func (response CreateEnrollmentRequestApproval404JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+func (response ApproveEnrollmentRequest404JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequestApproval422JSONResponse Error
+type ApproveEnrollmentRequest422JSONResponse Error
 
-func (response CreateEnrollmentRequestApproval422JSONResponse) VisitCreateEnrollmentRequestApprovalResponse(w http.ResponseWriter) error {
+func (response ApproveEnrollmentRequest422JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(422)
 
@@ -3130,7 +3959,8 @@ func (response DeleteFleet409JSONResponse) VisitDeleteFleetResponse(w http.Respo
 }
 
 type ReadFleetRequestObject struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Params ReadFleetParams
 }
 
 type ReadFleetResponseObject interface {
@@ -3205,6 +4035,15 @@ type PatchFleet404JSONResponse Error
 func (response PatchFleet404JSONResponse) VisitPatchFleetResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchFleet409JSONResponse Error
+
+func (response PatchFleet409JSONResponse) VisitPatchFleetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3562,6 +4401,15 @@ func (response PatchRepository404JSONResponse) VisitPatchRepositoryResponse(w ht
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchRepository409JSONResponse Error
+
+func (response PatchRepository409JSONResponse) VisitPatchRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceRepositoryRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceRepositoryJSONRequestBody
@@ -3612,6 +4460,15 @@ type ReplaceRepository404JSONResponse Error
 func (response ReplaceRepository404JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceRepository409JSONResponse Error
+
+func (response ReplaceRepository409JSONResponse) VisitReplaceRepositoryResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3835,6 +4692,15 @@ func (response PatchResourceSync404JSONResponse) VisitPatchResourceSyncResponse(
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchResourceSync409JSONResponse Error
+
+func (response PatchResourceSync409JSONResponse) VisitPatchResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceResourceSyncRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceResourceSyncJSONRequestBody
@@ -3889,69 +4755,50 @@ func (response ReplaceResourceSync404JSONResponse) VisitReplaceResourceSyncRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type TokenRequestRequestObject struct {
-}
+type ReplaceResourceSync409JSONResponse Error
 
-type TokenRequestResponseObject interface {
-	VisitTokenRequestResponse(w http.ResponseWriter) error
-}
+func (response ReplaceResourceSync409JSONResponse) VisitReplaceResourceSyncResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
-type TokenRequest301ResponseHeaders struct {
-	Location string
-}
-
-type TokenRequest301Response struct {
-	Headers TokenRequest301ResponseHeaders
-}
-
-func (response TokenRequest301Response) VisitTokenRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
-	w.WriteHeader(301)
-	return nil
-}
-
-type TokenRequest418Response struct {
-}
-
-func (response TokenRequest418Response) VisitTokenRequestResponse(w http.ResponseWriter) error {
-	w.WriteHeader(418)
-	return nil
-}
-
-type TokenValidateRequestObject struct {
-	Params TokenValidateParams
-}
-
-type TokenValidateResponseObject interface {
-	VisitTokenValidateResponse(w http.ResponseWriter) error
-}
-
-type TokenValidate200Response struct {
-}
-
-func (response TokenValidate200Response) VisitTokenValidateResponse(w http.ResponseWriter) error {
-	w.WriteHeader(200)
-	return nil
-}
-
-type TokenValidate401Response struct {
-}
-
-func (response TokenValidate401Response) VisitTokenValidateResponse(w http.ResponseWriter) error {
-	w.WriteHeader(401)
-	return nil
-}
-
-type TokenValidate418Response struct {
-}
-
-func (response TokenValidate418Response) VisitTokenValidateResponse(w http.ResponseWriter) error {
-	w.WriteHeader(418)
-	return nil
+	return json.NewEncoder(w).Encode(response)
 }
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+
+	// (GET /api/v1/auth/config)
+	AuthConfig(ctx context.Context, request AuthConfigRequestObject) (AuthConfigResponseObject, error)
+
+	// (GET /api/v1/auth/validate)
+	AuthValidate(ctx context.Context, request AuthValidateRequestObject) (AuthValidateResponseObject, error)
+
+	// (DELETE /api/v1/certificatesigningrequests)
+	DeleteCertificateSigningRequests(ctx context.Context, request DeleteCertificateSigningRequestsRequestObject) (DeleteCertificateSigningRequestsResponseObject, error)
+
+	// (GET /api/v1/certificatesigningrequests)
+	ListCertificateSigningRequests(ctx context.Context, request ListCertificateSigningRequestsRequestObject) (ListCertificateSigningRequestsResponseObject, error)
+
+	// (POST /api/v1/certificatesigningrequests)
+	CreateCertificateSigningRequest(ctx context.Context, request CreateCertificateSigningRequestRequestObject) (CreateCertificateSigningRequestResponseObject, error)
+
+	// (DELETE /api/v1/certificatesigningrequests/{name})
+	DeleteCertificateSigningRequest(ctx context.Context, request DeleteCertificateSigningRequestRequestObject) (DeleteCertificateSigningRequestResponseObject, error)
+
+	// (GET /api/v1/certificatesigningrequests/{name})
+	ReadCertificateSigningRequest(ctx context.Context, request ReadCertificateSigningRequestRequestObject) (ReadCertificateSigningRequestResponseObject, error)
+
+	// (PATCH /api/v1/certificatesigningrequests/{name})
+	PatchCertificateSigningRequest(ctx context.Context, request PatchCertificateSigningRequestRequestObject) (PatchCertificateSigningRequestResponseObject, error)
+
+	// (PUT /api/v1/certificatesigningrequests/{name})
+	ReplaceCertificateSigningRequest(ctx context.Context, request ReplaceCertificateSigningRequestRequestObject) (ReplaceCertificateSigningRequestResponseObject, error)
+
+	// (DELETE /api/v1/certificatesigningrequests/{name}/approval)
+	DenyCertificateSigningRequest(ctx context.Context, request DenyCertificateSigningRequestRequestObject) (DenyCertificateSigningRequestResponseObject, error)
+
+	// (POST /api/v1/certificatesigningrequests/{name}/approval)
+	ApproveCertificateSigningRequest(ctx context.Context, request ApproveCertificateSigningRequestRequestObject) (ApproveCertificateSigningRequestResponseObject, error)
 
 	// (DELETE /api/v1/devices)
 	DeleteDevices(ctx context.Context, request DeleteDevicesRequestObject) (DeleteDevicesResponseObject, error)
@@ -4005,7 +4852,7 @@ type StrictServerInterface interface {
 	ReplaceEnrollmentRequest(ctx context.Context, request ReplaceEnrollmentRequestRequestObject) (ReplaceEnrollmentRequestResponseObject, error)
 
 	// (POST /api/v1/enrollmentrequests/{name}/approval)
-	CreateEnrollmentRequestApproval(ctx context.Context, request CreateEnrollmentRequestApprovalRequestObject) (CreateEnrollmentRequestApprovalResponseObject, error)
+	ApproveEnrollmentRequest(ctx context.Context, request ApproveEnrollmentRequestRequestObject) (ApproveEnrollmentRequestResponseObject, error)
 
 	// (GET /api/v1/enrollmentrequests/{name}/status)
 	ReadEnrollmentRequestStatus(ctx context.Context, request ReadEnrollmentRequestStatusRequestObject) (ReadEnrollmentRequestStatusResponseObject, error)
@@ -4093,12 +4940,6 @@ type StrictServerInterface interface {
 
 	// (PUT /api/v1/resourcesyncs/{name})
 	ReplaceResourceSync(ctx context.Context, request ReplaceResourceSyncRequestObject) (ReplaceResourceSyncResponseObject, error)
-
-	// (GET /api/v1/token/request)
-	TokenRequest(ctx context.Context, request TokenRequestRequestObject) (TokenRequestResponseObject, error)
-
-	// (GET /api/v1/token/validate)
-	TokenValidate(ctx context.Context, request TokenValidateRequestObject) (TokenValidateResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -4128,6 +4969,307 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// AuthConfig operation middleware
+func (sh *strictHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
+	var request AuthConfigRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AuthConfig(ctx, request.(AuthConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AuthConfig")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AuthConfigResponseObject); ok {
+		if err := validResponse.VisitAuthConfigResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AuthValidate operation middleware
+func (sh *strictHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams) {
+	var request AuthValidateRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AuthValidate(ctx, request.(AuthValidateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AuthValidate")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AuthValidateResponseObject); ok {
+		if err := validResponse.VisitAuthValidateResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCertificateSigningRequests operation middleware
+func (sh *strictHandler) DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request) {
+	var request DeleteCertificateSigningRequestsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCertificateSigningRequests(ctx, request.(DeleteCertificateSigningRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCertificateSigningRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCertificateSigningRequestsResponseObject); ok {
+		if err := validResponse.VisitDeleteCertificateSigningRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCertificateSigningRequests operation middleware
+func (sh *strictHandler) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params ListCertificateSigningRequestsParams) {
+	var request ListCertificateSigningRequestsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCertificateSigningRequests(ctx, request.(ListCertificateSigningRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCertificateSigningRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCertificateSigningRequestsResponseObject); ok {
+		if err := validResponse.VisitListCertificateSigningRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCertificateSigningRequest operation middleware
+func (sh *strictHandler) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	var request CreateCertificateSigningRequestRequestObject
+
+	var body CreateCertificateSigningRequestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCertificateSigningRequest(ctx, request.(CreateCertificateSigningRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCertificateSigningRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCertificateSigningRequestResponseObject); ok {
+		if err := validResponse.VisitCreateCertificateSigningRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCertificateSigningRequest operation middleware
+func (sh *strictHandler) DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request DeleteCertificateSigningRequestRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCertificateSigningRequest(ctx, request.(DeleteCertificateSigningRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCertificateSigningRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCertificateSigningRequestResponseObject); ok {
+		if err := validResponse.VisitDeleteCertificateSigningRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadCertificateSigningRequest operation middleware
+func (sh *strictHandler) ReadCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReadCertificateSigningRequestRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadCertificateSigningRequest(ctx, request.(ReadCertificateSigningRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadCertificateSigningRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadCertificateSigningRequestResponseObject); ok {
+		if err := validResponse.VisitReadCertificateSigningRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchCertificateSigningRequest operation middleware
+func (sh *strictHandler) PatchCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request PatchCertificateSigningRequestRequestObject
+
+	request.Name = name
+
+	var body PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchCertificateSigningRequest(ctx, request.(PatchCertificateSigningRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchCertificateSigningRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchCertificateSigningRequestResponseObject); ok {
+		if err := validResponse.VisitPatchCertificateSigningRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceCertificateSigningRequest operation middleware
+func (sh *strictHandler) ReplaceCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceCertificateSigningRequestRequestObject
+
+	request.Name = name
+
+	var body ReplaceCertificateSigningRequestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceCertificateSigningRequest(ctx, request.(ReplaceCertificateSigningRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceCertificateSigningRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceCertificateSigningRequestResponseObject); ok {
+		if err := validResponse.VisitReplaceCertificateSigningRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DenyCertificateSigningRequest operation middleware
+func (sh *strictHandler) DenyCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request DenyCertificateSigningRequestRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DenyCertificateSigningRequest(ctx, request.(DenyCertificateSigningRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DenyCertificateSigningRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DenyCertificateSigningRequestResponseObject); ok {
+		if err := validResponse.VisitDenyCertificateSigningRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveCertificateSigningRequest operation middleware
+func (sh *strictHandler) ApproveCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request ApproveCertificateSigningRequestRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveCertificateSigningRequest(ctx, request.(ApproveCertificateSigningRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveCertificateSigningRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveCertificateSigningRequestResponseObject); ok {
+		if err := validResponse.VisitApproveCertificateSigningRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // DeleteDevices operation middleware
@@ -4607,13 +5749,13 @@ func (sh *strictHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http
 	}
 }
 
-// CreateEnrollmentRequestApproval operation middleware
-func (sh *strictHandler) CreateEnrollmentRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
-	var request CreateEnrollmentRequestApprovalRequestObject
+// ApproveEnrollmentRequest operation middleware
+func (sh *strictHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request ApproveEnrollmentRequestRequestObject
 
 	request.Name = name
 
-	var body CreateEnrollmentRequestApprovalJSONRequestBody
+	var body ApproveEnrollmentRequestJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
@@ -4621,18 +5763,18 @@ func (sh *strictHandler) CreateEnrollmentRequestApproval(w http.ResponseWriter, 
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateEnrollmentRequestApproval(ctx, request.(CreateEnrollmentRequestApprovalRequestObject))
+		return sh.ssi.ApproveEnrollmentRequest(ctx, request.(ApproveEnrollmentRequestRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateEnrollmentRequestApproval")
+		handler = middleware(handler, "ApproveEnrollmentRequest")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateEnrollmentRequestApprovalResponseObject); ok {
-		if err := validResponse.VisitCreateEnrollmentRequestApprovalResponse(w); err != nil {
+	} else if validResponse, ok := response.(ApproveEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitApproveEnrollmentRequestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4914,10 +6056,11 @@ func (sh *strictHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, nam
 }
 
 // ReadFleet operation middleware
-func (sh *strictHandler) ReadFleet(w http.ResponseWriter, r *http.Request, name string) {
+func (sh *strictHandler) ReadFleet(w http.ResponseWriter, r *http.Request, name string, params ReadFleetParams) {
 	var request ReadFleetRequestObject
 
 	request.Name = name
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ReadFleet(ctx, request.(ReadFleetRequestObject))
@@ -5455,56 +6598,6 @@ func (sh *strictHandler) ReplaceResourceSync(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceResourceSyncResponseObject); ok {
 		if err := validResponse.VisitReplaceResourceSyncResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// TokenRequest operation middleware
-func (sh *strictHandler) TokenRequest(w http.ResponseWriter, r *http.Request) {
-	var request TokenRequestRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.TokenRequest(ctx, request.(TokenRequestRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "TokenRequest")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(TokenRequestResponseObject); ok {
-		if err := validResponse.VisitTokenRequestResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// TokenValidate operation middleware
-func (sh *strictHandler) TokenValidate(w http.ResponseWriter, r *http.Request, params TokenValidateParams) {
-	var request TokenValidateRequestObject
-
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.TokenValidate(ctx, request.(TokenValidateRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "TokenValidate")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(TokenValidateResponseObject); ok {
-		if err := validResponse.VisitTokenValidateResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

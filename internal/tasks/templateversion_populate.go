@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"path/filepath"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -59,6 +57,7 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 		return t.setStatus(ctx, err)
 	}
 
+	// freeze the config source
 	if t.fleet.Spec.Template.Spec.Config != nil {
 		t.frozenConfig = []api.TemplateVersionStatus_Config_Item{}
 
@@ -92,6 +91,7 @@ func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Co
 	if err != nil {
 		return fmt.Errorf("failed fetching fleet: %w", err)
 	}
+
 	t.fleet = fleet
 
 	return nil
@@ -224,77 +224,15 @@ func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceSp
 		return fmt.Errorf("failed getting config item as HttpConfigProviderSpec: %w", err)
 	}
 
-	repo, err := t.store.Repository().GetInternal(context.Background(), t.resourceRef.OrgID, httpSpec.HttpRef.Repository)
+	// Just add the HTTP config as-is
+	// TODO(MGMT-18498): Freeze the config
+	newConfig := &api.TemplateVersionStatus_Config_Item{}
+	err = newConfig.FromHttpConfigProviderSpec(httpSpec)
 	if err != nil {
-		return fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, httpSpec.HttpRef.Repository, err)
+		return fmt.Errorf("failed creating HTTP config from item %s: %w", httpSpec.Name, err)
 	}
 
-	if repo.Spec == nil {
-		return fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpSpec.HttpRef.Repository, err)
-	}
-
-	repoURL, err := repo.Spec.Data.GetRepoURL()
-	if err != nil {
-		return err
-	}
-
-	// Append the suffix only if exists (as it's optional)
-	if httpSpec.HttpRef.Suffix != nil {
-		repoURL = repoURL + *httpSpec.HttpRef.Suffix
-	}
-	req, err := http.NewRequest("GET", repoURL, nil)
-	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
-	}
-
-	repoHttpSpec, err := repo.Spec.Data.GetHttpRepoSpec()
-	if err != nil {
-		return err
-	}
-
-	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
-	if err != nil {
-		return fmt.Errorf("error building request authentication: %w", err)
-	}
-
-	// Set up the HTTP client with the configured TLS settings
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("sending request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response body: %w", err)
-	}
-
-	ignitionWrapper, err := ignition.NewWrapper()
-	if err != nil {
-		return fmt.Errorf("failed to create ignition wrapper: %w", err)
-	}
-	ignitionWrapper.SetFile(httpSpec.HttpRef.FilePath, body, 0o644)
-	m, err := ignitionWrapper.AsMap()
-	if err != nil {
-		return fmt.Errorf("failed to convert ignition to ap: %w", err)
-	}
-	newConfig := api.TemplateVersionStatus_Config_Item{}
-	inlineSpec := api.InlineConfigProviderSpec{
-		Inline: m,
-		Name:   httpSpec.Name,
-	}
-	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
-		return err
-	}
-	t.frozenConfig = append(t.frozenConfig, newConfig)
-
+	t.frozenConfig = append(t.frozenConfig, *newConfig)
 	return nil
 }
 
@@ -307,10 +245,9 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
+		t.templateVersion.Status.Hooks = t.fleet.Spec.Template.Spec.Hooks
 		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
 	}
-
-	t.templateVersion.Status.Conditions = []api.Condition{}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)
 
 	err := t.store.TemplateVersion().UpdateStatus(ctx, t.resourceRef.OrgID, t.templateVersion, util.BoolToPtr(validationErr == nil), t.callbackManager.TemplateVersionValidatedCallback)

@@ -8,23 +8,23 @@ info:
 servers:
   - url: /
 paths:
-  /api/v1/token/request:
+  /api/v1/auth/config:
     get:
-      description: token request
-      operationId: tokenRequest
+      description: Get auth configuration
+      operationId: authConfig
       responses:
-        "301":
-          description: Redirect
-          headers:
-            Location:
+        "200":
+          description: OK
+          content:
+            application/json:
               schema:
-                type: string
+                $ref: '#/components/schemas/AuthConfig'
         "418":
           description: Auth not configured
-  /api/v1/token/validate:
+  /api/v1/auth/validate:
     get:
-      description: token validation
-      operationId: tokenValidate
+      description: Validate auth token
+      operationId: authValidate
       parameters:
         - in: header
           name: Authentication
@@ -216,6 +216,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       tags:
         - resourcesync
@@ -254,6 +260,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -468,6 +480,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - repository
@@ -537,6 +555,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -818,6 +842,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/status:
     get:
       tags:
@@ -921,6 +951,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
@@ -1157,6 +1193,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -1262,7 +1304,7 @@ paths:
       tags:
         - enrollmentrequest
       description: create approval of the specified EnrollmentRequest
-      operationId: createEnrollmentRequestApproval
+      operationId: approveEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -1303,6 +1345,361 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/certificatesigningrequests:
+    get:
+      tags:
+        - certificatesigningrequest
+      description: list CertificateSigningRequests
+      operationId: listCertificateSigningRequests
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequestList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - certificatesigningrequest
+      description: request Certificate Signing
+      operationId: createCertificateSigningRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateSigningRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "208":
+          description: Already Reported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - certificatesigningrequest
+      description: delete a collection of CertificateSigningRequest
+      operationId: deleteCertificateSigningRequests
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/certificatesigningrequests/{name}:
+    patch:
+      description: partially update the specified CertificateSigningRequest
+      operationId: patchCertificateSigningRequest
+      tags:
+        - certificatesigningrequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the certificatesigningrequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags:
+        - certificatesigningrequest
+      description: read the specified certificateSigningRequest
+      operationId: readCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          description: the device identifier of the CertificateSigningRequest
+          required: true
+          schema:
+            type: string
+            uniqueItems: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags:
+        - certificatesigningrequest
+      description: replace the specified CertificateSigningRequest
+      operationId: replaceCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the CertificateSigningRequest
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateSigningRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - certificatesigningrequest
+      description: delete a Certificate Signing Request
+      operationId: deleteCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the Certificate Signing Request
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/certificatesigningrequests/{name}/approval:
+    post:
+      description: approve the specified CertificateSigningRequest
+      operationId: approveCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the CertificateSigningRequest
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      description: deny the specified CertificateSigningRequest
+      operationId: denyCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          description: name of the CertificateSigningRequest
+          required: true
+          schema:
+            type: string
+            uniqueItems: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -1424,6 +1821,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: addDevicesSummary
+          in: query
+          description: include a summary of the devices in the fleet
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -1536,6 +1939,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
@@ -2181,6 +2590,141 @@ components:
         - "ResourceAlertSeverityTypeWarning"
         - "ResourceAlertSeverityTypeCritical"
         - "ResourceAlertSeverityTypeInfo"
+    DeviceUpdateHookSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string 
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/HookAction'
+          description: 'The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.'
+        onFile:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileOperation'
+        path:
+          type: string
+          description: 'The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.'
+      required:
+        - actions
+    DeviceRebootHookSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string 
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/HookAction'
+          description: 'The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.'
+      required:
+        - actions
+    FileOperation:
+      type: string
+      description: 'The type of operation that was observed on the file.'
+      enum:
+        - "Create"
+        - "Remove"
+        - "Update"
+      x-enum-varnames:
+        - "FileOperationCreate"
+        - "FileOperationRemove" # by convention remove is fired before the file is removed.
+        - "FileOperationUpdate"
+    HookAction:
+      type: object
+      oneOf:
+        - properties:
+            executable:
+              $ref: '#/components/schemas/HookActionExecutableSpec'
+          required:
+           - "executable"
+        - properties:
+            systemd:
+              $ref: '#/components/schemas/HookActionSystemdSpec'
+          required:
+           - "systemd"
+    HookActionSpec:
+      type: object
+      properties:
+        timeout:
+             type: string
+             pattern: '^[1-9]\d*[smhd]$'
+             description: |
+              The maximum duration allowed for the action to complete. 
+              The duration should be specified as a positive integer 
+              followed by a time unit. Supported time units are:
+              - 's' for seconds
+              - 'm' for minutes
+              - 'h' for hours
+              - 'd' for days
+    HookActionSystemdSpec:
+       allOf:
+        - $ref: '#/components/schemas/HookActionSpec'
+        - type: object
+          properties:
+            unit:
+              $ref: '#/components/schemas/HookActionSystemdUnit'
+          required:
+            - unit
+    HookActionSystemdUnit:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 'The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.'
+        operations:
+          type: array
+          items:
+            type: string
+            enum:
+              - "Enable"
+              - "Disable"
+              - "Start"
+              - "Stop"
+              - "Restart"
+              - "Reload"
+              - "DaemonReload"
+            x-enum-varnames:
+              - "SystemdEnable"
+              - "SystemdDisable"
+              - "SystemdStart"
+              - "SystemdStop"
+              - "SystemdRestart"
+              - "SystemdReload"
+              - "SystemdDaemonReload"
+          description: 'The specific systemd operations to perform on the specified unit.'
+        workDir:
+            type: string
+            description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
+      required:
+        - name
+        - operations 
+    HookActionExecutableSpec:
+      allOf:
+        - $ref: '#/components/schemas/HookActionSpec'
+        - $ref: '#/components/schemas/HookActionExecutable'
+    HookActionExecutable:
+          type: object
+          properties:
+            run:
+              type: string
+              description: 'The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.'
+            envVars: 
+              type: array
+              items:
+                type: string
+              description: 'An optional list of KEY=VALUE pairs to set as environment variables for the executable.'
+            workDir:
+              type: string
+              description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
+          required:
+            - run
     DeviceList:
       type: object
       properties:
@@ -2223,7 +2767,7 @@ components:
         - os
         - updated
         - summary
-        - updatedAt
+        - lastSeen
       properties:
         conditions:
           type: array
@@ -2253,7 +2797,7 @@ components:
         summary:
           $ref: "#/components/schemas/DeviceSummaryStatus"
           description: "Summary status of the device."
-        updatedAt:
+        lastSeen:
           type: string
           format: date-time
       description: "DeviceStatus represents information about the status of a device. Status may trail the actual state of a device."
@@ -2730,6 +3274,8 @@ components:
                 type: string
         config:
           type: string
+        hooks:
+          $ref: '#/components/schemas/DeviceHooksSpec'
         systemd:
           type: object
           properties:
@@ -2747,6 +3293,37 @@ components:
 
       required:
         - renderedVersion
+    DeviceHooksSpec:
+      type: object
+      properties:
+        beforeUpdating:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceUpdateHookSpec'
+          description: |
+            Hooks executed before updating allow for custom actions and integration with other systems
+            or services. These actions occur before configuration changes are applied to the device.
+        afterUpdating:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceUpdateHookSpec'
+          description: |
+            Hooks executed after updating enable custom actions and integration with other systems
+            or services. These actions occur after configuration changes have been applied to the device.
+        beforeRebooting:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceRebootHookSpec'
+          description: |
+            Hooks executed before rebooting allow for custom actions and integration with other systems
+            or services. These actions occur before the device is rebooted.
+        afterRebooting:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceRebootHookSpec'
+          description: |
+            Hooks executed after rebooting enable custom actions and integration with other systems
+            or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
     DeviceSpec:
       type: object
       properties:
@@ -2764,6 +3341,8 @@ components:
               - $ref: "#/components/schemas/HttpConfigProviderSpec"
             discriminator:
               propertyName: configType
+        hooks:
+          $ref: '#/components/schemas/DeviceHooksSpec' 
         containers:
           type: object
           properties:
@@ -2794,9 +3373,32 @@ components:
           description: 'Current state of the fleet.'
           items:
             $ref: '#/components/schemas/Condition'
+        devicesSummary:
+          $ref: '#/components/schemas/DevicesSummary'
       required:
         - conditions
       description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
+    DevicesSummary:
+      type: object
+      description: A summary of the devices in the fleet returned when fetching a single Fleet.
+      required:
+      - total
+      - summaryStatus
+      - updateStatus
+      properties:
+        total:
+          type: integer
+          description: The total number of devices in the fleet.
+        summaryStatus:
+          type: object
+          additionalProperties:
+            type: integer
+          description: A breakdown of the devices in the fleet by "summary" status.
+        updateStatus:
+          type: object
+          additionalProperties:
+            type: integer
+          description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object
       properties:
@@ -2864,6 +3466,19 @@ components:
         - metadata
         - items
       description: TemplateVersionList is a list of TemplateVersions.
+    AuthConfig:
+      type: object
+      properties:
+        authType:
+          type: string
+          description: 'Auth type'
+        authURL:
+          type: string
+          description: 'Auth URL'
+      required:
+        - authType
+        - authURL
+      description: Auth config.
     ListMeta:
       type: object
       properties:
@@ -2972,6 +3587,9 @@ components:
       type: string
       enum:
       - 'Approved'             # EnrollmentRequest
+      - 'Approved'             # CertificateSigningRequest
+      - 'Denied'               # CertificateSigningRequest
+      - 'Failed'               # CertificateSigningRequest
       - 'Accessible'           # Repository
       - 'Accessible'           # ResourceSync
       - 'ResourceParsed'       # ResourceSync
@@ -2984,6 +3602,9 @@ components:
       - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
+      - CertificateSigningRequestApproved
+      - CertificateSigningRequestDenied
+      - CertificateSigningRequestFailed
       - RepositoryAccessible
       - ResourceSyncAccessible
       - ResourceSyncResourceParsed
@@ -3016,3 +3637,99 @@ components:
       - 'TemplateDiscriminatorKubernetesSec'
       - 'TemplateDiscriminatorInlineConfig'
       - 'TemplateDiscriminatorHttpConfig'
+    CertificateSigningRequest:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/CertificateSigningRequestSpec'
+        status:
+          $ref: '#/components/schemas/CertificateSigningRequestStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      description: 'CertificateSigningRequest represents a request for a signed certificate from the CA'
+    CertificateSigningRequestList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of CertificateSigningRequest.'
+          items:
+            $ref: '#/components/schemas/CertificateSigningRequest'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      description: 'CertificateSigningRequestList is a list of CertificateSigningRequest'
+    CertificateSigningRequestSpec:
+      description: 'Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec'
+      properties:
+        expirationSeconds:
+          description: 'Requested duration of validity for the certificate'
+          format: int32
+          type: integer
+        extra:
+          additionalProperties:
+            items:
+              type: string
+            type: array
+          description: 'Extra attributes of the user that created the CSR, populated by the API server on creation and immutable'
+          type: object
+        request:
+          description: 'The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource'
+          format: byte
+          type: string
+        signerName:
+          description: 'Indicates the requested signer, and is a qualified name'
+          type: string
+        uid:
+          description: 'UID of the user that created the CSR, populated by the API server on creation and immutable'
+          type: string
+        usages:
+          description: 'Usages specifies a set of key usages requested in the issued certificate.'
+          items:
+            type: string
+          type: array
+        username:
+          description: 'Name of the user that created the CSR, populated by the API server on creation and immutable'
+          type: string
+      required:
+        - request
+        - signerName
+      type: object
+    CertificateSigningRequestStatus:
+      description: 'Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists'
+      properties:
+        certificate:
+          description: 'The issued signed certificate, immutable once populated'
+          format: byte
+          type: string
+        conditions:
+          description: 'Conditions applied to the request. Known conditions are Approved, Denied, and Failed'
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Condition'
+            default: {}
+          type: array
+      required:
+        - conditions
+      type: object

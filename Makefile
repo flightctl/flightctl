@@ -10,10 +10,10 @@ GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
+SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --exclude latest --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null)
-BIN_TIMESTAMP ?=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
 MAJOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$1}')
 MINOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$2}')
 PATCH := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$3}')
@@ -38,6 +38,10 @@ help:
 	@echo "    generate:        regenerate all generated files"
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
+	@echo "    lint-docs:       run markdownlint on documentation"
+	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
+	@echo "    spellcheck-docs: run markdown-spellcheck on documentation"
+	@echo "    fix-spelling:    run markdown-spellcheck interactively to fix spelling issues"
 	@echo "    build:           run all builds"
 	@echo "    integration-test: run integration tests"
 	@echo "    unit-test:       run unit tests"
@@ -58,6 +62,8 @@ publish: build-containers
 generate:
 	go generate -v $(shell go list ./...)
 	hack/mockgen.sh
+
+generate-grpc:
 	hack/grpcgen.sh
 
 tidy:
@@ -68,6 +74,9 @@ lint: tools
 
 build: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
+
+build-cli:
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
 build-api: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
@@ -164,6 +173,37 @@ tools: $(GOBIN)/golangci-lint
 
 $(GOBIN)/golangci-lint:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.54.0
+
+.PHONY: lint-docs
+lint-docs:
+	@echo "Linting user documentation markdown files"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:latest "docs/user/**/*.md"
+
+.PHONY: lint-diagrams
+lint-diagrams:
+	@echo "Verifying Excalidraw diagrams have scene embedded"
+	@for d in $$(find . -type d); do \
+		for f in $$(find $$d -maxdepth 1 -type f -iname '*.svg'); do \
+			if [ -f "$$d/.excalidraw-ignore" ] && $$(basename "$$f" | grep -q --basic-regexp --file=$$d/.excalidraw-ignore); then continue ; fi ; \
+			if ! grep -q "excalidraw+json" $$f; then \
+				echo "$$f was not exported from excalidraw with 'Embed Scene' enabled." ; \
+				echo "If this is not an excalidraw file, add it to $$d/.excalidraw-ignore" ; \
+				exit 1 ; \
+			fi ; \
+		done ; \
+	done
+
+# 	if basename "$$f" | grep -q --basic-regexp --file=$d/.excalidraw-ignore; then continue ; fi ; \
+
+.PHONY: spellcheck-docs
+spellcheck-docs:
+	@echo "Checking user documentation for spelling issues"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
+
+.PHONY: fix-spelling
+fix-spelling:
+	@echo "Running markdown-spellcheck interactively to allow fixing spelling issues"
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers "docs/user/**/*.md"
 
 # include the deployment targets
 include deploy/deploy.mk

@@ -4,25 +4,25 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 METHOD=install
 ONLY_DB=
-NO_AUTH=
-RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-docker.io/rabbitmq:3.13}
+RABBITMQ_VERSION="3.13"
+RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
+RABBITMQ_TAR_FILENAME="rabbitmq_${RABBITMQ_VERSION}.tar"
 IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,no-auth,help -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,auth,help -n "$0" -- "$@")
 eval set -- "$options"
 
 while true; do
   case "$1" in
     -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false" ; shift ;;
-    -d|--no-auth) NO_AUTH="--set flightctl.keycloak.enabled=false"; shift ;;
-    -h|--help) echo "Usage: $0 [--only-db] [--no-auth]"; exit 0 ;;
+    -h|--help) echo "Usage: $0 [--only-db]"; exit 0 ;;
     --) shift; break ;;
     *) echo "Invalid option: $1" >&2; exit 1 ;;
   esac
 done
 
-RABBITMQ_ARG="--set flightctl.rabbitmq.image=${RABBITMQ_IMAGE}"
+RABBITMQ_ARG="--set flightctl.rabbitmq.image.image=${RABBITMQ_IMAGE} --set flightctl.rabbitmq.image.tag=${RABBITMQ_VERSION}"
 
 # if we have an existing deployment, try to upgrade it instead
 if helm list --kube-context kind-kind -A | grep flightctl > /dev/null; then
@@ -48,11 +48,22 @@ if [ -z "$ONLY_DB" ]; then
       rm flightctl-${suffix}.tar
     fi
   done
-  podman pull ${RABBITMQ_IMAGE} || true
-  podman save ${RABBITMQ_IMAGE} -o rabbitmq.tar
-  kind load image-archive rabbitmq.tar
-  rm rabbitmq.tar
+
+  if [ -f "${RABBITMQ_TAR_FILENAME}" ]; then
+    echo "File ${RABBITMQ_TAR_FILENAME} already exists. Skipping save."
+  else
+    echo "Saving RabbitMQ image to ${RABBITMQ_TAR_FILENAME}..."
+    podman pull "${RABBITMQ_IMAGE}" || true
+    podman save "${RABBITMQ_IMAGE}" -o "${RABBITMQ_TAR_FILENAME}"
+    if [ $? -eq 0 ]; then
+      echo "Image saved successfully to ${RABBITMQ_TAR_FILENAME}."
+    else
+      echo "Failed to save image."
+    fi
+  fi
+  kind load image-archive "${RABBITMQ_TAR_FILENAME}"
 fi
+
 
 # if we need another database image we can set it with PGSQL_IMAGE (i.e. arm64 images)
 if [ ! -z "$PGSQL_IMAGE" ]; then
@@ -61,15 +72,19 @@ if [ ! -z "$PGSQL_IMAGE" ]; then
   podman pull "${PGSQL_IMAGE}"
   podman tag "${PGSQL_IMAGE}" "${DB_IMG}"
   kind load docker-image "${DB_IMG}"
-  DB_IMG="--set flightctl.db.image=${DB_IMG}"
+  DB_IMG="--set flightctl.db.image.image=${DB_IMG} --set flightctl.db.image.tag=latest"
 fi
 
-helm ${METHOD} --values ./deploy/helm/flightctl/values.kind.yaml \
-                  --set flightctl.api.hostName=${IP} \
-                  --set flightctl.api.agentAPIHostName=${IP} \
-                  --set flightctl.api.agentGrpcHostName=${IP} \
-                  --set flightctl.api.agentGrpcBaseURL=grpcs://${IP}:7444 \
-                   ${ONLY_DB} ${NO_AUTH} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
+AUTH_ARGS=""
+if [ "$AUTH" ]; then
+  AUTH_ARGS="--set keycloak.enabled=true --set flightctl.api.auth.enabled=true"
+fi
+
+helm ${METHOD} --namespace flightctl-external \
+                  --values ./deploy/helm/flightctl/values.kind.yaml \
+                  --set global.flightctl.baseDomain=${IP}.nip.io \
+                  --set flightctl.api.auth.oidcAuthority=http://${IP}:8080/realms/flightctl \
+                   ${ONLY_DB} ${AUTH_ARGS} ${DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s
@@ -83,6 +98,12 @@ kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- createdb a
 
 
 if [ -z "$ONLY_DB" ]; then
+
+  if [ "$AUTH" ]; then
+    kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
+    kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
+  fi
+
   mkdir -p  ~/.flightctl/certs
 
   # Extract .fligthctl files from the api pod, but we must wait for the server to be ready
