@@ -2,7 +2,7 @@
 
 Name: flightctl
 Version: 0.0.1
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Flightctl CLI
 
 License: XXX
@@ -45,6 +45,7 @@ mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
 mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
 install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
 cp bin/flightctl-agent %{buildroot}/usr/bin
+cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
 cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
 
 %files
@@ -52,12 +53,15 @@ cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
 
 %files agent
 /usr/bin/flightctl-agent
+/usr/bin/flightctl-must-gather
 /usr/lib/systemd/system/flightctl-agent.service
 %{_sharedstatedir}/flightctl
 /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
 
 %changelog
-* Wed Mar 13 2024 Ricardo Noriega <rnoriega@redhat.com> - 0.0.1-3
-- New specfile for both CLI and agent packages
+* Wed Aug 21 2024 Sam Batschelet <sbatsche@redhat.com> - 0.0.1-5
+- Add must-gather script to provide a simple mechanism to collect agent debug
 * Wed Aug 7 2024 Sam Batschelet <sbatsche@redhat.com> - 0.0.1-4
 - Add basic greenboot support for failed flightctl-agent service 
+* Wed Mar 13 2024 Ricardo Noriega <rnoriega@redhat.com> - 0.0.1-3
+- New specfile for both CLI and agent packages

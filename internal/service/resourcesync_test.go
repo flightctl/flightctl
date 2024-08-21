@@ -34,6 +34,10 @@ func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name strin
 	return nil, flterrors.ErrResourceNotFound
 }
 
+func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, error) {
+	return resourceSync, nil
+}
+
 func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, bool, error) {
 	return resourceSync, false, nil
 }

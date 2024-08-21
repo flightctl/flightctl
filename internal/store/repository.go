@@ -17,6 +17,7 @@ import (
 
 type Repository interface {
 	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error)
+	Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
 	ListIgnoreOrg() ([]model.Repository, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback RepositoryStoreAllDeletedCallback) error
@@ -52,6 +53,13 @@ func (s *RepositoryStore) InitialMigration() error {
 func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
 	repo, _, err := s.CreateOrUpdate(ctx, orgId, resource, callback)
 	return repo, err
+}
+
+func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Repository, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, ModeUpdateOnly, callback)
+	})
+	return updatedResource, err
 }
 
 func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
@@ -176,7 +184,7 @@ func (s *RepositoryStore) updateRepository(existingRecord, repository *model.Rep
 	return false, nil
 }
 
-func (s *RepositoryStore) createOrUpdate(orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, bool, error) {
+func (s *RepositoryStore) createOrUpdate(orgId uuid.UUID, resource *api.Repository, mode CreateOrUpdateMode, callback RepositoryStoreCallback) (*api.Repository, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -196,6 +204,14 @@ func (s *RepositoryStore) createOrUpdate(orgId uuid.UUID, resource *api.Reposito
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	if !exists {
 		if retry, err := s.createRepository(repository); err != nil {
 			return nil, false, retry, err
@@ -213,7 +229,7 @@ func (s *RepositoryStore) createOrUpdate(orgId uuid.UUID, resource *api.Reposito
 
 func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error) {
 	return retryCreateOrUpdate(func() (*api.Repository, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, callback)
+		return s.createOrUpdate(orgId, resource, ModeCreateOrUpdate, callback)
 	})
 }
 
