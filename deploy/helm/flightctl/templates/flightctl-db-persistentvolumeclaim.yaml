@@ -8,7 +8,7 @@ metadata:
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
 spec:
-  storageClassName: {{ .Values.global.flightctl.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName }}
   accessModes:
     - ReadWriteOnce
   resources:
