@@ -42,7 +42,7 @@ spec:
         labels:
           paas.redhat.com/appcode: {{ .Values.appCode }}
       spec:
-        storageClassName: {{ .Values.global.flightctl.storageClassName }}
+        storageClassName: {{ .Values.global.storageClassName }}
         accessModes:
           - {{ .Values.flightctl.rabbitmq.persistence.accessMode }}
         resources:
