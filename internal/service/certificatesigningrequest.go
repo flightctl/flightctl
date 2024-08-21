@@ -220,7 +220,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 		return server.PatchCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated:
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.PatchCertificateSigningRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -256,7 +256,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated:
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.ReplaceCertificateSigningRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -328,7 +328,7 @@ func (h *ServiceHandler) DenyCertificateSigningRequest(ctx context.Context, requ
 		return server.DenyCertificateSigningRequest200JSONResponse{}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.DenyCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated:
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.DenyCertificateSigningRequest409JSONResponse{}, nil
 	default:
 		return nil, err

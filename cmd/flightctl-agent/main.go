@@ -8,9 +8,17 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/version"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		versionInfo := version.Get()
+		fmt.Printf("Flightctl Agent Version: %s\n", versionInfo.String())
+		fmt.Printf("Git Commit: %s\n", versionInfo.GitCommit)
+		os.Exit(0)
+	}
+
 	command := NewAgentCommand()
 	if err := command.Execute(); err != nil {
 		os.Exit(1)
@@ -33,8 +41,10 @@ func NewAgentCommand() *agentCmd {
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		fmt.Println("This program starts an agent with the specified configuration. Below are the available flags:")
+		fmt.Println("flags:")
 		flag.PrintDefaults()
+		fmt.Println("commands:")
+		fmt.Println("  version    Display version information")
 	}
 
 	flag.Parse()

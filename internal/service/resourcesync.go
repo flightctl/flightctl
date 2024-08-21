@@ -135,7 +135,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceResourceSync404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated:
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.ReplaceResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -203,7 +203,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchResourceSync404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated:
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.PatchResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err
