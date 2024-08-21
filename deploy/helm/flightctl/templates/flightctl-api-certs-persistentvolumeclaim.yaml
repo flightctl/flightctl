@@ -9,7 +9,7 @@ metadata:
   name: flightctl-api-certs
   namespace: {{ .Release.Namespace }}
 spec:
-  storageClassName: {{ .Values.global.flightctl.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName }}
   accessModes:
     - ReadWriteOnce
   resources:

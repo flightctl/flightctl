@@ -14,6 +14,14 @@ import (
 
 const retryIterations = 10
 
+type CreateOrUpdateMode string
+
+const (
+	ModeCreateOnly     CreateOrUpdateMode = "create-only"
+	ModeUpdateOnly     CreateOrUpdateMode = "update-only"
+	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
+)
+
 func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) *gorm.DB {
 	query = query.Where("org_id = ?", orgId).Order("name")
 	invertLabels := false

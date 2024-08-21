@@ -202,7 +202,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.RepositoryUpdatedCallback
 	}
-	result, _, err := h.store.Repository().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
+	result, err := h.store.Repository().Update(ctx, orgId, newObj, updateCallback)
 
 	switch err {
 	case nil:
