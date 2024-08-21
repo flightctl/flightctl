@@ -9,6 +9,7 @@ import (
 )
 
 type Executer interface {
+	CommandContext(ctx context.Context, command string, args ...string) *exec.Cmd
 	Execute(command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int)
@@ -25,6 +26,12 @@ func (e *CommonExecuter) TempFile(dir, pattern string) (f *os.File, err error) {
 func (e *CommonExecuter) Execute(command string, args ...string) (stdout string, stderr string, exitCode int) {
 	cmd := exec.Command(command, args...)
 	return e.execute(cmd)
+}
+
+func (e *CommonExecuter) CommandContext(ctx context.Context, command string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	return cmd
 }
 
 func (e *CommonExecuter) ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int) {
@@ -46,7 +53,7 @@ func (e *CommonExecuter) execute(cmd *exec.Cmd) (stdout string, stderr string, e
 	cmd.Stdout = &stdoutBytes
 	cmd.Stderr = &stderrBytes
 	// Set Pdeathsig to SIGTERM to kill the process and its children when the parent process is killed.
-	// This should prevent orphaned processes and allow for the sub process to gracefully terminate.
+	// This should prevent orphaned processes and allow for the subprocess to gracefully terminate.
 	// ref. https://github.com/golang/go/blob/release-branch.go1.21/src/syscall/exec_linux.go#L91
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 	err := cmd.Run()

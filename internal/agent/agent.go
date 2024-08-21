@@ -196,6 +196,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	consoleController := device.NewConsoleController(
 		grpcClient,
 		deviceName,
+		executer,
 		a.log,
 	)
 
