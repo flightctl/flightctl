@@ -5,6 +5,11 @@
 ## @descriptionEnd
 ##
 ## @param global.flightctl.baseDomain Base domain to construct the FQDN for the service endpoints.
+## @param.global.flightctl.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}.
+##                                            this certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
+## @param.global.flightctl.baseDomainTls.key Key for the base domain wildcard certificate.
+## @param.global.flightctl.useRoutes Use routes for http/https endpoints
+## @param global.flightctl.useIngress Use ingress for http/https endpoints
 ## @param global.flightctl.storageClassName Storage class name for the PVCs.
 ## @param global.flightctl.metrics.enabled Enable metrics exporting and service
 ## @param global.flightctl.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
@@ -13,6 +18,11 @@
 global:
   flightctl:
     baseDomain: "" # flightctl.example.com
+    baseDomainTls:
+      cert: ""
+      key: ""
+    useRoutes: false # Use routes for http/https endpoints
+    useIngress: false # Use ingress for http/https endpoints
     metrics:
       enabled: true
     internalNamespace: ""
