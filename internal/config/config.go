@@ -54,6 +54,8 @@ type authConfig struct {
 	OpenShiftApiUrl       string `json:"openShiftApiUrl,omitempty"`
 	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
 	InternalOIDCAuthority string `json:"internalOidcAuthority,omitempty"`
+	CACert                string `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify bool   `json:"insecureSkipTlsVerify,omitempty"`
 }
 
 func ConfigDir() string {
