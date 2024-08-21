@@ -258,7 +258,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
-	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, updateCallback)
 
 	switch err {
 	case nil:

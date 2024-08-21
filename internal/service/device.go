@@ -249,7 +249,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
 	// create
-	result, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, newObj, nil, true, updateCallback)
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, updateCallback)
 
 	switch err {
 	case nil:
