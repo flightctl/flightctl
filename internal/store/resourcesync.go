@@ -19,6 +19,7 @@ import (
 
 type ResourceSync interface {
 	Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error)
+	Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	ListIgnoreOrg() ([]model.ResourceSync, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error
@@ -49,20 +50,15 @@ func (s *ResourceSyncStore) InitialMigration() error {
 }
 
 func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	resourceSync, err := model.NewResourceSyncFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	resourceSync.OrgID = orgId
-	_, err = s.createResourceSync(resourceSync)
-	if err != nil {
-		return nil, err
-	}
-	apiResourceSync := resourceSync.ToApiResource()
-	return &apiResourceSync, nil
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, ModeCreateOnly)
+	return updatedResource, err
+}
+
+func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.ResourceSync, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, ModeUpdateOnly)
+	})
+	return updatedResource, err
 }
 
 func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error) {
@@ -161,7 +157,7 @@ func (s *ResourceSyncStore) updateResourceSync(existingRecord, resourceSync *mod
 	return false, nil
 }
 
-func (s *ResourceSyncStore) createOrUpdate(orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, bool, error) {
+func (s *ResourceSyncStore) createOrUpdate(orgId uuid.UUID, resource *api.ResourceSync, mode CreateOrUpdateMode) (*api.ResourceSync, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -181,6 +177,14 @@ func (s *ResourceSyncStore) createOrUpdate(orgId uuid.UUID, resource *api.Resour
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	if !exists {
 		if retry, err := s.createResourceSync(resourceSync); err != nil {
 			return nil, false, retry, err
@@ -197,7 +201,7 @@ func (s *ResourceSyncStore) createOrUpdate(orgId uuid.UUID, resource *api.Resour
 
 func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, error) {
 	return retryCreateOrUpdate(func() (*api.ResourceSync, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource)
+		return s.createOrUpdate(orgId, resource, ModeCreateOrUpdate)
 	})
 }
 

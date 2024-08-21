@@ -19,6 +19,7 @@ import (
 
 type CertificateSigningRequest interface {
 	Create(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
+	Update(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error)
@@ -46,16 +47,15 @@ func (s *CertificateSigningRequestStore) InitialMigration() error {
 }
 
 func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	certificatesigningrequest, err := model.NewCertificateSigningRequestFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	certificatesigningrequest.OrgID = orgId
-	_, err = s.createCertificateSigningRequest(certificatesigningrequest)
-	return resource, err
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, ModeCreateOnly)
+	return updatedResource, err
+}
+
+func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.CertificateSigningRequest, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, ModeUpdateOnly)
+	})
+	return updatedResource, err
 }
 
 func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error) {
@@ -151,7 +151,7 @@ func (s *CertificateSigningRequestStore) updateCertificateSigningRequest(existin
 	return false, nil
 }
 
-func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, bool, error) {
+func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.CertificateSigningRequest, mode CreateOrUpdateMode) (*api.CertificateSigningRequest, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -171,6 +171,14 @@ func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resourc
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	if !exists {
 		if retry, err := s.createCertificateSigningRequest(certificatesigningrequest); err != nil {
 			return nil, false, retry, err
@@ -187,7 +195,7 @@ func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resourc
 
 func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error) {
 	return retryCreateOrUpdate(func() (*api.CertificateSigningRequest, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource)
+		return s.createOrUpdate(orgId, resource, ModeCreateOrUpdate)
 	})
 }
 
