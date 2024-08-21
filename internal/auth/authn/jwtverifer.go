@@ -2,6 +2,7 @@ package authn
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ type JWTAuth struct {
 	oidcAuthority         string
 	internalOIDCAuthority string
 	jwksUri               string
+	clientTlsConfig       *tls.Config
 }
 
 type OIDCServerResponse struct {
@@ -23,10 +25,11 @@ type OIDCServerResponse struct {
 	JwksUri       string `json:"jwks_uri"`
 }
 
-func NewJWTAuth(oidcAuthority string, internalOIDCAuthority string) (JWTAuth, error) {
+func NewJWTAuth(oidcAuthority string, internalOIDCAuthority string, clientTlsConfig *tls.Config) (JWTAuth, error) {
 	jwtAuth := JWTAuth{
 		oidcAuthority:         oidcAuthority,
 		internalOIDCAuthority: internalOIDCAuthority,
+		clientTlsConfig:       clientTlsConfig,
 	}
 	oidcUrl := internalOIDCAuthority
 	if oidcUrl == "" {
@@ -51,7 +54,10 @@ func NewJWTAuth(oidcAuthority string, internalOIDCAuthority string) (JWTAuth, er
 }
 
 func (j JWTAuth) ValidateToken(ctx context.Context, token string) (bool, error) {
-	jwkSet, err := jwk.Fetch(ctx, j.jwksUri)
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: j.clientTlsConfig,
+	}}
+	jwkSet, err := jwk.Fetch(ctx, j.jwksUri, jwk.WithHTTPClient(client))
 	if err != nil {
 		return false, err
 	}

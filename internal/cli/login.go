@@ -112,7 +112,7 @@ func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, sc
 	}
 
 	if o.AuthCAFile != "" {
-		caData, err := os.ReadFile(o.CAFile)
+		caData, err := os.ReadFile(o.AuthCAFile)
 		if err != nil {
 			return token, fmt.Errorf("failed to read Auth CA file: %w", err)
 		}
