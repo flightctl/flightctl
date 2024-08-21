@@ -3605,6 +3605,15 @@ func (response ApproveEnrollmentRequest422JSONResponse) VisitApproveEnrollmentRe
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ApproveEnrollmentRequest500JSONResponse Error
+
+func (response ApproveEnrollmentRequest500JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReadEnrollmentRequestStatusRequestObject struct {
 	Name string `json:"name"`
 }
