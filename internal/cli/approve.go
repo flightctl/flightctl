@@ -2,9 +2,10 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -97,7 +98,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	var response interface{}
+	var response *http.Response
 
 	switch {
 	case kind == EnrollmentRequestKind:
@@ -116,15 +117,22 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 	return processApprovalReponse(response, err, kind, name)
 }
 
-func processApprovalReponse(response interface{}, err error, kind string, name string) error {
+func processApprovalReponse(response *http.Response, err error, kind string, name string) error {
 	errorPrefix := fmt.Sprintf("approving %s/%s", kind, name)
 	if err != nil {
 		return fmt.Errorf("%s: %w", errorPrefix, err)
 	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		var responseError api.Error
+		// not handling errors as we are only interested in the message
+		// and in case there will be a problem in reading the body or unmarshalling it
+		// we will print the status like
+		// Error: approving enrollmentrequest/<name>:  (422 Unprocessable Entity)
+		body, _ := io.ReadAll(response.Body)
+		_ = json.Unmarshal(body, &responseError)
 
-	v := reflect.ValueOf(response).Elem()
-	if v.FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf(errorPrefix+": %s (%d)", v.FieldByName("Status").String(), v.FieldByName("StatusCode").Int())
+		return fmt.Errorf("%s: %s (%s)", errorPrefix, responseError.Message, response.Status)
 	}
 
 	return nil

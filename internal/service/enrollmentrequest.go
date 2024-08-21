@@ -40,7 +40,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 	}
 
 	if err := csr.CheckSignature(); err != nil {
-		return err
+		return fmt.Errorf("failed to verify signature of CSR: %w", err)
 	}
 
 	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
@@ -223,7 +223,6 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.ApproveEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
-
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	switch err {
 	default:
@@ -233,12 +232,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 	case nil:
 	}
 
+	// if the enrollment request was already approved we should not try to approve it one more time
 	if request.Body.Approved {
-
-		if request.Body.ApprovedAt != nil {
-			return server.ApproveEnrollmentRequest422JSONResponse{Message: "ApprovedAt is not allowed to be set when approving enrollment requests"}, nil
+		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
+			return server.ApproveEnrollmentRequest400JSONResponse{Message: "Enrollment request is already approved"}, nil
 		}
-
+		if request.Body.ApprovedAt != nil {
+			return server.ApproveEnrollmentRequest400JSONResponse{Message: "ApprovedAt is not allowed to be set when approving enrollment requests"}, nil
+		}
 		request.Body.ApprovedAt = util.TimeToPtr(time.Now())
 
 		// The same check should happen for ApprovedBy, but we don't have a way to identify
@@ -248,14 +249,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 		}
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
-			return server.ApproveEnrollmentRequest422JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
+			return server.ApproveEnrollmentRequest400JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
 		}
 
+		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			return server.ApproveEnrollmentRequest422JSONResponse{Message: fmt.Sprintf("Error creating device from enrollment request: %v", err.Error())}, nil
+			return server.ApproveEnrollmentRequest500JSONResponse{Message: fmt.Sprintf("Error creating device from enrollment request: %v", err.Error())}, nil
 		}
 	}
-
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
 	switch err {
 	case nil:
