@@ -13,11 +13,11 @@
 global:
   flightctl:
     baseDomain: "" # flightctl.example.com
-    storageClassName: "standard"
     metrics:
       enabled: true
     internalNamespace: ""
     clusterLevelSecretAccess: false
+  storageClassName: "standard"
 
 
 ## @section Compoment specific parameters
