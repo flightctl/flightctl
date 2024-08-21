@@ -1,4 +1,4 @@
-{{- if .Values.ingress.enabled -}}
+{{- if .Values.global.flightctl.useIngress -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -7,9 +7,17 @@ metadata:
 spec:
   tls:
     - hosts:
+      {{ if .Values.global.flightctl.baseDomain }}
+        - auth.{{ .Values.global.flightctl.baseDomain }}
+      {{ else }}
         - {{ .Values.ingress.hostname }}
+      {{ end }}
   rules:
+    {{ if .Values.global.flightctl.baseDomain }}
+    - host: auth.{{ .Values.global.flightctl.baseDomain }}
+    {{ else }}
     - host: {{ .Values.ingress.hostname }}
+    {{ end }}
       http:
         paths:
           - path: /
