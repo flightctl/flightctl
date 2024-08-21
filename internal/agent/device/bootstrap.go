@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
@@ -77,6 +78,13 @@ func NewBootstrap(
 
 func (b *Bootstrap) Initialize(ctx context.Context) error {
 	b.log.Infof("Bootstrapping device: %s", b.deviceName)
+	versionInfo := version.Get()
+	b.log.Infof("System information: version=%s, go-version=%s, platform=%s, git-commit=%s",
+		versionInfo.String(),
+		versionInfo.GoVersion,
+		versionInfo.Platform,
+		versionInfo.GitCommit,
+	)
 
 	if err := b.ensureSpecFiles(); err != nil {
 		return err
