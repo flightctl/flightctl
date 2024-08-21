@@ -13,11 +13,11 @@
 global:
   flightctl:
     baseDomain: "" # flightctl.example.com
-    storageClassName: "standard"
     metrics:
       enabled: true
     internalNamespace: ""
     clusterLevelSecretAccess: false
+  storageClassName: "standard"
 
 
 ## @section Compoment specific parameters
@@ -59,6 +59,10 @@ flightctl:
       oidcAuthority: ""
       ## @param internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl-api. Example: https://keycloak.foo.internal/realms/flightctl
       internalOidcAuthority: ""
+      ## @param caCert The custom CA cert
+      caCert: ""
+      ## @param insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
+      insecureSkipTlsVerify: false
   worker:
     enabled: true
     image:

@@ -22,6 +22,7 @@ import (
 
 type Fleet interface {
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
+	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error)
@@ -60,20 +61,15 @@ func (s *FleetStore) InitialMigration() error {
 }
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	fleet, err := model.NewFleetFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	fleet.OrgID = orgId
-	fleet.Annotations = nil
-	_, err = s.createFleet(fleet)
-	if err == nil {
-		callback(nil, fleet)
-	}
-	return resource, err
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, ModeCreateOnly, callback)
+	return updatedResource, err
+}
+
+func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Fleet, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, ModeUpdateOnly, callback)
+	})
+	return updatedResource, err
 }
 
 type ListOption func(*listOptions)
@@ -293,7 +289,7 @@ func (s *FleetStore) updateFleet(existingRecord, fleet *model.Fleet) (bool, erro
 	return false, nil
 }
 
-func (s *FleetStore) createOrUpdate(orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, bool, error) {
+func (s *FleetStore) createOrUpdate(orgId uuid.UUID, resource *api.Fleet, mode CreateOrUpdateMode, callback FleetStoreCallback) (*api.Fleet, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -317,6 +313,14 @@ func (s *FleetStore) createOrUpdate(orgId uuid.UUID, resource *api.Fleet, callba
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	if !exists {
 		if retry, err := s.createFleet(fleet); err != nil {
 			return nil, false, retry, err
@@ -335,7 +339,7 @@ func (s *FleetStore) createOrUpdate(orgId uuid.UUID, resource *api.Fleet, callba
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error) {
 	return retryCreateOrUpdate(func() (*api.Fleet, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, callback)
+		return s.createOrUpdate(orgId, resource, ModeCreateOrUpdate, callback)
 	})
 }
 
