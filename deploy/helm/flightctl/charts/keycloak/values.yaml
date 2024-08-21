@@ -55,9 +55,13 @@ service:
     https: ""
 
 ingress:
-  enabled: true
-  hostname: api.flightctl.127.0.0.1.nip.io
+  hostname: ""
 
+route:
+  hostname: ""
+  tls:
+    cert: ""
+    key: ""
 db:
   ## @param db.namespace The namespace into which to deploy the Keycloak database
   namespace: flightctl
