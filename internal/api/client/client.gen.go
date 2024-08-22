@@ -4817,6 +4817,7 @@ type ApproveEnrollmentRequestResponse struct {
 	JSON401      *Error
 	JSON404      *Error
 	JSON422      *Error
+	JSON500      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -7527,6 +7528,13 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 
