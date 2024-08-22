@@ -95,6 +95,7 @@ var _ = Describe("FleetValidate", func() {
 		goodGitConfig.GitRef.Path = "path-{{ device.metadata.name }}"
 		goodGitConfig.GitRef.Repository = "git-repo"
 		goodGitConfig.GitRef.TargetRevision = "rev"
+		goodGitConfig.GitRef.MountPath = "/"
 
 		badGitConfig = &api.GitConfigProviderSpec{
 			ConfigType: string(api.TemplateDiscriminatorGitConfig),
@@ -103,6 +104,7 @@ var _ = Describe("FleetValidate", func() {
 		badGitConfig.GitRef.Path = "path"
 		badGitConfig.GitRef.Repository = "missingrepo"
 		badGitConfig.GitRef.TargetRevision = "rev"
+		goodGitConfig.GitRef.MountPath = "/"
 
 		goodInlineConfig = &api.InlineConfigProviderSpec{
 			ConfigType: string(api.TemplateDiscriminatorInlineConfig),

@@ -154,6 +154,7 @@ var _ = Describe("FleetRollout", func() {
 				gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
 				gitConfig.GitRef.Repository = "repo"
 				gitConfig.GitRef.TargetRevision = "rev"
+				gitConfig.GitRef.MountPath = "/"
 
 				inlineConfig = &api.InlineConfigProviderSpec{
 					ConfigType: string(api.TemplateDiscriminatorInlineConfig),
