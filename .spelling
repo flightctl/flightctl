@@ -112,3 +112,8 @@ orin
  - docs/user/getting-started.md
 demouser
 v3.15
+values.yaml
+keycloak
+flightctl.MY.DOMAIN
+global.flightctl.baseDomain
+ui.flightctl.MY.DOMAIN
