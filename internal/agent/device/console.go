@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/metadata"
@@ -24,12 +24,19 @@ type ConsoleController struct {
 	streamClient     grpc_v1.RouterService_StreamClient
 	currentStreamID  string
 	lastClosedStream string
+	executor         executer.Executer
 }
 
-func NewConsoleController(grpcClient grpc_v1.RouterServiceClient, deviceName string, log *log.PrefixLogger) *ConsoleController {
+func NewConsoleController(
+	grpcClient grpc_v1.RouterServiceClient,
+	deviceName string,
+	executor executer.Executer,
+	log *log.PrefixLogger,
+) *ConsoleController {
 	return &ConsoleController{
 		grpcClient: grpcClient,
 		deviceName: deviceName,
+		executor:   executor,
 		log:        log,
 	}
 }
@@ -74,7 +81,7 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.SessionIDKey, desired.Console.SessionID)
 	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.ClientNameKey, c.deviceName)
 
-	stdin, stdout, err := c.bashProcess()
+	stdin, stdout, err := c.bashProcess(ctx)
 	if err != nil {
 		return fmt.Errorf("error creating shell process: %w", err)
 	}
@@ -196,12 +203,12 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 
 }
 
-func (c *ConsoleController) bashProcess() (io.WriteCloser, io.ReadCloser, error) {
+func (c *ConsoleController) bashProcess(ctx context.Context) (io.WriteCloser, io.ReadCloser, error) {
 	// TODO pty: this is how oci does a PTY:
 	// https://github.com/cri-o/cri-o/blob/main/internal/oci/oci_unix.go
 	//
 	// set PS1 environment variable to make bash print the default prompt
-	cmd := exec.Command("bash", "-i", "-l")
+	cmd := c.executor.CommandContext(ctx, "bash", "-i", "-l")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, fmt.Errorf("error getting stdin pipe: %w", err)
@@ -220,7 +227,7 @@ func (c *ConsoleController) bashProcess() (io.WriteCloser, io.ReadCloser, error)
 		if err := cmd.Wait(); err != nil {
 			c.log.Errorf("error waiting for bash process: %v", err)
 		} else {
-			c.log.Info("bash process exited succesfully")
+			c.log.Info("bash process exited successfully")
 		}
 	}()
 	return stdin, stdout, nil

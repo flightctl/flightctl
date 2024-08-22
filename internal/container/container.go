@@ -134,7 +134,7 @@ func (b *BootcCmd) Switch(ctx context.Context, image string) error {
 func (b *BootcCmd) Apply(ctx context.Context) error {
 	args := []string{"upgrade", "--apply"}
 	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
-	if exitCode != 0 {
+	if exitCode != 0 && exitCode != 137 { // 137 is the exit code for SIGKILL and is expected during reboot 128 + SIGKILL (9)
 		return fmt.Errorf("apply image: %s", stderr)
 	}
 	return nil

@@ -23,5 +23,9 @@ RestartSec=5
 # in 20 steps it will increment from 5 seconds to 121 seconds
 RestartSteps=20
 
+# send the kill signal SIGINT only to the main process and let subprocesses be handled independently
+KillMode=process 
+KillSignal=SIGINT
+
 [Install]
 WantedBy=multi-user.target
