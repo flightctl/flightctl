@@ -373,11 +373,25 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		return false, flterrors.ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+
+	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
 	}
+	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
+
+	// Changing the console annotation requires bumping the renderedVersion annotation
+	if existingConsoleAnnotation != newConsoleAnnotation {
+		nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+		if err != nil {
+			return false, err
+		}
+
+		existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+	}
+
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -409,17 +423,12 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 
-	var currentRenderedVersion int64 = 0
-	renderedVersionString, ok := existingAnnotations[model.DeviceAnnotationRenderedVersion]
-	if ok {
-		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
-		if err != nil {
-			return false, err
-		}
+	nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+	if err != nil {
+		return false, err
 	}
 
-	currentRenderedVersion++
-	existingAnnotations[model.DeviceAnnotationRenderedVersion] = strconv.FormatInt(currentRenderedVersion, 10)
+	existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -436,6 +445,21 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
+}
+
+func getNextRenderedVersion(annotations map[string]string) (string, error) {
+	var currentRenderedVersion int64 = 0
+	var err error
+	renderedVersionString, ok := annotations[model.DeviceAnnotationRenderedVersion]
+	if ok {
+		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	currentRenderedVersion++
+	return strconv.FormatInt(currentRenderedVersion, 10), nil
 }
 
 func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error {
@@ -461,7 +485,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 
 	var console *api.DeviceConsole
 
-	if val, ok := annotations["flightctl.io/console"]; ok {
+	if val, ok := annotations[model.DeviceAnnotationConsole]; ok {
 		console = &api.DeviceConsole{
 			GRPCEndpoint: consoleGrpcEndpoint,
 			SessionID:    val,

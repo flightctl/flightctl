@@ -17,6 +17,7 @@ var (
 
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	DeviceAnnotationConsole         = "device-controller/console"
 )
 
 type Device struct {
