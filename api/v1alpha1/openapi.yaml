@@ -2448,10 +2448,14 @@ components:
                   type: string
                 path:
                   type: string
+                mountPath:
+                  description: Path to config in device
+                  type: string
               required:
                 - repository
                 - targetRevision
                 - path
+                - mountPath
           required:
           - gitRef
     KubernetesSecretProviderSpec:

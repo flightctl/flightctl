@@ -201,7 +201,15 @@ func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
 	return nil
 }
 
-func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_latest_types.Config, error) {
+// ConvertFileSystemToIgnition converts a filesystem to an ignition config
+// The filesystem is expected to be a git repo, and the path is the root of the repo
+// The function will recursively walk the filesystem and add all files to the ignition config
+// In case user provides file path we will add file as "/file-name"
+// In case user provides folder we will drop folder path add all files and subfolder with subfolder paths, like
+// Example: ConvertFileSystemToIgnition(mfs, "/test-path) will go through all subfolder and files and build ignition paths like
+// /etc/motd, /etc/config/file.yaml
+// The function will return an error if the path does not exist or if there is an error reading the filesystem
+func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string, mountPath string) (*config_latest_types.Config, error) {
 	fileInfo, err := mfs.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed accessing path %s: %w", path, err)
@@ -213,12 +221,12 @@ func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_lat
 		if err != nil {
 			return nil, fmt.Errorf("failed reading directory %s: %w", path, err)
 		}
-		err = addGitDirToIgnitionConfig(mfs, path, "/", files, &ignitionConfig)
+		err = addGitDirToIgnitionConfig(mfs, path, mountPath, files, &ignitionConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting directory %s to ignition: %w", path, err)
 		}
 	} else {
-		err = addGitFileToIgnitionConfig(mfs, path, "/", fileInfo, &ignitionConfig)
+		err = addGitFileToIgnitionConfig(mfs, path, filepath.Join(mountPath, fileInfo.Name()), fileInfo, &ignitionConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting file %s to ignition: %w", path, err)
 		}
@@ -260,7 +268,6 @@ func addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, 
 	if err != nil {
 		return err
 	}
-
 	setFileInIgnition(ignitionConfig, ignPath, fileContents, int(fileInfo.Mode()), true)
 	return nil
 }
