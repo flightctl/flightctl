@@ -248,3 +248,11 @@ func OwnerQueryParamsToArray(ownerQueryParam *string) []string {
 	}
 	return owners
 }
+
+func DefaultIfNotInMap(m map[string]string, key string, def string) string {
+	val, ok := m[key]
+	if !ok {
+		return def
+	}
+	return val
+}

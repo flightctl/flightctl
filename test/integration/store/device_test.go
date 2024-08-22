@@ -426,6 +426,36 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*dev.Metadata.Annotations).To(HaveLen(0))
 		})
 
+		It("UpdateDeviceAnnotations console", func() {
+			firstAnnotations := map[string]string{"key1": "val1"}
+			err := devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", firstAnnotations, nil)
+			Expect(err).ToNot(HaveOccurred())
+			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.Metadata.Annotations).ToNot(BeNil())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(1))
+			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
+
+			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", map[string]string{model.DeviceAnnotationConsole: "console"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.Metadata.Annotations).ToNot(BeNil())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(3))
+			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
+			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationConsole]).To(Equal("console"))
+			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationRenderedVersion]).To(Equal("1"))
+
+			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", nil, []string{model.DeviceAnnotationConsole})
+			Expect(err).ToNot(HaveOccurred())
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.Metadata.Annotations).ToNot(BeNil())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(2))
+			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
+			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationRenderedVersion]).To(Equal("2"))
+		})
+
 		It("GetRendered", func() {
 			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev", nil, nil, nil)
 
