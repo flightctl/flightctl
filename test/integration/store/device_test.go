@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -194,6 +195,31 @@ var _ = Describe("DeviceStore create", func() {
 			devices, err = devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devices.Items).To(HaveLen(0))
+		})
+
+		It("List with summary", func() {
+			allDevices, err := devStore.List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(allDevices.Items).To(HaveLen(3))
+			expectedSummaryMap := make(map[string]int)
+			expectedUpdatedMap := make(map[string]int)
+			for i := range allDevices.Items {
+				d := &allDevices.Items[i]
+				status := lo.Ternary(i%2 == 0, "status-1", "status-2")
+				expectedSummaryMap[status] = expectedSummaryMap[status] + 1
+				d.Status.Summary.Status = api.DeviceSummaryStatusType(status)
+				updatedStatus := fmt.Sprintf("updated-%d", i)
+				d.Status.Updated.Status = api.DeviceUpdatedStatusType(updatedStatus)
+				expectedUpdatedMap[updatedStatus] = expectedUpdatedMap[updatedStatus] + 1
+				_, err = devStore.UpdateStatus(ctx, orgId, d)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			allDevices, err = devStore.List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(allDevices.Items).To(HaveLen(3))
+			Expect(allDevices.Summary.SummaryStatus).To(Equal(expectedSummaryMap))
+			Expect(allDevices.Summary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(allDevices.Summary.Total).To(Equal(3))
 		})
 
 		It("List with paging", func() {
