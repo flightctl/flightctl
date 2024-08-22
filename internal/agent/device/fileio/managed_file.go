@@ -37,6 +37,9 @@ func (m *managedFile) initMetadata() error {
 		}
 		return err
 	}
+	if fileInfo.IsDir() {
+		return fmt.Errorf("provided path %q is a directory", m.Path())
+	}
 	m.exists = true
 	m.size = fileInfo.Size()
 	m.initialized = true
