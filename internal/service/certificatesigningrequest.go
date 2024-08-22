@@ -47,7 +47,7 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request *api.Certifica
 	if u == "" {
 		u = uuid.NewString()
 	}
-	csr.Subject.CommonName, err = crypto.CNFromRequestedName(u)
+	csr.Subject.CommonName, err = crypto.BootrapCNFromName(u)
 	if err != nil {
 		return fmt.Errorf("signApprovedCertificateRequest: error setting CN in CSR: %w", err)
 	}
