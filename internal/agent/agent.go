@@ -29,6 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+const (
+	gracefulShutdownTimeout = 15 * time.Second
+)
+
 // New creates a new agent.
 func New(log *log.PrefixLogger, config *Config) *Agent {
 	return &Agent{
@@ -52,20 +56,21 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	defer utilruntime.HandleCrash()
 	ctx, cancel := context.WithCancel(ctx)
-	shutdownSignals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 
 	// handle teardown
-	shutdownHandler := make(chan os.Signal, 2)
-	signal.Notify(shutdownHandler, shutdownSignals...)
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func(ctx context.Context) {
 		select {
-		case <-shutdownHandler:
-			a.log.Infof("Received SIGTERM or SIGINT signal, shutting down.")
-			close(shutdownHandler)
+		case s := <-signals:
+			a.log.Infof("Agent received shutdown signal: %s", s)
+			// give the agent time to shutdown gracefully
+			time.Sleep(gracefulShutdownTimeout)
+			close(signals)
 			cancel()
 		case <-ctx.Done():
 			a.log.Infof("Context has been cancelled, shutting down.")
-			close(shutdownHandler)
+			close(signals)
 			cancel()
 		}
 	}(ctx)
@@ -191,6 +196,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	consoleController := device.NewConsoleController(
 		grpcClient,
 		deviceName,
+		executer,
 		a.log,
 	)
 
