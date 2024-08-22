@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/api/server"
 	agentServer "github.com/flightctl/flightctl/internal/api/server/agent"
@@ -44,8 +45,9 @@ func ValidateEnrollmentAccessFromContext(ctx context.Context, log logrus.FieldLo
 	if !ok {
 		return errors.New("no common name in certificate")
 	}
-	if cn != crypto.ClientBootstrapCommonName {
-		log.Warningf("an attempt to perform enrollment with a certificate with CN %q has been detected", cn)
+	if cn != crypto.ClientBootstrapCommonName &&
+		!strings.HasPrefix(cn, crypto.ClientBootstrapCommonNamePrefix) {
+		log.Errorf("an attempt to perform enrollment with a certificate with CN %q has been detected", cn)
 		return errors.New("invalid tls CN for enrollment request")
 	}
 	// all good, you shall pass
