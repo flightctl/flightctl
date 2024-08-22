@@ -6,6 +6,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 )
 
@@ -25,7 +26,7 @@ func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.Requ
 
 	sessionId := uuid.New().String()
 
-	annotations := map[string]string{"flightctl.io/console": sessionId}
+	annotations := map[string]string{model.DeviceAnnotationConsole: sessionId}
 
 	if err := h.store.Device().UpdateAnnotations(ctx, orgId, request.Name, annotations, []string{}); err != nil {
 		return server.RequestConsole401JSONResponse{Message: "Unable to annotate device for console setup"}, err
