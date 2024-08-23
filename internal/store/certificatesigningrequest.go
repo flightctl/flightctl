@@ -46,11 +46,13 @@ func (s *CertificateSigningRequestStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.CertificateSigningRequest{})
 }
 
+// Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
 	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, ModeCreateOnly)
 	return updatedResource, err
 }
 
+// Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
 	updatedResource, _, err := retryCreateOrUpdate(func() (*api.CertificateSigningRequest, bool, bool, error) {
 		return s.createOrUpdate(orgId, resource, ModeUpdateOnly)
@@ -151,6 +153,7 @@ func (s *CertificateSigningRequestStore) updateCertificateSigningRequest(existin
 	return false, nil
 }
 
+// Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.CertificateSigningRequest, mode CreateOrUpdateMode) (*api.CertificateSigningRequest, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
