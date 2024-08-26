@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -38,6 +39,7 @@ type Bootstrap struct {
 	enrollmentUIEndpoint string
 	specManager          spec.Manager
 	statusManager        status.Manager
+	configController     config.Controller
 	backoff              wait.Backoff
 
 	managementServiceConfig *client.Config
@@ -56,6 +58,7 @@ func NewBootstrap(
 	enrollmentCSR []byte,
 	specManager spec.Manager,
 	statusManager status.Manager,
+	configController config.Controller,
 	enrollmentClient client.Enrollment,
 	enrollmentUIEndpoint string,
 	managementServiceConfig *client.Config,
@@ -70,6 +73,7 @@ func NewBootstrap(
 		enrollmentCSR:           enrollmentCSR,
 		specManager:             specManager,
 		statusManager:           statusManager,
+		configController:        configController,
 		enrollmentClient:        enrollmentClient,
 		enrollmentUIEndpoint:    enrollmentUIEndpoint,
 		managementServiceConfig: managementServiceConfig,
@@ -156,6 +160,12 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 		return err
 	}
 
+	currentSpec, err := b.specManager.Read(spec.Current)
+	if err != nil {
+		b.log.WithError(err).Warn("Failed to read current spec. It is expected in case this is the first run")
+		return nil
+	}
+	b.configController.Initialize(ctx, currentSpec)
 	return nil
 }
 
