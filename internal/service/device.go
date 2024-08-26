@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -55,7 +56,15 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
+		// If a label selector is provided, ensure keys without value still have '=' appended
+		labels := strings.Split(*request.Params.LabelSelector, ",")
+		for i, label := range labels {
+			l := strings.Split(label, "=")
+			if len(l) == 1 {
+				labels[i] = l[0] + "="
+			}
+		}
+		labelSelector = strings.Join(labels, ",")
 	}
 	statusFilter := []string{}
 	if request.Params.StatusFilter != nil {
