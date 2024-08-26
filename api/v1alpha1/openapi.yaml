@@ -2747,6 +2747,8 @@ components:
           description: 'List of Devices.'
           items:
             $ref: '#/components/schemas/Device'
+        summary:
+          $ref: '#/components/schemas/DevicesSummary'
       description: DeviceList is a list of Devices.
       required:
         - apiVersion

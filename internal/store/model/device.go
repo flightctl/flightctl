@@ -149,14 +149,25 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 	}
 
 	deviceList := make([]api.Device, len(dl))
+	summaryStatuses := make(map[string]int)
+	updateStatuses := make(map[string]int)
 	for i, device := range dl {
 		deviceList[i] = device.ToApiResource()
+		summaryStatus := string(deviceList[i].Status.Summary.Status)
+		summaryStatuses[summaryStatus] = summaryStatuses[summaryStatus] + 1
+		updateStatus := string(deviceList[i].Status.Updated.Status)
+		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 	}
 	ret := api.DeviceList{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceListKind,
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
+		Summary: &api.DevicesSummary{
+			SummaryStatus: summaryStatuses,
+			UpdateStatus:  updateStatuses,
+			Total:         len(dl),
+		},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont

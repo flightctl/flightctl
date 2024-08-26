@@ -354,6 +354,9 @@ type DeviceList struct {
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
+
+	// Summary A summary of the devices in the fleet returned when fetching a single Fleet.
+	Summary *DevicesSummary `json:"summary,omitempty"`
 }
 
 // DeviceOSSpec defines model for DeviceOSSpec.
