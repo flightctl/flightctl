@@ -101,17 +101,6 @@ func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 	if o.Rendered && len(o.Output) == 0 {
 		o.Output = jsonFormat
 	}
-	// If a label selector is provided, ensure keys without value still have '=' appended
-	if len(o.LabelSelector) > 0 {
-		labels := strings.Split(o.LabelSelector, ",")
-		for i, label := range labels {
-			l := strings.Split(label, "=")
-			if len(l) == 1 {
-				labels[i] = l[0] + "="
-			}
-		}
-		o.LabelSelector = strings.Join(labels, ",")
-	}
 	return nil
 }
 
