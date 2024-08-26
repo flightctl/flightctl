@@ -300,14 +300,19 @@ func printTable(response interface{}, kind string, name string) error {
 }
 
 func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+	fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range devices {
 		lastSeen := "<never>"
 		if !d.Status.LastSeen.IsZero() {
 			lastSeen = humanize.Time(d.Status.LastSeen)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		alias := ""
+		if d.Metadata.Labels != nil {
+			alias = (*d.Metadata.Labels)["alias"]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			*d.Metadata.Name,
+			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
 			d.Status.Summary.Status,
 			d.Status.Updated.Status,
