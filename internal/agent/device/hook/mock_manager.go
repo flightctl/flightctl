@@ -80,6 +80,18 @@ func (mr *MockManagerMockRecorder) OnAfterCreate(ctx, path any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnAfterCreate", reflect.TypeOf((*MockManager)(nil).OnAfterCreate), ctx, path)
 }
 
+// OnAfterReboot mocks base method.
+func (m *MockManager) OnAfterReboot(ctx context.Context, path string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "OnAfterReboot", ctx, path)
+}
+
+// OnAfterReboot indicates an expected call of OnAfterReboot.
+func (mr *MockManagerMockRecorder) OnAfterReboot(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnAfterReboot", reflect.TypeOf((*MockManager)(nil).OnAfterReboot), ctx, path)
+}
+
 // OnAfterRemove mocks base method.
 func (m *MockManager) OnAfterRemove(ctx context.Context, path string) {
 	m.ctrl.T.Helper()
@@ -114,6 +126,18 @@ func (m *MockManager) OnBeforeCreate(ctx context.Context, path string) {
 func (mr *MockManagerMockRecorder) OnBeforeCreate(ctx, path any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnBeforeCreate", reflect.TypeOf((*MockManager)(nil).OnBeforeCreate), ctx, path)
+}
+
+// OnBeforeReboot mocks base method.
+func (m *MockManager) OnBeforeReboot(ctx context.Context, path string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "OnBeforeReboot", ctx, path)
+}
+
+// OnBeforeReboot indicates an expected call of OnBeforeReboot.
+func (mr *MockManagerMockRecorder) OnBeforeReboot(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnBeforeReboot", reflect.TypeOf((*MockManager)(nil).OnBeforeReboot), ctx, path)
 }
 
 // OnBeforeRemove mocks base method.

@@ -112,10 +112,13 @@ func TestSync(t *testing.T) {
 				currentConfigRaw := []byte(*tt.current.Config)
 				currentIgnitionConfig, err := ParseAndConvertConfig(currentConfigRaw)
 				require.NoError(err)
+				for _, f := range currentIgnitionConfig.Storage.Files {
+					mockHookManager.EXPECT().OnAfterReboot(gomock.Any(), f.Path)
+				}
 				err = controller.WriteIgnitionFiles(ctx, currentIgnitionConfig.Storage.Files)
 				require.NoError(err)
 			}
-
+			controller.Initialize(ctx, tt.current)
 			err := controller.Sync(ctx, tt.current, tt.desired)
 			if tt.wantErr != nil {
 				require.ErrorIs(err, tt.wantErr)

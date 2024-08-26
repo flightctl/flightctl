@@ -2638,10 +2638,12 @@ components:
         - "Create"
         - "Remove"
         - "Update"
+        - "Reboot"
       x-enum-varnames:
         - "FileOperationCreate"
         - "FileOperationRemove" # by convention remove is fired before the file is removed.
         - "FileOperationUpdate"
+        - "FileOperationReboot"
     HookAction:
       type: object
       oneOf:
