@@ -101,5 +101,9 @@ jobs:
             git push --delete origin $OLD_TAG
           fi
           
-          gh release create -p -n "Flightctl CLI pre-release" latest release/*
+          gh release create -p \
+            -n "Flightctl CLI pre-release" \
+            -t "latest: $(git describe --always)" \
+            latest \
+            release/*
 
