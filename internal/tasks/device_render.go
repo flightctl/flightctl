@@ -257,7 +257,7 @@ func renderGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item
 	}
 
 	// Create an ignition from the git subtree and merge it into the rendered config
-	ignitionConfig, err := ConvertFileSystemToIgnition(mfs, gitSpec.GitRef.Path)
+	ignitionConfig, err := ConvertFileSystemToIgnition(mfs, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
 	if err != nil {
 		return gitSpec.Name, fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
@@ -103,6 +104,7 @@ var _ = Describe("FleetValidate", func() {
 		badGitConfig.GitRef.Path = "path"
 		badGitConfig.GitRef.Repository = "missingrepo"
 		badGitConfig.GitRef.TargetRevision = "rev"
+		goodGitConfig.GitRef.MountPath = lo.ToPtr("/")
 
 		goodInlineConfig = &api.InlineConfigProviderSpec{
 			ConfigType: string(api.TemplateDiscriminatorInlineConfig),
