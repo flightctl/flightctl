@@ -220,7 +220,7 @@ type StatusCount struct {
 	Count  int
 }
 
-func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summaryField string) (map[string]int, error) {
+func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summaryField string) (*map[string]int, error) {
 	queryStr := `
 	SELECT count(*) as count, status::jsonb->'%s'->>'status' as status
 	FROM devices
@@ -232,7 +232,7 @@ func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, flee
 	if err := s.db.WithContext(ctx).Raw(summaryQueryStr).Scan(&statusCounts).Error; err != nil {
 		return nil, err
 	}
-	return lo.SliceToMap(statusCounts, func(s StatusCount) (string, int) { return s.Status, s.Count }), nil
+	return lo.ToPtr(lo.SliceToMap(statusCounts, func(s StatusCount) (string, int) { return s.Status, s.Count })), nil
 }
 
 func (s *FleetStore) createFleet(fleet *model.Fleet) (bool, error) {
