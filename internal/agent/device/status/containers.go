@@ -44,6 +44,7 @@ type PodmanContainerList []PodmanContainerListEntry
 type PodmanContainerListEntry struct {
 	Names    []string `json:"Names"`
 	State    string   `json:"State"`
+	Status   string   `json:"Status"`
 	Image    string   `json:"Image"`
 	Id       string   `json:"Id"`
 	ExitCode int      `json:"ExitCode"`
@@ -99,9 +100,10 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 	// TODO: handle removed containers and use appropriate status
 	for _, c := range containers {
 		status.Applications.Data[c.Names[0]] = v1alpha1.ApplicationStatus{
-			Name:     c.Names[0],
-			Status:   podmanApplicationStatus(c),
-			Restarts: c.Restarts,
+			Name:       c.Names[0],
+			Status:     podmanApplicationStatus(c),
+			StatusInfo: c.Status,
+			Restarts:   c.Restarts,
 		}
 	}
 

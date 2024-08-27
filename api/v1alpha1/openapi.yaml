@@ -2849,6 +2849,7 @@ components:
         - ready
         - restarts
         - status
+        - status_info
       properties:
         name:
           type: string
@@ -2862,6 +2863,9 @@ components:
         status:
           $ref: "#/components/schemas/ApplicationStatusType"
           description: "Status of the application."
+        status_info:
+          type: string
+          description: "Free text providing additional information for the application status"
     ApplicationsSummaryStatus:
       type: object
       required:
