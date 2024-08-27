@@ -2451,11 +2451,11 @@ components:
                 mountPath:
                   description: Path to config in device
                   type: string
+                  default: "/"
               required:
                 - repository
                 - targetRevision
                 - path
-                - mountPath
           required:
           - gitRef
     KubernetesSecretProviderSpec:
