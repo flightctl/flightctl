@@ -651,7 +651,9 @@ type GenericRepoSpec struct {
 type GitConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
 	GitRef     struct {
-		Path string `json:"path"`
+		// MountPath Path to config in device
+		MountPath *string `json:"mountPath,omitempty"`
+		Path      string  `json:"path"`
 
 		// Repository The name of the repository resource to use as the sync source
 		Repository     string `json:"repository"`
