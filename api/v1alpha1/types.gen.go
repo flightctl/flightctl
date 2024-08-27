@@ -147,6 +147,9 @@ type ApplicationStatus struct {
 	// Restarts Number of restarts observed for the application.
 	Restarts int                   `json:"restarts"`
 	Status   ApplicationStatusType `json:"status"`
+
+	// StatusInfo Free text providing additional information for the application status
+	StatusInfo string `json:"status_info"`
 }
 
 // ApplicationStatusType defines model for ApplicationStatusType.
