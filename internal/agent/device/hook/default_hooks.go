@@ -25,7 +25,7 @@ func defaultAfterUpdateHooks() []v1alpha1.DeviceUpdateHookSpec {
 			Name:        util.StrToPtr("podman compose up"),
 			Path:        util.StrToPtr("/var/run/flightctl/compose"),
 			Description: util.StrToPtr("Bring up a multi-container system based on the provided YAML podman-compose definition file"),
-			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate},
+			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate, v1alpha1.FileOperationReboot},
 			Actions: []v1alpha1.HookAction{
 				marshalExecutable("podman-compose -f {{ .FilePath }} up -d", nil,
 					"/var/run/flightctl/compose", "1m"),

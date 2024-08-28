@@ -37,6 +37,9 @@ func (m *managedFile) initMetadata() error {
 		}
 		return err
 	}
+	if fileInfo.IsDir() {
+		return fmt.Errorf("provided path %q is a directory", m.Path())
+	}
 	m.exists = true
 	m.size = fileInfo.Size()
 	m.initialized = true
@@ -47,7 +50,7 @@ func (m *managedFile) decodeFile() error {
 	if m.contents != nil {
 		return nil
 	}
-	contents, err := DecodeIgnitionFileContents(m.Contents.Source, m.Contents.Compression)
+	contents, err := decodeIgnitionFileContents(m.Contents.Source, m.Contents.Compression)
 	if err != nil {
 		return err
 	}

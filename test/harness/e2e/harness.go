@@ -107,13 +107,14 @@ func (h *Harness) Cleanup(printConsole bool) {
 
 func (h *Harness) GetEnrollmentIDFromConsole() string {
 	// wait for the enrollment ID on the console
-	Eventually(h.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("/enroll/"))
-	output := h.VM.GetConsoleOutput()
+	enrollmentId := ""
+	Eventually(func() string {
+		consoleOutput := h.VM.GetConsoleOutput()
+		enrollmentId = util.GetEnrollmentIdFromText(consoleOutput)
+		return enrollmentId
+	}, TIMEOUT, POLLING).ShouldNot(BeEmpty(), "Enrollment ID not found in VM console output")
 
-	enrollmentID := output[strings.Index(output, "/enroll/")+8:]
-	enrollmentID = enrollmentID[:strings.Index(enrollmentID, "\r")]
-	enrollmentID = strings.TrimRight(enrollmentID, "\n")
-	return enrollmentID
+	return enrollmentId
 }
 
 func (h *Harness) WaitForEnrollmentRequest(id string) *v1alpha1.EnrollmentRequest {
@@ -132,7 +133,7 @@ func (h *Harness) ApproveEnrollment(id string, approval *v1alpha1.EnrollmentRequ
 	Expect(approval).NotTo(BeNil())
 
 	logrus.Infof("Approving device enrollment: %s", id)
-	apr, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, id, *approval)
+	apr, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, id, *approval)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(apr.JSON200).NotTo(BeNil())
 	logrus.Infof("Approved device enrollment: %s", id)

@@ -84,7 +84,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
-	result, err := h.store.Fleet().List(ctx, orgId, listParams)
+	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.WithDeviceCount(true))
 	switch err {
 	case nil:
 		return server.ListFleets200JSONResponse(*result), nil
@@ -153,7 +153,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceFleet404JSONResponse{}, nil
-	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed, flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -258,7 +258,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
-	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, updateCallback)
 
 	switch err {
 	case nil:
@@ -267,6 +267,8 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchFleet404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.PatchFleet409JSONResponse{}, nil
 	default:
 		return nil, err
 	}

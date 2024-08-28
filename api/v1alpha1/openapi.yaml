@@ -216,6 +216,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       tags:
         - resourcesync
@@ -254,6 +260,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -468,6 +480,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - repository
@@ -537,6 +555,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -818,6 +842,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/status:
     get:
       tags:
@@ -921,6 +951,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
@@ -1157,6 +1193,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -1262,7 +1304,7 @@ paths:
       tags:
         - enrollmentrequest
       description: create approval of the specified EnrollmentRequest
-      operationId: createEnrollmentRequestApproval
+      operationId: approveEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -1307,6 +1349,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests:
     get:
       tags:
@@ -1339,6 +1387,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequestList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1397,7 +1451,7 @@ paths:
       tags:
         - certificatesigningrequest
       description: delete a collection of CertificateSigningRequest
-      operationId: deleteCollectionCertificateSigningRequest
+      operationId: deleteCertificateSigningRequests
       responses:
         "200":
           description: OK
@@ -1456,6 +1510,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -1541,6 +1601,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - certificatesigningrequest
@@ -1560,124 +1626,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
-        "202":
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-  /api/v1/certificatesigningrequests/{name}/status:
-    patch:
-      description: partially update status of the specified CertificateSigningRequest
-      operationId: patchCertificateSigningRequestStatus
-      tags:
-        - certificatesigningrequest
-      parameters:
-        - name: name
-          in: path
-          description: name of the certificatesigningrequest
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json-patch+json:
-            schema:
-              $ref: '#/components/schemas/PatchRequest'
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: NotFound
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    get:
-      tags:
-        - certificatesigningrequest
-      description: read status of the specified CertificateSigningRequest
-      operationId: readCertificateSigningRequestStatus
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-            uniqueItems: true # differs from enrollmentRequest
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    put:
-      tags:
-        - certificatesigningrequest
-      description: replace status of the specified CertificateSigningRequest
-      operationId: replaceCertificateSigningRequestStatus
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CertificateSigningRequest'
-        required: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
         "401":
           description: Unauthorized
           content:
@@ -1691,23 +1639,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests/{name}/approval:
-    patch:
-      description: partially update approval of the specified CertificateSigningRequest
-      operationId: patchCertificateSigningRequestApproval
-      tags:
-        - certificatesigningrequest
+    post:
+      description: approve the specified CertificateSigningRequest
+      operationId: approveCertificateSigningRequest
       parameters:
         - name: name
           in: path
-          description: name of the certificatesigningrequest
+          description: name of the CertificateSigningRequest
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json-patch+json:
-            schema:
-              $ref: '#/components/schemas/PatchRequest'
       responses:
         "200":
           description: OK
@@ -1715,18 +1656,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1739,51 +1668,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    put:
-      description: replace approval of the specified CertificateSigningRequest
-      operationId: replaceCertificateSigningRequestApproval
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    get:
-      description: read approval of the specified CertificateSigningRequest
-      operationId: readCertificateSigningRequestApproval
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+    delete:
+      description: deny the specified CertificateSigningRequest
+      operationId: denyCertificateSigningRequest
       parameters:
         - name: name
           in: path
@@ -1792,6 +1685,31 @@ paths:
           schema:
             type: string
             uniqueItems: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets:
     get:
       tags:
@@ -2027,6 +1945,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
@@ -2524,6 +2448,10 @@ components:
                   type: string
                 path:
                   type: string
+                mountPath:
+                  description: Path to config in device
+                  type: string
+                  default: "/"
               required:
                 - repository
                 - targetRevision
@@ -2714,10 +2642,12 @@ components:
         - "Create"
         - "Remove"
         - "Update"
+        - "Reboot"
       x-enum-varnames:
         - "FileOperationCreate"
         - "FileOperationRemove" # by convention remove is fired before the file is removed.
         - "FileOperationUpdate"
+        - "FileOperationReboot"
     HookAction:
       type: object
       oneOf:
@@ -2823,6 +2753,8 @@ components:
           description: 'List of Devices.'
           items:
             $ref: '#/components/schemas/Device'
+        summary:
+          $ref: '#/components/schemas/DevicesSummary'
       description: DeviceList is a list of Devices.
       required:
         - apiVersion
@@ -3465,8 +3397,6 @@ components:
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
       - total
-      - summaryStatus
-      - updateStatus
       properties:
         total:
           type: integer

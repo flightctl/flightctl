@@ -25,6 +25,8 @@ type Manager interface {
 	OnAfterUpdate(ctx context.Context, path string)
 	OnBeforeRemove(ctx context.Context, path string)
 	OnAfterRemove(ctx context.Context, path string)
+	OnBeforeReboot(ctx context.Context, path string)
+	OnAfterReboot(ctx context.Context, path string)
 	Errors() []error
 	Close() error
 }
@@ -42,6 +44,8 @@ type manager struct {
 	onAfterUpdate  ActionMap
 	onBeforeRemove ActionMap
 	onAfterRemove  ActionMap
+	onBeforeReboot ActionMap
+	onAfterReboot  ActionMap
 	log            *log.PrefixLogger
 	mu             sync.Mutex
 	errors         map[string]error
@@ -58,6 +62,8 @@ func NewManager(exec executer.Executer, log *log.PrefixLogger) Manager {
 		onAfterUpdate:  make(ActionMap),
 		onBeforeRemove: make(ActionMap),
 		onAfterRemove:  make(ActionMap),
+		onBeforeReboot: make(ActionMap),
+		onAfterReboot:  make(ActionMap),
 		log:            log,
 		errors:         make(map[string]error),
 		backgroundJobs: make(chan func(ctx context.Context), 100),
@@ -102,15 +108,16 @@ func (m *manager) createSystemdActionHook(action v1alpha1.HookAction) (ActionHoo
 		m.log), nil
 }
 
-func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec) (ActionMap, ActionMap, ActionMap, error) {
+func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec) (ActionMap, ActionMap, ActionMap, ActionMap, error) {
 	createMap := make(ActionMap)
 	updateMap := make(ActionMap)
 	removeMap := make(ActionMap)
+	rebootMap := make(ActionMap)
 	for _, hookSpec := range hookSpecs {
 		for _, action := range hookSpec.Actions {
 			hookActionType, err := action.Type()
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			var actionHook ActionHook
 			switch hookActionType {
@@ -119,10 +126,10 @@ func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpe
 			case SystemdActionType:
 				actionHook, err = m.createSystemdActionHook(action)
 			default:
-				return nil, nil, nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)
+				return nil, nil, nil, nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)
 			}
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			path := lo.FromPtr(hookSpec.Path)
 			opts := lo.FromPtr(hookSpec.OnFile)
@@ -134,31 +141,33 @@ func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpe
 					updateMap[path] = append(updateMap[path], actionHook)
 				case v1alpha1.FileOperationRemove:
 					removeMap[path] = append(removeMap[path], actionHook)
+				case v1alpha1.FileOperationReboot:
+					rebootMap[path] = append(rebootMap[path], actionHook)
 				default:
-					return nil, nil, nil, ErrUnsupportedFilesystemOperation
+					return nil, nil, nil, nil, ErrUnsupportedFilesystemOperation
 				}
 			}
 		}
 	}
-	return createMap, updateMap, removeMap, nil
+	return createMap, updateMap, removeMap, rebootMap, nil
 }
 
 func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) error {
-	m.log.Info("Syncing hook manager")
-	defer m.log.Info("Finished syncing hook manager")
+	m.log.Debug("Syncing hook manager")
+	defer m.log.Debug("Finished syncing hook manager")
 
 	current := lo.FromPtr(currentPtr)
 	desired := lo.FromPtr(desiredPtr)
 	if m.initialized.Load() && reflect.DeepEqual(current.Hooks, desired.Hooks) {
-		m.log.Info("Hooks are equal.  Nothing to update")
+		m.log.Debug("Hooks are equal. Nothing to update")
 		return nil
 	}
 	desiredHooks := lo.FromPtr(desired.Hooks)
-	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...))
+	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...))
 	if err != nil {
 		return err
 	}
-	afterCreateMap, afterUpdateMap, afterRemoveMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...))
+	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...))
 	if err != nil {
 		return err
 	}
@@ -170,6 +179,8 @@ func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) erro
 	m.onAfterCreate = afterCreateMap
 	m.onAfterUpdate = afterUpdateMap
 	m.onAfterRemove = afterRemoveMap
+	m.onBeforeReboot = beforeRebootMap
+	m.onAfterReboot = afterRebootMap
 	m.initialized.Store(true)
 	return nil
 }
@@ -201,12 +212,12 @@ func (m *manager) Run(ctx context.Context) {
 		select {
 		case job, ok := <-m.backgroundJobs:
 			if !ok {
-				m.log.Warn("background jobs channel closed")
+				m.log.Warn("Background jobs channel closed")
 				return
 			}
 			job(ctx)
 		case <-ctx.Done():
-			m.log.Info("background jobs context closed")
+			m.log.Info("Background jobs context closed")
 			return
 		}
 	}
@@ -247,6 +258,14 @@ func (m *manager) OnBeforeRemove(ctx context.Context, path string) {
 
 func (m *manager) OnAfterRemove(ctx context.Context, path string) {
 	m.submitBackgroundJob(path, m.onAfterRemove)
+}
+
+func (m *manager) OnBeforeReboot(ctx context.Context, path string) {
+	m.runActions(ctx, path, m.onBeforeReboot)
+}
+
+func (m *manager) OnAfterReboot(ctx context.Context, path string) {
+	m.submitBackgroundJob(path, m.onAfterReboot)
 }
 
 func (m *manager) Errors() []error {
