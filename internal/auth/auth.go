@@ -67,7 +67,7 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		log.Warnln("Auth disabled")
 		authZ = NilAuth{}
 		authN = authZ.(AuthNMiddleware)
-	} else {
+	} else if cfg.Auth != nil {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
 		}
@@ -76,11 +76,11 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 			caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
 			tlsConfig.RootCAs = caCertPool
 		}
-		if cfg.Auth != nil && cfg.Auth.OpenShiftApiUrl != "" {
+		if cfg.Auth.OpenShiftApiUrl != "" {
 			log.Println(fmt.Sprintf("OpenShift auth enabled: %s", cfg.Auth.OpenShiftApiUrl))
 			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: cfg.Auth.OpenShiftApiUrl, ClientTlsConfig: tlsConfig}}
 			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: cfg.Auth.OpenShiftApiUrl, ClientTlsConfig: tlsConfig}
-		} else if cfg.Auth != nil && cfg.Auth.OIDCAuthority != "" {
+		} else if cfg.Auth.OIDCAuthority != "" {
 			log.Println(fmt.Sprintf("OIDC auth enabled: %s", cfg.Auth.OIDCAuthority))
 			authZ = NilAuth{}
 			var err error
