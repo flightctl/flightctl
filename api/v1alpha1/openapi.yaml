@@ -3397,8 +3397,6 @@ components:
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
       - total
-      - summaryStatus
-      - updateStatus
       properties:
         total:
           type: integer
