@@ -277,7 +277,7 @@ var _ = Describe("DeviceStore create", func() {
 		It("List with status field filter paging", func() {
 			listParams := store.ListParams{
 				Filter: map[string][]string{
-					"updated.status": {"Unknown", "Updating"},
+					"status.updated.status": {"Unknown", "Updating"},
 				},
 				Limit: 1000,
 			}
