@@ -116,13 +116,17 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
 			Expect(fleet.Status.DevicesSummary.Total).To(Equal(5))
-			Expect(fleet.Status.DevicesSummary.SummaryStatus[string(api.DeviceSummaryStatusOnline)]).To(Equal(2))
-			Expect(fleet.Status.DevicesSummary.SummaryStatus[string(api.DeviceSummaryStatusDegraded)]).To(Equal(1))
-			Expect(fleet.Status.DevicesSummary.SummaryStatus[string(api.DeviceSummaryStatusRebooting)]).To(Equal(1))
-			Expect(fleet.Status.DevicesSummary.SummaryStatus[string(api.DeviceSummaryStatusError)]).To(Equal(1))
-			Expect(fleet.Status.DevicesSummary.UpdateStatus[string(api.DeviceUpdatedStatusUpToDate)]).To(Equal(2))
-			Expect(fleet.Status.DevicesSummary.UpdateStatus[string(api.DeviceUpdatedStatusUpdating)]).To(Equal(2))
-			Expect(fleet.Status.DevicesSummary.UpdateStatus[string(api.DeviceUpdatedStatusUnknown)]).To(Equal(1))
+			summaryStatus := lo.FromPtr(fleet.Status.DevicesSummary.SummaryStatus)
+			Expect(summaryStatus).ToNot(BeNil())
+			Expect(summaryStatus[string(api.DeviceSummaryStatusOnline)]).To(Equal(2))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusDegraded)]).To(Equal(1))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusRebooting)]).To(Equal(1))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusError)]).To(Equal(1))
+			updateStatus := lo.FromPtr(fleet.Status.DevicesSummary.UpdateStatus)
+			Expect(updateStatus).ToNot(BeNil())
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUpToDate)]).To(Equal(2))
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUpdating)]).To(Equal(2))
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUnknown)]).To(Equal(1))
 		})
 
 		It("Delete fleet success", func() {
@@ -235,13 +239,14 @@ var _ = Describe("FleetStore create", func() {
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {
 				Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
+				total := fleet.Status.DevicesSummary.Total
 				switch lo.FromPtr(fleet.Metadata.Name) {
 				case "myfleet-1":
-					Expect(fleet.Status.DevicesSummary.Total).To(Equal(5))
+					Expect(total).To(Equal(5))
 				case "myfleet-2":
-					Expect(fleet.Status.DevicesSummary.Total).To(Equal(3))
+					Expect(total).To(Equal(3))
 				case "myfleet-3":
-					Expect(fleet.Status.DevicesSummary.Total).To(Equal(0))
+					Expect(total).To(Equal(0))
 				default:
 					Fail(fmt.Sprintf("unexpected fleet %s", lo.FromPtr(fleet.Metadata.Name)))
 				}

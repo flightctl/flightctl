@@ -477,13 +477,13 @@ type DeviceUpdatedStatusType string
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus map[string]int `json:"summaryStatus"`
+	SummaryStatus *map[string]int `json:"summaryStatus,omitempty"`
 
 	// Total The total number of devices in the fleet.
 	Total int `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus map[string]int `json:"updateStatus"`
+	UpdateStatus *map[string]int `json:"updateStatus,omitempty"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
