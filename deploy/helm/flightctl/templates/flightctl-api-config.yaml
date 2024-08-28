@@ -54,6 +54,9 @@ data:
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
+          - flightctl-api-agent-grpc
+          - flightctl-api-agent-grpc.{{ .Release.Namespace }}
+          - flightctl-api-agent-grpc.{{ .Release.Namespace }}.svc.cluster.local
     queue:
         amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
     {{ if .Values.flightctl.api.auth.enabled }}
