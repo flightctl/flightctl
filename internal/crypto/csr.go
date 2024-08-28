@@ -56,7 +56,9 @@ func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 	return csr, nil
 }
 
-func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expiryDays int) ([]byte, error) {
+// IssueRequestedClientCertificate issues a client certificate based on the provided
+// Certificate Signing Request (CSR) and the desired expiration time in seconds.
+func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
 	now := time.Now()
 	template := &x509.Certificate{
 		Subject: csr.Subject,
@@ -70,7 +72,7 @@ func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expi
 		Issuer: ca.Config.Certs[0].Subject,
 
 		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
+		NotAfter:     now.Add(time.Duration(expirySeconds) * time.Second),
 		SerialNumber: big.NewInt(1),
 
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,

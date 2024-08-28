@@ -92,6 +92,7 @@ const (
 // Defines values for FileOperation.
 const (
 	FileOperationCreate FileOperation = "Create"
+	FileOperationReboot FileOperation = "Reboot"
 	FileOperationRemove FileOperation = "Remove"
 	FileOperationUpdate FileOperation = "Update"
 )
@@ -354,6 +355,9 @@ type DeviceList struct {
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
+
+	// Summary A summary of the devices in the fleet returned when fetching a single Fleet.
+	Summary *DevicesSummary `json:"summary,omitempty"`
 }
 
 // DeviceOSSpec defines model for DeviceOSSpec.
@@ -473,13 +477,13 @@ type DeviceUpdatedStatusType string
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus map[string]int `json:"summaryStatus"`
+	SummaryStatus *map[string]int `json:"summaryStatus,omitempty"`
 
 	// Total The total number of devices in the fleet.
 	Total int `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus map[string]int `json:"updateStatus"`
+	UpdateStatus *map[string]int `json:"updateStatus,omitempty"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
@@ -647,7 +651,9 @@ type GenericRepoSpec struct {
 type GitConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
 	GitRef     struct {
-		Path string `json:"path"`
+		// MountPath Path to config in device
+		MountPath *string `json:"mountPath,omitempty"`
+		Path      string  `json:"path"`
 
 		// Repository The name of the repository resource to use as the sync source
 		Repository     string `json:"repository"`
@@ -1239,15 +1245,6 @@ type PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody = Pat
 // ReplaceCertificateSigningRequestJSONRequestBody defines body for ReplaceCertificateSigningRequest for application/json ContentType.
 type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
-// PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequestApproval for application/json-patch+json ContentType.
-type PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody = PatchRequest
-
-// PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchCertificateSigningRequestStatus for application/json-patch+json ContentType.
-type PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
-
-// ReplaceCertificateSigningRequestStatusJSONRequestBody defines body for ReplaceCertificateSigningRequestStatus for application/json ContentType.
-type ReplaceCertificateSigningRequestStatusJSONRequestBody = CertificateSigningRequest
-
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
@@ -1266,8 +1263,8 @@ type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
 // ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
 type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
-// CreateEnrollmentRequestApprovalJSONRequestBody defines body for CreateEnrollmentRequestApproval for application/json ContentType.
-type CreateEnrollmentRequestApprovalJSONRequestBody = EnrollmentRequestApproval
+// ApproveEnrollmentRequestJSONRequestBody defines body for ApproveEnrollmentRequest for application/json ContentType.
+type ApproveEnrollmentRequestJSONRequestBody = EnrollmentRequestApproval
 
 // ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
 type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest

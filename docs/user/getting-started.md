@@ -47,14 +47,98 @@ NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 
 ## Deploying the Flight Control Service
 
+### Standalone flightctl with keycloak integration
+
+Create a values.yaml file with the following content, replace flightctl.MY.DOMAIN with your base
+domain. Please note this values file will be simplified in the future to avoid duplication
+by making use of the global.flightctl.baseDomain value.
+
+```yaml
+global:
+  flightctl:
+    baseDomain: "flightctl.MY.DOMAIN"
+    clusterLevelSecretAccess: true
+    useRoutes: true
+  storageClassName: "lvms-vg1"
+flightctl:
+  api:
+    auth:
+      oidcAuthority: "https://auth.flightctl.MY.DOMAIN/realms/flightctl"
+      internalOidcAuthority: "http://keycloak:8080/realms/flightctl"
+      enabled: true
+
+# using keycloak as our OIDC authority for authentication
+
+keycloak:
+  enabled: true
+  namespace: "flightctl"
+  db:
+    namespace: "flightctl"
+
+  realm:
+    redirectUris:
+      - /realms/flightctl/account/*
+      - http://127.0.0.1/callback
+      - https://ui.flightctl.MY.DOMAIN/*
+      - https://ui.flightctl.MY.DOMAIN/
+      - https://ui.flightctl.MY.DOMAIN
+    webOrigins:
+      - https://api.flightctl.MY.DOMAIN
+      - https://ui.flightctl.MY.DOMAIN
+    adminUrl: "https://auth.flightctl.MY.DOMAIN"
+    baseUrl: "https://auth.flightctl.MY.DOMAIN"
+    rootUrl: "https://auth.flightctl.MY.DOMAIN"
+
+  # section consumed by the ui charts
+  # using keycloak as our OIDC authority for authentication
+  authority: https://auth.flightctl.MY.DOMAIN/realms/flightctl
+  clientid: flightctl
+  redirect: https://ui.flightctl.MY.DOMAIN
+
+# ui configuration
+flightctlUi:
+  namespace: flightctl
+  hostName: ui.flightctl.MY.DOMAIN
+  image: quay.io/flightctl/flightctl-ui:latest
+  flightctlServer: https://flightctl-api:3443
+  flightctlMetricsServer: https://flightctl-api:9090
+  bootcImgUrl: quay.io/example/example-agent-centos:bootstrap
+  qcow2ImgUrl: https://example.com/disk.qcow2
+  certs:
+    ca: "" # use --set-file flightctlUi.certs.ca=ca.crt
+    frontRouter: ""
+    frontRouterKey: ""
+
+```
+
 Install a released version of the Flight Control Service into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=0.0.1 \
-    -n flightctl --create-namespace \
-    flightctl oci://quay.io/flightctl/flightctl-helm
+$ helm upgrade --install --version=0.1.1 \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --values values.yaml
 
-[...]
+```
+
+Retrieve the CA certificate for the API service:
+
+```console
+kubectl rollout status deployment flightctl-api -n flightctl -w --timeout=300s
+
+API_POD=$(kubectl get pod -n flightctl -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" | head -1)
+
+kubectl exec -n flightctl "${API_POD}" -- cat /root/.flightctl/certs/ca.crt > ca.crt
+```
+
+Install a release version of the Flight Control UI into the cluster by running:
+
+```console
+$ helm upgrade --install --version=0.1.0 \
+    --namespace flightctl --create-namespace \
+    flightctl-ui oci://quay.io/flightctl/charts/flightctl-ui \
+    --values values.yaml \
+    --set-file flightctlUi.certs.ca=ca.crt
 ```
 
 Verify your Flight Control Service is up and running:
@@ -131,6 +215,10 @@ $ flightctl get devices
 
 NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
 ```
+
+## Login into the Flight Control Service from the standalone UI
+
+Browse to `ui.flightctl.MY.DOMAIN` and login with the demouser obtained from the previous step.
 
 ## Building a Bootable Container Image including the Flight Control Agent
 

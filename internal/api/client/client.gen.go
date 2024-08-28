@@ -96,8 +96,8 @@ type ClientInterface interface {
 	// AuthValidate request
 	AuthValidate(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteCollectionCertificateSigningRequest request
-	DeleteCollectionCertificateSigningRequest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// DeleteCertificateSigningRequests request
+	DeleteCertificateSigningRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListCertificateSigningRequests request
 	ListCertificateSigningRequests(ctx context.Context, params *ListCertificateSigningRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -123,29 +123,11 @@ type ClientInterface interface {
 
 	ReplaceCertificateSigningRequest(ctx context.Context, name string, body ReplaceCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadCertificateSigningRequestApproval request
-	ReadCertificateSigningRequestApproval(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// DenyCertificateSigningRequest request
+	DenyCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PatchCertificateSigningRequestApprovalWithBody request with any body
-	PatchCertificateSigningRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PatchCertificateSigningRequestApprovalWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ReplaceCertificateSigningRequestApproval request
-	ReplaceCertificateSigningRequestApproval(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ReadCertificateSigningRequestStatus request
-	ReadCertificateSigningRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PatchCertificateSigningRequestStatusWithBody request with any body
-	PatchCertificateSigningRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PatchCertificateSigningRequestStatusWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ReplaceCertificateSigningRequestStatusWithBody request with any body
-	ReplaceCertificateSigningRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	ReplaceCertificateSigningRequestStatus(ctx context.Context, name string, body ReplaceCertificateSigningRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ApproveCertificateSigningRequest request
+	ApproveCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteDevices request
 	DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -210,10 +192,10 @@ type ClientInterface interface {
 
 	ReplaceEnrollmentRequest(ctx context.Context, name string, body ReplaceEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateEnrollmentRequestApprovalWithBody request with any body
-	CreateEnrollmentRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ApproveEnrollmentRequestWithBody request with any body
+	ApproveEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	CreateEnrollmentRequestApproval(ctx context.Context, name string, body CreateEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ApproveEnrollmentRequest(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReadEnrollmentRequestStatus request
 	ReadEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -349,8 +331,8 @@ func (c *Client) AuthValidate(ctx context.Context, params *AuthValidateParams, r
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteCollectionCertificateSigningRequest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteCollectionCertificateSigningRequestRequest(c.Server)
+func (c *Client) DeleteCertificateSigningRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteCertificateSigningRequestsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -469,8 +451,8 @@ func (c *Client) ReplaceCertificateSigningRequest(ctx context.Context, name stri
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadCertificateSigningRequestApproval(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadCertificateSigningRequestApprovalRequest(c.Server, name)
+func (c *Client) DenyCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDenyCertificateSigningRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -481,92 +463,8 @@ func (c *Client) ReadCertificateSigningRequestApproval(ctx context.Context, name
 	return c.Client.Do(req)
 }
 
-func (c *Client) PatchCertificateSigningRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchCertificateSigningRequestApprovalRequestWithBody(c.Server, name, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PatchCertificateSigningRequestApprovalWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchCertificateSigningRequestApprovalRequestWithApplicationJSONPatchPlusJSONBody(c.Server, name, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReplaceCertificateSigningRequestApproval(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReplaceCertificateSigningRequestApprovalRequest(c.Server, name)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReadCertificateSigningRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadCertificateSigningRequestStatusRequest(c.Server, name)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PatchCertificateSigningRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchCertificateSigningRequestStatusRequestWithBody(c.Server, name, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PatchCertificateSigningRequestStatusWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchCertificateSigningRequestStatusRequestWithApplicationJSONPatchPlusJSONBody(c.Server, name, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReplaceCertificateSigningRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReplaceCertificateSigningRequestStatusRequestWithBody(c.Server, name, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReplaceCertificateSigningRequestStatus(ctx context.Context, name string, body ReplaceCertificateSigningRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReplaceCertificateSigningRequestStatusRequest(c.Server, name, body)
+func (c *Client) ApproveCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApproveCertificateSigningRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -853,8 +751,8 @@ func (c *Client) ReplaceEnrollmentRequest(ctx context.Context, name string, body
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateEnrollmentRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateEnrollmentRequestApprovalRequestWithBody(c.Server, name, contentType, body)
+func (c *Client) ApproveEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApproveEnrollmentRequestRequestWithBody(c.Server, name, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -865,8 +763,8 @@ func (c *Client) CreateEnrollmentRequestApprovalWithBody(ctx context.Context, na
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateEnrollmentRequestApproval(ctx context.Context, name string, body CreateEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateEnrollmentRequestApprovalRequest(c.Server, name, body)
+func (c *Client) ApproveEnrollmentRequest(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApproveEnrollmentRequestRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1426,8 +1324,8 @@ func NewAuthValidateRequest(server string, params *AuthValidateParams) (*http.Re
 	return req, nil
 }
 
-// NewDeleteCollectionCertificateSigningRequestRequest generates requests for DeleteCollectionCertificateSigningRequest
-func NewDeleteCollectionCertificateSigningRequestRequest(server string) (*http.Request, error) {
+// NewDeleteCertificateSigningRequestsRequest generates requests for DeleteCertificateSigningRequests
+func NewDeleteCertificateSigningRequestsRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -1736,8 +1634,8 @@ func NewReplaceCertificateSigningRequestRequestWithBody(server string, name stri
 	return req, nil
 }
 
-// NewReadCertificateSigningRequestApprovalRequest generates requests for ReadCertificateSigningRequestApproval
-func NewReadCertificateSigningRequestApprovalRequest(server string, name string) (*http.Request, error) {
+// NewDenyCertificateSigningRequestRequest generates requests for DenyCertificateSigningRequest
+func NewDenyCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1762,7 +1660,7 @@ func NewReadCertificateSigningRequestApprovalRequest(server string, name string)
 		return nil, err
 	}
 
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1770,19 +1668,8 @@ func NewReadCertificateSigningRequestApprovalRequest(server string, name string)
 	return req, nil
 }
 
-// NewPatchCertificateSigningRequestApprovalRequestWithApplicationJSONPatchPlusJSONBody calls the generic PatchCertificateSigningRequestApproval builder with application/json-patch+json body
-func NewPatchCertificateSigningRequestApprovalRequestWithApplicationJSONPatchPlusJSONBody(server string, name string, body PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPatchCertificateSigningRequestApprovalRequestWithBody(server, name, "application/json-patch+json", bodyReader)
-}
-
-// NewPatchCertificateSigningRequestApprovalRequestWithBody generates requests for PatchCertificateSigningRequestApproval with any type of body
-func NewPatchCertificateSigningRequestApprovalRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+// NewApproveCertificateSigningRequestRequest generates requests for ApproveCertificateSigningRequest
+func NewApproveCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1807,174 +1694,10 @@ func NewPatchCertificateSigningRequestApprovalRequestWithBody(server string, nam
 		return nil, err
 	}
 
-	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewReplaceCertificateSigningRequestApprovalRequest generates requests for ReplaceCertificateSigningRequestApproval
-func NewReplaceCertificateSigningRequestApprovalRequest(server string, name string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests/%s/approval", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("PUT", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewReadCertificateSigningRequestStatusRequest generates requests for ReadCertificateSigningRequestStatus
-func NewReadCertificateSigningRequestStatusRequest(server string, name string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests/%s/status", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPatchCertificateSigningRequestStatusRequestWithApplicationJSONPatchPlusJSONBody calls the generic PatchCertificateSigningRequestStatus builder with application/json-patch+json body
-func NewPatchCertificateSigningRequestStatusRequestWithApplicationJSONPatchPlusJSONBody(server string, name string, body PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPatchCertificateSigningRequestStatusRequestWithBody(server, name, "application/json-patch+json", bodyReader)
-}
-
-// NewPatchCertificateSigningRequestStatusRequestWithBody generates requests for PatchCertificateSigningRequestStatus with any type of body
-func NewPatchCertificateSigningRequestStatusRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests/%s/status", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("PATCH", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewReplaceCertificateSigningRequestStatusRequest calls the generic ReplaceCertificateSigningRequestStatus builder with application/json body
-func NewReplaceCertificateSigningRequestStatusRequest(server string, name string, body ReplaceCertificateSigningRequestStatusJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewReplaceCertificateSigningRequestStatusRequestWithBody(server, name, "application/json", bodyReader)
-}
-
-// NewReplaceCertificateSigningRequestStatusRequestWithBody generates requests for ReplaceCertificateSigningRequestStatus with any type of body
-func NewReplaceCertificateSigningRequestStatusRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests/%s/status", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("PUT", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -2755,19 +2478,19 @@ func NewReplaceEnrollmentRequestRequestWithBody(server string, name string, cont
 	return req, nil
 }
 
-// NewCreateEnrollmentRequestApprovalRequest calls the generic CreateEnrollmentRequestApproval builder with application/json body
-func NewCreateEnrollmentRequestApprovalRequest(server string, name string, body CreateEnrollmentRequestApprovalJSONRequestBody) (*http.Request, error) {
+// NewApproveEnrollmentRequestRequest calls the generic ApproveEnrollmentRequest builder with application/json body
+func NewApproveEnrollmentRequestRequest(server string, name string, body ApproveEnrollmentRequestJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewCreateEnrollmentRequestApprovalRequestWithBody(server, name, "application/json", bodyReader)
+	return NewApproveEnrollmentRequestRequestWithBody(server, name, "application/json", bodyReader)
 }
 
-// NewCreateEnrollmentRequestApprovalRequestWithBody generates requests for CreateEnrollmentRequestApproval with any type of body
-func NewCreateEnrollmentRequestApprovalRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+// NewApproveEnrollmentRequestRequestWithBody generates requests for ApproveEnrollmentRequest with any type of body
+func NewApproveEnrollmentRequestRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4185,8 +3908,8 @@ type ClientWithResponsesInterface interface {
 	// AuthValidateWithResponse request
 	AuthValidateWithResponse(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*AuthValidateResponse, error)
 
-	// DeleteCollectionCertificateSigningRequestWithResponse request
-	DeleteCollectionCertificateSigningRequestWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCollectionCertificateSigningRequestResponse, error)
+	// DeleteCertificateSigningRequestsWithResponse request
+	DeleteCertificateSigningRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestsResponse, error)
 
 	// ListCertificateSigningRequestsWithResponse request
 	ListCertificateSigningRequestsWithResponse(ctx context.Context, params *ListCertificateSigningRequestsParams, reqEditors ...RequestEditorFn) (*ListCertificateSigningRequestsResponse, error)
@@ -4212,29 +3935,11 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceCertificateSigningRequestWithResponse(ctx context.Context, name string, body ReplaceCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestResponse, error)
 
-	// ReadCertificateSigningRequestApprovalWithResponse request
-	ReadCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestApprovalResponse, error)
+	// DenyCertificateSigningRequestWithResponse request
+	DenyCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DenyCertificateSigningRequestResponse, error)
 
-	// PatchCertificateSigningRequestApprovalWithBodyWithResponse request with any body
-	PatchCertificateSigningRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestApprovalResponse, error)
-
-	PatchCertificateSigningRequestApprovalWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestApprovalResponse, error)
-
-	// ReplaceCertificateSigningRequestApprovalWithResponse request
-	ReplaceCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestApprovalResponse, error)
-
-	// ReadCertificateSigningRequestStatusWithResponse request
-	ReadCertificateSigningRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestStatusResponse, error)
-
-	// PatchCertificateSigningRequestStatusWithBodyWithResponse request with any body
-	PatchCertificateSigningRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestStatusResponse, error)
-
-	PatchCertificateSigningRequestStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestStatusResponse, error)
-
-	// ReplaceCertificateSigningRequestStatusWithBodyWithResponse request with any body
-	ReplaceCertificateSigningRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestStatusResponse, error)
-
-	ReplaceCertificateSigningRequestStatusWithResponse(ctx context.Context, name string, body ReplaceCertificateSigningRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestStatusResponse, error)
+	// ApproveCertificateSigningRequestWithResponse request
+	ApproveCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ApproveCertificateSigningRequestResponse, error)
 
 	// DeleteDevicesWithResponse request
 	DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error)
@@ -4299,10 +4004,10 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceEnrollmentRequestWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestResponse, error)
 
-	// CreateEnrollmentRequestApprovalWithBodyWithResponse request with any body
-	CreateEnrollmentRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestApprovalResponse, error)
+	// ApproveEnrollmentRequestWithBodyWithResponse request with any body
+	ApproveEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error)
 
-	CreateEnrollmentRequestApprovalWithResponse(ctx context.Context, name string, body CreateEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestApprovalResponse, error)
+	ApproveEnrollmentRequestWithResponse(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error)
 
 	// ReadEnrollmentRequestStatusWithResponse request
 	ReadEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestStatusResponse, error)
@@ -4457,7 +4162,7 @@ func (r AuthValidateResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteCollectionCertificateSigningRequestResponse struct {
+type DeleteCertificateSigningRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Status
@@ -4465,7 +4170,7 @@ type DeleteCollectionCertificateSigningRequestResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r DeleteCollectionCertificateSigningRequestResponse) Status() string {
+func (r DeleteCertificateSigningRequestsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -4473,7 +4178,7 @@ func (r DeleteCollectionCertificateSigningRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DeleteCollectionCertificateSigningRequestResponse) StatusCode() int {
+func (r DeleteCertificateSigningRequestsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -4484,6 +4189,7 @@ type ListCertificateSigningRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequestList
+	JSON400      *Error
 	JSON401      *Error
 }
 
@@ -4534,8 +4240,8 @@ type DeleteCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
-	JSON202      *CertificateSigningRequest
 	JSON401      *Error
+	JSON404      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4586,6 +4292,7 @@ type PatchCertificateSigningRequestResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4612,6 +4319,7 @@ type ReplaceCertificateSigningRequestResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4630,41 +4338,17 @@ func (r ReplaceCertificateSigningRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadCertificateSigningRequestApprovalResponse struct {
+type DenyCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
-	JSON401      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r ReadCertificateSigningRequestApprovalResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ReadCertificateSigningRequestApprovalResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PatchCertificateSigningRequestApprovalResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *CertificateSigningRequest
-	JSON201      *CertificateSigningRequest
-	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r PatchCertificateSigningRequestApprovalResponse) Status() string {
+func (r DenyCertificateSigningRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -4672,72 +4356,24 @@ func (r PatchCertificateSigningRequestApprovalResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r PatchCertificateSigningRequestApprovalResponse) StatusCode() int {
+func (r DenyCertificateSigningRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type ReplaceCertificateSigningRequestApprovalResponse struct {
+type ApproveCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
-	JSON201      *CertificateSigningRequest
-	JSON401      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r ReplaceCertificateSigningRequestApprovalResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ReplaceCertificateSigningRequestApprovalResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ReadCertificateSigningRequestStatusResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *CertificateSigningRequest
-	JSON401      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r ReadCertificateSigningRequestStatusResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ReadCertificateSigningRequestStatusResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PatchCertificateSigningRequestStatusResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *CertificateSigningRequest
-	JSON201      *CertificateSigningRequest
-	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r PatchCertificateSigningRequestStatusResponse) Status() string {
+func (r ApproveCertificateSigningRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -4745,32 +4381,7 @@ func (r PatchCertificateSigningRequestStatusResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r PatchCertificateSigningRequestStatusResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ReplaceCertificateSigningRequestStatusResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *CertificateSigningRequest
-	JSON201      *CertificateSigningRequest
-	JSON401      *Error
-	JSON404      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r ReplaceCertificateSigningRequestStatusResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ReplaceCertificateSigningRequestStatusResponse) StatusCode() int {
+func (r ApproveCertificateSigningRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -4905,6 +4516,7 @@ type PatchDeviceResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -4956,6 +4568,7 @@ type RequestConsoleResponse struct {
 	JSON200      *DeviceConsole
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5177,6 +4790,7 @@ type ReplaceEnrollmentRequestResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5195,7 +4809,7 @@ func (r ReplaceEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type CreateEnrollmentRequestApprovalResponse struct {
+type ApproveEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequestApproval
@@ -5203,10 +4817,11 @@ type CreateEnrollmentRequestApprovalResponse struct {
 	JSON401      *Error
 	JSON404      *Error
 	JSON422      *Error
+	JSON500      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r CreateEnrollmentRequestApprovalResponse) Status() string {
+func (r ApproveEnrollmentRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5214,7 +4829,7 @@ func (r CreateEnrollmentRequestApprovalResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r CreateEnrollmentRequestApprovalResponse) StatusCode() int {
+func (r ApproveEnrollmentRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5492,6 +5107,7 @@ type PatchFleetResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5712,6 +5328,7 @@ type PatchRepositoryResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5738,6 +5355,7 @@ type ReplaceRepositoryResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5883,6 +5501,7 @@ type PatchResourceSyncResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5909,6 +5528,7 @@ type ReplaceResourceSyncResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON404      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -5945,13 +5565,13 @@ func (c *ClientWithResponses) AuthValidateWithResponse(ctx context.Context, para
 	return ParseAuthValidateResponse(rsp)
 }
 
-// DeleteCollectionCertificateSigningRequestWithResponse request returning *DeleteCollectionCertificateSigningRequestResponse
-func (c *ClientWithResponses) DeleteCollectionCertificateSigningRequestWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCollectionCertificateSigningRequestResponse, error) {
-	rsp, err := c.DeleteCollectionCertificateSigningRequest(ctx, reqEditors...)
+// DeleteCertificateSigningRequestsWithResponse request returning *DeleteCertificateSigningRequestsResponse
+func (c *ClientWithResponses) DeleteCertificateSigningRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestsResponse, error) {
+	rsp, err := c.DeleteCertificateSigningRequests(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteCollectionCertificateSigningRequestResponse(rsp)
+	return ParseDeleteCertificateSigningRequestsResponse(rsp)
 }
 
 // ListCertificateSigningRequestsWithResponse request returning *ListCertificateSigningRequestsResponse
@@ -6032,82 +5652,22 @@ func (c *ClientWithResponses) ReplaceCertificateSigningRequestWithResponse(ctx c
 	return ParseReplaceCertificateSigningRequestResponse(rsp)
 }
 
-// ReadCertificateSigningRequestApprovalWithResponse request returning *ReadCertificateSigningRequestApprovalResponse
-func (c *ClientWithResponses) ReadCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestApprovalResponse, error) {
-	rsp, err := c.ReadCertificateSigningRequestApproval(ctx, name, reqEditors...)
+// DenyCertificateSigningRequestWithResponse request returning *DenyCertificateSigningRequestResponse
+func (c *ClientWithResponses) DenyCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DenyCertificateSigningRequestResponse, error) {
+	rsp, err := c.DenyCertificateSigningRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadCertificateSigningRequestApprovalResponse(rsp)
+	return ParseDenyCertificateSigningRequestResponse(rsp)
 }
 
-// PatchCertificateSigningRequestApprovalWithBodyWithResponse request with arbitrary body returning *PatchCertificateSigningRequestApprovalResponse
-func (c *ClientWithResponses) PatchCertificateSigningRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestApprovalResponse, error) {
-	rsp, err := c.PatchCertificateSigningRequestApprovalWithBody(ctx, name, contentType, body, reqEditors...)
+// ApproveCertificateSigningRequestWithResponse request returning *ApproveCertificateSigningRequestResponse
+func (c *ClientWithResponses) ApproveCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ApproveCertificateSigningRequestResponse, error) {
+	rsp, err := c.ApproveCertificateSigningRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParsePatchCertificateSigningRequestApprovalResponse(rsp)
-}
-
-func (c *ClientWithResponses) PatchCertificateSigningRequestApprovalWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchCertificateSigningRequestApprovalApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestApprovalResponse, error) {
-	rsp, err := c.PatchCertificateSigningRequestApprovalWithApplicationJSONPatchPlusJSONBody(ctx, name, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePatchCertificateSigningRequestApprovalResponse(rsp)
-}
-
-// ReplaceCertificateSigningRequestApprovalWithResponse request returning *ReplaceCertificateSigningRequestApprovalResponse
-func (c *ClientWithResponses) ReplaceCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestApprovalResponse, error) {
-	rsp, err := c.ReplaceCertificateSigningRequestApproval(ctx, name, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReplaceCertificateSigningRequestApprovalResponse(rsp)
-}
-
-// ReadCertificateSigningRequestStatusWithResponse request returning *ReadCertificateSigningRequestStatusResponse
-func (c *ClientWithResponses) ReadCertificateSigningRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestStatusResponse, error) {
-	rsp, err := c.ReadCertificateSigningRequestStatus(ctx, name, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReadCertificateSigningRequestStatusResponse(rsp)
-}
-
-// PatchCertificateSigningRequestStatusWithBodyWithResponse request with arbitrary body returning *PatchCertificateSigningRequestStatusResponse
-func (c *ClientWithResponses) PatchCertificateSigningRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestStatusResponse, error) {
-	rsp, err := c.PatchCertificateSigningRequestStatusWithBody(ctx, name, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePatchCertificateSigningRequestStatusResponse(rsp)
-}
-
-func (c *ClientWithResponses) PatchCertificateSigningRequestStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchCertificateSigningRequestStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestStatusResponse, error) {
-	rsp, err := c.PatchCertificateSigningRequestStatusWithApplicationJSONPatchPlusJSONBody(ctx, name, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePatchCertificateSigningRequestStatusResponse(rsp)
-}
-
-// ReplaceCertificateSigningRequestStatusWithBodyWithResponse request with arbitrary body returning *ReplaceCertificateSigningRequestStatusResponse
-func (c *ClientWithResponses) ReplaceCertificateSigningRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestStatusResponse, error) {
-	rsp, err := c.ReplaceCertificateSigningRequestStatusWithBody(ctx, name, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReplaceCertificateSigningRequestStatusResponse(rsp)
-}
-
-func (c *ClientWithResponses) ReplaceCertificateSigningRequestStatusWithResponse(ctx context.Context, name string, body ReplaceCertificateSigningRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestStatusResponse, error) {
-	rsp, err := c.ReplaceCertificateSigningRequestStatus(ctx, name, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReplaceCertificateSigningRequestStatusResponse(rsp)
+	return ParseApproveCertificateSigningRequestResponse(rsp)
 }
 
 // DeleteDevicesWithResponse request returning *DeleteDevicesResponse
@@ -6311,21 +5871,21 @@ func (c *ClientWithResponses) ReplaceEnrollmentRequestWithResponse(ctx context.C
 	return ParseReplaceEnrollmentRequestResponse(rsp)
 }
 
-// CreateEnrollmentRequestApprovalWithBodyWithResponse request with arbitrary body returning *CreateEnrollmentRequestApprovalResponse
-func (c *ClientWithResponses) CreateEnrollmentRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestApprovalResponse, error) {
-	rsp, err := c.CreateEnrollmentRequestApprovalWithBody(ctx, name, contentType, body, reqEditors...)
+// ApproveEnrollmentRequestWithBodyWithResponse request with arbitrary body returning *ApproveEnrollmentRequestResponse
+func (c *ClientWithResponses) ApproveEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error) {
+	rsp, err := c.ApproveEnrollmentRequestWithBody(ctx, name, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCreateEnrollmentRequestApprovalResponse(rsp)
+	return ParseApproveEnrollmentRequestResponse(rsp)
 }
 
-func (c *ClientWithResponses) CreateEnrollmentRequestApprovalWithResponse(ctx context.Context, name string, body CreateEnrollmentRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestApprovalResponse, error) {
-	rsp, err := c.CreateEnrollmentRequestApproval(ctx, name, body, reqEditors...)
+func (c *ClientWithResponses) ApproveEnrollmentRequestWithResponse(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error) {
+	rsp, err := c.ApproveEnrollmentRequest(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCreateEnrollmentRequestApprovalResponse(rsp)
+	return ParseApproveEnrollmentRequestResponse(rsp)
 }
 
 // ReadEnrollmentRequestStatusWithResponse request returning *ReadEnrollmentRequestStatusResponse
@@ -6719,15 +6279,15 @@ func ParseAuthValidateResponse(rsp *http.Response) (*AuthValidateResponse, error
 	return response, nil
 }
 
-// ParseDeleteCollectionCertificateSigningRequestResponse parses an HTTP response from a DeleteCollectionCertificateSigningRequestWithResponse call
-func ParseDeleteCollectionCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCollectionCertificateSigningRequestResponse, error) {
+// ParseDeleteCertificateSigningRequestsResponse parses an HTTP response from a DeleteCertificateSigningRequestsWithResponse call
+func ParseDeleteCertificateSigningRequestsResponse(rsp *http.Response) (*DeleteCertificateSigningRequestsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteCollectionCertificateSigningRequestResponse{
+	response := &DeleteCertificateSigningRequestsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -6772,6 +6332,13 @@ func ParseListCertificateSigningRequestsResponse(rsp *http.Response) (*ListCerti
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error
@@ -6867,19 +6434,19 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON202 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	}
 
@@ -6975,6 +6542,13 @@ func ParsePatchCertificateSigningRequestResponse(rsp *http.Response) (*PatchCert
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -7029,20 +6603,27 @@ func ParseReplaceCertificateSigningRequestResponse(rsp *http.Response) (*Replace
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseReadCertificateSigningRequestApprovalResponse parses an HTTP response from a ReadCertificateSigningRequestApprovalWithResponse call
-func ParseReadCertificateSigningRequestApprovalResponse(rsp *http.Response) (*ReadCertificateSigningRequestApprovalResponse, error) {
+// ParseDenyCertificateSigningRequestResponse parses an HTTP response from a DenyCertificateSigningRequestWithResponse call
+func ParseDenyCertificateSigningRequestResponse(rsp *http.Response) (*DenyCertificateSigningRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadCertificateSigningRequestApprovalResponse{
+	response := &DenyCertificateSigningRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -7054,53 +6635,6 @@ func ParseReadCertificateSigningRequestApprovalResponse(rsp *http.Response) (*Re
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePatchCertificateSigningRequestApprovalResponse parses an HTTP response from a PatchCertificateSigningRequestApprovalWithResponse call
-func ParsePatchCertificateSigningRequestApprovalResponse(rsp *http.Response) (*PatchCertificateSigningRequestApprovalResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PatchCertificateSigningRequestApprovalResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error
@@ -7116,20 +6650,27 @@ func ParsePatchCertificateSigningRequestApprovalResponse(rsp *http.Response) (*P
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseReplaceCertificateSigningRequestApprovalResponse parses an HTTP response from a ReplaceCertificateSigningRequestApprovalWithResponse call
-func ParseReplaceCertificateSigningRequestApprovalResponse(rsp *http.Response) (*ReplaceCertificateSigningRequestApprovalResponse, error) {
+// ParseApproveCertificateSigningRequestResponse parses an HTTP response from a ApproveCertificateSigningRequestWithResponse call
+func ParseApproveCertificateSigningRequestResponse(rsp *http.Response) (*ApproveCertificateSigningRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReplaceCertificateSigningRequestApprovalResponse{
+	response := &ApproveCertificateSigningRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -7141,93 +6682,6 @@ func ParseReplaceCertificateSigningRequestApprovalResponse(rsp *http.Response) (
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseReadCertificateSigningRequestStatusResponse parses an HTTP response from a ReadCertificateSigningRequestStatusWithResponse call
-func ParseReadCertificateSigningRequestStatusResponse(rsp *http.Response) (*ReadCertificateSigningRequestStatusResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ReadCertificateSigningRequestStatusResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePatchCertificateSigningRequestStatusResponse parses an HTTP response from a PatchCertificateSigningRequestStatusWithResponse call
-func ParsePatchCertificateSigningRequestStatusResponse(rsp *http.Response) (*PatchCertificateSigningRequestStatusResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PatchCertificateSigningRequestStatusResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error
@@ -7243,52 +6697,12 @@ func ParsePatchCertificateSigningRequestStatusResponse(rsp *http.Response) (*Pat
 		}
 		response.JSON404 = &dest
 
-	}
-
-	return response, nil
-}
-
-// ParseReplaceCertificateSigningRequestStatusResponse parses an HTTP response from a ReplaceCertificateSigningRequestStatusWithResponse call
-func ParseReplaceCertificateSigningRequestStatusResponse(rsp *http.Response) (*ReplaceCertificateSigningRequestStatusResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ReplaceCertificateSigningRequestStatusResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
+		response.JSON409 = &dest
 
 	}
 
@@ -7544,6 +6958,13 @@ func ParsePatchDeviceResponse(rsp *http.Response) (*PatchDeviceResponse, error) 
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -7644,6 +7065,13 @@ func ParseRequestConsoleResponse(rsp *http.Response) (*RequestConsoleResponse, e
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -8040,20 +7468,27 @@ func ParseReplaceEnrollmentRequestResponse(rsp *http.Response) (*ReplaceEnrollme
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseCreateEnrollmentRequestApprovalResponse parses an HTTP response from a CreateEnrollmentRequestApprovalWithResponse call
-func ParseCreateEnrollmentRequestApprovalResponse(rsp *http.Response) (*CreateEnrollmentRequestApprovalResponse, error) {
+// ParseApproveEnrollmentRequestResponse parses an HTTP response from a ApproveEnrollmentRequestWithResponse call
+func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollmentRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &CreateEnrollmentRequestApprovalResponse{
+	response := &ApproveEnrollmentRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8093,6 +7528,13 @@ func ParseCreateEnrollmentRequestApprovalResponse(rsp *http.Response) (*CreateEn
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 
@@ -8581,6 +8023,13 @@ func ParsePatchFleetResponse(rsp *http.Response) (*PatchFleetResponse, error) {
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -8969,6 +8418,13 @@ func ParsePatchRepositoryResponse(rsp *http.Response) (*PatchRepositoryResponse,
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -9022,6 +8478,13 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -9270,6 +8733,13 @@ func ParsePatchResourceSyncResponse(rsp *http.Response) (*PatchResourceSyncRespo
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -9323,6 +8793,13 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 

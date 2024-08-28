@@ -24,6 +24,7 @@ import (
 
 type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
@@ -113,17 +114,15 @@ func (s *DeviceStore) InitialMigration() error {
 }
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback) (*api.Device, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	device, err := model.NewDeviceFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	device.OrgID = orgId
-	_, err = s.createDevice(device)
-	callback(nil, device)
-	return resource, err
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, nil, true, ModeCreateOnly, callback)
+	return updatedResource, err
+}
+
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, callback)
+	})
+	return updatedResource, err
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
@@ -233,7 +232,7 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 	return false, nil
 }
 
-func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
+func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -255,6 +254,14 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	s.IntegrationTestCreateOrUpdateCallback()
 	if !exists {
 		if retry, err := s.createDevice(device); err != nil {
@@ -274,7 +281,7 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
 	return retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback)
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, callback)
 	})
 }
 
@@ -366,11 +373,25 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		return false, flterrors.ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+
+	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
 	}
+	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
+
+	// Changing the console annotation requires bumping the renderedVersion annotation
+	if existingConsoleAnnotation != newConsoleAnnotation {
+		nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+		if err != nil {
+			return false, err
+		}
+
+		existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+	}
+
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -402,17 +423,12 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 
-	var currentRenderedVersion int64 = 0
-	renderedVersionString, ok := existingAnnotations[model.DeviceAnnotationRenderedVersion]
-	if ok {
-		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
-		if err != nil {
-			return false, err
-		}
+	nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+	if err != nil {
+		return false, err
 	}
 
-	currentRenderedVersion++
-	existingAnnotations[model.DeviceAnnotationRenderedVersion] = strconv.FormatInt(currentRenderedVersion, 10)
+	existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -429,6 +445,21 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
+}
+
+func getNextRenderedVersion(annotations map[string]string) (string, error) {
+	var currentRenderedVersion int64 = 0
+	var err error
+	renderedVersionString, ok := annotations[model.DeviceAnnotationRenderedVersion]
+	if ok {
+		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	currentRenderedVersion++
+	return strconv.FormatInt(currentRenderedVersion, 10), nil
 }
 
 func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error {
@@ -454,7 +485,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 
 	var console *api.DeviceConsole
 
-	if val, ok := annotations["flightctl.io/console"]; ok {
+	if val, ok := annotations[model.DeviceAnnotationConsole]; ok {
 		console = &api.DeviceConsole{
 			GRPCEndpoint: consoleGrpcEndpoint,
 			SessionID:    val,

@@ -6,31 +6,38 @@ import (
 )
 
 const (
-	DeviceKind            = "device"
-	EnrollmentRequestKind = "enrollmentrequest"
-	FleetKind             = "fleet"
-	RepositoryKind        = "repository"
-	ResourceSyncKind      = "resourcesync"
-	TemplateVersionKind   = "templateversion"
+	NoneString = "<none>"
+)
+
+const (
+	DeviceKind                    = "device"
+	EnrollmentRequestKind         = "enrollmentrequest"
+	FleetKind                     = "fleet"
+	RepositoryKind                = "repository"
+	ResourceSyncKind              = "resourcesync"
+	TemplateVersionKind           = "templateversion"
+	CertificateSigningRequestKind = "certificatesigningrequest"
 )
 
 var (
 	pluralKinds = map[string]string{
-		DeviceKind:            "devices",
-		EnrollmentRequestKind: "enrollmentrequests",
-		FleetKind:             "fleets",
-		RepositoryKind:        "repositories",
-		ResourceSyncKind:      "resourcesyncs",
-		TemplateVersionKind:   "templateversions",
+		DeviceKind:                    "devices",
+		EnrollmentRequestKind:         "enrollmentrequests",
+		FleetKind:                     "fleets",
+		RepositoryKind:                "repositories",
+		ResourceSyncKind:              "resourcesyncs",
+		TemplateVersionKind:           "templateversions",
+		CertificateSigningRequestKind: "certificatesigningrequests",
 	}
 
 	shortnameKinds = map[string]string{
-		DeviceKind:            "dev",
-		EnrollmentRequestKind: "er",
-		FleetKind:             "flt",
-		RepositoryKind:        "repo",
-		ResourceSyncKind:      "rs",
-		TemplateVersionKind:   "tv",
+		DeviceKind:                    "dev",
+		EnrollmentRequestKind:         "er",
+		FleetKind:                     "flt",
+		RepositoryKind:                "repo",
+		ResourceSyncKind:              "rs",
+		TemplateVersionKind:           "tv",
+		CertificateSigningRequestKind: "csr",
 	}
 )
 

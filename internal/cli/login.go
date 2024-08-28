@@ -97,14 +97,7 @@ type OauthServerResponse struct {
 	AuthEndpoint  string `json:"authorization_endpoint"`
 }
 
-func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, scope string) (string, error) {
-	token := ""
-
-	req, err := http.NewRequest(http.MethodGet, oauthConfigUrl, nil)
-	if err != nil {
-		return token, fmt.Errorf("failed to create http request: %w", err)
-	}
-
+func (o *LoginOptions) getAuthClientTransport() (*http.Transport, error) {
 	authTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: o.AuthInsecureSkipVerify, //nolint:gosec
@@ -112,35 +105,59 @@ func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, sc
 	}
 
 	if o.AuthCAFile != "" {
-		caData, err := os.ReadFile(o.CAFile)
+		caData, err := os.ReadFile(o.AuthCAFile)
 		if err != nil {
-			return token, fmt.Errorf("failed to read Auth CA file: %w", err)
+			return nil, fmt.Errorf("failed to read Auth CA file: %w", err)
 		}
 		caPool, err := certutil.NewPoolFromBytes(caData)
 		if err != nil {
-			return token, fmt.Errorf("failed parsing Auth CA certs: %w", err)
+			return nil, fmt.Errorf("failed parsing Auth CA certs: %w", err)
 		}
 
 		authTransport.TLSClientConfig.RootCAs = caPool
 	}
 
-	httpClient := &http.Client{
-		Transport: authTransport,
+	return authTransport, nil
+}
+
+func (o *LoginOptions) getOauthConfig(oauthConfigUrl string) (OauthServerResponse, error) {
+	oauthResponse := OauthServerResponse{}
+	req, err := http.NewRequest(http.MethodGet, oauthConfigUrl, nil)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to create http request: %w", err)
+	}
+
+	transport, err := o.getAuthClientTransport()
+	if err != nil {
+		return oauthResponse, err
+	}
+
+	httpClient := http.Client{
+		Transport: transport,
 	}
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return token, fmt.Errorf("failed to fetch oidc config: %w", err)
+		return oauthResponse, fmt.Errorf("failed to fetch oidc config: %w", err)
 	}
 
-	oauthResponse := OauthServerResponse{}
 	defer res.Body.Close()
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return token, fmt.Errorf("failed to read oidc config: %w", err)
+		return oauthResponse, fmt.Errorf("failed to read oidc config: %w", err)
 	}
 	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
-		return token, fmt.Errorf("failed to parse oidc config: %w", err)
+		return oauthResponse, fmt.Errorf("failed to parse oidc config: %w", err)
+	}
+	return oauthResponse, nil
+}
+
+func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, scope string) (string, error) {
+	token := ""
+
+	oauthResponse, err := o.getOauthConfig(oauthConfigUrl)
+	if err != nil {
+		return token, err
 	}
 
 	// find free port
@@ -201,7 +218,12 @@ func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, sc
 	}
 
 	client, err = osincli.NewClient(config)
-	client.Transport = authTransport
+
+	transport, err := o.getAuthClientTransport()
+	if err != nil {
+		return token, err
+	}
+	client.Transport = transport
 	if err != nil {
 		return token, fmt.Errorf("failed to create oauth2 client: %w", err)
 	}
@@ -276,17 +298,23 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			token = o.Token
 		}
 	} else if resp.JSON200.AuthType == "OpenShift" {
+		oauthConfigUrl := fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL)
 		if o.Web {
 			clientId := "openshift-cli-client"
 			if o.ClientId != "" {
 				clientId = o.ClientId
 			}
-			token, err = o.getOauth2Token(fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL), clientId, "")
+			token, err = o.getOauth2Token(oauthConfigUrl, clientId, "")
 			if err != nil {
 				return err
 			}
 		} else if o.Token == "" {
-			fmt.Printf("You must obtain an API token by visiting %s\n", resp.JSON200.AuthURL)
+			oauthConfig, err := o.getOauthConfig(oauthConfigUrl)
+			if err != nil {
+				return fmt.Errorf("could not get oauth config: %w", err)
+			}
+
+			fmt.Printf("You must obtain an API token by visiting %s/request\n", oauthConfig.TokenEndpoint)
 			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n", config.Service.Server)
 			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
 			return nil

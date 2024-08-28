@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -99,17 +100,6 @@ func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 	// The RenderedDeviceSpec can only be printed as JSON or YAML, so default to JSON if not set
 	if o.Rendered && len(o.Output) == 0 {
 		o.Output = jsonFormat
-	}
-	// If a label selector is provided, ensure keys without value still have '=' appended
-	if len(o.LabelSelector) > 0 {
-		labels := strings.Split(o.LabelSelector, ",")
-		for i, label := range labels {
-			l := strings.Split(label, "=")
-			if len(l) == 1 {
-				labels[i] = l[0] + "="
-			}
-		}
-		o.LabelSelector = strings.Join(labels, ",")
 	}
 	return nil
 }
@@ -221,6 +211,15 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListResourceSyncWithResponse(ctx, &params)
+	case kind == CertificateSigningRequestKind && len(name) > 0:
+		response, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+	case kind == CertificateSigningRequestKind && len(name) == 0:
+		params := api.ListCertificateSigningRequestsParams{
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+		}
+		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -289,6 +288,10 @@ func printTable(response interface{}, kind string, name string) error {
 		printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse).JSON200.Items...)
 	case kind == ResourceSyncKind && len(name) > 0:
 		printResourceSyncsTable(w, *(response.(*apiclient.ReadResourceSyncResponse).JSON200))
+	case kind == CertificateSigningRequestKind && len(name) == 0:
+		printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
+	case kind == CertificateSigningRequestKind && len(name) > 0:
+		printCSRTable(w, *(response.(*apiclient.ReadCertificateSigningRequestResponse).JSON200))
 	default:
 		return fmt.Errorf("unknown resource type %s", kind)
 	}
@@ -297,14 +300,19 @@ func printTable(response interface{}, kind string, name string) error {
 }
 
 func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+	fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range devices {
 		lastSeen := "<never>"
 		if !d.Status.LastSeen.IsZero() {
 			lastSeen = humanize.Time(d.Status.LastSeen)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		alias := ""
+		if d.Metadata.Labels != nil {
+			alias = (*d.Metadata.Labels)["alias"]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			*d.Metadata.Name,
+			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
 			d.Status.Summary.Status,
 			d.Status.Updated.Status,
@@ -335,8 +343,9 @@ func printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequ
 }
 
 func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID")
-	for _, f := range fleets {
+	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID\tDEVICES")
+	for i := range fleets {
+		f := fleets[i]
 		selector := "<none>"
 		if f.Spec.Selector != nil {
 			selector = strings.Join(util.LabelMapToArray(&f.Spec.Selector.MatchLabels), ",")
@@ -348,11 +357,16 @@ func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
 				valid = string(condition.Status)
 			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		numDevices := "Unknown"
+		if f.Status.DevicesSummary != nil {
+			numDevices = fmt.Sprintf("%d", f.Status.DevicesSummary.Total)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			*f.Metadata.Name,
 			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
 			selector,
 			valid,
+			numDevices,
 		)
 	}
 }
@@ -365,7 +379,7 @@ func printTemplateVersionsTable(w *tabwriter.Writer, tvs ...api.TemplateVersion)
 }
 
 func printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
-	fmt.Fprintln(w, "NAME\tREPOSITORY URL\tACCESSIBLE")
+	fmt.Fprintln(w, "NAME\tTYPE\tREPOSITORY URL\tACCESSIBLE")
 	for _, r := range repos {
 		accessible := "Unknown"
 		if r.Status != nil {
@@ -374,8 +388,13 @@ func printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
 				accessible = string(condition.Status)
 			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n",
+
+		repoSpec, _ := r.Spec.GetGenericRepoSpec()
+		repoType := repoSpec.Type
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			*r.Metadata.Name,
+			fmt.Sprintf("%v", repoType),
 			util.DefaultIfError(r.Spec.GetRepoURL, ""),
 			accessible,
 		)
@@ -406,6 +425,40 @@ func printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs ...api.ResourceS
 			accessible,
 			synced,
 			lastSynced,
+		)
+	}
+}
+
+func printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
+	fmt.Fprintln(w, "NAME\tAGE\tSIGNERNAME\tUSERNAME\tREQUESTEDDURATION\tCONDITION")
+
+	for _, csr := range csrs {
+		age := NoneString
+		if csr.Metadata.CreationTimestamp != nil {
+			age = time.Since(*csr.Metadata.CreationTimestamp).Round(time.Second).String()
+		}
+
+		duration := NoneString
+		if csr.Spec.ExpirationSeconds != nil {
+			duration = time.Duration(int64(*csr.Spec.ExpirationSeconds) * int64(time.Second)).String()
+		}
+
+		condition := "Pending"
+		if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
+			condition = "Approved"
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
+			condition = "Denied"
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestFailed) {
+			condition = "Failed"
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			*csr.Metadata.Name,
+			age,
+			csr.Spec.SignerName,
+			util.DefaultIfNil(csr.Spec.Username, NoneString),
+			duration,
+			condition,
 		)
 	}
 }

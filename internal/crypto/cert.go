@@ -18,8 +18,16 @@ import (
 
 // Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
 const ClientBootstrapCommonName = "client-enrollment"
+const ClientBootstrapCommonNamePrefix = "client-enrollment-"
 const AdminCommonName = "flightctl-admin"
 const DeviceCommonNamePrefix = "device:"
+
+func BootrapCNFromName(name string) (string, error) {
+	if len(name) < 16 {
+		return "", errors.New("subject common name (uuid) must have 16 characters at least")
+	}
+	return ClientBootstrapCommonNamePrefix + name, nil
+}
 
 func CNFromDeviceFingerprint(fingerprint string) (string, error) {
 	if len(fingerprint) < 16 {

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -13,10 +14,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent"
+	"github.com/flightctl/flightctl/internal/agent/device"
+	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -37,76 +44,35 @@ func main() {
 	dataDir := flag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	numDevices := flag.Int("count", 1, "number of devices to simulate")
 	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
+	stopAfter := flag.Duration("stop-after", 0, "stop the simulator after the specified duration")
+
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		fmt.Println("This program starts a devicesimulator with the specified configuration. Below are the available flags:")
+		fmt.Println("This program starts a device simulator with the specified configuration. Below are the available flags:")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-
-	agentConfigTemplate := agent.NewDefault()
-	agentConfigTemplate.ConfigDir = filepath.Dir(*configFile)
-	if err := agentConfigTemplate.ParseConfigFile(*configFile); err != nil {
-		log.Fatalf("Error parsing config: %v", err)
-	}
-	if err := agentConfigTemplate.Validate(); err != nil {
-		log.Fatalf("Error validating config: %v", err)
-	}
-
-	log.Infoln("starting device simulator")
-	defer log.Infoln("device simulator stopped")
 
 	log.Infoln("command line flags:")
 	flag.CommandLine.VisitAll(func(flg *flag.Flag) {
 		log.Infof("  %s=%s", flg.Name, flg.Value)
 	})
 
+	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile)
+
+	log.Infoln("starting device simulator")
+	defer log.Infoln("device simulator stopped")
+
 	log.Infoln("setting up metrics endpoint")
 	setupMetricsEndpoint(*metricsAddr)
 
-	log.Infoln("creating agents")
-	agents := make([]*agent.Agent, *numDevices)
-	for i := 0; i < *numDevices; i++ {
-		agentName := fmt.Sprintf("device-%04d", i)
-		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
-		agentDir := filepath.Join(*dataDir, agentName)
-		for _, filename := range []string{"ca.crt", "client-enrollment.crt", "client-enrollment.key"} {
-			if err := copyFile(filepath.Join(certDir, filename), filepath.Join(agentDir, filename)); err != nil {
-				log.Fatalf("copying %s: %v", filename, err)
-			}
-		}
-
-		cfg := agent.NewDefault()
-		cfg.ConfigDir = agentConfigTemplate.ConfigDir
-		cfg.DataDir = agentDir
-		cfg.EnrollmentService = agentConfigTemplate.EnrollmentService
-		cfg.ManagementService = agent.ManagementService{
-			Config: client.Config{
-				Service: agentConfigTemplate.ManagementService.Config.Service,
-				AuthInfo: client.AuthInfo{
-					ClientCertificate:     filepath.Join(agentDir, agent.GeneratedCertFile),
-					ClientCertificateData: []byte{},
-					ClientKey:             filepath.Join(agentDir, agent.KeyFile),
-					ClientKeyData:         []byte{},
-				},
-			},
-		}
-		cfg.SpecFetchInterval = agentConfigTemplate.SpecFetchInterval
-		cfg.StatusUpdateInterval = agentConfigTemplate.StatusUpdateInterval
-		cfg.TPMPath = ""
-		cfg.LogPrefix = agentName
-		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
-		if err := cfg.Complete(); err != nil {
-			log.Fatalf("agent config %d: %v", i, err)
-		}
-		if err := cfg.Validate(); err != nil {
-			log.Fatalf("agent config %d: %v", i, err)
-		}
-
-		log := flightlog.NewPrefixLogger(agentName)
-		agents[i] = agent.New(log, cfg)
+	serviceClient, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
+	if err != nil {
+		log.Fatalf("Error creating service client: %v", err)
 	}
 
+	log.Infoln("creating agents")
+	agents, agentsFolders := createAgents(log, *numDevices, agentConfigTemplate)
 	ctx, cancel := context.WithCancel(context.Background())
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
@@ -121,21 +87,159 @@ func main() {
 	wg := new(sync.WaitGroup)
 	wg.Add(*numDevices)
 	for i := 0; i < *numDevices; i++ {
+		time.Sleep(time.Duration(rand.Float64() * float64(agentConfigTemplate.StatusUpdateInterval))) //nolint:gosec
 		go func(i int) {
 			defer wg.Done()
-
 			// stagger the start of each agent
-			time.Sleep(time.Duration(rand.Float64() * float64(agentConfigTemplate.StatusUpdateInterval))) //nolint:gosec
-
 			activeAgents.Inc()
+			go approveAgent(ctx, log, serviceClient, agentsFolders[i])
 			err := agents[i].Run(ctx)
-			if err != nil {
-				log.Errorf("%s: %v", agents[i].GetLogPrefix(), err)
+			// If agent failed to run we should log the error and exit but only in case the context is not done
+			if err != nil && ctx.Err() == nil {
+				log.Fatalf("%s: %v", agents[i].GetLogPrefix(), err)
 			}
 			activeAgents.Dec()
 		}(i)
 	}
+	if *stopAfter > 0 {
+		go func() {
+			<-time.After(*stopAfter)
+			log.Infoln("stopping simulator after duration")
+			cancel()
+		}()
+	}
 	wg.Wait()
+}
+
+func createAgentConfigTemplate(dataDir string, configFile string) *agent.Config {
+	agentConfigTemplate := agent.NewDefault()
+	agentConfigTemplate.ConfigDir = filepath.Dir(configFile)
+	if err := agentConfigTemplate.ParseConfigFile(configFile); err != nil {
+		log.Fatalf("Error parsing config: %v", err)
+	}
+	//create data directory if not exists
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		log.Fatalf("Error creating data directory: %v", err)
+	}
+
+	agentConfigTemplate.DataDir = dataDir
+	if err := agentConfigTemplate.Complete(); err != nil {
+		log.Fatalf("Error completing config: %v", err)
+	}
+	if err := agentConfigTemplate.Validate(); err != nil {
+		log.Fatalf("Error validating config: %v", err)
+	}
+
+	return agentConfigTemplate
+}
+
+func createAgents(log *logrus.Logger, numDevices int, agentConfigTemplate *agent.Config) ([]*agent.Agent, []string) {
+	log.Infoln("creating agents")
+	agents := make([]*agent.Agent, numDevices)
+	agentsFolders := make([]string, numDevices)
+	for i := 0; i < numDevices; i++ {
+		agentName := fmt.Sprintf("device-%04d", i)
+		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
+		agentDir := filepath.Join(agentConfigTemplate.DataDir, agentName)
+		// Cleanup if exists and initialize the agent's expected
+		os.RemoveAll(agentDir)
+		if err := os.MkdirAll(filepath.Join(agentDir, agent.DefaultConfigDir), 0700); err != nil {
+			log.Fatalf("Error creating directory: %v", err)
+		}
+
+		err := os.Setenv(client.TestRootDirEnvKey, agentDir)
+		if err != nil {
+			log.Fatalf("Error setting environment variable: %v", err)
+		}
+		for _, filename := range []string{"ca.crt", "client-enrollment.crt", "client-enrollment.key"} {
+			if err := copyFile(filepath.Join(certDir, filename), filepath.Join(agentDir, agent.DefaultConfigDir, filename)); err != nil {
+				log.Fatalf("copying %s: %v", filename, err)
+			}
+		}
+
+		cfg := agent.NewDefault()
+		cfg.ConfigDir = agent.DefaultConfigDir
+		cfg.DataDir = agent.DefaultConfigDir
+		cfg.EnrollmentService = agent.EnrollmentService{}
+		cfg.EnrollmentService.Config = *client.NewDefault()
+		cfg.EnrollmentService.Config.Service = client.Service{
+			Server:               agentConfigTemplate.EnrollmentService.Config.Service.Server,
+			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent.CacertFile),
+		}
+		cfg.EnrollmentService.Config.AuthInfo = client.AuthInfo{
+			ClientCertificate: filepath.Join(cfg.ConfigDir, agent.EnrollmentCertFile),
+			ClientKey:         filepath.Join(cfg.ConfigDir, agent.EnrollmentKeyFile),
+		}
+		cfg.SpecFetchInterval = agentConfigTemplate.SpecFetchInterval
+		cfg.StatusUpdateInterval = agentConfigTemplate.StatusUpdateInterval
+		cfg.TPMPath = ""
+		cfg.LogPrefix = agentName
+
+		// create managementService config
+		cfg.ManagementService = agent.ManagementService{}
+		cfg.ManagementService.Config = *client.NewDefault()
+		cfg.ManagementService.Service = client.Service{
+			Server:               agentConfigTemplate.ManagementService.Config.Service.Server,
+			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent.CacertFile),
+		}
+
+		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
+		if err := cfg.Complete(); err != nil {
+			log.Fatalf("agent config %d: %v", i, err)
+		}
+		if err := cfg.Validate(); err != nil {
+			log.Fatalf("agent config %d: %v", i, err)
+		}
+
+		logWithPrefix := flightlog.NewPrefixLogger(agentName)
+		agents[i] = agent.New(logWithPrefix, cfg)
+		agentsFolders[i] = agentDir
+	}
+	return agents, agentsFolders
+}
+
+func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string) {
+	err := wait.PollWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
+		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
+		bannerFileData, err := readBannerFile(agentDir)
+		if err != nil {
+			return false, nil
+		}
+		enrollmentId := testutil.GetEnrollmentIdFromText(bannerFileData)
+		if enrollmentId == "" {
+			log.Warnf("No enrollment id found in banner file %s", bannerFileData)
+			return false, nil
+		}
+		_, err = serviceClient.ApproveEnrollmentRequestWithResponse(
+			context.Background(),
+			enrollmentId,
+			v1alpha1.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"created_by": "device-simulator"},
+			})
+		if err != nil {
+			log.Errorf("Error approving device %s enrollment: %v", enrollmentId, err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil && ctx.Err() == nil {
+		log.Fatalf("Error approving device enrollment: %v", err)
+	}
+}
+
+func readBannerFile(agentDir string) (string, error) {
+	var data []byte
+	var err error
+	bannerFile := filepath.Join(agentDir, device.BannerFile)
+	if _, err = os.Stat(bannerFile); err != nil {
+		return "", err
+	}
+	data, err = os.ReadFile(bannerFile)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func copyFile(from, to string) error {

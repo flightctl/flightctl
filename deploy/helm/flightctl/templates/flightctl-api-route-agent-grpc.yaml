@@ -8,9 +8,13 @@ metadata:
     paas.redhat.com/appcode: {{ .Values.appCode }}
     shard: external
   name: flightctl-api-route-agent-grpc
-  namespace: {{ .Values.flightctl.api.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
+  {{ if .Values.flightctl.api.agentGrpcHostName }}
   host: {{ .Values.flightctl.api.agentGrpcHostName }}
+  {{ else }}
+  host: agent-grpc.{{ .Values.global.flightctl.baseDomain }}
+  {{ end }}
   port:
     targetPort: 7444
   tls:
