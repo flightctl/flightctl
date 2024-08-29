@@ -170,6 +170,9 @@ type ClientInterface interface {
 
 	ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// EnrollmentConfig request
+	EnrollmentConfig(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteEnrollmentRequests request
 	DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -645,6 +648,18 @@ func (c *Client) ReplaceDeviceStatusWithBody(ctx context.Context, name string, c
 
 func (c *Client) ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceDeviceStatusRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EnrollmentConfig(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEnrollmentConfigRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -2211,6 +2226,40 @@ func NewReplaceDeviceStatusRequestWithBody(server string, name string, contentTy
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewEnrollmentConfigRequest generates requests for EnrollmentConfig
+func NewEnrollmentConfigRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/enrollmentconfig/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -3982,6 +4031,9 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceStatusWithResponse(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
 
+	// EnrollmentConfigWithResponse request
+	EnrollmentConfigWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*EnrollmentConfigResponse, error)
+
 	// DeleteEnrollmentRequestsWithResponse request
 	DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error)
 
@@ -4655,6 +4707,31 @@ func (r ReplaceDeviceStatusResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceDeviceStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type EnrollmentConfigResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EnrollmentConfig
+	JSON400      *Error
+	JSON401      *Error
+	JSON404      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r EnrollmentConfigResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EnrollmentConfigResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5799,6 +5876,15 @@ func (c *ClientWithResponses) ReplaceDeviceStatusWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseReplaceDeviceStatusResponse(rsp)
+}
+
+// EnrollmentConfigWithResponse request returning *EnrollmentConfigResponse
+func (c *ClientWithResponses) EnrollmentConfigWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*EnrollmentConfigResponse, error) {
+	rsp, err := c.EnrollmentConfig(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEnrollmentConfigResponse(rsp)
 }
 
 // DeleteEnrollmentRequestsWithResponse request returning *DeleteEnrollmentRequestsResponse
@@ -7181,6 +7267,53 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEnrollmentConfigResponse parses an HTTP response from a EnrollmentConfigWithResponse call
+func ParseEnrollmentConfigResponse(rsp *http.Response) (*EnrollmentConfigResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EnrollmentConfigResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnrollmentConfig
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

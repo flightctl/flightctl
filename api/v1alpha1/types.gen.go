@@ -499,6 +499,15 @@ type DiskResourceMonitorSpec struct {
 	SamplingInterval string `json:"samplingInterval"`
 }
 
+// EnrollmentConfig defines model for EnrollmentConfig.
+type EnrollmentConfig struct {
+	EnrollmentService      EnrollmentService `json:"enrollment-service"`
+	GrpcManagementEndpoint string            `json:"grpc-management-endpoint"`
+	SpecFetchInterval      string            `json:"spec-fetch-interval"`
+	StatusUpdateInterval   string            `json:"status-update-interval"`
+	TpmPath                string            `json:"tpm-path"`
+}
+
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -568,6 +577,25 @@ type EnrollmentRequestStatus struct {
 
 	// Conditions Current state of the EnrollmentRequest.
 	Conditions []Condition `json:"conditions"`
+}
+
+// EnrollmentService defines model for EnrollmentService.
+type EnrollmentService struct {
+	Authentication       EnrollmentServiceAuth    `json:"authentication"`
+	EnrollmentUiEndpoint string                   `json:"enrollment-ui-endpoint"`
+	Service              EnrollmentServiceService `json:"service"`
+}
+
+// EnrollmentServiceAuth defines model for EnrollmentServiceAuth.
+type EnrollmentServiceAuth struct {
+	ClientCertificateData string `json:"client-certificate-data"`
+	ClientKeyData         string `json:"client-key-data"`
+}
+
+// EnrollmentServiceService defines model for EnrollmentServiceService.
+type EnrollmentServiceService struct {
+	CertificateAuthorityData string `json:"certificate-authority-data"`
+	Server                   string `json:"server"`
 }
 
 // Error defines model for Error.

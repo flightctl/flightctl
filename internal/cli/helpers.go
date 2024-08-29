@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
 const (
@@ -81,4 +84,16 @@ func fullname(kind string) string {
 		}
 	}
 	return kind
+}
+
+func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCode int) error {
+	if statusCode != expectedStatusCode {
+		var responseError api.Error
+		err := json.Unmarshal(responseBody, &responseError)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%d %s", statusCode, responseError.Message)
+	}
+	return nil
 }
