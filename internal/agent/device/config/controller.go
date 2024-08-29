@@ -2,7 +2,9 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -114,7 +116,7 @@ func (c *controller) ensureConfigData(ctx context.Context, currentData, desiredD
 	err = c.WriteIgnitionFiles(ctx, desiredIgnition.Storage.Files)
 	if err != nil {
 		c.log.Warnf("Writing ignition files failed: %+v", err)
-		return fmt.Errorf("writing ignition files failed: %w", err)
+		return fmt.Errorf("failed to apply configuration: %w", err)
 	}
 	return nil
 }
@@ -139,6 +141,13 @@ func (c *controller) WriteIgnitionFiles(ctx context.Context, files []ignv3types.
 			c.hookManager.OnBeforeUpdate(ctx, file.Path)
 		}
 		if err := managedFile.Write(); err != nil {
+			c.log.Warnf("failed to write file %s: %v", file.Path, err)
+			// in order to create clearer error in status in case we fail in temp file creation
+			// we don't want to return temp filename but rather change the error message to return given file path
+			var err2 *fs.PathError
+			if errors.As(err, &err2) {
+				return fmt.Errorf("failed to write file %s: %w", file.Path, err2.Err)
+			}
 			return err
 		}
 		if !exists {
