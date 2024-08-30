@@ -32,6 +32,7 @@ func NewFlightCtlCommand() *cobra.Command {
 	cmd.AddCommand(cli.NewCmdVersion())
 	cmd.AddCommand(cli.NewConsoleCmd())
 	cmd.AddCommand(cli.NewCmdCompletion())
+	cmd.AddCommand(cli.NewCmdEnrollmentConfig())
 
 	return cmd
 }
