@@ -7,15 +7,15 @@ metadata:
   name: flightctl-api-agent
   namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.flightctl.api.agentNodePort }}
+  {{ if .Values.flightctl.api.agentAPINodePort }}
   type: NodePort
   {{ end }}
   ports:
     - name: "agent-api"
       port: 7443
       targetPort: 7443
-      {{ if .Values.flightctl.api.agentNodePort }}
-      nodePort: {{ .Values.flightctl.api.agentNodePort }}
+      {{ if .Values.flightctl.api.agentAPINodePort }}
+      nodePort: {{ .Values.flightctl.api.agentAPINodePort }}
       {{ end }}
   selector:
     flightctl.service: flightctl-api
