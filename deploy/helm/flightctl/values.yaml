@@ -60,6 +60,7 @@ flightctl:
     agentAPIHostName: "" # agent-api.flightctl.example.com
     agentGrpcHostName: "" # agent-grpc.flightctl.example.com
     agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
+    baseUIUrl: "" # ui.flightctl.example.com
     auth:
       ## @param enabled True if auth should be enabled. One of 'openShiftApiUrl' or 'oidcAuthority' params will be required.
       enabled: false

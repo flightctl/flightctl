@@ -35,6 +35,12 @@ data:
         baseAgentGrpcUrl:  grpcs://agent-grpc.{{ .Values.global.flightctl.baseDomain }}{{ if .Values.flightctl.api.agentGrpcNodePort }}:{{ .Values.flightctl.api.agentGrpcNodePort }}{{ end }}
         {{ end }}
 
+        {{ if .Values.flightctl.api.baseUIUrl }}
+        baseUIUrl:  {{ .Values.flightctl.api.baseUIUrl }}
+        {{ else }}
+        baseUIUrl:  https://ui.{{ .Values.global.flightctl.baseDomain }}
+        {{ end }}
+
         altNames:
           {{ if .Values.flightctl.api.hostName }}
           - {{ .Values.flightctl.api.hostName }}
