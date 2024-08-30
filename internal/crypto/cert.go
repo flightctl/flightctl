@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+    "sync"
 
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -40,25 +41,41 @@ type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
 type CA struct {
 	Config *TLSCertificateConfig
-
 	SerialGenerator oscrypto.SerialGenerator
 }
 
+var defaultCA *CA = nil
+var caMutex sync.Mutex
+
 func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CA, bool, error) {
-	if ca, err := GetCA(certFile, keyFile, serialFile); err == nil {
+    caMutex.Lock()
+    defer caMutex.Unlock()
+    if defaultCA != nil {
+        return defaultCA, false, nil
+    }
+
+	if ca, err := LoadCA(certFile, keyFile, serialFile); err == nil {
+        defaultCA = ca
 		return ca, false, err
 	}
 	ca, err := MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName, expireDays)
+    defaultCA = ca
 	return ca, true, err
 }
 
-func GetCA(certFile, keyFile, serialFile string) (*CA, error) {
+func LoadCA(certFile, keyFile, serialFile string) (*CA, error) {
 	ca, err := oscrypto.GetCA(certFile, keyFile, serialFile)
 	if err != nil {
 		return nil, err
 	}
 	config := TLSCertificateConfig(*ca.Config)
 	return &CA{Config: &config, SerialGenerator: ca.SerialGenerator}, err
+}
+
+func GetDefaultCA() (*CA) {
+    caMutex.Lock()
+    defer caMutex.Unlock()
+    return defaultCA
 }
 
 func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryDays int) (*CA, error) {
@@ -145,7 +162,7 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 }
 
 // func (ca *CA) EnsureSubCA(certFile, keyFile, serialFile, name string, expireDays int) (*CA, bool, error) {
-// 	if subCA, err := GetCA(certFile, keyFile, serialFile); err == nil {
+// 	if subCA, err := LoadCA(certFile, keyFile, serialFile); err == nil {
 // 		return subCA, false, err
 // 	}
 // 	subCA, err := ca.MakeAndWriteSubCA(certFile, keyFile, serialFile, name, expireDays)
