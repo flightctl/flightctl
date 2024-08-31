@@ -54,7 +54,7 @@ flightctl:
       pullPolicy: Always
       tag: ""
     nodePort: "" # used for local development
-    agentNodePort: "" # used for local development
+    agentAPINodePort: "" # used for local development
     agentGrpcNodePort: "" # used for local development
     hostName: "" # api.flightctl.example.com
     agentAPIHostName: "" # agent-api.flightctl.example.com
