@@ -20,10 +20,10 @@ type EnrollmentRequest struct {
 	Resource
 
 	// The desired state of the enrollment request, stored as opaque JSON object.
-	Spec *JSONField[api.EnrollmentRequestSpec]
+	Spec *JSONField[api.EnrollmentRequestSpec] `gorm:"type:jsonb"`
 
 	// The last reported state of the enrollment request, stored as opaque JSON object.
-	Status *JSONField[api.EnrollmentRequestStatus]
+	Status *JSONField[api.EnrollmentRequestStatus] `gorm:"type:jsonb"`
 }
 
 type EnrollmentRequestList []EnrollmentRequest

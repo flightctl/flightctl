@@ -68,7 +68,9 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	}
 	statusFilter := []string{}
 	if request.Params.StatusFilter != nil {
-		statusFilter = *request.Params.StatusFilter
+		for _, filter := range *request.Params.StatusFilter {
+			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
+		}
 	}
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
@@ -76,7 +78,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	}
 
-	filterMap, err := ConvertStatusFilterParamsToMap(statusFilter)
+	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
 	if err != nil {
 		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
 	}
