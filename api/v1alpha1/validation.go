@@ -186,10 +186,7 @@ func validateHttpConfig(config *HttpConfig) []error {
 	var errs []error
 	if config != nil {
 		if config.CaCrt != nil {
-			err := validation.ValidateBase64Field(*config.CaCrt, "spec.httpConfig.CaCrt", maxBase64CertificateLength)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("spec.httpConfig.caCrt must be a valid base64 encoded string: %v", err))
-			}
+			errs = append(errs, validation.ValidateBase64Field(*config.CaCrt, "spec.httpConfig.CaCrt", maxBase64CertificateLength)...)
 		}
 
 		if (config.Username != nil && config.Password == nil) || (config.Username == nil && config.Password != nil) {
