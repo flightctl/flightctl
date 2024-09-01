@@ -13,14 +13,19 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
-// ValidateName validates that metadata.name is not empty and is a valid name in K8s.
+// ValidateResourceName validates that metadata.name is not empty and is a valid name in K8s.
 func ValidateResourceName(name *string) []error {
+	return ValidateResourceNameReference(name, "metadata.name")
+}
+
+// ValidateResourceRef validates that metadata.name is not empty and is a valid name in K8s.
+func ValidateResourceNameReference(name *string, path string) []error {
 	errs := field.ErrorList{}
 	if name == nil {
-		errs = append(errs, field.Required(fieldPathFor("metadata.name"), ""))
+		errs = append(errs, field.Required(fieldPathFor(path), ""))
 	} else {
 		for _, msg := range k8sapivalidation.NameIsDNSSubdomain(*name, false) {
-			errs = append(errs, field.Invalid(fieldPathFor("metadata.name"), *name, msg))
+			errs = append(errs, field.Invalid(fieldPathFor(path), *name, msg))
 		}
 	}
 	return asErrors(errs)

@@ -3695,6 +3695,22 @@ func NewListResourceSyncRequest(server string, params *ListResourceSyncParams) (
 
 		}
 
+		if params.Repository != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "repository", runtime.ParamLocationQuery, *params.Repository); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
 	}
 

@@ -1979,6 +1979,14 @@ func (siw *ServerInterfaceWrapper) ListResourceSync(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// ------------- Optional query parameter "repository" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "repository", r.URL.Query(), &params.Repository)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "repository", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListResourceSync(w, r, params)
 	}))
