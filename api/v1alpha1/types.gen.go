@@ -1262,6 +1262,9 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Repository The name of the repository to filter results by.
+	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
