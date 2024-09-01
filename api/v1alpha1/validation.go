@@ -50,7 +50,7 @@ func (r Device) Validate() []error {
 func (c GitConfigProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.GitRef.Repository, "spec.config[].gitRef.repository")...)
+	allErrs = append(allErrs, validation.ValidateResourceNameReference(&c.GitRef.Repository, "spec.config[].gitRef.repository")...)
 	allErrs = append(allErrs, validation.ValidateGitRevision(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision")...)
 	allErrs = append(allErrs, validation.ValidateString(&c.GitRef.Path, "spec.config[].gitRef.path", 0, 2048, nil, "")...)
 	return allErrs
@@ -74,7 +74,7 @@ func (c InlineConfigProviderSpec) Validate() []error {
 func (h HttpConfigProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
-	allErrs = append(allErrs, validation.ValidateGenericName(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
+	allErrs = append(allErrs, validation.ValidateResourceNameReference(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
 	allErrs = append(allErrs, validation.ValidateString(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath", 0, 2048, nil, "")...)
 	allErrs = append(allErrs, validation.ValidateString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", 0, 2048, nil, "")...)
 
@@ -172,7 +172,7 @@ func (r ResourceSync) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	allErrs = append(allErrs, validation.ValidateGenericName(&r.Spec.Repository, "spec.repository")...)
+	allErrs = append(allErrs, validation.ValidateResourceNameReference(&r.Spec.Repository, "spec.repository")...)
 	allErrs = append(allErrs, validation.ValidateGitRevision(&r.Spec.TargetRevision, "spec.targetRevision")...)
 	allErrs = append(allErrs, validation.ValidateString(&r.Spec.Path, "spec.path", 0, 2048, nil, "")...)
 	return allErrs
