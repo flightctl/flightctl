@@ -89,8 +89,8 @@ func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest v1
 	return decoder.Decode(&newObj)
 }
 
-// ConvertStatusFilterParamsToMap converts statusFilter query params to to a validated filterMap map.
-func ConvertStatusFilterParamsToMap(params []string) (map[string][]string, error) {
+// ConvertFieldFilterParamsToMap converts filter query params to to a validated filterMap map.
+func ConvertFieldFilterParamsToMap(params []string) (map[string][]string, error) {
 	fieldMap := make(map[string][]string)
 	if len(params) == 0 {
 		return fieldMap, nil
@@ -132,11 +132,11 @@ func validateFieldKey(key string) (string, error) {
 	return key, nil
 }
 
-// validateFieldValue validates a field value. Valid characters are [a-zA-Z0-9,]
+// validateFieldValue validates a field value. Valid characters are [a-zA-Z0-9,-.]
 func validateFieldValue(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	for _, char := range value {
-		if !unicode.IsLetter(char) && !unicode.IsDigit(char) && char != ',' {
+		if !unicode.IsLetter(char) && !unicode.IsDigit(char) && char != ',' && char != '-' && char != '.' {
 			return "", fmt.Errorf("%w: %s", ErrorInvalidFieldValue, value)
 		}
 	}
