@@ -109,7 +109,7 @@ func SliceToPtrWithNilDefault(s []string) *[]string {
 }
 
 func TimeStampStringPtr() *string {
-	return StrToPtr(time.Now().Format(time.RFC3339))
+	return StrToPtr(time.Now().Format(time.RFC3339Nano))
 }
 
 func BoolToStr(b bool, ifTrue string, ifFalse string) string {
