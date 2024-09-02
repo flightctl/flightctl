@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -188,7 +189,11 @@ func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) erro
 func (m *manager) setError(path string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.errors[path] = err
+	if err != nil {
+		m.errors[path] = err
+	} else {
+		delete(m.errors, path)
+	}
 }
 
 func (m *manager) getActionsForPath(path string, actions ActionMap) []ActionHook {
@@ -224,12 +229,17 @@ func (m *manager) Run(ctx context.Context) {
 }
 
 func (m *manager) runActionList(ctx context.Context, path string, actionHooks []ActionHook) {
+	if len(actionHooks) == 0 {
+		return
+	}
+	var errs []error
 	for _, actionHook := range actionHooks {
 		if err := actionHook.OnChange(ctx, path); err != nil {
 			m.log.Errorf("error while running hook for path %s: %+v", path, err)
-			m.setError(path, err)
+			errs = append(errs, fmt.Errorf("failed to run hook for path %s: %w", path, err))
 		}
 	}
+	m.setError(path, errors.Join(errs...))
 }
 
 func (m *manager) runActions(ctx context.Context, path string, actions ActionMap) {

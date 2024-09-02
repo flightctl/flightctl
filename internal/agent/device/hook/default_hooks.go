@@ -37,7 +37,7 @@ func defaultAfterUpdateHooks() []v1alpha1.DeviceUpdateHookSpec {
 			Description: util.StrToPtr("Apply the provided microshift manifest"),
 			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate},
 			Actions: []v1alpha1.HookAction{
-				marshalExecutable("kubectl apply -f {{ .FileName }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
+				marshalExecutable("kubectl apply -f {{ .FilePath }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
 					"/var/usr/klusterlet-manifests", "1m"),
 			},
 		},
@@ -52,7 +52,12 @@ func defaultBeforeUpdateHooks() []v1alpha1.DeviceUpdateHookSpec {
 			Description: util.StrToPtr("Bring down a multi-container system based on the provided YAML podman-compose definition file"),
 			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationUpdate, v1alpha1.FileOperationRemove},
 			Actions: []v1alpha1.HookAction{
-				marshalExecutable("podman-compose -f {{ .FilePath }} down", nil,
+				marshalExecutable(`output=$(podman-compose -f {{ .FilePath }} down 2>&1); exit_code=$? ; \
+										if [[ $exit_code -eq 0 ]] || ( [[ ! -f {{ .FilePath }} ]] && \
+                                            ! ( podman ps -a --format=json | jq -r '.[] | .Labels."com.docker.compose.project.config_files"' | grep -q  -E '^{{ .FilePath }}$' )) ; then  \ 
+											exit 0; \
+										fi ; \
+										echo "$output" 1>&2 && exit $exit_code`, nil,
 					"/var/run/flightctl/compose", "1m"),
 			},
 		},
