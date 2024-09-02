@@ -72,7 +72,6 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 	When("before is not nil and after is nil", func() {
 		It("submits FleetSelectorMatchTask", func() {
-			orgId := uuid.New()
 			before := CreateTestingFleet(orgId, "before", "image1", &map[string]string{"labelKey": "selector"})
 			callbacksManager.FleetUpdatedCallback(before, nil)
 
@@ -88,7 +87,6 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 	When("template is updated", func() {
 		It("submits FleetValidateTask and FleetSelectorMatchTask", func() {
-			orgId := uuid.New()
 			before := CreateTestingFleet(orgId, "before", "image1", &map[string]string{"labelKey": "selector1"})
 			after := CreateTestingFleet(orgId, "after", "image2", &map[string]string{"labelKey": "selector2"})
 			callbacksManager.FleetUpdatedCallback(before, after)
@@ -111,7 +109,6 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 	When("selector is updated", func() {
 		It("submits FleetSelectorMatchTask", func() {
-			orgId := uuid.New()
 			before := CreateTestingFleet(orgId, "before", "image1", &map[string]string{"labelKey": "selector1"})
 			after := CreateTestingFleet(orgId, "after", "image1", &map[string]string{"labelKey": "selector2"})
 			callbacksManager.FleetUpdatedCallback(before, after)
