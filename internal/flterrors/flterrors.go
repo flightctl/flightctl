@@ -21,6 +21,15 @@ var (
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
 	ErrInvalidTemplateVersion = errors.New("device's templateVersion is not valid")
 	ErrNoRenderedVersion      = errors.New("no rendered version for device")
+
+	// csr
+	ErrInvalidPEMBlock = errors.New("not a valid PEM block")
+	ErrUnknownPEMType  = errors.New("unknown PEM type")
+	ErrCNLength        = errors.New("CN must be at least 16 chars")
+	ErrCSRParse        = errors.New("could not parse CSR")
+	ErrSignature       = errors.New("signature error")
+	ErrSignCert        = errors.New("error signing certificate")
+	ErrEncodeCert      = errors.New("error encoding certificate")
 )
 
 func ErrorFromGormError(err error) error {
