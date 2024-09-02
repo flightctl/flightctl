@@ -140,7 +140,7 @@ func dirExists(path string) (bool, error) {
 	if os.IsNotExist(err) {
 		return false, nil
 	}
-	return false, fmt.Errorf("failed to check if directory exists: %w", err)
+	return false, fmt.Errorf("failed to check if directory %s exists: %w", path, err)
 }
 
 func parseTimeout(timeout *string) (time.Duration, error) {
@@ -237,7 +237,7 @@ func (e *executableActionHook) OnChange(ctx context.Context, path string) error 
 
 		// we expect the directory to exist should be created by config if its new.
 		if !dirExists {
-			return os.ErrNotExist
+			return fmt.Errorf("workdir %s: %w", workDir, os.ErrNotExist)
 		}
 	}
 
@@ -253,7 +253,8 @@ func (e *executableActionHook) OnChange(ctx context.Context, path string) error 
 	// will run by using 'bash -c' to let bash do the parsing
 	_, stderr, exitCode := e.exec.ExecuteWithContextFromDir(ctx, workDir, "bash", []string{"-c", cmd}, e.envVars...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to execute command: %s %d: %s", e.cmd, exitCode, stderr)
+		e.log.Errorf("execute hook for path %s failed with exitCode %d for command %s: %s", path, exitCode, cmd, stderr)
+		return fmt.Errorf("command for path %s exited with code %d: %s", path, exitCode, stderr)
 	}
 
 	return nil
