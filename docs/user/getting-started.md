@@ -222,29 +222,129 @@ Browse to `ui.flightctl.MY.DOMAIN` and login with the demouser obtained from the
 
 ## Building a Bootable Container Image including the Flight Control Agent
 
-Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
+Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service. After deploying the flightctl server, this configuration can be retrieved after a Certificate Signing Request has been completed as outlined in the steps below.
 
-Retrieve the agent configuration with enrollment credentials by running:
+### Create Certificate Signing Request configuration
+
+For enrollment, the device will need an enrollment certificate to be present. The enrollment certificate is created when a certificate signing request in flightctl is approved by an authorized user and can be retrieved once this process is complete. The four steps below describe this process.
+
+#### 1/4 Create the signed CSR
+
+This CSR will be embedded in the CSR resource configuration file that will be applied to flightctl.
+
+Create a certificate signing request `.csr` file with openssl:
 
 ```console
-$ flightctl certificate request --scope=enrollment --validity=1y -o agent-config > config.yaml
-
-[...]
+openssl req -new -sha256 -key myeckey.pem -out mycsr.csr
 ```
 
-The returned `config.yaml` should look similar to this:
+**NOTES**:
+
+1. The signing key passed with `-key` MUST be an ECDSA key. To generate an ECDSA key, use `openssl ecparam -name secp521r1 -genkey -noout -out myeckey.pem` or see the [openssl documentation on ECDSA](https://docs.openssl.org/1.0.2/man1/ecparam/#synopsis) for more options.
+2. The Subject Common Name in the CSR MUST be either blank or at least 16 characters in length.
+
+For more options, including generating a new private key to sign the CSR, see [openssl's documentation](https://docs.openssl.org/master/man1/openssl-req/#options).
+
+#### 2/4 Create the CSR resource configuration file
+
+You can create a CSR resource configuration file wrapping the CSR file above either by generating it with flightctl or manually. Each option is described below. You may choose the CSR name, and desired expiration in seconds.
+
+##### Option 1: Generate the CSR config file
+
+Issue the command below, specifying your `.csr` file and an output file, and optionally specifying the CSR name and expiration in seconds. The CSR name defaults to `mycsr`, the expiration to 604800 seconds. The `-y` flag enables overwriting the output file if it already exists.
 
 ```console
-$ cat config.yaml
+flightctl csr-generate mycsr.csr -e 600 -n chosenname -o myoutputfile -y
+```
+
+##### Option 2: Manually create the CSR config file
+
+The file name, `metadata.name`, and `spec.expirationSeconds` can vary. The `apiVersion`, `kind`, `spec.signerName`, and `spec.usages` must match those below. The `spec.request` field will hold a base64-encoded contents of the `.csr` file previously created.
+
+```console
+$ cat > mycsrresource.yaml <<EOF
+apiVersion: v1alpha1
+kind: CertificateSigningRequest
+metadata:
+  name: mycsr
+spec:
+  request: <add base64-encoded CSR>
+  signerName: ca
+  usages: ["clientAuth", "CA:false"]
+  expirationSeconds: 604800
+EOF
+```
+
+Add the base64-encoded contents of the previously created CSR to the field `spec.request`, making sure to remove newlines. This can be generated with:
+
+```console
+cat mycsr.csr | base64 | tr -d '\n'
+```
+
+The end result should be structured the same way as [`examples/csr.yaml`](/examples/csr.yaml).
+
+#### 3/4 Create the CSR resource in flightctl
+
+You may then create the CSR resource by running the command below:
+
+```console
+$ flightctl apply -f mycsrresource.yaml
+certificatesigningrequest: applying mycsrresource.yaml/mycsr: 201 Created
+```
+
+You can view the status of the certificate signing request with:
+
+```console
+$ flightctl get csr/mycsr
+NAME    AGE     SIGNERNAME  USERNAME    REQUESTEDDURATION   CONDITION
+mycsr   2m29s   ca          <none>      10m0s               Pending
+
+```
+
+#### 4/4 Approve the CSR
+
+The certificate signing request will need to be approved. As an authorized user, you may approve a specific certificate signing request by running (replace `mycsr` with the name of your CSR):
+
+```console
+flightctl approve csr/mycsr
+```
+
+The Condition of the certificate signing request will then show:
+
+```console
+$ flightctl get csr/mycsr
+NAME    AGE     SIGNERNAME  USERNAME    REQUESTEDDURATION   CONDITION
+mycsr   3m4s    ca          <none>      10m0s               Approved
+
+```
+
+### Retrieve and use the agent config file
+
+Once the CSR has been approved, retrieve the agent configuration with enrollment credentials by running:
+
+```console
+flightctl enrollmentconfig <mycsr> --private-key <myeckey.pem> > agentconfig.yaml
+```
+
+Make sure to supply the same name that you entered in your original CSR configuration resource `.yaml` file, and the same private key you used when generating the CSR.
+
+The returned output should look similar to this:
+
+```console
+$ cat agentconfig.yaml
 
 enrollment-service:
-  service:
-    server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
-    certificate-authority-data: LS0tLS1CRUdJTiBD...
   authentication:
     client-certificate-data: LS0tLS1CRUdJTiBD...
     client-key-data: LS0tLS1CRUdJTiBF...
   enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8080
+  service:
+    certificate-authority-data: LS0tLS1CRUdJTiBD...
+    server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
+  grpc-management-endpoint: grpcs://agent-grpc.127.0.0.1.nip.io:7444
+  spec-fetch-interval: 0m10s
+  status-update-interval: 0m10s
+  tpm-path: /dev/tpmrm0
 ```
 
 Create a `Containerfile` with the following content:
@@ -259,7 +359,7 @@ RUN dnf -y copr enable @redhat-et/flightctl-dev centos-stream-9-x86_64 && \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
 
-ADD config.yaml /etc/flightctl/
+ADD agentconfig.yaml /etc/flightctl/config.yaml
 ```
 
 Note this is a regular `Containerfile` that you're used to from Docker/Podman, with the difference that the base image referenced in the `FROM` directive is bootable. This means you can use standard container build tools and workflows.
