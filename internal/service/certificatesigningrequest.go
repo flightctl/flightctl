@@ -19,18 +19,15 @@ import (
 
 const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
 
-func signApprovedCertificateSigningRequest(ca *crypto.CA, request *api.CertificateSigningRequest) ([]byte, error) {
-	if request == nil {
-		return nil, errors.New("signApprovedCertificateSigningRequest: CertificateSigningRequest is nil")
-	}
+func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.CertificateSigningRequest) ([]byte, error) {
 
 	csr, err := crypto.ParseCSR(request.Spec.Request)
 	if err != nil {
-		return nil, fmt.Errorf("signApprovedCertificateSigningRequest: error parsing CSR: %w", err)
+		return nil, err
 	}
 
 	if err := csr.CheckSignature(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignature, err)
 	}
 
 	// the CN will need the enrollment prefix applied;
@@ -39,9 +36,9 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request *api.Certifica
 	if u == "" {
 		u = uuid.NewString()
 	}
-	csr.Subject.CommonName, err = crypto.BootrapCNFromName(u)
+	csr.Subject.CommonName, err = crypto.BootstrapCNFromName(u)
 	if err != nil {
-		return nil, fmt.Errorf("signApprovedCertificateRequest: error setting CN in CSR: %w", err)
+		return nil, fmt.Errorf("cn: %s does not meet requirement: %w", u, err)
 	}
 
 	expiry := DefaultEnrollmentCertExpirySeconds
@@ -264,9 +261,13 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return server.ApproveCertificateSigningRequest404JSONResponse{}, nil
 		}
-		return nil, err
+		return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
+	}
+	if csr == nil {
+		return server.ApproveCertificateSigningRequest500JSONResponse{Message: "CertificateSigningRequest is nil"}, nil
 	}
 
+	// do not approve a denied request, or recreate a cert for an already-approved request
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been denied"}, nil
 	}
@@ -274,9 +275,19 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been approved"}, nil
 	}
 
-	signedCert, err := signApprovedCertificateSigningRequest(h.ca, csr)
+	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
 	if err != nil {
-		return nil, err
+		switch {
+		case errors.Is(err, flterrors.ErrCNLength) ||
+			errors.Is(err, flterrors.ErrInvalidPEMBlock) ||
+			errors.Is(err, flterrors.ErrSignature) ||
+			errors.Is(err, flterrors.ErrCSRParse) ||
+			errors.Is(err, flterrors.ErrSignCert) ||
+			errors.Is(err, flterrors.ErrEncodeCert):
+			return server.ApproveCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
+		default:
+			return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
+		}
 	}
 
 	approvedCondition := api.Condition{
@@ -298,7 +309,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: err.Error()}, nil
 	default:
-		return nil, err
+		return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
 	}
 }
 
