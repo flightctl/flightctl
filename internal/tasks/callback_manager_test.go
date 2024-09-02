@@ -1,9 +1,10 @@
 package tasks
 
 import (
+	"encoding/json"
+
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -11,240 +12,416 @@ import (
 )
 
 type MockPublisher struct {
-	publishCallCount int
+	publishedResources []ResourceReference
 }
 
 func (m *MockPublisher) Publish(payload []byte) error {
-	m.publishCallCount++
+	var resource ResourceReference
+	err := json.Unmarshal(payload, &resource)
+	if err != nil {
+		return err
+	}
+	m.publishedResources = append(m.publishedResources, resource)
 	return nil
 }
 
 func (m *MockPublisher) Close() {
-}
-
-func (m *MockPublisher) ResetPublishCallCount() {
-	m.publishCallCount = 0
+	clear(m.publishedResources)
 }
 
 var (
-	mockPublisher = &MockPublisher{}
-	logger        = flightlog.InitLogs()
+	mockPublisher    *MockPublisher
+	callbacksManager CallbackManager
 )
 
 var _ = Describe("FleetUpdatedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	When("both before and after are nil", func() {
 		It("does nothing", func() {
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.FleetUpdatedCallback(nil, nil)
-			Expect(mockPublisher.publishCallCount).To(Equal(0))
+			callbacksManager.FleetUpdatedCallback(nil, nil)
+			Expect(mockPublisher.publishedResources).To(BeEmpty())
 		})
 	})
 
 	When("before is nil and after is not nil", func() {
 		It("submits FleetValidateTask and FleetSelectorMatchTask", func() {
-			after := createTestFleet("after", `json:"spec"`, "selector")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.FleetUpdatedCallback(nil, after)
-			Expect(mockPublisher.publishCallCount).To(Equal(2))
+			orgId := uuid.New()
+			after := CreateTestingFleet(orgId, "after", "image1", &map[string]string{"labelKey": "selector"})
+			callbacksManager.FleetUpdatedCallback(nil, after)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(2))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
+			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[1]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
 	})
 
 	When("before is not nil and after is nil", func() {
 		It("submits FleetSelectorMatchTask", func() {
-			before := createTestFleet("before", `json:"spec"`, "selector")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.FleetUpdatedCallback(before, nil)
-			Expect(mockPublisher.publishCallCount).To(Equal(1))
+			orgId := uuid.New()
+			before := CreateTestingFleet(orgId, "before", "image1", &map[string]string{"labelKey": "selector"})
+			callbacksManager.FleetUpdatedCallback(before, nil)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 		})
 	})
 
 	When("template is updated", func() {
-		It("submits FleetValidateTask", func() {
-			before := createTestFleet("before", "spec", "selector1")
-			after := createTestFleet("after", "image", "selector2")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.FleetUpdatedCallback(before, after)
-			Expect(mockPublisher.publishCallCount).To(Equal(2))
+		It("submits FleetValidateTask and FleetSelectorMatchTask", func() {
+			orgId := uuid.New()
+			before := CreateTestingFleet(orgId, "before", "image1", &map[string]string{"labelKey": "selector1"})
+			after := CreateTestingFleet(orgId, "after", "image2", &map[string]string{"labelKey": "selector2"})
+			callbacksManager.FleetUpdatedCallback(before, after)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(2))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
+			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[1]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
 	})
 
 	When("selector is updated", func() {
 		It("submits FleetSelectorMatchTask", func() {
-			before := createTestFleet("before", "spec", "selector1")
-			after := createTestFleet("after", "spec", "selector2")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.FleetUpdatedCallback(before, after)
-			Expect(mockPublisher.publishCallCount).To(Equal(1))
+			orgId := uuid.New()
+			before := CreateTestingFleet(orgId, "before", "image1", &map[string]string{"labelKey": "selector1"})
+			after := CreateTestingFleet(orgId, "after", "image1", &map[string]string{"labelKey": "selector2"})
+			callbacksManager.FleetUpdatedCallback(before, after)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
 	})
 })
 
 var _ = Describe("DeviceUpdatedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	When("both before and after are nil", func() {
 		It("does nothing", func() {
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.DeviceUpdatedCallback(nil, nil)
-			Expect(mockPublisher.publishCallCount).To(Equal(0))
+			callbacksManager.DeviceUpdatedCallback(nil, nil)
+			Expect(mockPublisher.publishedResources).To(BeEmpty())
 		})
 	})
 
 	When("before is nil and after is not nil", func() {
 		It("submits FleetRolloutTask and DeviceRenderTask", func() {
-			after := createTestDevice("after", "label1", "spec1")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.DeviceUpdatedCallback(nil, after)
-			Expect(mockPublisher.publishCallCount).To(Equal(3))
+			orgId := uuid.New()
+			after := CreateTestingDevice(orgId, "after", &map[string]string{"labelKey": "label1"}, "os1")
+			callbacksManager.DeviceUpdatedCallback(nil, after)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(3))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
+			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[1]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[2]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
+			Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 		})
 	})
 
 	When("before is not nil and after is nil", func() {
 		It("submits FleetSelectorMatchTask", func() {
-			before := createTestDevice("before", "label1", "spec1")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.DeviceUpdatedCallback(before, nil)
-			Expect(mockPublisher.publishCallCount).To(Equal(2))
+			orgId := uuid.New()
+			before := CreateTestingDevice(orgId, "before", &map[string]string{"labelKey": "label1"}, "os1")
+			callbacksManager.DeviceUpdatedCallback(before, nil)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(2))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
+			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[1]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
 	})
 
 	When("labels are updated", func() {
 		It("submits FleetSelectorMatchTask", func() {
-			before := createTestDevice("before", "label1", "spec1")
-			after := createTestDevice("after", "label2", "spec2")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.DeviceUpdatedCallback(before, after)
-			Expect(mockPublisher.publishCallCount).To(Equal(3))
+			orgId := uuid.New()
+			before := CreateTestingDevice(orgId, "before", &map[string]string{"labelKey": "label1"}, "os1")
+			after := CreateTestingDevice(orgId, "after", &map[string]string{"labelKey": "label2"}, "os2")
+			callbacksManager.DeviceUpdatedCallback(before, after)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(3))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
+			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[1]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[2]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
+			Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 		})
 	})
 
 	When("spec is updated", func() {
 		It("submits DeviceRenderTask", func() {
-			before := createTestDevice("before", "label1", "spec1")
-			after := createTestDevice("after", "label2", "spec2")
-			callbackManager := NewCallbackManager(mockPublisher, logger)
-			callbackManager.DeviceUpdatedCallback(before, after)
-			Expect(mockPublisher.publishCallCount).To(Equal(3))
+			orgId := uuid.New()
+			before := CreateTestingDevice(orgId, "before", &map[string]string{"labelKey": "label1"}, "os1")
+			after := CreateTestingDevice(orgId, "after", &map[string]string{"labelKey": "label2"}, "os2")
+			callbacksManager.DeviceUpdatedCallback(before, after)
+
+			Expect(mockPublisher.publishedResources).To(HaveLen(3))
+
+			publishedResource := mockPublisher.publishedResources[0]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
+			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[1]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
+
+			publishedResource = mockPublisher.publishedResources[2]
+			Expect(publishedResource.OrgID).To(Equal(orgId))
+			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
+			Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 		})
 	})
 })
 
 var _ = Describe("FleetSourceUpdated", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits FleetValidateTask", func() {
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.FleetSourceUpdated(uuid.New(), "name")
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		callbacksManager.FleetSourceUpdated(orgId, "name")
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+		Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
+		Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 	})
 })
 
 var _ = Describe("DeviceSourceUpdated", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits FleetValidateTask", func() {
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.DeviceSourceUpdated(uuid.New(), "name")
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		callbacksManager.DeviceSourceUpdated(orgId, "name")
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+		Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
+		Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 	})
 })
 
 var _ = Describe("RepositoryUpdatedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits RepositoryUpdatesTask", func() {
-		repository := createTestRepository("name", "url")
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.RepositoryUpdatedCallback(repository)
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		repository := CreateTestingRepository(orgId, "name", "url")
+		callbacksManager.RepositoryUpdatedCallback(repository)
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.RepositoryKind))
+		Expect(publishedResource.TaskName).To(Equal(RepositoryUpdatesTask))
+		Expect(publishedResource.Op).To(Equal(RepositoryUpdateOpUpdate))
 	})
 })
 
 var _ = Describe("AllRepositoriesDeletedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits RepositoryUpdatesTask", func() {
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.AllRepositoriesDeletedCallback(uuid.New())
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		callbacksManager.AllRepositoriesDeletedCallback(orgId)
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.RepositoryKind))
+		Expect(publishedResource.TaskName).To(Equal(RepositoryUpdatesTask))
+		Expect(publishedResource.Op).To(Equal(RepositoryUpdateOpDeleteAll))
 	})
 })
 
 var _ = Describe("AllFleetsDeletedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits FleetSelectorMatchTask", func() {
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.AllFleetsDeletedCallback(uuid.New())
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		callbacksManager.AllFleetsDeletedCallback(orgId)
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+		Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+		Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpDeleteAll))
 	})
 })
 
 var _ = Describe("AllDevicesDeletedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits FleetSelectorMatchTask", func() {
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.AllDevicesDeletedCallback(uuid.New())
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		callbacksManager.AllDevicesDeletedCallback(orgId)
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+		Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
+		Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpDeleteAll))
 	})
 })
 
 var _ = Describe("TemplateVersionCreatedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits FleetSelectorMatchTask", func() {
-		templateVersion := createTestTemplateVersion("name", "template")
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.TemplateVersionCreatedCallback(templateVersion)
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		templateVersion := CreateTestingTemplateVersion(orgId, "name", "template")
+		callbacksManager.TemplateVersionCreatedCallback(templateVersion)
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.TemplateVersionKind))
+		Expect(publishedResource.TaskName).To(Equal(TemplateVersionPopulateTask))
+		Expect(publishedResource.Op).To(Equal(TemplateVersionPopulateOpCreated))
 	})
 })
 
 var _ = Describe("TemplateVersionValidatedCallback", func() {
 	BeforeEach(func() {
-		mockPublisher.ResetPublishCallCount()
+		mockPublisher = &MockPublisher{}
+		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
 	})
 
 	It("submits FleetRolloutTask", func() {
-		templateVersion := createTestTemplateVersion("name", "template")
-		callbackManager := NewCallbackManager(mockPublisher, logger)
-		callbackManager.TemplateVersionValidatedCallback(templateVersion)
-		Expect(mockPublisher.publishCallCount).To(Equal(1))
+		orgId := uuid.New()
+		templateVersion := CreateTestingTemplateVersion(orgId, "name", "template")
+		callbacksManager.TemplateVersionValidatedCallback(templateVersion)
+
+		Expect(mockPublisher.publishedResources).To(HaveLen(1))
+
+		publishedResource := mockPublisher.publishedResources[0]
+		Expect(publishedResource.OrgID).To(Equal(orgId))
+		Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+		Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
+		Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
 	})
 })
 
-func createTestFleet(name string, templateSpec string, selector string) *model.Fleet {
+func CreateTestingFleet(orgId uuid.UUID, name string, templateImage string, selector *map[string]string) *model.Fleet {
 	resource := api.Fleet{
 		ApiVersion: "v1",
-		Kind:       "Fleet",
+		Kind:       model.FleetKind,
 		Metadata: api.ObjectMeta{
-			Name:   util.StrToPtr(name),
-			Labels: &map[string]string{"labelKey": "labelValue"},
+			Name:   &name,
+			Labels: selector,
 		},
 		Spec: api.FleetSpec{
 			Selector: &api.LabelSelector{
-				MatchLabels: map[string]string{"selector": selector},
+				MatchLabels: *selector,
 			},
 			Template: struct {
 				Metadata *api.ObjectMeta `json:"metadata,omitempty"`
@@ -252,59 +429,75 @@ func createTestFleet(name string, templateSpec string, selector string) *model.F
 			}{
 				Spec: api.DeviceSpec{
 					Os: &api.DeviceOSSpec{
-						Image: templateSpec,
+						Image: templateImage,
 					},
 				},
 			},
 		},
-		Status: &api.FleetStatus{
-			Conditions: []api.Condition{
-				{
-					Type:   "Approved",
-					Status: "True",
-				},
-			},
-		},
+		Status: nil,
 	}
 
 	fleet, err := model.NewFleetFromApiResource(&resource)
 	Expect(err).ToNot(HaveOccurred())
 
+	fleet.OrgID = orgId
+
 	return fleet
 }
 
-func createTestDevice(name string, labelValue string, spec string) *model.Device {
-	status := api.NewDeviceStatus()
-
+func CreateTestingDevice(orgId uuid.UUID, name string, labels *map[string]string, spec string) *model.Device {
 	resource := api.Device{
 		ApiVersion: "v1",
-		Kind:       "Device",
+		Kind:       model.DeviceKind,
 		Metadata: api.ObjectMeta{
-			Name:   util.StrToPtr(name),
-			Labels: &map[string]string{"labelKey": labelValue},
+			Name:   &name,
+			Labels: labels,
 		},
 		Spec: &api.DeviceSpec{
 			Os: &api.DeviceOSSpec{Image: spec},
 		},
-		Status: &status,
+		Status: nil,
 	}
 
 	device, err := model.NewDeviceFromApiResource(&resource)
 	Expect(err).ToNot(HaveOccurred())
 
+	device.OrgID = orgId
+
 	return device
 }
 
-func createTestRepository(name string, url string) *model.Repository {
+func CreateTestingTemplateVersion(orgId uuid.UUID, name string, template string) *model.TemplateVersion {
+	resource := api.TemplateVersion{
+		ApiVersion: "v1",
+		Kind:       model.TemplateVersionKind,
+		Metadata: api.ObjectMeta{
+			Name: &name,
+		},
+		Spec: api.TemplateVersionSpec{
+			Fleet: template,
+		},
+		Status: nil,
+	}
+
+	templateVersion, err := model.NewTemplateVersionFromApiResource(&resource)
+	Expect(err).ToNot(HaveOccurred())
+
+	templateVersion.OrgID = orgId
+
+	return templateVersion
+}
+
+func CreateTestingRepository(orgId uuid.UUID, name string, url string) *model.Repository {
 	spec := api.RepositorySpec{}
 	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-		Url:  url,
-		Type: "git",
+		Url: url,
 	})
 	Expect(err).ToNot(HaveOccurred())
+
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
-			Name: util.StrToPtr(name),
+			Name: &name,
 		},
 		Spec:   spec,
 		Status: nil,
@@ -313,23 +506,7 @@ func createTestRepository(name string, url string) *model.Repository {
 	repository, err := model.NewRepositoryFromApiResource(&resource)
 	Expect(err).ToNot(HaveOccurred())
 
+	repository.OrgID = orgId
+
 	return repository
-}
-
-func createTestTemplateVersion(name string, template string) *model.TemplateVersion {
-	resource := api.TemplateVersion{
-		ApiVersion: "v1",
-		Kind:       "TemplateVersion",
-		Metadata: api.ObjectMeta{
-			Name: util.StrToPtr(name),
-		},
-		Spec: api.TemplateVersionSpec{
-			Fleet: template,
-		},
-	}
-
-	templateVersion, err := model.NewTemplateVersionFromApiResource(&resource)
-	Expect(err).ToNot(HaveOccurred())
-
-	return templateVersion
 }
