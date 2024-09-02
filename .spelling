@@ -10,6 +10,7 @@ API
 APIs
 apiVersion
 arm64
+base64
 bootable
 bootc
 bootloader
@@ -21,8 +22,10 @@ ClickOps
 CNV
 config
 Containerfile
+CSR
 darwin
 DeviceTemplate
+ECDSA
 e.g.
 EnrollmentRequest
 EnrollmentRequests
@@ -55,6 +58,7 @@ OIDC
 onboard
 onboarding
 OpenShift
+openssl
 OSes
 ostree
 OTA
