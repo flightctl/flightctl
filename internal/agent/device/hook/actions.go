@@ -14,11 +14,118 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 const (
 	DefaultHookActionTimeout = 10 * time.Second
 )
+
+type HookDefinition struct {
+	name        string
+	description string
+	path        string
+	actionHooks []ActionHookFactory
+	ops         []v1alpha1.FileOperation
+}
+
+func (h *HookDefinition) Name() string {
+	return h.name
+}
+
+func (h *HookDefinition) Description() string {
+	return h.description
+}
+
+func (h *HookDefinition) Path() string {
+	return h.path
+}
+
+func (h *HookDefinition) ActionFactories() []ActionHookFactory {
+	return h.actionHooks
+}
+
+func (h *HookDefinition) Ops() []v1alpha1.FileOperation {
+	return h.ops
+}
+
+type apiHookActionFactory struct {
+	v1alpha1.HookAction
+}
+
+func newApiHookActionFactory(ha v1alpha1.HookAction) ActionHookFactory {
+	return &apiHookActionFactory{
+		HookAction: ha,
+	}
+}
+
+func (a *apiHookActionFactory) createExecutableActionHook(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
+	spec, err := a.AsHookAction0()
+	if err != nil {
+		return nil, err
+	}
+	actionTimeout, err := parseTimeout(spec.Executable.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	envVars := lo.FromPtr(spec.Executable.EnvVars)
+	if err = validateEnvVars(envVars); err != nil {
+		return nil, err
+	}
+	return newExecutableActionHook(spec.Executable.Run,
+		lo.FromPtr(spec.Executable.EnvVars),
+		exec,
+		actionTimeout,
+		spec.Executable.WorkDir,
+		log), nil
+}
+
+func (a *apiHookActionFactory) createSystemdActionHook(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
+	spec, err := a.AsHookAction1()
+	if err != nil {
+		return nil, err
+	}
+	actionTimeout, err := parseTimeout(spec.Systemd.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	return newSystemdActionHook(spec.Systemd.Unit.Name,
+		spec.Systemd.Unit.Operations,
+		exec,
+		actionTimeout,
+		log), nil
+}
+
+func (a *apiHookActionFactory) Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
+	hookActionType, err := a.Type()
+	if err != nil {
+		return nil, err
+	}
+	var actionHook ActionHook
+	switch hookActionType {
+	case ExecutableActionType:
+		actionHook, err = a.createExecutableActionHook(exec, log)
+	case SystemdActionType:
+		actionHook, err = a.createSystemdActionHook(exec, log)
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)
+	}
+	return actionHook, err
+}
+
+type builtinHookFactory func(ctx context.Context, path string, exec executer.Executer, log *log.PrefixLogger) error
+
+type builtinActionHook func(ctx context.Context, path string) error
+
+func (b builtinActionHook) OnChange(ctx context.Context, path string) error {
+	return b(ctx, path)
+}
+
+func (b builtinHookFactory) Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
+	return builtinActionHook(func(ctx context.Context, path string) error {
+		return b(ctx, path, exec, log)
+	}), nil
+}
 
 type systemdActionHook struct {
 	actionTimeout time.Duration
