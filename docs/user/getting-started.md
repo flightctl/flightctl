@@ -254,7 +254,7 @@ You can create a CSR resource configuration file wrapping the CSR file above eit
 Issue the command below, specifying your `.csr` file and an output file, and optionally specifying the CSR name and expiration in seconds. The CSR name defaults to `mycsr`, the expiration to 604800 seconds. The `-y` flag enables overwriting the output file if it already exists.
 
 ```console
-flightctl csr-generate mycsr.csr -e 600 -n chosenname -o myoutputfile -y
+flightctl csr-generate mycsr.csr -e 604800 -n chosenname -o myoutputfile -y
 ```
 
 ##### Option 2: Manually create the CSR config file
