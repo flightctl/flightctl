@@ -138,7 +138,7 @@ func TestInitialize(t *testing.T) {
 		// current
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 		err := s.Initialize()
-		require.ErrorContains(err, "writing current rendered spec:")
+		require.ErrorIs(err, writeErr)
 	})
 
 	t.Run("error writing desired file", func(t *testing.T) {
@@ -148,7 +148,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorContains(err, "writing desired rendered spec:")
+		require.ErrorIs(err, writeErr)
 	})
 
 	t.Run("error writing rollback file", func(t *testing.T) {
@@ -160,7 +160,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorContains(err, "writing rollback rendered spec:")
+		require.ErrorIs(err, writeErr)
 	})
 
 	t.Run("successful initialization", func(t *testing.T) {
@@ -182,19 +182,19 @@ func TestEnsure(t *testing.T) {
 		deviceReadWriter: mockReadWriter,
 	}
 
+	fileErr := errors.New("invalid file")
+
 	t.Run("error checking if file exists", func(t *testing.T) {
-		errMsg := "unable to check if file exists"
-		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, errors.New(errMsg))
+		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, fileErr)
 		err := s.Ensure()
-		require.ErrorContains(err, errMsg)
+		require.ErrorIs(err, fileErr)
 	})
 
 	t.Run("error writing file when it does not exist", func(t *testing.T) {
-		errMsg := "write failure"
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, nil)
-		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New(errMsg))
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
 		err := s.Ensure()
-		require.ErrorContains(err, errMsg)
+		require.ErrorIs(err, fileErr)
 	})
 
 	t.Run("files are written when they don't exist", func(t *testing.T) {
