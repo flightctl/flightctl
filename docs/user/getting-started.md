@@ -114,7 +114,7 @@ flightctlUi:
 Install a released version of the Flight Control Service into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=0.1.1 \
+$ helm upgrade --install --version=<version-to-install> \
     --namespace flightctl --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl \
     --values values.yaml
@@ -134,7 +134,7 @@ kubectl exec -n flightctl "${API_POD}" -- cat /root/.flightctl/certs/ca.crt > ca
 Install a release version of the Flight Control UI into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=0.1.0 \
+$ helm upgrade --install --version=<version-to-install> \
     --namespace flightctl --create-namespace \
     flightctl-ui oci://quay.io/flightctl/charts/flightctl-ui \
     --values values.yaml \
