@@ -21,6 +21,7 @@ import (
 var (
 	ErrMissingRenderedSpec = fmt.Errorf("missing rendered spec")
 	ErrNoContent           = fmt.Errorf("no content")
+	ErrWritingSpec         = fmt.Errorf("writing spec")
 )
 
 type Type string
@@ -99,15 +100,15 @@ func NewManager(
 func (s *SpecManager) Initialize() error {
 	// current
 	if err := s.write(Current, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-		return fmt.Errorf("writing current rendered spec: %w", err)
+		return err
 	}
 	// desired
 	if err := s.write(Desired, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-		return fmt.Errorf("writing desired rendered spec: %w", err)
+		return err
 	}
 	// rollback
 	if err := s.write(Rollback, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-		return fmt.Errorf("writing rollback rendered spec: %w", err)
+		return err
 	}
 	return nil
 }
@@ -122,7 +123,7 @@ func (s *SpecManager) Ensure() error {
 		if !exists {
 			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
 			if err := s.write(specType, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-				return fmt.Errorf("writing %s rendered spec: %w", specType, err)
+				return err
 			}
 		}
 	}
@@ -318,9 +319,14 @@ func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, 
 func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %s: %w", ErrWritingSpec, specType, err)
 	}
-	return writeRenderedToFile(s.deviceReadWriter, spec, filePath)
+
+	err = writeRenderedToFile(s.deviceReadWriter, spec, filePath)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrWritingSpec, specType, err)
+	}
+	return nil
 }
 
 func (s *SpecManager) exists(specType Type) (bool, error) {

@@ -138,7 +138,8 @@ func TestInitialize(t *testing.T) {
 		// current
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 		err := s.Initialize()
-		require.ErrorIs(err, writeErr)
+
+		require.ErrorIs(err, ErrWritingSpec)
 	})
 
 	t.Run("error writing desired file", func(t *testing.T) {
@@ -148,7 +149,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorIs(err, writeErr)
+		require.ErrorIs(err, ErrWritingSpec)
 	})
 
 	t.Run("error writing rollback file", func(t *testing.T) {
@@ -160,7 +161,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorIs(err, writeErr)
+		require.ErrorIs(err, ErrWritingSpec)
 	})
 
 	t.Run("successful initialization", func(t *testing.T) {
@@ -194,7 +195,7 @@ func TestEnsure(t *testing.T) {
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
 		err := s.Ensure()
-		require.ErrorIs(err, fileErr)
+		require.ErrorIs(err, ErrWritingSpec)
 	})
 
 	t.Run("files are written when they don't exist", func(t *testing.T) {
