@@ -22,6 +22,7 @@ var (
 	ErrMissingRenderedSpec = fmt.Errorf("missing rendered spec")
 	ErrNoContent           = fmt.Errorf("no content")
 	ErrWritingSpec         = fmt.Errorf("writing spec")
+	ErrCheckingFileExists  = fmt.Errorf("checking if file exists")
 )
 
 type Type string
@@ -319,7 +320,7 @@ func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, 
 func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrWritingSpec, specType, err)
+		return err
 	}
 
 	err = writeRenderedToFile(s.deviceReadWriter, spec, filePath)
@@ -334,7 +335,11 @@ func (s *SpecManager) exists(specType Type) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return s.deviceReadWriter.FileExists(filePath)
+	exists, err := s.deviceReadWriter.FileExists(filePath)
+	if err != nil {
+		return false, fmt.Errorf("%w: %s: %w:", ErrCheckingFileExists, specType, err)
+	}
+	return exists, nil
 }
 
 // getRenderedVersion returns the last rendered version observed by the device. If the current rendered version

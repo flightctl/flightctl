@@ -188,7 +188,7 @@ func TestEnsure(t *testing.T) {
 	t.Run("error checking if file exists", func(t *testing.T) {
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, fileErr)
 		err := s.Ensure()
-		require.ErrorIs(err, fileErr)
+		require.ErrorIs(err, ErrCheckingFileExists)
 	})
 
 	t.Run("error writing file when it does not exist", func(t *testing.T) {
