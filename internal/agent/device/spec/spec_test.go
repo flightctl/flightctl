@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -133,7 +132,7 @@ func TestInitialize(t *testing.T) {
 		deviceReadWriter: mockReadWriter,
 	}
 
-	writeErr := fmt.Errorf("write failure")
+	writeErr := errors.New("write failure")
 
 	t.Run("error writing current file", func(t *testing.T) {
 		// current
