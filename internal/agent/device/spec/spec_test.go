@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -661,6 +662,50 @@ func TestPrepareRollback(t *testing.T) {
 
 		err = s.PrepareRollback(ctx)
 		require.ErrorIs(err, ErrGettingBootcStatus)
+	})
+}
+
+func TestRollback(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	currentPath := "test/current.json"
+	desiredPath := "test/desired.json"
+	s := &SpecManager{
+		deviceReadWriter: mockReadWriter,
+		currentPath:      currentPath,
+		desiredPath:      desiredPath,
+	}
+
+	t.Run("error when copy fails", func(t *testing.T) {
+		copyErr := errors.New("failure to copy file")
+		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(copyErr)
+
+		err := s.Rollback()
+		require.ErrorIs(err, ErrCopySpec)
+	})
+
+	t.Run("copies the current spec to the desired spec", func(t *testing.T) {
+		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(nil)
+		err := s.Rollback()
+		require.NoError(err)
+	})
+}
+
+func TestSetClient(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := client.NewMockManagement(ctrl)
+
+	t.Run("sets the client", func(t *testing.T) {
+		s := &SpecManager{}
+		s.SetClient(mockClient)
+		require.Equal(mockClient, s.managementClient)
 	})
 }
 
