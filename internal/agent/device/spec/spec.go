@@ -20,9 +20,9 @@ import (
 
 var (
 	ErrMissingRenderedSpec = fmt.Errorf("missing rendered spec")
+	ErrReadingRenderedSpec = fmt.Errorf("reading rendered spec")
+	ErrWritingRenderedSpec = fmt.Errorf("writing rendered spec")
 	ErrNoContent           = fmt.Errorf("no content")
-	ErrReadingSpec         = fmt.Errorf("reading spec")
-	ErrWritingSpec         = fmt.Errorf("writing spec")
 	ErrCheckingFileExists  = fmt.Errorf("checking if file exists")
 	ErrUnmarshalSpec       = fmt.Errorf("unmarshalling spec")
 )
@@ -229,7 +229,7 @@ func (s *SpecManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) 
 	}
 	spec, err := readRenderedSpecFromFile(s.deviceReadWriter, filePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading %s: %w", specType, err)
 	}
 	return spec, nil
 }
@@ -331,7 +331,7 @@ func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) er
 
 	err = writeRenderedToFile(s.deviceReadWriter, spec, filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("writing %s: %w", specType, err)
 	}
 	return nil
 }
@@ -419,7 +419,7 @@ func readRenderedSpecFromFile(
 			// if the file does not exist, this means it has been removed/corrupted
 			return nil, fmt.Errorf("%w: reading %q: %w", ErrMissingRenderedSpec, filePath, err)
 		}
-		return nil, fmt.Errorf("%w: reading %q: %w", ErrReadingSpec, filePath, err)
+		return nil, fmt.Errorf("%w: reading %q: %w", ErrReadingRenderedSpec, filePath, err)
 	}
 
 	// read bytes from file
@@ -436,7 +436,7 @@ func writeRenderedToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDevice
 		return err
 	}
 	if err := writer.WriteFile(filePath, renderedBytes, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("%w: writing to %q: %w", ErrWritingSpec, filePath, err)
+		return fmt.Errorf("%w: writing to %q: %w", ErrWritingRenderedSpec, filePath, err)
 	}
 	return nil
 }
