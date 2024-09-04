@@ -12,9 +12,9 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 )
 
 const (
@@ -68,12 +68,12 @@ func (a *apiHookActionFactory) createExecutableActionHook(exec executer.Executer
 	if err != nil {
 		return nil, err
 	}
-	envVars := lo.FromPtr(spec.Executable.EnvVars)
+	envVars := util.FromPtr(spec.Executable.EnvVars)
 	if err = validateEnvVars(envVars); err != nil {
 		return nil, err
 	}
 	return newExecutableActionHook(spec.Executable.Run,
-		lo.FromPtr(spec.Executable.EnvVars),
+		util.FromPtr(spec.Executable.EnvVars),
 		exec,
 		actionTimeout,
 		spec.Executable.WorkDir,
