@@ -32,6 +32,10 @@ type Manager interface {
 	Close() error
 }
 
+type ActionHookFactory interface {
+	Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error)
+}
+
 type ActionHook interface {
 	OnChange(ctx context.Context, path string) error
 }
@@ -72,68 +76,41 @@ func NewManager(exec executer.Executer, log *log.PrefixLogger) Manager {
 	}
 }
 
-func (m *manager) createExecutableActionHook(action v1alpha1.HookAction) (ActionHook, error) {
-	spec, err := action.AsHookAction0()
-	if err != nil {
-		return nil, err
+func (m *manager) createApiHookDefinition(hookSpec v1alpha1.DeviceUpdateHookSpec) (HookDefinition, error) {
+	var actionHooks []ActionHookFactory
+	for _, action := range hookSpec.Actions {
+		actionHooks = append(actionHooks, newApiHookActionFactory(action))
 	}
-	actionTimeout, err := parseTimeout(spec.Executable.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	envVars := lo.FromPtr(spec.Executable.EnvVars)
-	if err = validateEnvVars(envVars); err != nil {
-		return nil, err
-	}
-	return newExecutableActionHook(spec.Executable.Run,
-		lo.FromPtr(spec.Executable.EnvVars),
-		m.exec,
-		actionTimeout,
-		spec.Executable.WorkDir,
-		m.log), nil
+	return HookDefinition{
+		name:        lo.FromPtr(hookSpec.Name),
+		description: lo.FromPtr(hookSpec.Description),
+		actionHooks: actionHooks,
+		ops:         lo.FromPtr(hookSpec.OnFile),
+		path:        lo.FromPtr(hookSpec.Path),
+	}, nil
 }
 
-func (m *manager) createSystemdActionHook(action v1alpha1.HookAction) (ActionHook, error) {
-	spec, err := action.AsHookAction1()
-	if err != nil {
-		return nil, err
-	}
-	actionTimeout, err := parseTimeout(spec.Systemd.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	return newSystemdActionHook(spec.Systemd.Unit.Name,
-		spec.Systemd.Unit.Operations,
-		m.exec,
-		actionTimeout,
-		m.log), nil
-}
-
-func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec) (ActionMap, ActionMap, ActionMap, ActionMap, error) {
+func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec, additionalHooks ...HookDefinition) (ActionMap, ActionMap, ActionMap, ActionMap, error) {
 	createMap := make(ActionMap)
 	updateMap := make(ActionMap)
 	removeMap := make(ActionMap)
 	rebootMap := make(ActionMap)
+	var hookDefinitions []HookDefinition
 	for _, hookSpec := range hookSpecs {
-		for _, action := range hookSpec.Actions {
-			hookActionType, err := action.Type()
+		h, err := m.createApiHookDefinition(hookSpec)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		hookDefinitions = append(hookDefinitions, h)
+	}
+	for _, h := range append(hookDefinitions, additionalHooks...) {
+		path := h.Path()
+		opts := h.Ops()
+		for _, actionHookFactory := range h.ActionFactories() {
+			actionHook, err := actionHookFactory.Create(m.exec, m.log)
 			if err != nil {
 				return nil, nil, nil, nil, err
 			}
-			var actionHook ActionHook
-			switch hookActionType {
-			case ExecutableActionType:
-				actionHook, err = m.createExecutableActionHook(action)
-			case SystemdActionType:
-				actionHook, err = m.createSystemdActionHook(action)
-			default:
-				return nil, nil, nil, nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)
-			}
-			if err != nil {
-				return nil, nil, nil, nil, err
-			}
-			path := lo.FromPtr(hookSpec.Path)
-			opts := lo.FromPtr(hookSpec.OnFile)
 			for _, op := range opts {
 				switch op {
 				case v1alpha1.FileOperationCreate:
@@ -164,11 +141,11 @@ func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) erro
 		return nil
 	}
 	desiredHooks := lo.FromPtr(desired.Hooks)
-	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...))
+	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(lo.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...)
 	if err != nil {
 		return err
 	}
-	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...))
+	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(lo.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...)
 	if err != nil {
 		return err
 	}
