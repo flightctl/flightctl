@@ -19,14 +19,16 @@ import (
 )
 
 var (
-	ErrMissingRenderedSpec = fmt.Errorf("missing rendered spec")
-	ErrReadingRenderedSpec = fmt.Errorf("reading rendered spec")
-	ErrWritingRenderedSpec = fmt.Errorf("writing rendered spec")
-	ErrNoContent           = fmt.Errorf("no content")
-	ErrCheckingFileExists  = fmt.Errorf("checking if file exists")
-	ErrUnmarshalSpec       = fmt.Errorf("unmarshalling spec")
-	ErrCopySpec            = fmt.Errorf("copying spec")
-	ErrGettingBootcStatus  = fmt.Errorf("getting current bootc status")
+	ErrMissingRenderedSpec  = fmt.Errorf("missing rendered spec")
+	ErrReadingRenderedSpec  = fmt.Errorf("reading rendered spec")
+	ErrWritingRenderedSpec  = fmt.Errorf("writing rendered spec")
+	ErrNoContent            = fmt.Errorf("no content")
+	ErrCheckingFileExists   = fmt.Errorf("checking if file exists")
+	ErrUnmarshalSpec        = fmt.Errorf("unmarshalling spec")
+	ErrCopySpec             = fmt.Errorf("copying spec")
+	ErrGettingBootcStatus   = fmt.Errorf("getting current bootc status")
+	ErrInvalidSpecType      = fmt.Errorf("invalid spec type")
+	ErrParseRenderedVersion = fmt.Errorf("failed to convert version to integer")
 )
 
 type Type string
@@ -383,7 +385,7 @@ func (s *SpecManager) pathFromType(specType Type) (string, error) {
 	case Rollback:
 		filePath = s.rollbackPath
 	default:
-		return "", fmt.Errorf("unknown spec type: %s", specType)
+		return "", fmt.Errorf("%w: %s", ErrInvalidSpecType, specType)
 	}
 	return filePath, nil
 }
@@ -458,7 +460,7 @@ func getNextRenderedVersion(renderedVersion string) (string, error) {
 	}
 	version, err := strconv.Atoi(renderedVersion)
 	if err != nil {
-		return "", fmt.Errorf("failed to convert version to integer: %v", err)
+		return "", fmt.Errorf("%w: %v", ErrParseRenderedVersion, err)
 	}
 
 	nextVersion := version + 1
