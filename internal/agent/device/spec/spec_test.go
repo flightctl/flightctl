@@ -140,7 +140,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 		err := s.Initialize()
 
-		require.ErrorIs(err, ErrWritingSpec)
+		require.ErrorIs(err, ErrWritingRenderedSpec)
 	})
 
 	t.Run("error writing desired file", func(t *testing.T) {
@@ -150,7 +150,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorIs(err, ErrWritingSpec)
+		require.ErrorIs(err, ErrWritingRenderedSpec)
 	})
 
 	t.Run("error writing rollback file", func(t *testing.T) {
@@ -162,7 +162,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorIs(err, ErrWritingSpec)
+		require.ErrorIs(err, ErrWritingRenderedSpec)
 	})
 
 	t.Run("successful initialization", func(t *testing.T) {
@@ -196,7 +196,7 @@ func TestEnsure(t *testing.T) {
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
 		err := s.Ensure()
-		require.ErrorIs(err, ErrWritingSpec)
+		require.ErrorIs(err, ErrWritingRenderedSpec)
 	})
 
 	t.Run("files are written when they don't exist", func(t *testing.T) {
@@ -229,25 +229,10 @@ func TestRead(t *testing.T) {
 		deviceReadWriter: mockReadWriter,
 	}
 
-	t.Run("error file not found", func(t *testing.T) {
-		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, os.ErrNotExist)
-
-		_, err := s.Read(Current)
-		require.ErrorIs(err, ErrMissingRenderedSpec)
-	})
-
-	t.Run("error with file read", func(t *testing.T) {
+	t.Run("bubbles up errors from readRenderedSpecFromFile", func(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("read gone wrong"))
 		_, err := s.Read(Current)
-		require.ErrorIs(err, ErrReadingSpec)
-	})
-
-	t.Run("error when the file is not a valid spec", func(t *testing.T) {
-		invalidSpec := []byte("Not json data for a spec")
-		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(invalidSpec, nil)
-
-		_, err := s.Read(Current)
-		require.ErrorIs(err, ErrUnmarshalSpec)
+		require.ErrorIs(err, ErrReadingRenderedSpec)
 	})
 
 	t.Run("reads a device spec", func(t *testing.T) {
@@ -257,6 +242,48 @@ func TestRead(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(spec, nil)
 
 		specFromRead, err := s.Read(Current)
+		require.NoError(err)
+		require.Equal(image, specFromRead.Os.Image)
+	})
+}
+
+func Test_readRenderedSpecFromFile(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReader := fileio.NewMockReader(ctrl)
+	filePath := "test/path/spec.json"
+
+	t.Run("error when the file does not exist", func(t *testing.T) {
+		mockReader.EXPECT().ReadFile(filePath).Return(nil, os.ErrNotExist)
+
+		_, err := readRenderedSpecFromFile(mockReader, filePath)
+		require.ErrorIs(err, ErrMissingRenderedSpec)
+	})
+
+	t.Run("error reading file returns an error containing the file path", func(t *testing.T) {
+		mockReader.EXPECT().ReadFile(filePath).Return(nil, errors.New("cannot read"))
+
+		_, err := readRenderedSpecFromFile(mockReader, filePath)
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("error when the file is not a valid spec", func(t *testing.T) {
+		invalidSpec := []byte("Not json data for a spec")
+		mockReader.EXPECT().ReadFile(filePath).Return(invalidSpec, nil)
+
+		_, err := readRenderedSpecFromFile(mockReader, filePath)
+		require.ErrorIs(err, ErrUnmarshalSpec)
+	})
+
+	t.Run("returns the read spec", func(t *testing.T) {
+		image := "flightctl-device:v1"
+		spec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReader.EXPECT().ReadFile(gomock.Any()).Return(spec, nil)
+
+		specFromRead, err := readRenderedSpecFromFile(mockReader, filePath)
 		require.NoError(err)
 		require.Equal(image, specFromRead.Os.Image)
 	})
