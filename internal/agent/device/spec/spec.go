@@ -25,6 +25,7 @@ var (
 	ErrNoContent           = fmt.Errorf("no content")
 	ErrCheckingFileExists  = fmt.Errorf("checking if file exists")
 	ErrUnmarshalSpec       = fmt.Errorf("unmarshalling spec")
+	ErrGettingBootcStatus  = fmt.Errorf("getting current bootc status")
 )
 
 type Type string
@@ -172,11 +173,11 @@ func (s *SpecManager) IsRollingBack(ctx context.Context) (bool, error) {
 func (s *SpecManager) Upgrade() error {
 	desired, err := s.Read(Desired)
 	if err != nil {
-		return fmt.Errorf("read current rendered spec: %w", err)
+		return err
 	}
 
 	if err := s.write(Current, desired); err != nil {
-		return fmt.Errorf("write current rendered spec: %w", err)
+		return err
 	}
 
 	s.log.Infof("Spec upgrade complete: clearing rollback spec")
@@ -307,7 +308,7 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
 	bootc, err := s.bootcClient.Status(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("getting current bootc status: %w", err)
+		return "", false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
 	}
 	bootedOSImage := bootc.GetBootedImage()
 
