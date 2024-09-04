@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"testing"
 
@@ -734,6 +735,75 @@ func TestIsUpdating(t *testing.T) {
 			&v1alpha1.RenderedDeviceSpec{RenderedVersion: ""},
 		)
 		require.False(res)
+	})
+}
+
+func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	deviceName := "test-device"
+	mockClient := client.NewMockManagement(ctrl)
+	s := &SpecManager{
+		deviceName:       deviceName,
+		managementClient: mockClient,
+	}
+
+	t.Run("request error", func(t *testing.T) {
+		requestErr := errors.New("failed to make request for spec")
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusInternalServerError, requestErr)
+
+		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
+		require.ErrorIs(err, ErrGettingDeviceSpec)
+	})
+
+	t.Run("response status code has no content", func(t *testing.T) {
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusNoContent, nil)
+
+		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
+		require.ErrorIs(err, ErrNoContent)
+	})
+
+	t.Run("response status code has conflict", func(t *testing.T) {
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusConflict, nil)
+
+		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
+		require.ErrorIs(err, ErrNoContent)
+	})
+
+	t.Run("response is nil", func(t *testing.T) {
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusOK, nil)
+
+		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
+		require.ErrorIs(err, ErrNilResponse)
+	})
+
+	t.Run("makes a request with empty params if no rendered version is passed", func(tt *testing.T) {
+		params := &v1alpha1.GetRenderedDeviceSpecParams{}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(nil, http.StatusOK, nil)
+		s.getRenderedFromManagementAPIWithRetry(ctx, "", &v1alpha1.RenderedDeviceSpec{})
+	})
+
+	t.Run("makes a request with the passed renderedVersion when set", func(tt *testing.T) {
+		renderedVersion := "24"
+		params := &v1alpha1.GetRenderedDeviceSpecParams{KnownRenderedVersion: &renderedVersion}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(nil, http.StatusOK, nil)
+		s.getRenderedFromManagementAPIWithRetry(ctx, "24", &v1alpha1.RenderedDeviceSpec{})
+	})
+
+	t.Run("assigns rendered to the returned response", func(t *testing.T) {
+		respSpec := createRenderedTestSpec("requested-image:latest")
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(respSpec, http.StatusOK, nil)
+
+		rendered := &v1alpha1.RenderedDeviceSpec{}
+		success, err := s.getRenderedFromManagementAPIWithRetry(ctx, "", rendered)
+		require.NoError(err)
+		require.True(success)
+		require.Equal(respSpec, rendered)
 	})
 }
 
