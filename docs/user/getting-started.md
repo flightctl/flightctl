@@ -342,9 +342,6 @@ enrollment-service:
     certificate-authority-data: LS0tLS1CRUdJTiBD...
     server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
   grpc-management-endpoint: grpcs://agent-grpc.127.0.0.1.nip.io:7444
-  spec-fetch-interval: 0m10s
-  status-update-interval: 0m10s
-  tpm-path: /dev/tpmrm0
 ```
 
 Create a `Containerfile` with the following content:
