@@ -110,9 +110,24 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, request server.CreateCertificateSigningRequestRequestObject) (server.CreateCertificateSigningRequestResponseObject, error) {
 	orgId := store.NullOrgId
 
+	// quick temporary hack - autoapprove the cert upon submission
 	// don't set fields that are managed by the service
-	request.Body.Status = nil
+	// request.Body.Status = nil
+
 	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	approvedCondition := api.Condition{
+		Type:    api.CertificateSigningRequestApproved,
+		Status:  api.ConditionStatusTrue,
+		Reason:  "Approved",
+		Message: "Approved",
+	}
+
+	request.Body.Status.Certificate = &signedCert
+	api.SetStatusCondition(&request.Body.Status.Conditions, approvedCondition)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.CreateCertificateSigningRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
