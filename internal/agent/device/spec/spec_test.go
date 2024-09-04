@@ -229,7 +229,7 @@ func TestRead(t *testing.T) {
 		deviceReadWriter: mockReadWriter,
 	}
 
-	t.Run("bubbles up errors from readRenderedSpecFromFile", func(t *testing.T) {
+	t.Run("ensure proper error handling on read failure", func(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("read gone wrong"))
 		_, err := s.Read(Current)
 		require.ErrorIs(err, ErrReadingRenderedSpec)
@@ -262,7 +262,7 @@ func Test_readRenderedSpecFromFile(t *testing.T) {
 		require.ErrorIs(err, ErrMissingRenderedSpec)
 	})
 
-	t.Run("error reading file returns an error containing the file path", func(t *testing.T) {
+	t.Run("error reading file when it does exist", func(t *testing.T) {
 		mockReader.EXPECT().ReadFile(filePath).Return(nil, errors.New("cannot read"))
 
 		_, err := readRenderedSpecFromFile(mockReader, filePath)
