@@ -737,6 +737,113 @@ func TestIsUpdating(t *testing.T) {
 	})
 }
 
+func Test_pathFromType(t *testing.T) {
+	require := require.New(t)
+
+	s := &SpecManager{
+		currentPath:  "test/current.json",
+		desiredPath:  "test/desired.json",
+		rollbackPath: "test/rollback.json",
+	}
+
+	testCases := []struct {
+		Name          string
+		SpecType      Type
+		ExpectedPath  string
+		ExpectedError error
+	}{
+		{"current", "current", s.currentPath, nil},
+		{"desired", "desired", s.desiredPath, nil},
+		{"rollback", "rollback", s.rollbackPath, nil},
+		{"invalid spec type", "rainbow", "", ErrInvalidSpecType},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			path, err := s.pathFromType(testCase.SpecType)
+
+			if testCase.ExpectedError != nil {
+				require.ErrorIs(err, testCase.ExpectedError)
+			} else {
+				require.NoError(err)
+			}
+
+			require.Equal(testCase.ExpectedPath, path)
+		})
+	}
+}
+
+func Test_getNextRenderedVersion(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		Name                string
+		RenderedVersion     string
+		NextRenderedVersion string
+		ExpectedError       error
+	}{
+		{"empty rendered version", "", "", nil},
+		{"increments the rendered version", "1", "2", nil},
+		{"errors when the rendered version cannot be parsed", "not-a-number", "", ErrParseRenderedVersion},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			nextVersion, err := getNextRenderedVersion(testCase.RenderedVersion)
+
+			if testCase.ExpectedError != nil {
+				require.ErrorIs(err, testCase.ExpectedError)
+			} else {
+				require.NoError(err)
+			}
+
+			require.Equal(testCase.NextRenderedVersion, nextVersion)
+		})
+	}
+}
+
+func Test_getRenderedVersion(t *testing.T) {
+	require := require.New(t)
+
+	s := &SpecManager{
+		log: log.NewPrefixLogger("test"),
+	}
+
+	testCases := []struct {
+		Name                    string
+		CurrentRenderedVersion  string
+		DesiredRenderedVersion  string
+		RollbackRenderedVersion string
+		ExpectedReturnValue     string
+		ExpectedError           error
+	}{
+		{"no current rendered version", "", "", "", "", nil},
+		{"all versions are equal", "1", "1", "1", "2", nil},
+		{"current not equal to rollback", "1", "1", "3", "1", nil},
+		{"desired not equal to rollback", "1", "3", "1", "1", nil},
+		{"current not equal to desired or rollback", "3", "1", "1", "3", nil},
+		{"all versions are different", "1", "2", "3", "1", nil},
+		{"invalid versions", "one", "one", "one", "", ErrParseRenderedVersion},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			renderedVersion, err := s.getRenderedVersion(
+				testCase.CurrentRenderedVersion,
+				testCase.DesiredRenderedVersion,
+				testCase.RollbackRenderedVersion,
+			)
+
+			if testCase.ExpectedError != nil {
+				require.ErrorIs(err, testCase.ExpectedError)
+			} else {
+				require.NoError(err)
+			}
+
+			require.Equal(testCase.ExpectedReturnValue, renderedVersion)
+		})
+	}
+}
+
 func createTestSpec(image string) ([]byte, error) {
 	spec := createRenderedTestSpec(image)
 	return json.Marshal(spec)
