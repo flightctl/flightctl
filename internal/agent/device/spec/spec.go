@@ -22,13 +22,17 @@ var (
 	ErrMissingRenderedSpec  = fmt.Errorf("missing rendered spec")
 	ErrReadingRenderedSpec  = fmt.Errorf("reading rendered spec")
 	ErrWritingRenderedSpec  = fmt.Errorf("writing rendered spec")
-	ErrNoContent            = fmt.Errorf("no content")
 	ErrCheckingFileExists   = fmt.Errorf("checking if file exists")
 	ErrUnmarshalSpec        = fmt.Errorf("unmarshalling spec")
 	ErrCopySpec             = fmt.Errorf("copying spec")
 	ErrGettingBootcStatus   = fmt.Errorf("getting current bootc status")
 	ErrInvalidSpecType      = fmt.Errorf("invalid spec type")
 	ErrParseRenderedVersion = fmt.Errorf("failed to convert version to integer")
+
+	// Errors related to fetching the rendered device spec
+	ErrNoContent         = fmt.Errorf("no content")
+	ErrNilResponse       = fmt.Errorf("received nil response for rendered device spec")
+	ErrGettingDeviceSpec = fmt.Errorf("getting device spec")
 )
 
 type Type string
@@ -402,7 +406,7 @@ func (m *SpecManager) getRenderedFromManagementAPIWithRetry(
 
 	resp, statusCode, err := m.managementClient.GetRenderedDeviceSpec(ctx, m.deviceName, params)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: %w", ErrGettingDeviceSpec, err)
 	}
 	if statusCode == http.StatusNoContent || statusCode == http.StatusConflict {
 		// TODO: this is a bit of a hack
@@ -413,7 +417,7 @@ func (m *SpecManager) getRenderedFromManagementAPIWithRetry(
 		*rendered = *resp
 		return true, nil
 	}
-	return false, fmt.Errorf("received nil response for rendered device spec")
+	return false, ErrNilResponse
 }
 
 func readRenderedSpecFromFile(
