@@ -709,6 +709,34 @@ func TestSetClient(t *testing.T) {
 	})
 }
 
+func TestIsUpdating(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("versions are defined and not equal", func(t *testing.T) {
+		res := IsUpdating(
+			&v1alpha1.RenderedDeviceSpec{RenderedVersion: "4"},
+			&v1alpha1.RenderedDeviceSpec{RenderedVersion: "9"},
+		)
+		require.True(res)
+	})
+
+	t.Run("versions are defined and equal", func(t *testing.T) {
+		res := IsUpdating(
+			&v1alpha1.RenderedDeviceSpec{RenderedVersion: "4"},
+			&v1alpha1.RenderedDeviceSpec{RenderedVersion: "4"},
+		)
+		require.False(res)
+	})
+
+	t.Run("versions are not set", func(t *testing.T) {
+		res := IsUpdating(
+			&v1alpha1.RenderedDeviceSpec{RenderedVersion: ""},
+			&v1alpha1.RenderedDeviceSpec{RenderedVersion: ""},
+		)
+		require.False(res)
+	})
+}
+
 func createTestSpec(image string) ([]byte, error) {
 	spec := createRenderedTestSpec(image)
 	return json.Marshal(spec)
