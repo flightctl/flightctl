@@ -21,8 +21,10 @@ import (
 var (
 	ErrMissingRenderedSpec = fmt.Errorf("missing rendered spec")
 	ErrNoContent           = fmt.Errorf("no content")
+	ErrReadingSpec         = fmt.Errorf("reading spec")
 	ErrWritingSpec         = fmt.Errorf("writing spec")
 	ErrCheckingFileExists  = fmt.Errorf("checking if file exists")
+	ErrUnmarshalSpec       = fmt.Errorf("unmarshalling spec")
 )
 
 type Type string
@@ -225,7 +227,11 @@ func (s *SpecManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) 
 	if err != nil {
 		return nil, err
 	}
-	return readRenderedSpecFromFile(s.deviceReadWriter, filePath)
+	spec, err := readRenderedSpecFromFile(s.deviceReadWriter, filePath)
+	if err != nil {
+		return nil, err
+	}
+	return spec, nil
 }
 
 func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion string) (*v1alpha1.RenderedDeviceSpec, error) {
@@ -411,14 +417,14 @@ func readRenderedSpecFromFile(
 	if err != nil {
 		if os.IsNotExist(err) {
 			// if the file does not exist, this means it has been removed/corrupted
-			return nil, fmt.Errorf("%w: current: %w", ErrMissingRenderedSpec, err)
+			return nil, fmt.Errorf("%w: reading %s: %w", ErrMissingRenderedSpec, filePath, err)
 		}
-		return nil, fmt.Errorf("read device specification from '%s': %w", filePath, err)
+		return nil, fmt.Errorf("%w: reading %s: %w", ErrReadingSpec, filePath, err)
 	}
 
 	// read bytes from file
 	if err := json.Unmarshal(renderedBytes, &current); err != nil {
-		return nil, fmt.Errorf("unmarshal device specification: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrUnmarshalSpec, err)
 	}
 
 	return &current, nil
