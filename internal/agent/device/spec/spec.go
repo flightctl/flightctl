@@ -331,7 +331,7 @@ func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) er
 
 	err = writeRenderedToFile(s.deviceReadWriter, spec, filePath)
 	if err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrWritingSpec, specType, err)
+		return err
 	}
 	return nil
 }
@@ -417,9 +417,9 @@ func readRenderedSpecFromFile(
 	if err != nil {
 		if os.IsNotExist(err) {
 			// if the file does not exist, this means it has been removed/corrupted
-			return nil, fmt.Errorf("%w: reading %s: %w", ErrMissingRenderedSpec, filePath, err)
+			return nil, fmt.Errorf("%w: reading %q: %w", ErrMissingRenderedSpec, filePath, err)
 		}
-		return nil, fmt.Errorf("%w: reading %s: %w", ErrReadingSpec, filePath, err)
+		return nil, fmt.Errorf("%w: reading %q: %w", ErrReadingSpec, filePath, err)
 	}
 
 	// read bytes from file
@@ -436,7 +436,7 @@ func writeRenderedToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDevice
 		return err
 	}
 	if err := writer.WriteFile(filePath, renderedBytes, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("write default device spec file %q: %w", filePath, err)
+		return fmt.Errorf("%w: writing to %q: %w", ErrWritingSpec, filePath, err)
 	}
 	return nil
 }
