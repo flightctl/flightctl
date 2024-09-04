@@ -25,6 +25,7 @@ var (
 	ErrNoContent           = fmt.Errorf("no content")
 	ErrCheckingFileExists  = fmt.Errorf("checking if file exists")
 	ErrUnmarshalSpec       = fmt.Errorf("unmarshalling spec")
+	ErrCopySpec            = fmt.Errorf("copying spec")
 	ErrGettingBootcStatus  = fmt.Errorf("getting current bootc status")
 )
 
@@ -220,7 +221,11 @@ func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 func (s *SpecManager) Rollback() error {
 	// copy the current rendered spec to the desired rendered spec
 	// this will reconcile the device with the desired "rollback" state
-	return s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath)
+	err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath)
+	if err != nil {
+		return fmt.Errorf("%w: copy %q to %q", ErrCopySpec, s.currentPath, s.desiredPath)
+	}
+	return nil
 }
 
 func (s *SpecManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
