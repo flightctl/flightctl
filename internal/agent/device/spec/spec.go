@@ -188,7 +188,7 @@ func (s *SpecManager) Upgrade() error {
 func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 	current, err := s.Read(Current)
 	if err != nil {
-		return fmt.Errorf("read rollback rendered spec: %w", err)
+		return err
 	}
 
 	// it is possible that the current rendered spec does not have an OS image.
@@ -197,7 +197,7 @@ func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 	if current.Os == nil || current.Os.Image == "" {
 		bootcStatus, err := s.bootcClient.Status(ctx)
 		if err != nil {
-			return fmt.Errorf("getting current bootc status: %w", err)
+			return fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
 		}
 		currentOSImage = bootcStatus.GetBootedImage()
 	} else {
@@ -212,7 +212,7 @@ func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 	}
 
 	if err := s.write(Rollback, rollback); err != nil {
-		return fmt.Errorf("write rollback to desired rendered spec: %w", err)
+		return err
 	}
 	return nil
 }
