@@ -551,6 +551,119 @@ func TestCheckOsReconciliation(t *testing.T) {
 	})
 }
 
+func TestPrepareRollback(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockBootcClient := container.NewMockBootcClient(ctrl)
+
+	currentPath := "test/current.json"
+	rollbackPath := "test/rollback.json"
+	s := &SpecManager{
+		deviceReadWriter: mockReadWriter,
+		bootcClient:      mockBootcClient,
+		currentPath:      currentPath,
+		rollbackPath:     rollbackPath,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	emptySpec, err := createEmptyTestSpec()
+	require.NoError(err)
+
+	specErr := errors.New("unable to use spec")
+
+	t.Run("error reading current spec", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(emptySpec, specErr)
+
+		err = s.PrepareRollback(ctx)
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("error writing rollback spec", func(t *testing.T) {
+		currentImage := "flightctl-device:v1"
+
+		currentSpec, err := createTestSpec(currentImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
+
+		mockReadWriter.EXPECT().WriteFile(rollbackPath, gomock.Any(), gomock.Any()).Return(specErr)
+
+		err = s.PrepareRollback(ctx)
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("attempts to use the os image from the current spec in the rollback spec", func(t *testing.T) {
+		currentImage := "flightctl-device:v1"
+
+		currentSpec, err := createTestSpec(currentImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
+
+		rollbackSpec, err := createTestSpec(currentImage)
+		mockReadWriter.EXPECT().WriteFile(rollbackPath, rollbackSpec, gomock.Any()).Return(nil)
+
+		err = s.PrepareRollback(ctx)
+		require.NoError(err)
+	})
+
+	t.Run("falls back to the os image from bootc when the current spec os nil", func(t *testing.T) {
+		bootedImage := "flightctl-device:v1"
+
+		renderedCurrentSpec := createRenderedTestSpec("")
+		renderedCurrentSpec.Os = nil
+		marshaledCurrentSpec, err := json.Marshal(renderedCurrentSpec)
+		require.NoError(err)
+
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(marshaledCurrentSpec, nil)
+		bootcHost := createTestBootcHost(bootedImage)
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcHost, nil)
+
+		rollbackSpec, err := createTestSpec(bootedImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().WriteFile(rollbackPath, rollbackSpec, gomock.Any()).Return(nil)
+
+		err = s.PrepareRollback(ctx)
+		require.NoError(err)
+	})
+
+	t.Run("falls back to the os image from bootc when the current spec os image is empty", func(t *testing.T) {
+		bootedImage := "flightctl-device:v1"
+
+		renderedCurrentSpec := createRenderedTestSpec("")
+		renderedCurrentSpec.Os.Image = ""
+		marshaledCurrentSpec, err := json.Marshal(renderedCurrentSpec)
+		require.NoError(err)
+
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(marshaledCurrentSpec, nil)
+		bootcHost := createTestBootcHost(bootedImage)
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcHost, nil)
+
+		rollbackSpec, err := createTestSpec(bootedImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().WriteFile(rollbackPath, rollbackSpec, gomock.Any()).Return(nil)
+
+		err = s.PrepareRollback(ctx)
+		require.NoError(err)
+	})
+
+	t.Run("error reading bootc status", func(t *testing.T) {
+		renderedCurrentSpec := createRenderedTestSpec("")
+		renderedCurrentSpec.Os.Image = ""
+		marshaledCurrentSpec, err := json.Marshal(renderedCurrentSpec)
+		require.NoError(err)
+
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(marshaledCurrentSpec, nil)
+		mockBootcClient.EXPECT().Status(ctx).Return(nil, ErrGettingBootcStatus)
+
+		err = s.PrepareRollback(ctx)
+		require.ErrorIs(err, ErrGettingBootcStatus)
+	})
+}
+
 func createTestSpec(image string) ([]byte, error) {
 	spec := createRenderedTestSpec(image)
 	return json.Marshal(spec)
@@ -558,6 +671,7 @@ func createTestSpec(image string) ([]byte, error) {
 
 func createRenderedTestSpec(image string) *v1alpha1.RenderedDeviceSpec {
 	spec := v1alpha1.RenderedDeviceSpec{
+		RenderedVersion: "1",
 		Os: &v1alpha1.DeviceOSSpec{
 			Image: image,
 		},
@@ -567,4 +681,10 @@ func createRenderedTestSpec(image string) *v1alpha1.RenderedDeviceSpec {
 
 func createEmptyTestSpec() ([]byte, error) {
 	return json.Marshal(&v1alpha1.RenderedDeviceSpec{})
+}
+
+func createTestBootcHost(image string) *container.BootcHost {
+	host := &container.BootcHost{}
+	host.Status.Booted.Image.Image.Image = image
+	return host
 }
