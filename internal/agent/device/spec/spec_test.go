@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -213,6 +214,51 @@ func TestEnsure(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 		err := s.Ensure()
 		require.NoError(err)
+	})
+}
+
+func TestRead(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+	}
+
+	t.Run("error file not found", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, os.ErrNotExist)
+
+		_, err := s.Read(Current)
+		require.ErrorIs(err, ErrMissingRenderedSpec)
+	})
+
+	t.Run("error with file read", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("read gone wrong"))
+		_, err := s.Read(Current)
+		require.ErrorIs(err, ErrReadingSpec)
+	})
+
+	t.Run("error when the file is not a valid spec", func(t *testing.T) {
+		invalidSpec := []byte("Not json data for a spec")
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(invalidSpec, nil)
+
+		_, err := s.Read(Current)
+		require.ErrorIs(err, ErrUnmarshalSpec)
+	})
+
+	t.Run("reads a device spec", func(t *testing.T) {
+		image := "flightctl-device:v1"
+		spec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(spec, nil)
+
+		specFromRead, err := s.Read(Current)
+		require.NoError(err)
+		require.Equal(image, specFromRead.Os.Image)
 	})
 }
 
