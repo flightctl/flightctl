@@ -49,8 +49,12 @@ NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 
 ### Standalone flightctl with keycloak integration
 
-Create a values.yaml file with the following content, replace flightctl.MY.DOMAIN with your base
-domain. Please note this values file will be simplified in the future to avoid duplication
+Create a values.yaml file with the following content, replace
+
+  1. `flightctl.MY.DOMAIN` with your base domain
+  2. `storageClassName` with the name of the storage class you want to use for creating PVs.
+
+Please note this values file will be simplified in the future to avoid duplication
 by making use of the global.flightctl.baseDomain value.
 
 ```yaml
@@ -99,11 +103,10 @@ keycloak:
 flightctlUi:
   namespace: flightctl
   hostName: ui.flightctl.MY.DOMAIN
-  image: quay.io/flightctl/flightctl-ui:latest
+  image: quay.io/flightctl/flightctl-ui:0.1.1
   flightctlServer: https://flightctl-api:3443
   flightctlMetricsServer: https://flightctl-api:9090
-  bootcImgUrl: quay.io/example/example-agent-centos:bootstrap
-  qcow2ImgUrl: https://example.com/disk.qcow2
+  flightctlGrpcServer: flightctl-api-agent-grpc:7444
   certs:
     ca: "" # use --set-file flightctlUi.certs.ca=ca.crt
     frontRouter: ""
@@ -149,6 +152,88 @@ $ kubectl get pods -n flightctl
 [...]
 ```
 
+### flightctl in ACM
+
+Create a values.yaml file with the following content, replace
+
+ 1. `baseDomain` with your base domain.
+ 2. `storageClassName` with the name of the storage class you want to use for creating PVs.
+ 3. `openShiftApiUrl` with your actual OpenShift API URL.
+
+Please note this values file will be simplified in the future to avoid duplication
+by making use of the global.flightctl.baseDomain value.
+
+```yaml
+global:
+  flightctl:
+    baseDomain: "flightctl.MY.DOMAIN"
+    clusterLevelSecretAccess: true
+    useRoutes: true
+    networkPolicyAllowList:
+      - openshift-console
+  storageClassName: "lvms-vg1"
+flightctl:
+  api:
+    auth:
+      enabled: true
+      openShiftApiUrl: "https://api.openshift.cluster.com:6443"
+
+keycloak:
+  enabled: false
+
+# ui configuration
+flightctlUi:
+  namespace: flightctl
+  image: quay.io/flightctl/flightctl-ocp-ui:0.1.1
+  flightctlServer: https://flightctl-api:3443
+  flightctlMetricsServer: https://flightctl-api:9090
+  flightctlGrpcServer: flightctl-api-agent-grpc:7444
+  certs:
+    ca: "" # use --set-file flightctlUi.certs.ca=ca.crt
+
+```
+
+Install a released version of the Flight Control Service into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --values values.yaml
+
+```
+
+Retrieve the CA certificate for the API service:
+
+```console
+kubectl rollout status deployment flightctl-api -n flightctl -w --timeout=300s
+
+API_POD=$(kubectl get pod -n flightctl -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" | head -1)
+
+kubectl exec -n flightctl "${API_POD}" -- cat /root/.flightctl/certs/ca.crt > ca.crt
+```
+
+Install a release version of the Flight Control ACM UI plugin into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl-ui oci://quay.io/flightctl/charts/flightctl-ocp-ui \
+    --values values.yaml \
+    --set-file flightctlUi.certs.ca=ca.crt
+```
+
+Verify your Flight Control Service is up and running:
+
+```console
+$ kubectl get pods -n flightctl
+
+[...]
+```
+
+After deploying the Flight Control ACM UI plugin, it needs to be manually enabled. Open your OpenShift Console -> Home -> Overview -> Status card -> Dynamic plugins and enable the Flight Control ACM UI plugin.
+After enabling the plugin, you will need to wait for the Console operator to rollout a new deployment.
+
 ## Installing the Flight Control CLI
 
 In a terminal, select the appropriate Flight Control CLI binary for your OS (linux or darwin) and CPU architecture (amd64 or arm64), for example:
@@ -190,6 +275,8 @@ Finally, move it into a location within your shell's search path.
 
 ## Logging into the Flight Control Service from the CLI
 
+### Standalone deployment
+
 Retrieve the password for the "demouser" account that's been automatically generated for you during installation:
 
 ```console
@@ -216,9 +303,29 @@ $ flightctl get devices
 NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
 ```
 
+### ACM deployment
+
+Use the CLI to log into the Flight Control Service:
+
+```console
+$ flightctl login https://api.flightctl.127.0.0.1.nip.io/ --web --insecure-skip-tls-verify
+
+[...]
+```
+
+In the web browser that opens, use your ACM login credentials.
+
+Verify you can now access the service via the CLI:
+
+```console
+$ flightctl get devices
+
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
+```
+
 ## Login into the Flight Control Service from the standalone UI
 
-Browse to `ui.flightctl.MY.DOMAIN` and login with the demouser obtained from the previous step.
+Browse to `ui.flightctl.MY.DOMAIN` and use the login "demouser" and the password you retrieved in the previous step.
 
 ## Building a Bootable Container Image including the Flight Control Agent
 
@@ -424,7 +531,7 @@ NAME                                                  APPROVAL  APPROVER  APPROV
 You can approve an enrollment request and optionally add labels to the device:
 
 ```console
-$ flightctl approve -l region=eu-west-1 -l site=factory-berlin 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+$ flightctl approve -l region=eu-west-1 -l site=factory-berlin er/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
 
 Success.
 

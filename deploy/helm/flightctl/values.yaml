@@ -27,6 +27,7 @@ global:
       enabled: true
     internalNamespace: ""
     clusterLevelSecretAccess: false
+    networkPolicyAllowList: [] # List of additional namespaces that will be allowed to talk to flightctl services
   storageClassName: "standard"
 
 
