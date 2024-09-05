@@ -606,6 +606,7 @@ func TestPrepareRollback(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
 
 		rollbackSpec, err := createTestSpec(currentImage)
+		require.NoError(err)
 		mockReadWriter.EXPECT().WriteFile(rollbackPath, rollbackSpec, gomock.Any()).Return(nil)
 
 		err = s.PrepareRollback(ctx)
@@ -933,14 +934,16 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 	t.Run("makes a request with empty params if no rendered version is passed", func(tt *testing.T) {
 		params := &v1alpha1.GetRenderedDeviceSpecParams{}
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(nil, http.StatusOK, nil)
-		s.getRenderedFromManagementAPIWithRetry(ctx, "", &v1alpha1.RenderedDeviceSpec{})
+		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "", &v1alpha1.RenderedDeviceSpec{})
+		require.NoError(err)
 	})
 
 	t.Run("makes a request with the passed renderedVersion when set", func(tt *testing.T) {
 		renderedVersion := "24"
 		params := &v1alpha1.GetRenderedDeviceSpecParams{KnownRenderedVersion: &renderedVersion}
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(nil, http.StatusOK, nil)
-		s.getRenderedFromManagementAPIWithRetry(ctx, "24", &v1alpha1.RenderedDeviceSpec{})
+		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "24", &v1alpha1.RenderedDeviceSpec{})
+		require.NoError(err)
 	})
 
 	t.Run("assigns rendered to the returned response", func(t *testing.T) {
