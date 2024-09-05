@@ -932,26 +932,25 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 	})
 
 	t.Run("makes a request with empty params if no rendered version is passed", func(tt *testing.T) {
-		params := &v1alpha1.GetRenderedDeviceSpecParams{}
-		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(nil, http.StatusOK, nil)
-		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "", &v1alpha1.RenderedDeviceSpec{})
-		require.NoError(err)
-	})
-
-	t.Run("makes a request with the passed renderedVersion when set", func(tt *testing.T) {
-		renderedVersion := "24"
-		params := &v1alpha1.GetRenderedDeviceSpecParams{KnownRenderedVersion: &renderedVersion}
-		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(nil, http.StatusOK, nil)
-		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "24", &v1alpha1.RenderedDeviceSpec{})
-		require.NoError(err)
-	})
-
-	t.Run("assigns rendered to the returned response", func(t *testing.T) {
 		respSpec := createRenderedTestSpec("requested-image:latest")
-		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(respSpec, http.StatusOK, nil)
+		params := &v1alpha1.GetRenderedDeviceSpecParams{}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(respSpec, http.StatusOK, nil)
 
 		rendered := &v1alpha1.RenderedDeviceSpec{}
 		success, err := s.getRenderedFromManagementAPIWithRetry(ctx, "", rendered)
+		require.NoError(err)
+		require.True(success)
+		require.Equal(respSpec, rendered)
+	})
+
+	t.Run("makes a request with the passed renderedVersion when set", func(tt *testing.T) {
+		respSpec := createRenderedTestSpec("requested-image:latest")
+		renderedVersion := "24"
+		params := &v1alpha1.GetRenderedDeviceSpecParams{KnownRenderedVersion: &renderedVersion}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, params).Return(respSpec, http.StatusOK, nil)
+
+		rendered := &v1alpha1.RenderedDeviceSpec{}
+		success, err := s.getRenderedFromManagementAPIWithRetry(ctx, "24", rendered)
 		require.NoError(err)
 		require.True(success)
 		require.Equal(respSpec, rendered)
