@@ -249,12 +249,12 @@ func (s *SpecManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) 
 func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion string) (*v1alpha1.RenderedDeviceSpec, error) {
 	desired, err := s.Read(Desired)
 	if err != nil {
-		return nil, fmt.Errorf("read desired rendered spec: %w", err)
+		return nil, err
 	}
 
 	rollback, err := s.Read(Rollback)
 	if err != nil {
-		return nil, fmt.Errorf("read rollback rendered spec: %w", err)
+		return nil, err
 	}
 
 	renderedVersion, err := s.getRenderedVersion(currentRenderedVersion, desired.RenderedVersion, rollback.RenderedVersion)
@@ -286,7 +286,7 @@ func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion str
 	// write to disk
 	s.log.Infof("Writing desired rendered spec to disk with rendered version: %s", newDesired.RenderedVersion)
 	if err := s.write(Desired, newDesired); err != nil {
-		return nil, fmt.Errorf("write rendered spec to disk: %w", err)
+		return nil, err
 	}
 	return newDesired, nil
 }
