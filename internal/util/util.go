@@ -119,6 +119,19 @@ func BoolToStr(b bool, ifTrue string, ifFalse string) string {
 	return ifFalse
 }
 
+func FromPtr[T any](x *T) T {
+	if x == nil {
+		return Empty[T]()
+	}
+
+	return *x
+}
+
+func Empty[T any]() T {
+	var zero T
+	return zero
+}
+
 func SingleQuote(input []string) []string {
 	output := make([]string, len(input))
 	for i, val := range input {

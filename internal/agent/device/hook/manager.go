@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 )
 
 var _ Manager = (*manager)(nil)
@@ -30,6 +30,10 @@ type Manager interface {
 	OnAfterReboot(ctx context.Context, path string)
 	Errors() []error
 	Close() error
+}
+
+type ActionHookFactory interface {
+	Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error)
 }
 
 type ActionHook interface {
@@ -72,68 +76,41 @@ func NewManager(exec executer.Executer, log *log.PrefixLogger) Manager {
 	}
 }
 
-func (m *manager) createExecutableActionHook(action v1alpha1.HookAction) (ActionHook, error) {
-	spec, err := action.AsHookAction0()
-	if err != nil {
-		return nil, err
+func (m *manager) createApiHookDefinition(hookSpec v1alpha1.DeviceUpdateHookSpec) (HookDefinition, error) {
+	var actionHooks []ActionHookFactory
+	for _, action := range hookSpec.Actions {
+		actionHooks = append(actionHooks, newApiHookActionFactory(action))
 	}
-	actionTimeout, err := parseTimeout(spec.Executable.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	envVars := lo.FromPtr(spec.Executable.EnvVars)
-	if err = validateEnvVars(envVars); err != nil {
-		return nil, err
-	}
-	return newExecutableActionHook(spec.Executable.Run,
-		lo.FromPtr(spec.Executable.EnvVars),
-		m.exec,
-		actionTimeout,
-		spec.Executable.WorkDir,
-		m.log), nil
+	return HookDefinition{
+		name:        util.FromPtr(hookSpec.Name),
+		description: util.FromPtr(hookSpec.Description),
+		actionHooks: actionHooks,
+		ops:         util.FromPtr(hookSpec.OnFile),
+		path:        util.FromPtr(hookSpec.Path),
+	}, nil
 }
 
-func (m *manager) createSystemdActionHook(action v1alpha1.HookAction) (ActionHook, error) {
-	spec, err := action.AsHookAction1()
-	if err != nil {
-		return nil, err
-	}
-	actionTimeout, err := parseTimeout(spec.Systemd.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	return newSystemdActionHook(spec.Systemd.Unit.Name,
-		spec.Systemd.Unit.Operations,
-		m.exec,
-		actionTimeout,
-		m.log), nil
-}
-
-func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec) (ActionMap, ActionMap, ActionMap, ActionMap, error) {
+func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec, additionalHooks ...HookDefinition) (ActionMap, ActionMap, ActionMap, ActionMap, error) {
 	createMap := make(ActionMap)
 	updateMap := make(ActionMap)
 	removeMap := make(ActionMap)
 	rebootMap := make(ActionMap)
+	var hookDefinitions []HookDefinition
 	for _, hookSpec := range hookSpecs {
-		for _, action := range hookSpec.Actions {
-			hookActionType, err := action.Type()
+		h, err := m.createApiHookDefinition(hookSpec)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		hookDefinitions = append(hookDefinitions, h)
+	}
+	for _, h := range append(hookDefinitions, additionalHooks...) {
+		path := h.Path()
+		opts := h.Ops()
+		for _, actionHookFactory := range h.ActionFactories() {
+			actionHook, err := actionHookFactory.Create(m.exec, m.log)
 			if err != nil {
 				return nil, nil, nil, nil, err
 			}
-			var actionHook ActionHook
-			switch hookActionType {
-			case ExecutableActionType:
-				actionHook, err = m.createExecutableActionHook(action)
-			case SystemdActionType:
-				actionHook, err = m.createSystemdActionHook(action)
-			default:
-				return nil, nil, nil, nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)
-			}
-			if err != nil {
-				return nil, nil, nil, nil, err
-			}
-			path := lo.FromPtr(hookSpec.Path)
-			opts := lo.FromPtr(hookSpec.OnFile)
 			for _, op := range opts {
 				switch op {
 				case v1alpha1.FileOperationCreate:
@@ -157,18 +134,18 @@ func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) erro
 	m.log.Debug("Syncing hook manager")
 	defer m.log.Debug("Finished syncing hook manager")
 
-	current := lo.FromPtr(currentPtr)
-	desired := lo.FromPtr(desiredPtr)
+	current := util.FromPtr(currentPtr)
+	desired := util.FromPtr(desiredPtr)
 	if m.initialized.Load() && reflect.DeepEqual(current.Hooks, desired.Hooks) {
 		m.log.Debug("Hooks are equal. Nothing to update")
 		return nil
 	}
-	desiredHooks := lo.FromPtr(desired.Hooks)
-	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...))
+	desiredHooks := util.FromPtr(desired.Hooks)
+	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(util.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...)
 	if err != nil {
 		return err
 	}
-	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(append(lo.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...))
+	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(util.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...)
 	if err != nil {
 		return err
 	}
@@ -281,7 +258,11 @@ func (m *manager) OnAfterReboot(ctx context.Context, path string) {
 func (m *manager) Errors() []error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return lo.Values(m.errors)
+	errs := make([]error, 0, len(m.errors))
+	for _, err := range m.errors {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 func (m *manager) Close() error {
