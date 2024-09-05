@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/samber/lo"
 )
 
 const (
@@ -71,7 +70,10 @@ func podmanApplicationStatus(entry PodmanContainerListEntry) v1alpha1.Applicatio
 	case "running":
 		return v1alpha1.ApplicationStatusRunning
 	case "exited":
-		return lo.Ternary(entry.ExitCode == 0, v1alpha1.ApplicationStatusCompleted, v1alpha1.ApplicationStatusError)
+		if entry.ExitCode == 0 {
+			return v1alpha1.ApplicationStatusCompleted
+		}
+		return v1alpha1.ApplicationStatusError
 	default:
 		return v1alpha1.ApplicationStatusUnknown
 	}
