@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 )
 
 var _ Manager = (*manager)(nil)
@@ -82,11 +82,11 @@ func (m *manager) createApiHookDefinition(hookSpec v1alpha1.DeviceUpdateHookSpec
 		actionHooks = append(actionHooks, newApiHookActionFactory(action))
 	}
 	return HookDefinition{
-		name:        lo.FromPtr(hookSpec.Name),
-		description: lo.FromPtr(hookSpec.Description),
+		name:        util.FromPtr(hookSpec.Name),
+		description: util.FromPtr(hookSpec.Description),
 		actionHooks: actionHooks,
-		ops:         lo.FromPtr(hookSpec.OnFile),
-		path:        lo.FromPtr(hookSpec.Path),
+		ops:         util.FromPtr(hookSpec.OnFile),
+		path:        util.FromPtr(hookSpec.Path),
 	}, nil
 }
 
@@ -134,18 +134,18 @@ func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) erro
 	m.log.Debug("Syncing hook manager")
 	defer m.log.Debug("Finished syncing hook manager")
 
-	current := lo.FromPtr(currentPtr)
-	desired := lo.FromPtr(desiredPtr)
+	current := util.FromPtr(currentPtr)
+	desired := util.FromPtr(desiredPtr)
 	if m.initialized.Load() && reflect.DeepEqual(current.Hooks, desired.Hooks) {
 		m.log.Debug("Hooks are equal. Nothing to update")
 		return nil
 	}
-	desiredHooks := lo.FromPtr(desired.Hooks)
-	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(lo.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...)
+	desiredHooks := util.FromPtr(desired.Hooks)
+	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(util.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...)
 	if err != nil {
 		return err
 	}
-	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(lo.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...)
+	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(util.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...)
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,11 @@ func (m *manager) OnAfterReboot(ctx context.Context, path string) {
 func (m *manager) Errors() []error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return lo.Values(m.errors)
+	errs := make([]error, 0, len(m.errors))
+	for _, err := range m.errors {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 func (m *manager) Close() error {
