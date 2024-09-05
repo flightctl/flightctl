@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -735,6 +736,76 @@ func TestIsUpdating(t *testing.T) {
 			&v1alpha1.RenderedDeviceSpec{RenderedVersion: ""},
 		)
 		require.False(res)
+	})
+}
+
+func TestGetDesired(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := client.NewMockManagement(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	desiredPath := "test/desired.json"
+	rollbackPath := "test/rollback.json"
+	deviceName := "test-device"
+	backoff := wait.Backoff{
+		Cap:      3 * time.Minute,
+		Duration: 10 * time.Second,
+		Factor:   1.5,
+		Steps:    24,
+	}
+	s := &SpecManager{
+		backoff:          backoff,
+		log:              log.NewPrefixLogger("test"),
+		deviceName:       deviceName,
+		deviceReadWriter: mockReadWriter,
+		desiredPath:      desiredPath,
+		rollbackPath:     rollbackPath,
+		managementClient: mockClient,
+	}
+
+	image := "flightctl-device:v2"
+
+	specErr := errors.New("problem with spec")
+
+	t.Run("error reading desired spec", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
+
+		_, err := s.GetDesired(ctx, "1")
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("error reading rollback spec", func(t *testing.T) {
+		desiredSpec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, specErr)
+
+		_, err = s.GetDesired(ctx, "1")
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("no new version", func(t *testing.T) {
+		renderedDesiredSpec := createRenderedTestSpec(image)
+		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+
+		rollbackSpec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
+
+		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
+
+		specResult, err := s.GetDesired(ctx, "1")
+		require.NoError(err)
+		require.Equal(renderedDesiredSpec, specResult)
 	})
 }
 
