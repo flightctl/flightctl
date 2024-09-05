@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -754,10 +753,7 @@ func TestGetDesired(t *testing.T) {
 	rollbackPath := "test/rollback.json"
 	deviceName := "test-device"
 	backoff := wait.Backoff{
-		Cap:      3 * time.Minute,
-		Duration: 10 * time.Second,
-		Factor:   1.5,
-		Steps:    24,
+		Steps: 1,
 	}
 	s := &SpecManager{
 		backoff:          backoff,
@@ -770,7 +766,6 @@ func TestGetDesired(t *testing.T) {
 	}
 
 	image := "flightctl-device:v2"
-
 	specErr := errors.New("problem with spec")
 
 	t.Run("error reading desired spec", func(t *testing.T) {
@@ -790,22 +785,104 @@ func TestGetDesired(t *testing.T) {
 		require.ErrorIs(err, ErrReadingRenderedSpec)
 	})
 
-	t.Run("no new version", func(t *testing.T) {
+	t.Run("error when get management api call fails", func(t *testing.T) {
+		renderedVersion := "1"
+
 		renderedDesiredSpec := createRenderedTestSpec(image)
 		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
 
-		rollbackSpec, err := createTestSpec(image)
+		rollbackSpec, err := createEmptyTestSpec()
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
 
-		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
+
+		_, err = s.GetDesired(ctx, renderedVersion)
+		require.ErrorIs(err, ErrGettingDeviceSpec)
+	})
+
+	t.Run("desired spec is returned when managemnt api returns no content", func(t *testing.T) {
+		renderedVersion := "1"
+
+		renderedDesiredSpec := createRenderedTestSpec(image)
+		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+
+		rollbackSpec, err := createEmptyTestSpec()
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
+
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
+
+		specResult, err := s.GetDesired(ctx, renderedVersion)
+		require.NoError(err)
+		require.Equal(renderedDesiredSpec, specResult)
+	})
+
+	t.Run("no new version", func(t *testing.T) {
+		renderedVersion := "1"
+
+		renderedDesiredSpec := createRenderedTestSpec(image)
+		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+
+		rollbackSpec, err := createEmptyTestSpec()
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
+
+		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: renderedVersion}
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
+
+		specResult, err := s.GetDesired(ctx, renderedVersion)
+		require.NoError(err)
+		require.Equal(renderedDesiredSpec, specResult)
+	})
+
+	t.Run("different versions", func(t *testing.T) {
+		renderedDesiredSpec := createRenderedTestSpec(image)
+		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+
+		rollbackSpec, err := createEmptyTestSpec()
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
+
+		// Api is returning a renderd version that is different
+		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "5"}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
+
+		// The difference results in a write call for the desired spec
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 		specResult, err := s.GetDesired(ctx, "1")
 		require.NoError(err)
-		require.Equal(renderedDesiredSpec, specResult)
+		require.Equal(apiResponse, specResult)
+	})
+
+	t.Run("error when writing the desired spec fails", func(t *testing.T) {
+		renderedDesiredSpec := createRenderedTestSpec(image)
+		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+
+		rollbackSpec, err := createEmptyTestSpec()
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
+
+		// Api is returning a renderd version that is different
+		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "5"}
+		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
+
+		// The difference results in a write call for the desired spec
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
+
+		_, err = s.GetDesired(ctx, "1")
+		require.ErrorIs(err, ErrWritingRenderedSpec)
 	})
 }
 
