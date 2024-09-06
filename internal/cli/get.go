@@ -101,17 +101,6 @@ func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 	if o.Rendered && len(o.Output) == 0 {
 		o.Output = jsonFormat
 	}
-	// If a label selector is provided, ensure keys without value still have '=' appended
-	if len(o.LabelSelector) > 0 {
-		labels := strings.Split(o.LabelSelector, ",")
-		for i, label := range labels {
-			l := strings.Split(label, "=")
-			if len(l) == 1 {
-				labels[i] = l[0] + "="
-			}
-		}
-		o.LabelSelector = strings.Join(labels, ",")
-	}
 	return nil
 }
 
@@ -311,14 +300,19 @@ func printTable(response interface{}, kind string, name string) error {
 }
 
 func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+	fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	for _, d := range devices {
 		lastSeen := "<never>"
 		if !d.Status.LastSeen.IsZero() {
 			lastSeen = humanize.Time(d.Status.LastSeen)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		alias := ""
+		if d.Metadata.Labels != nil {
+			alias = (*d.Metadata.Labels)["alias"]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			*d.Metadata.Name,
+			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
 			d.Status.Summary.Status,
 			d.Status.Updated.Status,
@@ -358,9 +352,14 @@ func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
 		}
 		valid := "Unknown"
 		if f.Status != nil {
+
 			condition := api.FindStatusCondition(f.Status.Conditions, api.FleetValid)
 			if condition != nil {
 				valid = string(condition.Status)
+			}
+			condition = api.FindStatusCondition(f.Status.Conditions, api.FleetOverlappingSelectors)
+			if condition != nil && condition.Status == api.ConditionStatusTrue {
+				valid = string(api.ConditionStatusFalse)
 			}
 		}
 		numDevices := "Unknown"

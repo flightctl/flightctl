@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -55,11 +56,21 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
+		// If a label selector is provided, ensure keys without value still have '=' appended
+		labels := strings.Split(*request.Params.LabelSelector, ",")
+		for i, label := range labels {
+			l := strings.Split(label, "=")
+			if len(l) == 1 {
+				labels[i] = l[0] + "="
+			}
+		}
+		labelSelector = strings.Join(labels, ",")
 	}
 	statusFilter := []string{}
 	if request.Params.StatusFilter != nil {
-		statusFilter = *request.Params.StatusFilter
+		for _, filter := range *request.Params.StatusFilter {
+			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
+		}
 	}
 
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
@@ -67,7 +78,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	}
 
-	filterMap, err := ConvertStatusFilterParamsToMap(statusFilter)
+	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
 	if err != nil {
 		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
 	}

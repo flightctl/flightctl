@@ -24,7 +24,7 @@ type Device struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.DeviceSpec]
+	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
@@ -164,8 +164,8 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
 		Summary: &api.DevicesSummary{
-			SummaryStatus: summaryStatuses,
-			UpdateStatus:  updateStatuses,
+			SummaryStatus: &summaryStatuses,
+			UpdateStatus:  &updateStatuses,
 			Total:         len(dl),
 		},
 	}

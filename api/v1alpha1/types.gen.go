@@ -92,6 +92,7 @@ const (
 // Defines values for FileOperation.
 const (
 	FileOperationCreate FileOperation = "Create"
+	FileOperationReboot FileOperation = "Reboot"
 	FileOperationRemove FileOperation = "Remove"
 	FileOperationUpdate FileOperation = "Update"
 )
@@ -476,13 +477,13 @@ type DeviceUpdatedStatusType string
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus map[string]int `json:"summaryStatus"`
+	SummaryStatus *map[string]int `json:"summaryStatus,omitempty"`
 
 	// Total The total number of devices in the fleet.
 	Total int `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus map[string]int `json:"updateStatus"`
+	UpdateStatus *map[string]int `json:"updateStatus,omitempty"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
@@ -496,6 +497,12 @@ type DiskResourceMonitorSpec struct {
 
 	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
 	SamplingInterval string `json:"samplingInterval"`
+}
+
+// EnrollmentConfig defines model for EnrollmentConfig.
+type EnrollmentConfig struct {
+	EnrollmentService      EnrollmentService `json:"enrollment-service"`
+	GrpcManagementEndpoint string            `json:"grpc-management-endpoint"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
@@ -567,6 +574,25 @@ type EnrollmentRequestStatus struct {
 
 	// Conditions Current state of the EnrollmentRequest.
 	Conditions []Condition `json:"conditions"`
+}
+
+// EnrollmentService defines model for EnrollmentService.
+type EnrollmentService struct {
+	Authentication       EnrollmentServiceAuth    `json:"authentication"`
+	EnrollmentUiEndpoint string                   `json:"enrollment-ui-endpoint"`
+	Service              EnrollmentServiceService `json:"service"`
+}
+
+// EnrollmentServiceAuth defines model for EnrollmentServiceAuth.
+type EnrollmentServiceAuth struct {
+	ClientCertificateData string `json:"client-certificate-data"`
+	ClientKeyData         string `json:"client-key-data"`
+}
+
+// EnrollmentServiceService defines model for EnrollmentServiceService.
+type EnrollmentServiceService struct {
+	CertificateAuthorityData string `json:"certificate-authority-data"`
+	Server                   string `json:"server"`
 }
 
 // Error defines model for Error.
@@ -650,7 +676,9 @@ type GenericRepoSpec struct {
 type GitConfigProviderSpec struct {
 	ConfigType string `json:"configType"`
 	GitRef     struct {
-		Path string `json:"path"`
+		// MountPath Path to config in device
+		MountPath *string `json:"mountPath,omitempty"`
+		Path      string  `json:"path"`
 
 		// Repository The name of the repository resource to use as the sync source
 		Repository     string `json:"repository"`
@@ -1231,6 +1259,9 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Repository The name of the repository to filter results by.
+	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.

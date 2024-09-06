@@ -38,6 +38,7 @@ type svcConfig struct {
 	BaseUrl              string   `json:"baseUrl,omitempty"`
 	BaseAgentEndpointUrl string   `json:"baseAgentEndpointUrl,omitempty"`
 	BaseAgentGrpcUrl     string   `json:"baseAgentGrpcUrl,omitempty"`
+	BaseUIUrl            string   `json:"baseUIUrl,omitempty"`
 	CaCertFile           string   `json:"caCertFile,omitempty"`
 	CaKeyFile            string   `json:"caKeyFile,omitempty"`
 	SrvCertFile          string   `json:"srvCertFile,omitempty"`

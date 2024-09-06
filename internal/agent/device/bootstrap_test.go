@@ -6,12 +6,51 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestInitialization(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStatusManager := status.NewMockManager(ctrl)
+	mockSpecManager := spec.NewMockManager(ctrl)
+	mockCnfigController := config.NewMockController(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	b := &Bootstrap{
+		statusManager:           mockStatusManager,
+		specManager:             mockSpecManager,
+		configController:        mockCnfigController,
+		deviceReadWriter:        mockReadWriter,
+		managementServiceConfig: &client.Config{},
+		log:                     flightlog.NewPrefixLogger("test"),
+	}
+
+	ctx := context.TODO()
+
+	t.Run("initialization", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, nil).Times(2)
+		mockSpecManager.EXPECT().Ensure().Return(nil)
+		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(true, nil)
+		mockSpecManager.EXPECT().SetClient(gomock.Any())
+		mockStatusManager.EXPECT().SetClient(gomock.Any())
+		mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1alpha1.RenderedDeviceSpec{}, nil)
+		currentDeviceSpec := &v1alpha1.RenderedDeviceSpec{}
+		mockSpecManager.EXPECT().Read(spec.Current).Return(currentDeviceSpec, nil)
+		mockCnfigController.EXPECT().Initialize(gomock.Any(), currentDeviceSpec)
+		mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
+		require.NoError(b.Initialize(ctx))
+	})
+}
 
 func TestBootstrapCheckRollback(t *testing.T) {
 	require := require.New(t)
