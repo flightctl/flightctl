@@ -121,3 +121,6 @@ keycloak
 flightctl.MY.DOMAIN
 global.flightctl.baseDomain
 ui.flightctl.MY.DOMAIN
+openShiftApiUrl
+OpenShift
+PVs

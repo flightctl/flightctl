@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - '*'
 
 env:
   QUAY_ORG: quay.io/flightctl
