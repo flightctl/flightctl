@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-<<<<<<< HEAD
-=======
-	"reflect"
->>>>>>> upstream/main
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
