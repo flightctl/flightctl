@@ -34,10 +34,10 @@ type TemplateVersion struct {
 	DeletedAt       gorm.DeletedAt `gorm:"index"`
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.TemplateVersionSpec]
+	Spec *JSONField[api.TemplateVersionSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.TemplateVersionStatus]
+	Status *JSONField[api.TemplateVersionStatus] `gorm:"type:jsonb"`
 
 	// An indication if this version is valid. It exposed in a Condition but easier to query here.
 	Valid *bool
@@ -56,7 +56,7 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) (*Template
 		return &TemplateVersion{}, nil
 	}
 
-	status := api.TemplateVersionStatus{Conditions: []api.Condition{}}
+	status := api.TemplateVersionStatus{}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -92,7 +92,7 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 		spec = t.Spec.Data
 	}
 
-	status := api.TemplateVersionStatus{Conditions: []api.Condition{}}
+	status := api.TemplateVersionStatus{}
 	if t.Status != nil {
 		status = t.Status.Data
 	}

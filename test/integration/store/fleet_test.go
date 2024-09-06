@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -64,6 +65,68 @@ var _ = Describe("FleetStore create", func() {
 			_, err := storeInst.Fleet().Get(ctx, badOrgId, "myfleet-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
+		})
+
+		It("Get fleet with device summary", func() {
+			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("mydevice-1"),
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUpToDate,
+					},
+				},
+			}
+			_, err := storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			Expect(err).ToNot(HaveOccurred())
+			device.Metadata.Name = util.StrToPtr("mydevice-2")
+			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			Expect(err).ToNot(HaveOccurred())
+			device.Metadata.Name = util.StrToPtr("mydevice-3")
+			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
+			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			Expect(err).ToNot(HaveOccurred())
+			device.Metadata.Name = util.StrToPtr("mydevice-4")
+			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
+			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			Expect(err).ToNot(HaveOccurred())
+			device.Metadata.Name = util.StrToPtr("mydevice-5")
+			device.Status.Summary.Status = api.DeviceSummaryStatusError
+			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			Expect(err).ToNot(HaveOccurred())
+
+			// A device in another org that shouldn't be included
+			testutil.CreateTestDevice(ctx, storeInst.Device(), uuid.New(), "other-org-dev", util.SetResourceOwner(model.FleetKind, "myfleet-1"), nil, nil)
+
+			// mydevice-1 | Online    | UpToDate
+			// mydevice-2 | Degraded  | UpToDate
+			// mydevice-3 | Online    | Updating
+			// mydevice-4 | Rebooting | Updating
+			// mydevice-5 | Error     | Unknown
+			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1", store.WithSummary(true))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
+			Expect(fleet.Status.DevicesSummary.Total).To(Equal(5))
+			summaryStatus := lo.FromPtr(fleet.Status.DevicesSummary.SummaryStatus)
+			Expect(summaryStatus).ToNot(BeNil())
+			Expect(summaryStatus[string(api.DeviceSummaryStatusOnline)]).To(Equal(2))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusDegraded)]).To(Equal(1))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusRebooting)]).To(Equal(1))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusError)]).To(Equal(1))
+			updateStatus := lo.FromPtr(fleet.Status.DevicesSummary.UpdateStatus)
+			Expect(updateStatus).ToNot(BeNil())
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUpToDate)]).To(Equal(2))
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUpdating)]).To(Equal(2))
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUnknown)]).To(Equal(1))
 		})
 
 		It("Delete fleet success", func() {
@@ -162,6 +225,32 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(1))
 			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+		})
+
+		It("List with device count", func() {
+			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
+			testutil.CreateTestDevicesWithOffset(ctx, 3, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-2"), true, 5)
+			fleets, err := storeInst.Fleet().List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			lo.ForEach(fleets.Items, func(f api.Fleet, _ int) { Expect(f.Status.DevicesSummary).To(BeNil()) })
+			fleets, err = storeInst.Fleet().List(ctx, orgId, store.ListParams{}, store.WithDeviceCount(true))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			for _, fleet := range fleets.Items {
+				Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
+				total := fleet.Status.DevicesSummary.Total
+				switch lo.FromPtr(fleet.Metadata.Name) {
+				case "myfleet-1":
+					Expect(total).To(Equal(5))
+				case "myfleet-2":
+					Expect(total).To(Equal(3))
+				case "myfleet-3":
+					Expect(total).To(Equal(0))
+				default:
+					Fail(fmt.Sprintf("unexpected fleet %s", lo.FromPtr(fleet.Metadata.Name)))
+				}
+			}
 		})
 
 		It("CreateOrUpdate create mode", func() {

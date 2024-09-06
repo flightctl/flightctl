@@ -40,10 +40,11 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 	}
 
 	if err := csr.CheckSignature(); err != nil {
-		return err
+		return fmt.Errorf("failed to verify signature of CSR: %w", err)
 	}
 
-	certData, err := ca.IssueRequestedClientCertificate(csr, ClientCertExpiryDays)
+	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
+	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
 	if err != nil {
 		return err
 	}
@@ -178,6 +179,8 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.ReplaceEnrollmentRequest409JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -214,28 +217,29 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 }
 
 // (POST /api/v1/enrollmentrequests/{name}/approval)
-func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, request server.CreateEnrollmentRequestApprovalRequestObject) (server.CreateEnrollmentRequestApprovalResponseObject, error) {
+func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request server.ApproveEnrollmentRequestRequestObject) (server.ApproveEnrollmentRequestResponseObject, error) {
 	orgId := store.NullOrgId
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateEnrollmentRequestApproval400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.ApproveEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
-
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	switch err {
 	default:
 		return nil, err
 	case flterrors.ErrResourceNotFound:
-		return server.CreateEnrollmentRequestApproval404JSONResponse{}, nil
+		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
 	case nil:
 	}
 
+	// if the enrollment request was already approved we should not try to approve it one more time
 	if request.Body.Approved {
-
-		if request.Body.ApprovedAt != nil {
-			return server.CreateEnrollmentRequestApproval422JSONResponse{Message: "ApprovedAt is not allowed to be set when approving enrollment requests"}, nil
+		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
+			return server.ApproveEnrollmentRequest400JSONResponse{Message: "Enrollment request is already approved"}, nil
 		}
-
+		if request.Body.ApprovedAt != nil {
+			return server.ApproveEnrollmentRequest400JSONResponse{Message: "ApprovedAt is not allowed to be set when approving enrollment requests"}, nil
+		}
 		request.Body.ApprovedAt = util.TimeToPtr(time.Now())
 
 		// The same check should happen for ApprovedBy, but we don't have a way to identify
@@ -245,20 +249,20 @@ func (h *ServiceHandler) CreateEnrollmentRequestApproval(ctx context.Context, re
 		}
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
-			return server.CreateEnrollmentRequestApproval422JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
+			return server.ApproveEnrollmentRequest400JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
 		}
 
+		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			return server.CreateEnrollmentRequestApproval422JSONResponse{Message: fmt.Sprintf("Error creating device from enrollment request: %v", err.Error())}, nil
+			return server.ApproveEnrollmentRequest500JSONResponse{Message: fmt.Sprintf("Error creating device from enrollment request: %v", err.Error())}, nil
 		}
 	}
-
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
 	switch err {
 	case nil:
-		return server.CreateEnrollmentRequestApproval200JSONResponse{}, nil
+		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
 	case flterrors.ErrResourceNotFound:
-		return server.CreateEnrollmentRequestApproval404JSONResponse{}, nil
+		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
 	}

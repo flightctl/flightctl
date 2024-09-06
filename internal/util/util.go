@@ -70,6 +70,13 @@ func BoolToPtr(b bool) *bool {
 	return &b
 }
 
+func DefaultBoolIfNil(b *bool, defaultB bool) bool {
+	if b == nil {
+		return defaultB
+	}
+	return *b
+}
+
 func TimeToPtr(t time.Time) *time.Time {
 	return &t
 }
@@ -102,7 +109,7 @@ func SliceToPtrWithNilDefault(s []string) *[]string {
 }
 
 func TimeStampStringPtr() *string {
-	return StrToPtr(time.Now().Format(time.RFC3339))
+	return StrToPtr(time.Now().Format(time.RFC3339Nano))
 }
 
 func BoolToStr(b bool, ifTrue string, ifFalse string) string {
@@ -110,6 +117,19 @@ func BoolToStr(b bool, ifTrue string, ifFalse string) string {
 		return ifTrue
 	}
 	return ifFalse
+}
+
+func FromPtr[T any](x *T) T {
+	if x == nil {
+		return Empty[T]()
+	}
+
+	return *x
+}
+
+func Empty[T any]() T {
+	var zero T
+	return zero
 }
 
 func SingleQuote(input []string) []string {
@@ -240,4 +260,12 @@ func OwnerQueryParamsToArray(ownerQueryParam *string) []string {
 		owners = strings.Split(*ownerQueryParam, ",")
 	}
 	return owners
+}
+
+func DefaultIfNotInMap(m map[string]string, key string, def string) string {
+	val, ok := m[key]
+	if !ok {
+		return def
+	}
+	return val
 }

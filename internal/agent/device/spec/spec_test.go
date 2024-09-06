@@ -3,131 +3,568 @@ package spec
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
-	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-func TestManager(t *testing.T) {
-	tests := []struct {
-		name           string
-		ensureRendered bool
-		wantSkipSync   bool
-		wantErr        error
-	}{
-		{
-			name:           "happy path",
-			ensureRendered: true,
-		},
-		{
-			name:           "error getting rendered spec during runtime",
-			ensureRendered: false,
-			wantErr:        ErrMissingRenderedSpec,
-		},
-		{
-			name:           "skip sync 204 from api",
-			ensureRendered: true,
-			wantSkipSync:   true,
-		},
+func TestBootstrapCheckRollback(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockBootcClient := container.NewMockBootcClient(ctrl)
+
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+		bootcClient:      mockBootcClient,
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require := require.New(t)
-			tmpDir := t.TempDir()
-			err := os.MkdirAll(tmpDir+"/etc/flightctl", 0755)
-			require.NoError(err)
-			currentSpecFilePath := "/etc/flightctl/" + "current-spec.json"
-			desiredSpecFilePath := "/etc/flightctl/" + "desired-spec.json"
-			backoff := wait.Backoff{
-				Steps:    1,
-				Duration: 1,
-				Factor:   1,
-				Jitter:   0,
-			}
-			server := createMockManagementServer(t, tt.wantSkipSync)
-			defer server.Close()
 
-			serverUrl := server.URL
-			httpClient, err := testutil.NewAgentClient(serverUrl, nil, nil)
-			require.NoError(err)
-			managementClient := client.NewManagement(httpClient)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+	t.Run("no rollback: bootstrap case empty desired spec", func(t *testing.T) {
+		wantIsRollback := false
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil)
 
-			log := log.NewPrefixLogger("")
-			writer := fileio.NewWriter()
-			writer.SetRootdir(tmpDir)
-			reader := fileio.NewReader()
-			reader.SetRootdir(tmpDir)
+		isRollback, err := s.IsRollingBack(ctx)
+		require.NoError(err)
+		require.Equal(wantIsRollback, isRollback)
+	})
 
-			// ensure rendered spec
-			if tt.ensureRendered {
-				_, err := EnsureCurrentRenderedSpec(ctx, log, writer, reader, currentSpecFilePath)
-				require.NoError(err)
-			}
+	t.Run("no rollback: booted os is equal to desired", func(t *testing.T) {
+		wantIsRollback := false
+		rollbackImage := "flightctl-device:v1"
+		bootedImage := "flightctl-device:v2"
+		desiredImage := "flightctl-device:v2"
 
-			manager := NewManager(
-				"testDeviceName",
-				currentSpecFilePath,
-				desiredSpecFilePath,
-				writer,
-				reader,
-				managementClient,
-				backoff,
-				log,
-			)
-			current, desired, err := manager.GetRendered(ctx)
-			if tt.wantSkipSync {
-				require.Equal(current, desired)
-				return
-			}
-			if tt.wantErr != nil {
-				require.ErrorIs(err, tt.wantErr)
-				return
-			}
-			require.NoError(err)
-			// eval current
-			require.Equal("", current.RenderedVersion)
-			// eval desired
-			require.Equal("mockRenderedVersion", desired.RenderedVersion)
-		})
-	}
+		// desiredSpec
+		desiredSpec, err := createTestSpec(desiredImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(desiredSpec, nil)
+
+		// rollbackSpec
+		rollbackSpec, err := createTestSpec(rollbackImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(rollbackSpec, nil)
+
+		// bootcStatus
+		bootcStatus := &container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		isRollback, err := s.IsRollingBack(ctx)
+		require.NoError(err)
+		require.Equal(wantIsRollback, isRollback)
+	})
+
+	t.Run("rollback case: rollback os equal to booted os but not desired", func(t *testing.T) {
+		wantIsRollback := true
+		rollbackImage := "flightctl-device:v1"
+		bootedImage := "flightctl-device:v1"
+		desiredImage := "flightctl-device:v2"
+
+		// desiredSpec
+		desiredSpec, err := createTestSpec(desiredImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(desiredSpec, nil)
+
+		// rollbackSpec
+		rollbackSpec, err := createTestSpec(rollbackImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(rollbackSpec, nil)
+
+		// bootcStatus
+		bootcStatus := &container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		isRollback, err := s.IsRollingBack(ctx)
+		require.NoError(err)
+		require.Equal(wantIsRollback, isRollback)
+	})
 
 }
 
-func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mockRenderedVersion := "mockRenderedVersion"
-		resp := v1alpha1.RenderedDeviceSpec{
-			RenderedVersion: mockRenderedVersion,
-			Config:          util.StrToPtr("ignitionConfig"),
-		}
+func TestNewManager(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-		w.Header().Set("Content-Type", "application/json")
-		if noChange {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		respBytes, err := json.Marshal(resp)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = w.Write(respBytes)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}))
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockBootcClient := container.NewMockBootcClient(ctrl)
+	logger := log.NewPrefixLogger("test")
+	backoff := wait.Backoff{}
+
+	t.Run("constructs file paths for the spec files", func(t *testing.T) {
+		manager := NewManager(
+			"device-name",
+			"test/directory/structure/",
+			mockReadWriter,
+			mockBootcClient,
+			backoff,
+			logger,
+		)
+
+		require.Equal("test/directory/structure/current.json", manager.currentPath)
+		require.Equal("test/directory/structure/desired.json", manager.desiredPath)
+		require.Equal("test/directory/structure/rollback.json", manager.rollbackPath)
+	})
+}
+
+func TestInitialize(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	s := &SpecManager{
+		deviceReadWriter: mockReadWriter,
+	}
+
+	writeErr := errors.New("write failure")
+
+	t.Run("error writing current file", func(t *testing.T) {
+		// current
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
+		err := s.Initialize()
+
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("error writing desired file", func(t *testing.T) {
+		// current
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		// desired
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
+
+		err := s.Initialize()
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("error writing rollback file", func(t *testing.T) {
+		// current
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		// desired
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		// rollback
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
+
+		err := s.Initialize()
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("successful initialization", func(t *testing.T) {
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(3).Return(nil)
+		err := s.Initialize()
+		require.NoError(err)
+	})
+}
+
+func TestEnsure(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+	}
+
+	fileErr := errors.New("invalid file")
+
+	t.Run("error checking if file exists", func(t *testing.T) {
+		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, fileErr)
+		err := s.Ensure()
+		require.ErrorIs(err, ErrCheckingFileExists)
+	})
+
+	t.Run("error writing file when it does not exist", func(t *testing.T) {
+		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, nil)
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
+		err := s.Ensure()
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("files are written when they don't exist", func(t *testing.T) {
+		// First two files checked exist
+		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(2).Return(true, nil)
+		// Third file does not exist, so then expect a write
+		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(1).Return(false, nil)
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).Return(nil)
+		err := s.Ensure()
+		require.NoError(err)
+	})
+
+	t.Run("no files are written when they all exist", func(t *testing.T) {
+		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(3).Return(true, nil)
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+		err := s.Ensure()
+		require.NoError(err)
+	})
+}
+
+func TestRead(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+	}
+
+	t.Run("ensure proper error handling on read failure", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("read gone wrong"))
+		_, err := s.Read(Current)
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("reads a device spec", func(t *testing.T) {
+		image := "flightctl-device:v1"
+		spec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(spec, nil)
+
+		specFromRead, err := s.Read(Current)
+		require.NoError(err)
+		require.Equal(image, specFromRead.Os.Image)
+	})
+}
+
+func Test_readRenderedSpecFromFile(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReader := fileio.NewMockReader(ctrl)
+	filePath := "test/path/spec.json"
+
+	t.Run("error when the file does not exist", func(t *testing.T) {
+		mockReader.EXPECT().ReadFile(filePath).Return(nil, os.ErrNotExist)
+
+		_, err := readRenderedSpecFromFile(mockReader, filePath)
+		require.ErrorIs(err, ErrMissingRenderedSpec)
+	})
+
+	t.Run("error reading file when it does exist", func(t *testing.T) {
+		mockReader.EXPECT().ReadFile(filePath).Return(nil, errors.New("cannot read"))
+
+		_, err := readRenderedSpecFromFile(mockReader, filePath)
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("error when the file is not a valid spec", func(t *testing.T) {
+		invalidSpec := []byte("Not json data for a spec")
+		mockReader.EXPECT().ReadFile(filePath).Return(invalidSpec, nil)
+
+		_, err := readRenderedSpecFromFile(mockReader, filePath)
+		require.ErrorIs(err, ErrUnmarshalSpec)
+	})
+
+	t.Run("returns the read spec", func(t *testing.T) {
+		image := "flightctl-device:v1"
+		spec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReader.EXPECT().ReadFile(gomock.Any()).Return(spec, nil)
+
+		specFromRead, err := readRenderedSpecFromFile(mockReader, filePath)
+		require.NoError(err)
+		require.Equal(image, specFromRead.Os.Image)
+	})
+}
+
+func Test_writeRenderedToFile(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockWriter := fileio.NewMockWriter(ctrl)
+	filePath := "path/to/write"
+	spec := createRenderedTestSpec("test-image")
+
+	marshaled, err := json.Marshal(spec)
+	require.NoError(err)
+
+	t.Run("returns an error when the write fails", func(t *testing.T) {
+		writeErr := errors.New("some failure")
+		mockWriter.EXPECT().WriteFile(filePath, marshaled, fileio.DefaultFilePermissions).Return(writeErr)
+
+		err = writeRenderedToFile(mockWriter, spec, filePath)
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("writes a rendered spec", func(t *testing.T) {
+		mockWriter.EXPECT().WriteFile(filePath, marshaled, fileio.DefaultFilePermissions).Return(nil)
+
+		err = writeRenderedToFile(mockWriter, spec, filePath)
+		require.NoError(err)
+	})
+}
+
+func TestUpgrade(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	desiredPath := "test/desired.json"
+	currentPath := "test/current.json"
+	rollbackPath := "test/rollback/json"
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+		desiredPath:      desiredPath,
+		currentPath:      currentPath,
+		rollbackPath:     rollbackPath,
+	}
+
+	specErr := errors.New("error with spec")
+
+	emptySpec, err := createEmptyTestSpec()
+	require.NoError(err)
+
+	t.Run("error reading desired spec", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
+
+		err := s.Upgrade()
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("error writing desired spec to current", func(t *testing.T) {
+		desiredSpec, err := createTestSpec("flightctl-device:v2")
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+		mockReadWriter.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(specErr)
+
+		err = s.Upgrade()
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("error writing the rollback spec", func(t *testing.T) {
+		desiredSpec, err := createTestSpec("flightctl-device:v2")
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+		mockReadWriter.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
+		mockReadWriter.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(specErr)
+
+		err = s.Upgrade()
+		require.ErrorIs(err, ErrWritingRenderedSpec)
+	})
+
+	t.Run("clears out the rollback spec", func(t *testing.T) {
+		desiredSpec, err := createTestSpec("flightctl-device:v2")
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+		mockReadWriter.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
+		mockReadWriter.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(nil)
+
+		err = s.Upgrade()
+		require.NoError(err)
+	})
+}
+
+func TestIsOSUpdate(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	desiredPath := "test/desired.json"
+	currentPath := "test/current.json"
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+		desiredPath:      desiredPath,
+		currentPath:      currentPath,
+	}
+
+	emptySpec, err := createEmptyTestSpec()
+	require.NoError(err)
+
+	specErr := errors.New("error with spec")
+
+	t.Run("error reading current spec", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(nil, specErr)
+
+		_, err := s.IsOSUpdate()
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("error reading desired spec", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(emptySpec, nil)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
+
+		_, err := s.IsOSUpdate()
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("both specs are empty", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(emptySpec, nil)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(emptySpec, nil)
+
+		osUpdate, err := s.IsOSUpdate()
+		require.NoError(err)
+		require.Equal(false, osUpdate)
+	})
+
+	t.Run("current and desired os images are the same", func(t *testing.T) {
+		image := "flightctl-device:v2"
+
+		currentSpec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
+
+		desiredSpec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+
+		osUpdate, err := s.IsOSUpdate()
+		require.NoError(err)
+		require.Equal(false, osUpdate)
+	})
+
+	t.Run("current and desired os images are different", func(t *testing.T) {
+		currentImage := "flightctl-device:v2"
+		desiredImage := "flightctl-deivce:v3"
+
+		currentSpec, err := createTestSpec(currentImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
+
+		desiredSpec, err := createTestSpec(desiredImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+
+		osUpdate, err := s.IsOSUpdate()
+		require.NoError(err)
+		require.Equal(true, osUpdate)
+	})
+}
+
+func TestCheckOsReconciliation(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockBootcClient := container.NewMockBootcClient(ctrl)
+
+	desiredPath := "test/desired.json"
+	s := &SpecManager{
+		log:              log.NewPrefixLogger("test"),
+		deviceReadWriter: mockReadWriter,
+		bootcClient:      mockBootcClient,
+		desiredPath:      desiredPath,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	emptySpec, err := json.Marshal(&v1alpha1.RenderedDeviceSpec{})
+	require.NoError(err)
+
+	t.Run("error getting bootc status", func(t *testing.T) {
+		bootcErr := errors.New("bootc problem")
+		mockBootcClient.EXPECT().Status(ctx).Return(nil, bootcErr)
+
+		_, _, err := s.CheckOsReconciliation(ctx)
+		require.ErrorIs(err, ErrGettingBootcStatus)
+	})
+
+	t.Run("error reading desired spec", func(t *testing.T) {
+		bootcStatus := &container.BootcHost{}
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		readErr := errors.New("unable to read file")
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(emptySpec, readErr)
+
+		_, _, err = s.CheckOsReconciliation(ctx)
+		require.ErrorIs(err, ErrReadingRenderedSpec)
+	})
+
+	t.Run("desired os is not set in the spec", func(t *testing.T) {
+		bootedImage := "flightctl-device:v1"
+
+		bootcStatus := &container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(emptySpec, nil)
+
+		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
+		require.NoError(err)
+		require.Equal(bootedOSImage, bootedImage)
+		require.Equal(false, desiredImageIsBooted)
+	})
+
+	t.Run("booted image and desired image are different", func(t *testing.T) {
+		bootedImage := "flightctl-device:v1"
+		desiredImage := "flightctl-device:v2"
+
+		bootcStatus := &container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		desiredSpec, err := createTestSpec(desiredImage)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+
+		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
+		require.NoError(err)
+		require.Equal(bootedOSImage, bootedImage)
+		require.Equal(false, desiredImageIsBooted)
+	})
+
+	t.Run("booted image and desired image are the same", func(t *testing.T) {
+		image := "flightctl-device:v2"
+
+		bootcStatus := &container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = image
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+
+		desiredSpec, err := createTestSpec(image)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+
+		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
+		require.NoError(err)
+		require.Equal(bootedOSImage, image)
+		require.Equal(true, desiredImageIsBooted)
+	})
+}
+
+func createTestSpec(image string) ([]byte, error) {
+	spec := createRenderedTestSpec(image)
+	return json.Marshal(spec)
+}
+
+func createRenderedTestSpec(image string) *v1alpha1.RenderedDeviceSpec {
+	spec := v1alpha1.RenderedDeviceSpec{
+		Os: &v1alpha1.DeviceOSSpec{
+			Image: image,
+		},
+	}
+	return &spec
+}
+
+func createEmptyTestSpec() ([]byte, error) {
+	return json.Marshal(&v1alpha1.RenderedDeviceSpec{})
 }

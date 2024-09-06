@@ -70,6 +70,15 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
+	if request.Params.Repository != nil {
+		specFilter := []string{fmt.Sprintf("spec.repository=%s", *request.Params.Repository)}
+		filterMap, err := ConvertFieldFilterParamsToMap(specFilter)
+		if err != nil {
+			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to convert repository filter: %v", err)}, nil
+		}
+		listParams.Filter = filterMap
+	}
+
 	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
 	switch err {
 	case nil:
@@ -135,6 +144,8 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceResourceSync404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.ReplaceResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -192,7 +203,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-	result, _, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, newObj)
+	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
 
 	switch err {
 	case nil:
@@ -201,6 +212,8 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchResourceSync404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.PatchResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err
 	}

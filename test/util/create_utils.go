@@ -46,14 +46,19 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 }
 
 func CreateTestDevices(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool) {
+	CreateTestDevicesWithOffset(ctx, numDevices, deviceStore, orgId, owner, sameVals, 0)
+}
+
+func CreateTestDevicesWithOffset(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool, offset int) {
 	for i := 1; i <= numDevices; i++ {
-		labels := map[string]string{"key": fmt.Sprintf("value-%d", i), "otherkey": "othervalue", "version": fmt.Sprintf("%d", i)}
+		num := i + offset
+		labels := map[string]string{"key": fmt.Sprintf("value-%d", num), "otherkey": "othervalue", "version": fmt.Sprintf("%d", num)}
 		if sameVals {
 			labels["key"] = "value"
 			labels["version"] = "1"
 		}
 
-		CreateTestDevice(ctx, deviceStore, orgId, fmt.Sprintf("mydevice-%d", i), owner, nil, &labels)
+		CreateTestDevice(ctx, deviceStore, orgId, fmt.Sprintf("mydevice-%d", num), owner, nil, &labels)
 	}
 }
 
@@ -64,7 +69,6 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 			Labels: selector,
 			Owner:  owner,
 		},
-		Spec: api.FleetSpec{},
 	}
 
 	if selector != nil {

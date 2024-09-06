@@ -47,14 +47,101 @@ NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 
 ## Deploying the Flight Control Service
 
+### Standalone flightctl with keycloak integration
+
+Create a values.yaml file with the following content, replace
+
+  1. `flightctl.MY.DOMAIN` with your base domain
+  2. `storageClassName` with the name of the storage class you want to use for creating PVs.
+
+Please note this values file will be simplified in the future to avoid duplication
+by making use of the global.flightctl.baseDomain value.
+
+```yaml
+global:
+  flightctl:
+    baseDomain: "flightctl.MY.DOMAIN"
+    clusterLevelSecretAccess: true
+    useRoutes: true
+  storageClassName: "lvms-vg1"
+flightctl:
+  api:
+    auth:
+      oidcAuthority: "https://auth.flightctl.MY.DOMAIN/realms/flightctl"
+      internalOidcAuthority: "http://keycloak:8080/realms/flightctl"
+      enabled: true
+
+# using keycloak as our OIDC authority for authentication
+
+keycloak:
+  enabled: true
+  namespace: "flightctl"
+  db:
+    namespace: "flightctl"
+
+  realm:
+    redirectUris:
+      - /realms/flightctl/account/*
+      - http://127.0.0.1/callback
+      - https://ui.flightctl.MY.DOMAIN/*
+      - https://ui.flightctl.MY.DOMAIN/
+      - https://ui.flightctl.MY.DOMAIN
+    webOrigins:
+      - https://api.flightctl.MY.DOMAIN
+      - https://ui.flightctl.MY.DOMAIN
+    adminUrl: "https://auth.flightctl.MY.DOMAIN"
+    baseUrl: "https://auth.flightctl.MY.DOMAIN"
+    rootUrl: "https://auth.flightctl.MY.DOMAIN"
+
+  # section consumed by the ui charts
+  # using keycloak as our OIDC authority for authentication
+  authority: https://auth.flightctl.MY.DOMAIN/realms/flightctl
+  clientid: flightctl
+  redirect: https://ui.flightctl.MY.DOMAIN
+
+# ui configuration
+flightctlUi:
+  namespace: flightctl
+  hostName: ui.flightctl.MY.DOMAIN
+  image: quay.io/flightctl/flightctl-ui:0.1.1
+  flightctlServer: https://flightctl-api:3443
+  flightctlMetricsServer: https://flightctl-api:9090
+  flightctlGrpcServer: flightctl-api-agent-grpc:7444
+  certs:
+    ca: "" # use --set-file flightctlUi.certs.ca=ca.crt
+    frontRouter: ""
+    frontRouterKey: ""
+
+```
+
 Install a released version of the Flight Control Service into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=0.0.1 \
-    -n flightctl --create-namespace \
-    flightctl oci://quay.io/flightctl/flightctl-helm
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --values values.yaml
 
-[...]
+```
+
+Retrieve the CA certificate for the API service:
+
+```console
+kubectl rollout status deployment flightctl-api -n flightctl -w --timeout=300s
+
+API_POD=$(kubectl get pod -n flightctl -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" | head -1)
+
+kubectl exec -n flightctl "${API_POD}" -- cat /root/.flightctl/certs/ca.crt > ca.crt
+```
+
+Install a release version of the Flight Control UI into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl-ui oci://quay.io/flightctl/charts/flightctl-ui \
+    --values values.yaml \
+    --set-file flightctlUi.certs.ca=ca.crt
 ```
 
 Verify your Flight Control Service is up and running:
@@ -64,6 +151,88 @@ $ kubectl get pods -n flightctl
 
 [...]
 ```
+
+### flightctl in ACM
+
+Create a values.yaml file with the following content, replace
+
+ 1. `baseDomain` with your base domain.
+ 2. `storageClassName` with the name of the storage class you want to use for creating PVs.
+ 3. `openShiftApiUrl` with your actual OpenShift API URL.
+
+Please note this values file will be simplified in the future to avoid duplication
+by making use of the global.flightctl.baseDomain value.
+
+```yaml
+global:
+  flightctl:
+    baseDomain: "flightctl.MY.DOMAIN"
+    clusterLevelSecretAccess: true
+    useRoutes: true
+    networkPolicyAllowList:
+      - openshift-console
+  storageClassName: "lvms-vg1"
+flightctl:
+  api:
+    auth:
+      enabled: true
+      openShiftApiUrl: "https://api.openshift.cluster.com:6443"
+
+keycloak:
+  enabled: false
+
+# ui configuration
+flightctlUi:
+  namespace: flightctl
+  image: quay.io/flightctl/flightctl-ocp-ui:0.1.1
+  flightctlServer: https://flightctl-api:3443
+  flightctlMetricsServer: https://flightctl-api:9090
+  flightctlGrpcServer: flightctl-api-agent-grpc:7444
+  certs:
+    ca: "" # use --set-file flightctlUi.certs.ca=ca.crt
+
+```
+
+Install a released version of the Flight Control Service into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --values values.yaml
+
+```
+
+Retrieve the CA certificate for the API service:
+
+```console
+kubectl rollout status deployment flightctl-api -n flightctl -w --timeout=300s
+
+API_POD=$(kubectl get pod -n flightctl -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" | head -1)
+
+kubectl exec -n flightctl "${API_POD}" -- cat /root/.flightctl/certs/ca.crt > ca.crt
+```
+
+Install a release version of the Flight Control ACM UI plugin into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl-ui oci://quay.io/flightctl/charts/flightctl-ocp-ui \
+    --values values.yaml \
+    --set-file flightctlUi.certs.ca=ca.crt
+```
+
+Verify your Flight Control Service is up and running:
+
+```console
+$ kubectl get pods -n flightctl
+
+[...]
+```
+
+After deploying the Flight Control ACM UI plugin, it needs to be manually enabled. Open your OpenShift Console -> Home -> Overview -> Status card -> Dynamic plugins and enable the Flight Control ACM UI plugin.
+After enabling the plugin, you will need to wait for the Console operator to rollout a new deployment.
 
 ## Installing the Flight Control CLI
 
@@ -106,6 +275,8 @@ Finally, move it into a location within your shell's search path.
 
 ## Logging into the Flight Control Service from the CLI
 
+### Standalone deployment
+
 Retrieve the password for the "demouser" account that's been automatically generated for you during installation:
 
 ```console
@@ -132,31 +303,152 @@ $ flightctl get devices
 NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
 ```
 
-## Building a Bootable Container Image including the Flight Control Agent
+### ACM deployment
 
-Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
-
-Retrieve the agent configuration with enrollment credentials by running:
+Use the CLI to log into the Flight Control Service:
 
 ```console
-$ flightctl certificate request --scope=enrollment --validity=1y -o agent-config > config.yaml
+$ flightctl login https://api.flightctl.127.0.0.1.nip.io/ --web --insecure-skip-tls-verify
 
 [...]
 ```
 
-The returned `config.yaml` should look similar to this:
+In the web browser that opens, use your ACM login credentials.
+
+Verify you can now access the service via the CLI:
 
 ```console
-$ cat config.yaml
+$ flightctl get devices
+
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
+```
+
+## Login into the Flight Control Service from the standalone UI
+
+Browse to `ui.flightctl.MY.DOMAIN` and use the login "demouser" and the password you retrieved in the previous step.
+
+## Building a Bootable Container Image including the Flight Control Agent
+
+Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service. After deploying the flightctl server, this configuration can be retrieved after a Certificate Signing Request has been completed as outlined in the steps below.
+
+### Create Certificate Signing Request configuration
+
+For enrollment, the device will need an enrollment certificate to be present. The enrollment certificate is created when a certificate signing request in flightctl is approved by an authorized user and can be retrieved once this process is complete. The four steps below describe this process.
+
+#### 1/4 Create the signed CSR
+
+This CSR will be embedded in the CSR resource configuration file that will be applied to flightctl.
+
+Create a certificate signing request `.csr` file with openssl:
+
+```console
+openssl req -new -sha256 -key myeckey.pem -out mycsr.csr
+```
+
+**NOTES**:
+
+1. The signing key passed with `-key` MUST be an ECDSA key. To generate an ECDSA key, use `openssl ecparam -name secp521r1 -genkey -noout -out myeckey.pem` or see the [openssl documentation on ECDSA](https://docs.openssl.org/1.0.2/man1/ecparam/#synopsis) for more options.
+2. The Subject Common Name in the CSR MUST be either blank or at least 16 characters in length.
+
+For more options, including generating a new private key to sign the CSR, see [openssl's documentation](https://docs.openssl.org/master/man1/openssl-req/#options).
+
+#### 2/4 Create the CSR resource configuration file
+
+You can create a CSR resource configuration file wrapping the CSR file above either by generating it with flightctl or manually. Each option is described below. You may choose the CSR name, and desired expiration in seconds.
+
+##### Option 1: Generate the CSR config file
+
+Issue the command below, specifying your `.csr` file and an output file, and optionally specifying the CSR name and expiration in seconds. The CSR name defaults to `mycsr`, the expiration to 604800 seconds. The `-y` flag enables overwriting the output file if it already exists.
+
+```console
+flightctl csr-generate mycsr.csr -e 604800 -n chosenname -o myoutputfile -y
+```
+
+##### Option 2: Manually create the CSR config file
+
+The file name, `metadata.name`, and `spec.expirationSeconds` can vary. The `apiVersion`, `kind`, `spec.signerName`, and `spec.usages` must match those below. The `spec.request` field will hold a base64-encoded contents of the `.csr` file previously created.
+
+```console
+$ cat > mycsrresource.yaml <<EOF
+apiVersion: v1alpha1
+kind: CertificateSigningRequest
+metadata:
+  name: mycsr
+spec:
+  request: <add base64-encoded CSR>
+  signerName: ca
+  usages: ["clientAuth", "CA:false"]
+  expirationSeconds: 604800
+EOF
+```
+
+Add the base64-encoded contents of the previously created CSR to the field `spec.request`, making sure to remove newlines. This can be generated with:
+
+```console
+cat mycsr.csr | base64 | tr -d '\n'
+```
+
+The end result should be structured the same way as [`examples/csr.yaml`](/examples/csr.yaml).
+
+#### 3/4 Create the CSR resource in flightctl
+
+You may then create the CSR resource by running the command below:
+
+```console
+$ flightctl apply -f mycsrresource.yaml
+certificatesigningrequest: applying mycsrresource.yaml/mycsr: 201 Created
+```
+
+You can view the status of the certificate signing request with:
+
+```console
+$ flightctl get csr/mycsr
+NAME    AGE     SIGNERNAME  USERNAME    REQUESTEDDURATION   CONDITION
+mycsr   2m29s   ca          <none>      10m0s               Pending
+
+```
+
+#### 4/4 Approve the CSR
+
+The certificate signing request will need to be approved. As an authorized user, you may approve a specific certificate signing request by running (replace `mycsr` with the name of your CSR):
+
+```console
+flightctl approve csr/mycsr
+```
+
+The Condition of the certificate signing request will then show:
+
+```console
+$ flightctl get csr/mycsr
+NAME    AGE     SIGNERNAME  USERNAME    REQUESTEDDURATION   CONDITION
+mycsr   3m4s    ca          <none>      10m0s               Approved
+
+```
+
+### Retrieve and use the agent config file
+
+Once the CSR has been approved, retrieve the agent configuration with enrollment credentials by running:
+
+```console
+flightctl enrollmentconfig <mycsr> --private-key <myeckey.pem> > agentconfig.yaml
+```
+
+Make sure to supply the same name that you entered in your original CSR configuration resource `.yaml` file, and the same private key you used when generating the CSR.
+
+The returned output should look similar to this:
+
+```console
+$ cat agentconfig.yaml
 
 enrollment-service:
-  service:
-    server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
-    certificate-authority-data: LS0tLS1CRUdJTiBD...
   authentication:
     client-certificate-data: LS0tLS1CRUdJTiBD...
     client-key-data: LS0tLS1CRUdJTiBF...
   enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8080
+  service:
+    certificate-authority-data: LS0tLS1CRUdJTiBD...
+    server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
+  grpc-management-endpoint: grpcs://agent-grpc.127.0.0.1.nip.io:7444
 ```
 
 Create a `Containerfile` with the following content:
@@ -171,7 +463,7 @@ RUN dnf -y copr enable @redhat-et/flightctl-dev centos-stream-9-x86_64 && \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
 
-ADD config.yaml /etc/flightctl/
+ADD agentconfig.yaml /etc/flightctl/config.yaml
 ```
 
 Note this is a regular `Containerfile` that you're used to from Docker/Podman, with the difference that the base image referenced in the `FROM` directive is bootable. This means you can use standard container build tools and workflows.
@@ -236,7 +528,7 @@ NAME                                                  APPROVAL  APPROVER  APPROV
 You can approve an enrollment request and optionally add labels to the device:
 
 ```console
-$ flightctl approve -l region=eu-west-1 -l site=factory-berlin 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+$ flightctl approve -l region=eu-west-1 -l site=factory-berlin er/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
 
 Success.
 

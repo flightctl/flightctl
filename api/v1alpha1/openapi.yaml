@@ -62,6 +62,11 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: repository
+          in: query
+          description: The name of the repository to filter results by.
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -216,6 +221,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       tags:
         - resourcesync
@@ -254,6 +265,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -468,6 +485,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - repository
@@ -537,6 +560,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -818,6 +847,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/status:
     get:
       tags:
@@ -925,6 +960,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -968,6 +1009,44 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/enrollmentconfig/{name}:
+    get:
+      tags:
+        - enrollmentconfig
+      description: Get config for enrolling devices
+      operationId: enrollmentConfig
+      parameters:
+        - name: name
+          in: path
+          description: the name of approved CSR
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentConfig'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -1157,6 +1236,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -1262,7 +1347,7 @@ paths:
       tags:
         - enrollmentrequest
       description: create approval of the specified EnrollmentRequest
-      operationId: createEnrollmentRequestApproval
+      operationId: approveEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -1307,6 +1392,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests:
     get:
       tags:
@@ -1339,6 +1430,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequestList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1397,7 +1494,7 @@ paths:
       tags:
         - certificatesigningrequest
       description: delete a collection of CertificateSigningRequest
-      operationId: deleteCollectionCertificateSigningRequest
+      operationId: deleteCertificateSigningRequests
       responses:
         "200":
           description: OK
@@ -1456,6 +1553,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -1541,6 +1644,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - certificatesigningrequest
@@ -1560,124 +1669,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
-        "202":
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-  /api/v1/certificatesigningrequests/{name}/status:
-    patch:
-      description: partially update status of the specified CertificateSigningRequest
-      operationId: patchCertificateSigningRequestStatus
-      tags:
-        - certificatesigningrequest
-      parameters:
-        - name: name
-          in: path
-          description: name of the certificatesigningrequest
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json-patch+json:
-            schema:
-              $ref: '#/components/schemas/PatchRequest'
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: NotFound
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    get:
-      tags:
-        - certificatesigningrequest
-      description: read status of the specified CertificateSigningRequest
-      operationId: readCertificateSigningRequestStatus
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-            uniqueItems: true # differs from enrollmentRequest
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    put:
-      tags:
-        - certificatesigningrequest
-      description: replace status of the specified CertificateSigningRequest
-      operationId: replaceCertificateSigningRequestStatus
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CertificateSigningRequest'
-        required: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
         "401":
           description: Unauthorized
           content:
@@ -1691,32 +1682,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests/{name}/approval:
-    patch:
-      description: partially update approval of the specified CertificateSigningRequest
-      operationId: patchCertificateSigningRequestApproval
-      tags:
-        - certificatesigningrequest
+    post:
+      description: approve the specified CertificateSigningRequest
+      operationId: approveCertificateSigningRequest
       parameters:
         - name: name
           in: path
-          description: name of the certificatesigningrequest
+          description: name of the CertificateSigningRequest
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json-patch+json:
-            schema:
-              $ref: '#/components/schemas/PatchRequest'
       responses:
         "200":
           description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
           content:
             application/json:
               schema:
@@ -1739,51 +1717,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    put:
-      description: replace approval of the specified CertificateSigningRequest
-      operationId: replaceCertificateSigningRequestApproval
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    get:
-      description: read approval of the specified CertificateSigningRequest
-      operationId: readCertificateSigningRequestApproval
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
+        "500":
+          description: InternalServerError
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    delete:
+      description: deny the specified CertificateSigningRequest
+      operationId: denyCertificateSigningRequest
       parameters:
         - name: name
           in: path
@@ -1792,6 +1740,31 @@ paths:
           schema:
             type: string
             uniqueItems: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets:
     get:
       tags:
@@ -1909,6 +1882,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: addDevicesSummary
+          in: query
+          description: include a summary of the devices in the fleet
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -2021,6 +2000,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
@@ -2518,6 +2503,10 @@ components:
                   type: string
                 path:
                   type: string
+                mountPath:
+                  description: Path to config in device
+                  type: string
+                  default: "/"
               required:
                 - repository
                 - targetRevision
@@ -2666,7 +2655,7 @@ components:
         - "ResourceAlertSeverityTypeWarning"
         - "ResourceAlertSeverityTypeCritical"
         - "ResourceAlertSeverityTypeInfo"
-    DeviceHookSpec:
+    DeviceUpdateHookSpec:
       type: object
       properties:
         name:
@@ -2678,9 +2667,27 @@ components:
           items:
             $ref: '#/components/schemas/HookAction'
           description: 'The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.'
+        onFile:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileOperation'
         path:
           type: string
           description: 'The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.'
+      required:
+        - actions
+    DeviceRebootHookSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string 
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/HookAction'
+          description: 'The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.'
       required:
         - actions
     FileOperation:
@@ -2690,23 +2697,28 @@ components:
         - "Create"
         - "Remove"
         - "Update"
+        - "Reboot"
       x-enum-varnames:
         - "FileOperationCreate"
         - "FileOperationRemove" # by convention remove is fired before the file is removed.
         - "FileOperationUpdate"
+        - "FileOperationReboot"
     HookAction:
       type: object
       oneOf:
-        - type: object
-        - $ref: '#/components/schemas/HookActionSystemdSpec'
-        - $ref: '#/components/schemas/HookActionExecutableSpec'
+        - properties:
+            executable:
+              $ref: '#/components/schemas/HookActionExecutableSpec'
+          required:
+           - "executable"
+        - properties:
+            systemd:
+              $ref: '#/components/schemas/HookActionSystemdSpec'
+          required:
+           - "systemd"
     HookActionSpec:
       type: object
       properties:
-        on:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileOperation'
         timeout:
              type: string
              pattern: '^[1-9]\d*[smhd]$'
@@ -2763,18 +2775,13 @@ components:
     HookActionExecutableSpec:
       allOf:
         - $ref: '#/components/schemas/HookActionSpec'
-        - type: object
-          properties:
-            executable:
-              $ref: '#/components/schemas/HookActionExecutable'
-          required:
-            - executable
+        - $ref: '#/components/schemas/HookActionExecutable'
     HookActionExecutable:
           type: object
           properties:
             run:
               type: string
-              description: 'The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.'
+              description: 'The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.'
             envVars: 
               type: array
               items:
@@ -2801,6 +2808,8 @@ components:
           description: 'List of Devices.'
           items:
             $ref: '#/components/schemas/Device'
+        summary:
+          $ref: '#/components/schemas/DevicesSummary'
       description: DeviceList is a list of Devices.
       required:
         - apiVersion
@@ -3099,6 +3108,49 @@ components:
           description: 'approvedAt is the time at which the request was approved.'
       required:
         - approved
+    EnrollmentServiceAuth:
+      type: object
+      properties:
+        client-certificate-data:
+          type: string
+        client-key-data:
+          type: string
+      required:
+        - client-certificate-data
+        - client-key-data
+    EnrollmentServiceService:
+      type: object
+      properties:
+        certificate-authority-data:
+          type: string
+        server:
+          type: string
+      required:
+        - certificate-authority-data
+        - server
+    EnrollmentService:
+      type: object
+      properties:
+        authentication:
+          $ref: '#/components/schemas/EnrollmentServiceAuth'
+        service:
+          $ref: '#/components/schemas/EnrollmentServiceService'
+        enrollment-ui-endpoint:
+          type: string
+      required:
+        - authentication
+        - service
+        - enrollment-ui-endpoint
+    EnrollmentConfig:
+      type: object
+      properties:
+        enrollment-service:
+          $ref: '#/components/schemas/EnrollmentService'
+        grpc-management-endpoint:
+          type: string
+      required:
+        - enrollment-service
+        - grpc-management-endpoint
     EnrollmentRequest:
       type: object
       properties:
@@ -3359,28 +3411,28 @@ components:
         beforeUpdating:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceUpdateHookSpec'
           description: |
             Hooks executed before updating allow for custom actions and integration with other systems
             or services. These actions occur before configuration changes are applied to the device.
         afterUpdating:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceUpdateHookSpec'
           description: |
             Hooks executed after updating enable custom actions and integration with other systems
             or services. These actions occur after configuration changes have been applied to the device.
         beforeRebooting:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceRebootHookSpec'
           description: |
             Hooks executed before rebooting allow for custom actions and integration with other systems
             or services. These actions occur before the device is rebooted.
         afterRebooting:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceHookSpec'
+            $ref: '#/components/schemas/DeviceRebootHookSpec'
           description: |
             Hooks executed after rebooting enable custom actions and integration with other systems
             or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
@@ -3433,9 +3485,30 @@ components:
           description: 'Current state of the fleet.'
           items:
             $ref: '#/components/schemas/Condition'
+        devicesSummary:
+          $ref: '#/components/schemas/DevicesSummary'
       required:
         - conditions
       description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
+    DevicesSummary:
+      type: object
+      description: A summary of the devices in the fleet returned when fetching a single Fleet.
+      required:
+      - total
+      properties:
+        total:
+          type: integer
+          description: The total number of devices in the fleet.
+        summaryStatus:
+          type: object
+          additionalProperties:
+            type: integer
+          description: A breakdown of the devices in the fleet by "summary" status.
+        updateStatus:
+          type: object
+          additionalProperties:
+            type: integer
+          description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object
       properties:

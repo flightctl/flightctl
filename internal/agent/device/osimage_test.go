@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -28,6 +29,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctrl          *gomock.Controller
 		execMock      *executer.MockExecuter
 		statusManager *status.MockManager
+		specManager   *spec.MockManager
 		log           *flightlog.PrefixLogger
 		controller    *device.OSImageController
 	)
@@ -38,7 +40,8 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
-		controller = device.NewOSImageController(execMock, statusManager, log)
+		specManager = spec.NewMockManager(ctrl)
+		controller = device.NewOSImageController(execMock, statusManager, specManager, log)
 	})
 
 	AfterEach(func() {
@@ -132,6 +135,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "upgrade", "--apply").Return("", "status error", 1)
 			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
 			statusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			specManager.EXPECT().PrepareRollback(gomock.Any()).Return(nil)
 
 			err = controller.Sync(ctx, &desired)
 			Expect(err).To(HaveOccurred())
@@ -171,6 +175,7 @@ var _ = Describe("Calling osimages Sync", func() {
 				},
 			).Times(1)
 			statusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			specManager.EXPECT().PrepareRollback(gomock.Any()).Return(nil)
 
 			err = controller.Sync(ctx, &desired)
 			Expect(err).ToNot(HaveOccurred())

@@ -14,6 +14,14 @@ import (
 
 const retryIterations = 10
 
+type CreateOrUpdateMode string
+
+const (
+	ModeCreateOnly     CreateOrUpdateMode = "create-only"
+	ModeUpdateOnly     CreateOrUpdateMode = "update-only"
+	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
+)
+
 func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) *gorm.DB {
 	query = query.Where("org_id = ?", orgId).Order("name")
 	invertLabels := false
@@ -21,7 +29,7 @@ func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) 
 		invertLabels = true
 	}
 	query = LabelSelectionQuery(query, listParams.Labels, invertLabels)
-	query = StatusFilterSelectionQuery(query, listParams.Filter)
+	query = FieldFilterSelectionQuery(query, listParams.Filter)
 
 	queryStr, args := createOrQuery("owner", listParams.Owners)
 	if len(queryStr) > 0 {
@@ -106,11 +114,12 @@ func LabelSelectionQuery(query *gorm.DB, labels map[string]string, inverse bool)
 	return query.Where(queryString, arrayValues...)
 }
 
-// StatusFilterSelectionQuery takes a GORM DB query and a map of search parameters. To search for a key-value pair in the
+// FieldFilterSelectionQuery takes a GORM DB query and a map of search parameters. To search for a key-value pair in the
 // in a JSON object use the key to reflect location in the JSON data and the value to reflect the value to search for.
-// example map[string]string{"config.summary.status": "UpToDate"} will search config.summary.status for for the value "UpToDate".
+// example map[string]string{"status.config.summary.status": "UpToDate"} will search status.config.summary.status for the
+// value "UpToDate".
 // To search for multiple values in the same field, separate the values with a comma.
-func StatusFilterSelectionQuery(query *gorm.DB, fieldMap map[string][]string) *gorm.DB {
+func FieldFilterSelectionQuery(query *gorm.DB, fieldMap map[string][]string) *gorm.DB {
 	queryStr, args := createQueryFromFilterMap(fieldMap)
 	if len(queryStr) > 0 {
 		query = query.Where(queryStr, args...)
@@ -146,9 +155,11 @@ func createQueryFromFilterMap(fieldMap map[string][]string) (string, []interface
 
 func createParamsFromKey(key string) string {
 	parts := strings.Split(key, ".")
-	params := "status"
+	params := ""
 	for i, part := range parts {
-		if i == len(parts)-1 {
+		if i == 0 {
+			params += part
+		} else if i == len(parts)-1 {
 			// prefix last part with the ->> operator for JSONB fetching text
 			params += fmt.Sprintf(" ->> '%s'", part)
 		} else {

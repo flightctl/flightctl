@@ -220,6 +220,8 @@ func (o *ApplyOptions) ApplyFromReader(ctx context.Context, client *apiclient.Cl
 			response, err = client.ReplaceRepositoryWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf), printHttpFn)
 		case ResourceSyncKind:
 			response, err = client.ReplaceResourceSyncWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf), printHttpFn)
+		case CertificateSigningRequestKind:
+			response, err = client.ReplaceCertificateSigningRequestWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 		default:
 			err = fmt.Errorf("%s: skipping resource of unknown kind %q: %v", filename, kind, resource)
 		}

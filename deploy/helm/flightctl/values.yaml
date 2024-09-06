@@ -1,22 +1,67 @@
+
+## @section Global parameters
+## @descriptionStart This section contains parameters common to all the
+## components in the deployment, including sub-charts, ui charts, etc.
+## @descriptionEnd
+##
+## @param global.flightctl.baseDomain Base domain to construct the FQDN for the service endpoints.
+## @param.global.flightctl.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}.
+##                                            this certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
+## @param.global.flightctl.baseDomainTls.key Key for the base domain wildcard certificate.
+## @param.global.flightctl.useRoutes Use routes for http/https endpoints
+## @param global.flightctl.useIngress Use ingress for http/https endpoints
+## @param global.flightctl.storageClassName Storage class name for the PVCs.
+## @param global.flightctl.metrics.enabled Enable metrics exporting and service
+## @param global.flightctl.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
+## @param global.flightctl.internalNamespace Namespace where internal components are deployed
+## @param global.flightctl.clusterLevelSecretAccess Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
+global:
+  flightctl:
+    baseDomain: "" # flightctl.example.com
+    baseDomainTls:
+      cert: ""
+      key: ""
+    useRoutes: false # Use routes for http/https endpoints
+    useIngress: false # Use ingress for http/https endpoints
+    metrics:
+      enabled: true
+    internalNamespace: ""
+    clusterLevelSecretAccess: false
+    networkPolicyAllowList: [] # List of additional namespaces that will be allowed to talk to flightctl services
+  storageClassName: "standard"
+
+
+## @section Compoment specific parameters
+## @descriptionStart This section provides individual parameters for each component
+## @descriptionEnd
+
 flightctl:
   db:
-    namespace: flightctl-internal
-    image: quay.io/sclorg/postgresql-12-c8s:latest
-    imagePullPolicy: Always
+    image:
+      image: quay.io/sclorg/postgresql-12-c8s
+      tag: latest
+      pullPolicy: Always
     password: adminpass
     masterPassword: adminpass
     masterUser: admin
     user: demouser
     userPassword: demopass
+    nodePort: ""
   api:
     enabled: true
     namespace: flightctl-external
-    image: quay.io/flightctl/flightctl-api
-    imagePullPolicy: Always
-    hostName: api.flightctl.example.com
-    agentAPIHostName: agent-api.flightctl.example.com
-    agentGrpcHostName: agent-grpc.flightctl.example.com
-    agentGrpcBaseURL: grpcs://agent-grpc.flightctl.example.com
+    image:
+      image: quay.io/flightctl/flightctl-api
+      pullPolicy: Always
+      tag: ""
+    nodePort: "" # used for local development
+    agentAPINodePort: "" # used for local development
+    agentGrpcNodePort: "" # used for local development
+    hostName: "" # api.flightctl.example.com
+    agentAPIHostName: "" # agent-api.flightctl.example.com
+    agentGrpcHostName: "" # agent-grpc.flightctl.example.com
+    agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
+    baseUIUrl: "" # ui.flightctl.example.com
     auth:
       ## @param enabled True if auth should be enabled. One of 'openShiftApiUrl' or 'oidcAuthority' params will be required.
       enabled: false
@@ -26,24 +71,30 @@ flightctl:
       oidcAuthority: ""
       ## @param internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl-api. Example: https://keycloak.foo.internal/realms/flightctl
       internalOidcAuthority: ""
+      ## @param caCert The custom CA cert
+      caCert: ""
+      ## @param insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
+      insecureSkipTlsVerify: false
   worker:
     enabled: true
-    namespace: flightctl-internal
-    image: quay.io/flightctl/flightctl-worker
-    imagePullPolicy: Always
+    image:
+      image: quay.io/flightctl/flightctl-worker
+      pullPolicy: Always
+      tag: ""
     enableSecretsClusterRoleBinding: true
   periodic:
     enabled: true
-    namespace: flightctl-internal
-    image: quay.io/flightctl/flightctl-periodic
-    imagePullPolicy: Always
+    image:
+      image: quay.io/flightctl/flightctl-periodic
+      tag: ""
+      pullPolicy: Always
   rabbitmq:
     enabled: true
-    name: flightctl-rabbitmq
-    namespace: flightctl-internal
     replicaCount: 1
-    image: docker.io/library/rabbitmq:3.13-management
-    imagePullPolicy: IfNotPresent
+    image:
+      image: docker.io/library/rabbitmq
+      tag: 3.13-management
+      pullPolicy: IfNotPresent
     ports:
       amqp: 5672
       management: 15672
@@ -58,10 +109,6 @@ flightctl:
       type: ClusterIP
       amqpPort: 5672
       managementPort: 15672
-
-
-storageClassName: aws-ebs
-storageClassNameRWM: aws-efs-tier-c4
 
 
 # This is only related to deployment in Red Hat's PAAS

@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -196,6 +197,31 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(devices.Items).To(HaveLen(0))
 		})
 
+		It("List with summary", func() {
+			allDevices, err := devStore.List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(allDevices.Items).To(HaveLen(3))
+			expectedSummaryMap := make(map[string]int)
+			expectedUpdatedMap := make(map[string]int)
+			for i := range allDevices.Items {
+				d := &allDevices.Items[i]
+				status := lo.Ternary(i%2 == 0, "status-1", "status-2")
+				expectedSummaryMap[status] = expectedSummaryMap[status] + 1
+				d.Status.Summary.Status = api.DeviceSummaryStatusType(status)
+				updatedStatus := fmt.Sprintf("updated-%d", i)
+				d.Status.Updated.Status = api.DeviceUpdatedStatusType(updatedStatus)
+				expectedUpdatedMap[updatedStatus] = expectedUpdatedMap[updatedStatus] + 1
+				_, err = devStore.UpdateStatus(ctx, orgId, d)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			allDevices, err = devStore.List(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(allDevices.Items).To(HaveLen(3))
+			Expect(lo.FromPtr(allDevices.Summary.SummaryStatus)).To(Equal(expectedSummaryMap))
+			Expect(lo.FromPtr(allDevices.Summary.UpdateStatus)).To(Equal(expectedUpdatedMap))
+			Expect(allDevices.Summary.Total).To(Equal(3))
+		})
+
 		It("List with paging", func() {
 			listParams := store.ListParams{Limit: 1000}
 			allDevices, err := devStore.List(ctx, orgId, listParams)
@@ -251,7 +277,7 @@ var _ = Describe("DeviceStore create", func() {
 		It("List with status field filter paging", func() {
 			listParams := store.ListParams{
 				Filter: map[string][]string{
-					"updated.status": {"Unknown", "Updating"},
+					"status.updated.status": {"Unknown", "Updating"},
 				},
 				Limit: 1000,
 			}
@@ -424,6 +450,36 @@ var _ = Describe("DeviceStore create", func() {
 			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*dev.Metadata.Annotations).To(HaveLen(0))
+		})
+
+		It("UpdateDeviceAnnotations console", func() {
+			firstAnnotations := map[string]string{"key1": "val1"}
+			err := devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", firstAnnotations, nil)
+			Expect(err).ToNot(HaveOccurred())
+			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.Metadata.Annotations).ToNot(BeNil())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(1))
+			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
+
+			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", map[string]string{model.DeviceAnnotationConsole: "console"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.Metadata.Annotations).ToNot(BeNil())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(3))
+			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
+			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationConsole]).To(Equal("console"))
+			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationRenderedVersion]).To(Equal("1"))
+
+			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", nil, []string{model.DeviceAnnotationConsole})
+			Expect(err).ToNot(HaveOccurred())
+			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.Metadata.Annotations).ToNot(BeNil())
+			Expect(*dev.Metadata.Annotations).To(HaveLen(2))
+			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
+			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationRenderedVersion]).To(Equal("2"))
 		})
 
 		It("GetRendered", func() {

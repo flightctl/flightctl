@@ -17,13 +17,14 @@ var (
 
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	DeviceAnnotationConsole         = "device-controller/console"
 )
 
 type Device struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.DeviceSpec]
+	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
@@ -54,7 +55,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 		return &Device{}, nil
 	}
 
-	var spec api.DeviceSpec
+	spec := api.DeviceSpec{}
 	if resource.Spec != nil {
 		spec = *resource.Spec
 	}
@@ -97,7 +98,7 @@ func (d *Device) ToApiResource() api.Device {
 		return api.Device{}
 	}
 
-	var spec api.DeviceSpec
+	spec := api.DeviceSpec{}
 	if d.Spec != nil {
 		spec = d.Spec.Data
 	}
@@ -148,14 +149,25 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 	}
 
 	deviceList := make([]api.Device, len(dl))
+	summaryStatuses := make(map[string]int)
+	updateStatuses := make(map[string]int)
 	for i, device := range dl {
 		deviceList[i] = device.ToApiResource()
+		summaryStatus := string(deviceList[i].Status.Summary.Status)
+		summaryStatuses[summaryStatus] = summaryStatuses[summaryStatus] + 1
+		updateStatus := string(deviceList[i].Status.Updated.Status)
+		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 	}
 	ret := api.DeviceList{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceListKind,
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
+		Summary: &api.DevicesSummary{
+			SummaryStatus: &summaryStatuses,
+			UpdateStatus:  &updateStatuses,
+			Total:         len(dl),
+		},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont

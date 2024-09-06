@@ -49,6 +49,7 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
+
 	templateVersion, err := model.NewTemplateVersionFromApiResource(resource)
 	if err != nil {
 		return nil, err
@@ -56,7 +57,7 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	templateVersion.OrgID = orgId
 	templateVersion.Generation = lo.ToPtr[int64](1)
 	templateVersion.ResourceVersion = lo.ToPtr[int64](1)
-	status := api.TemplateVersionStatus{Conditions: []api.Condition{}}
+	status := api.TemplateVersionStatus{}
 	api.SetStatusCondition(&status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
 	templateVersion.Status = model.MakeJSONField(status)
 	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: resource.Spec.Fleet}}

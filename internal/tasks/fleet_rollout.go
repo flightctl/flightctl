@@ -168,6 +168,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		Os:         templateVersion.Status.Os,
 		Systemd:    templateVersion.Status.Systemd,
 		Resources:  templateVersion.Status.Resources,
+		Hooks:      templateVersion.Status.Hooks,
 	}
 
 	if currentVersion == *templateVersion.Metadata.Name && reflect.DeepEqual(newDeviceSpec, *device.Spec) {
@@ -229,7 +230,7 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api
 		}
 
 		device.Spec = newDeviceSpec
-		_, _, err = f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
+		_, err = f.devStore.Update(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
 		if err != nil {
 			if errors.Is(err, flterrors.ErrResourceVersionConflict) {
 				device, err = f.devStore.Get(ctx, f.resourceRef.OrgID, *device.Metadata.Name)

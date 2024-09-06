@@ -2,25 +2,25 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ .Values.flightctl.rabbitmq.name }}
-  namespace: {{ .Values.flightctl.rabbitmq.namespace }}
+  name: flightctl-rabbitmq
+  namespace: {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
   labels:
-    flightctl.service: {{ .Values.flightctl.rabbitmq.name }}
+    flightctl.service: flightctl-rabbitmq
 spec:
-  serviceName: {{ .Values.flightctl.rabbitmq.name }}
+  serviceName: flightctl-rabbitmq
   replicas: {{ .Values.flightctl.rabbitmq.replicaCount }}
   selector:
     matchLabels:
-      flightctl.service: {{ .Values.flightctl.rabbitmq.name }}
+      flightctl.service: flightctl-rabbitmq
   template:
     metadata:
       labels:
-        flightctl.service: {{ .Values.flightctl.rabbitmq.name }}
+        flightctl.service: flightctl-rabbitmq
     spec:
       containers:
         - name: rabbitmq
-          image: {{ .Values.flightctl.rabbitmq.image }}
-          imagePullPolicy: {{ .Values.flightctl.rabbitmq.imagePullPolicy }}
+          image: {{ .Values.flightctl.rabbitmq.image.image }}:{{ .Values.flightctl.rabbitmq.image.tag }}
+          imagePullPolicy: {{ .Values.flightctl.rabbitmq.image.pullPolicy }}
           ports:
             - name: amqp
               containerPort: 5672
@@ -42,7 +42,7 @@ spec:
         labels:
           paas.redhat.com/appcode: {{ .Values.appCode }}
       spec:
-        storageClassName: {{ .Values.storageClassName }}
+        storageClassName: {{ .Values.global.storageClassName }}
         accessModes:
           - {{ .Values.flightctl.rabbitmq.persistence.accessMode }}
         resources:

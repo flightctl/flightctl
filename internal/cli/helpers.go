@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,34 +10,42 @@ import (
 	"strings"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
 const (
-	DeviceKind            = "device"
-	EnrollmentRequestKind = "enrollmentrequest"
-	FleetKind             = "fleet"
-	RepositoryKind        = "repository"
-	ResourceSyncKind      = "resourcesync"
-	TemplateVersionKind   = "templateversion"
+	NoneString = "<none>"
+)
+
+const (
+	DeviceKind                    = "device"
+	EnrollmentRequestKind         = "enrollmentrequest"
+	FleetKind                     = "fleet"
+	RepositoryKind                = "repository"
+	ResourceSyncKind              = "resourcesync"
+	TemplateVersionKind           = "templateversion"
+	CertificateSigningRequestKind = "certificatesigningrequest"
 )
 
 var (
 	pluralKinds = map[string]string{
-		DeviceKind:            "devices",
-		EnrollmentRequestKind: "enrollmentrequests",
-		FleetKind:             "fleets",
-		RepositoryKind:        "repositories",
-		ResourceSyncKind:      "resourcesyncs",
-		TemplateVersionKind:   "templateversions",
+		DeviceKind:                    "devices",
+		EnrollmentRequestKind:         "enrollmentrequests",
+		FleetKind:                     "fleets",
+		RepositoryKind:                "repositories",
+		ResourceSyncKind:              "resourcesyncs",
+		TemplateVersionKind:           "templateversions",
+		CertificateSigningRequestKind: "certificatesigningrequests",
 	}
 
 	shortnameKinds = map[string]string{
-		DeviceKind:            "dev",
-		EnrollmentRequestKind: "er",
-		FleetKind:             "flt",
-		RepositoryKind:        "repo",
-		ResourceSyncKind:      "rs",
-		TemplateVersionKind:   "tv",
+		DeviceKind:                    "dev",
+		EnrollmentRequestKind:         "er",
+		FleetKind:                     "flt",
+		RepositoryKind:                "repo",
+		ResourceSyncKind:              "rs",
+		TemplateVersionKind:           "tv",
+		CertificateSigningRequestKind: "csr",
 	}
 )
 
@@ -158,4 +167,16 @@ func reflectResponse(response any) (*http.Response, []byte) {
 	body := v.FieldByName("Body").Interface().([]byte)
 
 	return httpResponse, body
+}
+
+func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCode int) error {
+	if statusCode != expectedStatusCode {
+		var responseError api.Error
+		err := json.Unmarshal(responseBody, &responseError)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%d %s", statusCode, responseError.Message)
+	}
+	return nil
 }

@@ -148,7 +148,7 @@ func (c *Config) HasCredentials() bool {
 }
 
 func (c *Config) GetClientKeyPath() string {
-	return resolvePath(c.AuthInfo.ClientCertificate, c.baseDir)
+	return resolvePath(c.AuthInfo.ClientKey, c.baseDir)
 }
 
 func (c *Config) GetClientCertificatePath() string {

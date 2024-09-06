@@ -12,14 +12,23 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
 const ClientBootstrapCommonName = "client-enrollment"
+const ClientBootstrapCommonNamePrefix = "client-enrollment-"
 const AdminCommonName = "flightctl-admin"
 const DeviceCommonNamePrefix = "device:"
+
+func BootstrapCNFromName(name string) (string, error) {
+	if len(name) < 16 {
+		return "", flterrors.ErrCNLength
+	}
+	return ClientBootstrapCommonNamePrefix + name, nil
+}
 
 func CNFromDeviceFingerprint(fingerprint string) (string, error) {
 	if len(fingerprint) < 16 {

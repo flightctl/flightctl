@@ -2,6 +2,7 @@ package authn
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -10,6 +11,7 @@ import (
 
 type OpenShiftAuthN struct {
 	OpenShiftApiUrl string
+	ClientTlsConfig *tls.Config
 }
 
 type OauthServerResponse struct {
@@ -27,7 +29,10 @@ func (o OpenShiftAuthN) ValidateToken(ctx context.Context, token string) (bool, 
 		"Content-Type":  {"application/json"},
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: o.ClientTlsConfig,
+	}}
+	res, err := client.Do(req)
 	if err != nil {
 		return false, err
 	}
