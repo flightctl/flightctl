@@ -14,6 +14,8 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	executer "github.com/flightctl/flightctl/pkg/executer"
+	log "github.com/flightctl/flightctl/pkg/log"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -188,6 +190,44 @@ func (m *MockManager) Sync(current, desired *v1alpha1.RenderedDeviceSpec) error 
 func (mr *MockManagerMockRecorder) Sync(current, desired any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockManager)(nil).Sync), current, desired)
+}
+
+// MockActionHookFactory is a mock of ActionHookFactory interface.
+type MockActionHookFactory struct {
+	ctrl     *gomock.Controller
+	recorder *MockActionHookFactoryMockRecorder
+}
+
+// MockActionHookFactoryMockRecorder is the mock recorder for MockActionHookFactory.
+type MockActionHookFactoryMockRecorder struct {
+	mock *MockActionHookFactory
+}
+
+// NewMockActionHookFactory creates a new mock instance.
+func NewMockActionHookFactory(ctrl *gomock.Controller) *MockActionHookFactory {
+	mock := &MockActionHookFactory{ctrl: ctrl}
+	mock.recorder = &MockActionHookFactoryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockActionHookFactory) EXPECT() *MockActionHookFactoryMockRecorder {
+	return m.recorder
+}
+
+// Create mocks base method.
+func (m *MockActionHookFactory) Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", exec, log)
+	ret0, _ := ret[0].(ActionHook)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockActionHookFactoryMockRecorder) Create(exec, log any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockActionHookFactory)(nil).Create), exec, log)
 }
 
 // MockActionHook is a mock of ActionHook interface.

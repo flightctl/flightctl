@@ -47,8 +47,5 @@ func (h *ServiceHandler) EnrollmentConfig(ctx context.Context, request server.En
 			EnrollmentUiEndpoint: h.uiUrl,
 		},
 		GrpcManagementEndpoint: h.consoleGrpcEndpoint,
-		SpecFetchInterval:      "0m10s",
-		StatusUpdateInterval:   "0m10s",
-		TpmPath:                "/dev/tpmrm0",
 	}, nil
 }
