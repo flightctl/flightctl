@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -121,10 +120,10 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error { // nolin
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
 
-	return processDeletionReponse(response, err, kind, name)
+	return o.processDeletionReponse(response, err, kind, name)
 }
 
-func processDeletionReponse(response interface{}, err error, kind string, name string) error {
+func (o *DeleteOptions) processDeletionReponse(response interface{}, err error, kind string, name string) error {
 	errorPrefix := fmt.Sprintf("deleting %s", kind)
 	if len(name) > 0 {
 		errorPrefix = fmt.Sprintf("deleting %s/%s", kind, name)
@@ -133,10 +132,15 @@ func processDeletionReponse(response interface{}, err error, kind string, name s
 	if err != nil {
 		return fmt.Errorf("%s: %w", errorPrefix, err)
 	}
+	
+	httpResponse, body := reflectResponse(response)
+	
+	if o.VerboseHttp {
+		printRawHttpResponse(httpResponse, body)
+	}
 
-	v := reflect.ValueOf(response).Elem()
-	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf(errorPrefix+": %s (%d)", v.FieldByName("HTTPResponse").Elem().FieldByName("Status").String(), v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
+	if httpResponse.StatusCode != http.StatusOK {
+		return fmt.Errorf(errorPrefix+": %s (%d)", httpResponse.Status, httpResponse.StatusCode)
 	}
 
 	return nil

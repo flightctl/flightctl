@@ -100,6 +100,8 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 
 	var response *http.Response
 
+	printHttpFn = getPrintHttpFn(&o.GlobalOptions)
+
 	switch {
 	case kind == EnrollmentRequestKind:
 		labels := util.LabelArrayToMap(o.ApproveLabels)
@@ -107,29 +109,34 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 			Approved: true,
 			Labels:   &labels,
 		}
-		response, err = c.ApproveEnrollmentRequest(ctx, name, approval)
+		response, err = c.ApproveEnrollmentRequest(ctx, name, approval, printHttpFn)
 	case kind == CertificateSigningRequestKind:
-		response, err = c.ApproveCertificateSigningRequest(ctx, name)
+		response, err = c.ApproveCertificateSigningRequest(ctx, name, nil, printHttpFn)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
 
-	return processApprovalReponse(response, err, kind, name)
+	return o.processApprovalReponse(response, err, kind, name)
 }
 
-func processApprovalReponse(response *http.Response, err error, kind string, name string) error {
+func (o *ApproveOptions) processApprovalReponse(response *http.Response, err error, kind string, name string) error {
 	errorPrefix := fmt.Sprintf("approving %s/%s", kind, name)
 	if err != nil {
 		return fmt.Errorf("%s: %w", errorPrefix, err)
 	}
 	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+	
+	if o.VerboseHttp {
+		printRawHttpResponse(response, body)
+	}
+
 	if response.StatusCode != http.StatusOK {
 		var responseError api.Error
 		// not handling errors as we are only interested in the message
 		// and in case there will be a problem in reading the body or unmarshalling it
 		// we will print the status like
 		// Error: approving enrollmentrequest/<name>:  (422 Unprocessable Entity)
-		body, _ := io.ReadAll(response.Body)
 		_ = json.Unmarshal(body, &responseError)
 
 		return fmt.Errorf("%s: %s (%s)", errorPrefix, responseError.Message, response.Status)

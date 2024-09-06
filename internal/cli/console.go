@@ -92,14 +92,18 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // noli
 	if err != nil {
 		return err
 	}
-	console, err := c.RequestConsoleWithResponse(ctx, name)
+	console, err := c.RequestConsoleWithResponse(ctx, name, getPrintHttpFn(&o.GlobalOptions))
 
 	if err != nil {
 		return fmt.Errorf("error requesting console: %w", err)
 	}
 
+	if o.VerboseHttp {
+		printRawHttpResponse(console.HTTPResponse, console.Body)
+	}
+
 	if console.HTTPResponse.StatusCode != 200 {
-		return fmt.Errorf("error requesting console: %s, %+v", console.HTTPResponse.Status, console.HTTPResponse.Body)
+		return fmt.Errorf("error requesting console: %s", console.HTTPResponse.Status)
 	}
 
 	grpcEndpoint := console.JSON200.GRPCEndpoint
