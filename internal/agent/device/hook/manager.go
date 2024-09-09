@@ -76,7 +76,7 @@ func NewManager(exec executer.Executer, log *log.PrefixLogger) Manager {
 	}
 }
 
-func (m *manager) createApiHookDefinition(hookSpec v1alpha1.DeviceUpdateHookSpec) (HookDefinition, error) {
+func (m *manager) createApiHookDefinition(hookSpec v1alpha1.DeviceUpdateHookSpec) HookDefinition {
 	var actionHooks []ActionHookFactory
 	for _, action := range hookSpec.Actions {
 		actionHooks = append(actionHooks, newApiHookActionFactory(action))
@@ -87,7 +87,7 @@ func (m *manager) createApiHookDefinition(hookSpec v1alpha1.DeviceUpdateHookSpec
 		actionHooks: actionHooks,
 		ops:         util.FromPtr(hookSpec.OnFile),
 		path:        util.FromPtr(hookSpec.Path),
-	}, nil
+	}
 }
 
 func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec, additionalHooks ...HookDefinition) (ActionMap, ActionMap, ActionMap, ActionMap, error) {
@@ -97,10 +97,7 @@ func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpe
 	rebootMap := make(ActionMap)
 	var hookDefinitions []HookDefinition
 	for _, hookSpec := range hookSpecs {
-		h, err := m.createApiHookDefinition(hookSpec)
-		if err != nil {
-			return nil, nil, nil, nil, err
-		}
+		h := m.createApiHookDefinition(hookSpec)
 		hookDefinitions = append(hookDefinitions, h)
 	}
 	for _, h := range append(hookDefinitions, additionalHooks...) {

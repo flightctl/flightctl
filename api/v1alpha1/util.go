@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	systemdActionType    = "systemd"
-	executableActionType = "executable"
+	SystemdActionType    = "systemd"
+	ExecutableActionType = "executable"
 )
 
 // Type returns the type of the action.
@@ -17,12 +17,12 @@ func (t HookAction) Type() (string, error) {
 		return "", err
 	}
 
-	if _, exists := data[executableActionType]; exists {
-		return executableActionType, nil
+	if _, exists := data[ExecutableActionType]; exists {
+		return ExecutableActionType, nil
 	}
 
-	if _, exists := data[systemdActionType]; exists {
-		return systemdActionType, nil
+	if _, exists := data[SystemdActionType]; exists {
+		return SystemdActionType, nil
 	}
 
 	return "", fmt.Errorf("unable to determine action type: %+v", data)

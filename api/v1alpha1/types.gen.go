@@ -712,16 +712,6 @@ type HookAction struct {
 	union json.RawMessage
 }
 
-// HookAction0 defines model for .
-type HookAction0 struct {
-	Executable HookActionExecutableSpec `json:"executable"`
-}
-
-// HookAction1 defines model for .
-type HookAction1 struct {
-	Systemd HookActionSystemdSpec `json:"systemd"`
-}
-
 // HookActionExecutable defines model for HookActionExecutable.
 type HookActionExecutable struct {
 	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
@@ -736,23 +726,25 @@ type HookActionExecutable struct {
 
 // HookActionExecutableSpec defines model for HookActionExecutableSpec.
 type HookActionExecutableSpec struct {
-	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
-	EnvVars *[]string `json:"envVars,omitempty"`
+	Executable struct {
+		// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
+		EnvVars *[]string `json:"envVars,omitempty"`
 
-	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
-	Run string `json:"run"`
+		// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
+		Run string `json:"run"`
 
-	// Timeout The maximum duration allowed for the action to complete.
-	// The duration should be specified as a positive integer
-	// followed by a time unit. Supported time units are:
-	// - 's' for seconds
-	// - 'm' for minutes
-	// - 'h' for hours
-	// - 'd' for days
-	Timeout *string `json:"timeout,omitempty"`
+		// Timeout The maximum duration allowed for the action to complete.
+		// The duration should be specified as a positive integer
+		// followed by a time unit. Supported time units are:
+		// - 's' for seconds
+		// - 'm' for minutes
+		// - 'h' for hours
+		// - 'd' for days
+		Timeout *string `json:"timeout,omitempty"`
 
-	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
-	WorkDir *string `json:"workDir,omitempty"`
+		// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+		WorkDir *string `json:"workDir,omitempty"`
+	} `json:"executable"`
 }
 
 // HookActionSpec defines model for HookActionSpec.
@@ -769,15 +761,17 @@ type HookActionSpec struct {
 
 // HookActionSystemdSpec defines model for HookActionSystemdSpec.
 type HookActionSystemdSpec struct {
-	// Timeout The maximum duration allowed for the action to complete.
-	// The duration should be specified as a positive integer
-	// followed by a time unit. Supported time units are:
-	// - 's' for seconds
-	// - 'm' for minutes
-	// - 'h' for hours
-	// - 'd' for days
-	Timeout *string               `json:"timeout,omitempty"`
-	Unit    HookActionSystemdUnit `json:"unit"`
+	Systemd struct {
+		// Timeout The maximum duration allowed for the action to complete.
+		// The duration should be specified as a positive integer
+		// followed by a time unit. Supported time units are:
+		// - 's' for seconds
+		// - 'm' for minutes
+		// - 'h' for hours
+		// - 'd' for days
+		Timeout *string               `json:"timeout,omitempty"`
+		Unit    HookActionSystemdUnit `json:"unit"`
+	} `json:"systemd"`
 }
 
 // HookActionSystemdUnit defines model for HookActionSystemdUnit.
@@ -1598,22 +1592,22 @@ func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsHookAction0 returns the union data inside the HookAction as a HookAction0
-func (t HookAction) AsHookAction0() (HookAction0, error) {
-	var body HookAction0
+// AsHookActionExecutableSpec returns the union data inside the HookAction as a HookActionExecutableSpec
+func (t HookAction) AsHookActionExecutableSpec() (HookActionExecutableSpec, error) {
+	var body HookActionExecutableSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromHookAction0 overwrites any union data inside the HookAction as the provided HookAction0
-func (t *HookAction) FromHookAction0(v HookAction0) error {
+// FromHookActionExecutableSpec overwrites any union data inside the HookAction as the provided HookActionExecutableSpec
+func (t *HookAction) FromHookActionExecutableSpec(v HookActionExecutableSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeHookAction0 performs a merge with any union data inside the HookAction, using the provided HookAction0
-func (t *HookAction) MergeHookAction0(v HookAction0) error {
+// MergeHookActionExecutableSpec performs a merge with any union data inside the HookAction, using the provided HookActionExecutableSpec
+func (t *HookAction) MergeHookActionExecutableSpec(v HookActionExecutableSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1624,22 +1618,22 @@ func (t *HookAction) MergeHookAction0(v HookAction0) error {
 	return err
 }
 
-// AsHookAction1 returns the union data inside the HookAction as a HookAction1
-func (t HookAction) AsHookAction1() (HookAction1, error) {
-	var body HookAction1
+// AsHookActionSystemdSpec returns the union data inside the HookAction as a HookActionSystemdSpec
+func (t HookAction) AsHookActionSystemdSpec() (HookActionSystemdSpec, error) {
+	var body HookActionSystemdSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromHookAction1 overwrites any union data inside the HookAction as the provided HookAction1
-func (t *HookAction) FromHookAction1(v HookAction1) error {
+// FromHookActionSystemdSpec overwrites any union data inside the HookAction as the provided HookActionSystemdSpec
+func (t *HookAction) FromHookActionSystemdSpec(v HookActionSystemdSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeHookAction1 performs a merge with any union data inside the HookAction, using the provided HookAction1
-func (t *HookAction) MergeHookAction1(v HookAction1) error {
+// MergeHookActionSystemdSpec performs a merge with any union data inside the HookAction, using the provided HookActionSystemdSpec
+func (t *HookAction) MergeHookActionSystemdSpec(v HookActionSystemdSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

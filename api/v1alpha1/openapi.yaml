@@ -2740,18 +2740,9 @@ components:
         - "FileOperationUpdate"
         - "FileOperationReboot"
     HookAction:
-      type: object
       oneOf:
-        - properties:
-            executable:
-              $ref: '#/components/schemas/HookActionExecutableSpec'
-          required:
-           - "executable"
-        - properties:
-            systemd:
-              $ref: '#/components/schemas/HookActionSystemdSpec'
-          required:
-           - "systemd"
+        - $ref: '#/components/schemas/HookActionExecutableSpec'
+        - $ref: '#/components/schemas/HookActionSystemdSpec'
     HookActionSpec:
       type: object
       properties:
@@ -2767,14 +2758,19 @@ components:
               - 'h' for hours
               - 'd' for days
     HookActionSystemdSpec:
-       allOf:
-        - $ref: '#/components/schemas/HookActionSpec'
-        - type: object
-          properties:
-            unit:
-              $ref: '#/components/schemas/HookActionSystemdUnit'
-          required:
-            - unit
+      type: object
+      properties:
+        systemd:
+          allOf:
+            - $ref: '#/components/schemas/HookActionSpec'
+            - type: object
+              properties:
+                unit:
+                  $ref: '#/components/schemas/HookActionSystemdUnit'
+              required:
+                - unit
+      required:
+        - systemd
     HookActionSystemdUnit:
       type: object
       properties:
@@ -2809,9 +2805,14 @@ components:
         - name
         - operations 
     HookActionExecutableSpec:
-      allOf:
-        - $ref: '#/components/schemas/HookActionSpec'
-        - $ref: '#/components/schemas/HookActionExecutable'
+      type: object
+      properties:
+        executable:
+          allOf:
+            - $ref: '#/components/schemas/HookActionSpec'
+            - $ref: '#/components/schemas/HookActionExecutable'
+      required:
+        - executable
     HookActionExecutable:
           type: object
           properties:
