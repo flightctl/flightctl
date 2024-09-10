@@ -231,6 +231,11 @@ type ClientInterface interface {
 	// ReadTemplateVersion request
 	ReadTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ApproveTemplateVersionWithBody request with any body
+	ApproveTemplateVersionWithBody(ctx context.Context, fleet string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ApproveTemplateVersion(ctx context.Context, fleet string, name string, body ApproveTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteFleet request
 	DeleteFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -912,6 +917,30 @@ func (c *Client) DeleteTemplateVersion(ctx context.Context, fleet string, name s
 
 func (c *Client) ReadTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReadTemplateVersionRequest(c.Server, fleet, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ApproveTemplateVersionWithBody(ctx context.Context, fleet string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApproveTemplateVersionRequestWithBody(c.Server, fleet, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ApproveTemplateVersion(ctx context.Context, fleet string, name string, body ApproveTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApproveTemplateVersionRequest(c.Server, fleet, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3023,6 +3052,60 @@ func NewReadTemplateVersionRequest(server string, fleet string, name string) (*h
 	return req, nil
 }
 
+// NewApproveTemplateVersionRequest calls the generic ApproveTemplateVersion builder with application/json body
+func NewApproveTemplateVersionRequest(server string, fleet string, name string, body ApproveTemplateVersionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewApproveTemplateVersionRequestWithBody(server, fleet, name, "application/json", bodyReader)
+}
+
+// NewApproveTemplateVersionRequestWithBody generates requests for ApproveTemplateVersion with any type of body
+func NewApproveTemplateVersionRequestWithBody(server string, fleet string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "fleet", runtime.ParamLocationPath, fleet)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/fleets/%s/templateversions/%s/approval", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewDeleteFleetRequest generates requests for DeleteFleet
 func NewDeleteFleetRequest(server string, name string) (*http.Request, error) {
 	var err error
@@ -4108,6 +4191,11 @@ type ClientWithResponsesInterface interface {
 	// ReadTemplateVersionWithResponse request
 	ReadTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*ReadTemplateVersionResponse, error)
 
+	// ApproveTemplateVersionWithBodyWithResponse request with any body
+	ApproveTemplateVersionWithBodyWithResponse(ctx context.Context, fleet string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApproveTemplateVersionResponse, error)
+
+	ApproveTemplateVersionWithResponse(ctx context.Context, fleet string, name string, body ApproveTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*ApproveTemplateVersionResponse, error)
+
 	// DeleteFleetWithResponse request
 	DeleteFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteFleetResponse, error)
 
@@ -5146,6 +5234,33 @@ func (r ReadTemplateVersionResponse) StatusCode() int {
 	return 0
 }
 
+type ApproveTemplateVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *TemplateVersionApproval
+	JSON400      *Error
+	JSON401      *Error
+	JSON404      *Error
+	JSON422      *Error
+	JSON500      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ApproveTemplateVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ApproveTemplateVersionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -6087,6 +6202,23 @@ func (c *ClientWithResponses) ReadTemplateVersionWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseReadTemplateVersionResponse(rsp)
+}
+
+// ApproveTemplateVersionWithBodyWithResponse request with arbitrary body returning *ApproveTemplateVersionResponse
+func (c *ClientWithResponses) ApproveTemplateVersionWithBodyWithResponse(ctx context.Context, fleet string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApproveTemplateVersionResponse, error) {
+	rsp, err := c.ApproveTemplateVersionWithBody(ctx, fleet, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApproveTemplateVersionResponse(rsp)
+}
+
+func (c *ClientWithResponses) ApproveTemplateVersionWithResponse(ctx context.Context, fleet string, name string, body ApproveTemplateVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*ApproveTemplateVersionResponse, error) {
+	rsp, err := c.ApproveTemplateVersion(ctx, fleet, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApproveTemplateVersionResponse(rsp)
 }
 
 // DeleteFleetWithResponse request returning *DeleteFleetResponse
@@ -8053,6 +8185,67 @@ func ParseReadTemplateVersionResponse(rsp *http.Response) (*ReadTemplateVersionR
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseApproveTemplateVersionResponse parses an HTTP response from a ApproveTemplateVersionWithResponse call
+func ParseApproveTemplateVersionResponse(rsp *http.Response) (*ApproveTemplateVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ApproveTemplateVersionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TemplateVersionApproval
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 

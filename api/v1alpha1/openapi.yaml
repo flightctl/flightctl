@@ -2266,6 +2266,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/fleets/{fleet}/templateversions/{name}/approval:
+    post:
+      tags:
+        - templateversion
+      description: create approval of the specified TemplateVersion
+      operationId: approveTemplateVersion
+      parameters:
+        - name: fleet
+          in: path
+          description: The owner of the template version.
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          description: Name of the template version.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateVersionApproval'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateVersionApproval'
+        "422":
+          description: UnprocessableEntity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   schemas:
     PatchRequest:
@@ -3108,6 +3170,21 @@ components:
           description: 'approvedAt is the time at which the request was approved.'
       required:
         - approved
+    TemplateVersionApproval:
+      type: object
+      properties:
+        approved:
+          type: boolean
+          description: 'approved indicates whether the request has been approved.'
+        approvedBy:
+          type: string
+          description: 'approvedBy is the name of the approver.'
+        approvedAt:
+          type: string
+          format: date-time
+          description: 'approvedAt is the time at which the request was approved.'
+      required:
+        - approved
     EnrollmentServiceAuth:
       type: object
       properties:
@@ -3551,6 +3628,8 @@ components:
               description: 'Current state of the device.'
               items:
                 $ref: '#/components/schemas/Condition'
+            approval:
+              $ref: '#/components/schemas/TemplateVersionApproval'
           required:
             - conditions
           description: TemplateVersionStatus represents information about the status of a template version.
@@ -3698,6 +3777,7 @@ components:
       enum:
       - 'Approved'             # EnrollmentRequest
       - 'Approved'             # CertificateSigningRequest
+      - 'Approved'             # TemplateVersion
       - 'Denied'               # CertificateSigningRequest
       - 'Failed'               # CertificateSigningRequest
       - 'Accessible'           # Repository
@@ -3713,6 +3793,7 @@ components:
       x-enum-varnames:
       - EnrollmentRequestApproved
       - CertificateSigningRequestApproved
+      - TemplateVersionApproved
       - CertificateSigningRequestDenied
       - CertificateSigningRequestFailed
       - RepositoryAccessible

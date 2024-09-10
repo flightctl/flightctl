@@ -135,6 +135,9 @@ type ServerInterface interface {
 	// (GET /api/v1/fleets/{fleet}/templateversions/{name})
 	ReadTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string)
 
+	// (POST /api/v1/fleets/{fleet}/templateversions/{name}/approval)
+	ApproveTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string)
+
 	// (DELETE /api/v1/fleets/{name})
 	DeleteFleet(w http.ResponseWriter, r *http.Request, name string)
 
@@ -392,6 +395,11 @@ func (_ Unimplemented) DeleteTemplateVersion(w http.ResponseWriter, r *http.Requ
 
 // (GET /api/v1/fleets/{fleet}/templateversions/{name})
 func (_ Unimplemented) ReadTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/fleets/{fleet}/templateversions/{name}/approval)
+func (_ Unimplemented) ApproveTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1586,6 +1594,41 @@ func (siw *ServerInterfaceWrapper) ReadTemplateVersion(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// ApproveTemplateVersion operation middleware
+func (siw *ServerInterfaceWrapper) ApproveTemplateVersion(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "fleet" -------------
+	var fleet string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "fleet", chi.URLParam(r, "fleet"), &fleet, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fleet", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveTemplateVersion(w, r, fleet, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // DeleteFleet operation middleware
 func (siw *ServerInterfaceWrapper) DeleteFleet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -2346,6 +2389,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions/{name}", wrapper.ReadTemplateVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions/{name}/approval", wrapper.ApproveTemplateVersion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/fleets/{name}", wrapper.DeleteFleet)
@@ -4030,6 +4076,70 @@ func (response ReadTemplateVersion404JSONResponse) VisitReadTemplateVersionRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ApproveTemplateVersionRequestObject struct {
+	Fleet string `json:"fleet"`
+	Name  string `json:"name"`
+	Body  *ApproveTemplateVersionJSONRequestBody
+}
+
+type ApproveTemplateVersionResponseObject interface {
+	VisitApproveTemplateVersionResponse(w http.ResponseWriter) error
+}
+
+type ApproveTemplateVersion200JSONResponse TemplateVersionApproval
+
+func (response ApproveTemplateVersion200JSONResponse) VisitApproveTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveTemplateVersion400JSONResponse Error
+
+func (response ApproveTemplateVersion400JSONResponse) VisitApproveTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveTemplateVersion401JSONResponse Error
+
+func (response ApproveTemplateVersion401JSONResponse) VisitApproveTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveTemplateVersion404JSONResponse Error
+
+func (response ApproveTemplateVersion404JSONResponse) VisitApproveTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveTemplateVersion422JSONResponse Error
+
+func (response ApproveTemplateVersion422JSONResponse) VisitApproveTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveTemplateVersion500JSONResponse Error
+
+func (response ApproveTemplateVersion500JSONResponse) VisitApproveTemplateVersionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type DeleteFleetRequestObject struct {
 	Name string `json:"name"`
 }
@@ -4999,6 +5109,9 @@ type StrictServerInterface interface {
 
 	// (GET /api/v1/fleets/{fleet}/templateversions/{name})
 	ReadTemplateVersion(ctx context.Context, request ReadTemplateVersionRequestObject) (ReadTemplateVersionResponseObject, error)
+
+	// (POST /api/v1/fleets/{fleet}/templateversions/{name}/approval)
+	ApproveTemplateVersion(ctx context.Context, request ApproveTemplateVersionRequestObject) (ApproveTemplateVersionResponseObject, error)
 
 	// (DELETE /api/v1/fleets/{name})
 	DeleteFleet(ctx context.Context, request DeleteFleetRequestObject) (DeleteFleetResponseObject, error)
@@ -6167,6 +6280,40 @@ func (sh *strictHandler) ReadTemplateVersion(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReadTemplateVersionResponseObject); ok {
 		if err := validResponse.VisitReadTemplateVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveTemplateVersion operation middleware
+func (sh *strictHandler) ApproveTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
+	var request ApproveTemplateVersionRequestObject
+
+	request.Fleet = fleet
+	request.Name = name
+
+	var body ApproveTemplateVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveTemplateVersion(ctx, request.(ApproveTemplateVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveTemplateVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveTemplateVersionResponseObject); ok {
+		if err := validResponse.VisitApproveTemplateVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
