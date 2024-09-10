@@ -973,17 +973,17 @@ func Test_pathFromType(t *testing.T) {
 		expectedError error
 	}{
 		{
-			name:         "current",
+			name:         "current path resolves",
 			specType:     Current,
 			expectedPath: s.currentPath,
 		},
 		{
-			name:         "desired",
+			name:         "desired path resolves",
 			specType:     Desired,
 			expectedPath: s.desiredPath,
 		},
 		{
-			name:         "rollback",
+			name:         "rollback path resolves",
 			specType:     Rollback,
 			expectedPath: s.rollbackPath,
 		},
@@ -1001,10 +1001,9 @@ func Test_pathFromType(t *testing.T) {
 			if testCase.expectedError != nil {
 				require.ErrorIs(err, testCase.expectedError)
 				return
-			} else {
-				require.NoError(err)
 			}
 
+			require.NoError(err)
 			require.Equal(testCase.expectedPath, path)
 		})
 	}
@@ -1013,27 +1012,39 @@ func Test_pathFromType(t *testing.T) {
 func Test_getNextRenderedVersion(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
-		Name                string
-		RenderedVersion     string
-		NextRenderedVersion string
-		ExpectedError       error
+		name                string
+		renderedVersion     string
+		nextRenderedVersion string
+		expectedError       error
 	}{
-		{"empty rendered version", "", "", nil},
-		{"increments the rendered version", "1", "2", nil},
-		{"errors when the rendered version cannot be parsed", "not-a-number", "", ErrParseRenderedVersion},
+		{
+			name:                "empty rendered version returns an empty string",
+			renderedVersion:     "",
+			nextRenderedVersion: "",
+		},
+		{
+			name:                "increments the rendered version",
+			renderedVersion:     "1",
+			nextRenderedVersion: "2",
+		},
+		{
+			name:            "errors when the rendered version cannot be parsed",
+			renderedVersion: "not-a-number",
+			expectedError:   ErrParseRenderedVersion,
+		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.Name, func(t *testing.T) {
-			nextVersion, err := getNextRenderedVersion(testCase.RenderedVersion)
+		t.Run(testCase.name, func(t *testing.T) {
+			nextVersion, err := getNextRenderedVersion(testCase.renderedVersion)
 
-			if testCase.ExpectedError != nil {
-				require.ErrorIs(err, testCase.ExpectedError)
-			} else {
-				require.NoError(err)
+			if testCase.expectedError != nil {
+				require.ErrorIs(err, testCase.expectedError)
+				return
 			}
 
-			require.Equal(testCase.NextRenderedVersion, nextVersion)
+			require.NoError(err)
+			require.Equal(testCase.nextRenderedVersion, nextVersion)
 		})
 	}
 }
