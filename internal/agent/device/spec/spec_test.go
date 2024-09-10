@@ -967,28 +967,45 @@ func Test_pathFromType(t *testing.T) {
 	}
 
 	testCases := []struct {
-		Name          string
-		SpecType      Type
-		ExpectedPath  string
-		ExpectedError error
+		name          string
+		specType      Type
+		expectedPath  string
+		expectedError error
 	}{
-		{"current", "current", s.currentPath, nil},
-		{"desired", "desired", s.desiredPath, nil},
-		{"rollback", "rollback", s.rollbackPath, nil},
-		{"invalid spec type", "rainbow", "", ErrInvalidSpecType},
+		{
+			name:         "current",
+			specType:     Current,
+			expectedPath: s.currentPath,
+		},
+		{
+			name:         "desired",
+			specType:     Desired,
+			expectedPath: s.desiredPath,
+		},
+		{
+			name:         "rollback",
+			specType:     Rollback,
+			expectedPath: s.rollbackPath,
+		},
+		{
+			name:          "invalid spec type",
+			specType:      "rainbow",
+			expectedError: ErrInvalidSpecType,
+		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.Name, func(t *testing.T) {
-			path, err := s.pathFromType(testCase.SpecType)
+		t.Run(testCase.name, func(t *testing.T) {
+			path, err := s.pathFromType(testCase.specType)
 
-			if testCase.ExpectedError != nil {
-				require.ErrorIs(err, testCase.ExpectedError)
+			if testCase.expectedError != nil {
+				require.ErrorIs(err, testCase.expectedError)
+				return
 			} else {
 				require.NoError(err)
 			}
 
-			require.Equal(testCase.ExpectedPath, path)
+			require.Equal(testCase.expectedPath, path)
 		})
 	}
 }
