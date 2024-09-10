@@ -1057,37 +1057,77 @@ func Test_getRenderedVersion(t *testing.T) {
 	}
 
 	testCases := []struct {
-		Name                    string
-		CurrentRenderedVersion  string
-		DesiredRenderedVersion  string
-		RollbackRenderedVersion string
-		ExpectedReturnValue     string
-		ExpectedError           error
+		name                    string
+		currentRenderedVersion  string
+		desiredRenderedVersion  string
+		rollbackRenderedVersion string
+		expectedReturnValue     string
+		expectedError           error
 	}{
-		{"no current rendered version", "", "", "", "", nil},
-		{"all versions are equal", "1", "1", "1", "2", nil},
-		{"current not equal to rollback", "1", "1", "3", "1", nil},
-		{"desired not equal to rollback", "1", "3", "1", "1", nil},
-		{"current not equal to desired or rollback", "3", "1", "1", "3", nil},
-		{"all versions are different", "1", "2", "3", "1", nil},
-		{"invalid versions", "one", "one", "one", "", ErrParseRenderedVersion},
+		{
+			name:                   "no current rendered version returns an empty string",
+			currentRenderedVersion: "",
+			expectedReturnValue:    "",
+		},
+		{
+			name:                    "all versions are equal",
+			currentRenderedVersion:  "1",
+			desiredRenderedVersion:  "1",
+			rollbackRenderedVersion: "1",
+			expectedReturnValue:     "2",
+		},
+		{
+			name:                    "current not equal to rollback",
+			currentRenderedVersion:  "1",
+			desiredRenderedVersion:  "1",
+			rollbackRenderedVersion: "3",
+			expectedReturnValue:     "1",
+		},
+		{
+			name:                    "desired not equal to rollback",
+			currentRenderedVersion:  "1",
+			desiredRenderedVersion:  "3",
+			rollbackRenderedVersion: "1",
+			expectedReturnValue:     "1",
+		},
+		{
+			name:                    "current not equal to desired or rollback",
+			currentRenderedVersion:  "3",
+			desiredRenderedVersion:  "1",
+			rollbackRenderedVersion: "1",
+			expectedReturnValue:     "3",
+		},
+		{
+			name:                    "all versions are different",
+			currentRenderedVersion:  "1",
+			desiredRenderedVersion:  "2",
+			rollbackRenderedVersion: "3",
+			expectedReturnValue:     "1",
+		},
+		{
+			name:                    "invalid versions",
+			currentRenderedVersion:  "one",
+			desiredRenderedVersion:  "one",
+			rollbackRenderedVersion: "one",
+			expectedError:           ErrParseRenderedVersion,
+		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.Name, func(t *testing.T) {
+		t.Run(testCase.name, func(t *testing.T) {
 			renderedVersion, err := s.getRenderedVersion(
-				testCase.CurrentRenderedVersion,
-				testCase.DesiredRenderedVersion,
-				testCase.RollbackRenderedVersion,
+				testCase.currentRenderedVersion,
+				testCase.desiredRenderedVersion,
+				testCase.rollbackRenderedVersion,
 			)
 
-			if testCase.ExpectedError != nil {
-				require.ErrorIs(err, testCase.ExpectedError)
-			} else {
-				require.NoError(err)
+			if testCase.expectedError != nil {
+				require.ErrorIs(err, testCase.expectedError)
+				return
 			}
 
-			require.Equal(testCase.ExpectedReturnValue, renderedVersion)
+			require.NoError(err)
+			require.Equal(testCase.expectedReturnValue, renderedVersion)
 		})
 	}
 }
