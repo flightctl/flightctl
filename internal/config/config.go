@@ -15,10 +15,11 @@ const (
 )
 
 type Config struct {
-	Database *dbConfig    `json:"database,omitempty"`
-	Service  *svcConfig   `json:"service,omitempty"`
-	Queue    *queueConfig `json:"queue,omitempty"`
-	Auth     *authConfig  `json:"auth,omitempty"`
+	Database   *dbConfig         `json:"database,omitempty"`
+	Service    *svcConfig        `json:"service,omitempty"`
+	Queue      *queueConfig      `json:"queue,omitempty"`
+	Auth       *authConfig       `json:"auth,omitempty"`
+	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
 }
 
 type dbConfig struct {
@@ -57,6 +58,11 @@ type authConfig struct {
 	InternalOIDCAuthority string `json:"internalOidcAuthority,omitempty"`
 	CACert                string `json:"caCert,omitempty"`
 	InsecureSkipTlsVerify bool   `json:"insecureSkipTlsVerify,omitempty"`
+}
+
+type prometheusConfig struct {
+	Address string  `json:"address,omitempty"`
+	SLOMax  float64 `json:"sloMax,omitempty"`
 }
 
 func ConfigDir() string {

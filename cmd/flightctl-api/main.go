@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -121,6 +122,14 @@ func main() {
 
 		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, grpcTlsConfig)
 		if err := grpcServer.Run(ctx); err != nil {
+			log.Fatalf("Error running server: %s", err)
+		}
+		cancel()
+	}()
+
+	go func() {
+		server := instrumentation.NewMetricsServer(log, cfg)
+		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
 		cancel()

@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/plugin/prometheus"
 	"k8s.io/klog/v2"
 )
 
@@ -45,6 +46,18 @@ func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger, TranslateError: true})
 	if err != nil {
 		klog.Fatalf("failed to connect database: %v", err)
+		return nil, err
+	}
+
+	err = newDB.Use(prometheus.New(prometheus.Config{
+		DBName:          cfg.Database.Name,
+		RefreshInterval: 5,
+		StartServer:     true,
+		HTTPServerPort:  15691,
+	}))
+
+	if err != nil {
+		klog.Fatalf("Failed to register prometheus exporter: %v", err)
 		return nil, err
 	}
 
