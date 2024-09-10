@@ -804,7 +804,7 @@ func TestGetDesired(t *testing.T) {
 		require.ErrorIs(err, ErrGettingDeviceSpec)
 	})
 
-	t.Run("desired spec is returned when managemnt api returns no content", func(t *testing.T) {
+	t.Run("desired spec is returned when management api returns no content", func(t *testing.T) {
 		renderedVersion := "1"
 
 		renderedDesiredSpec := createRenderedTestSpec(image)
@@ -853,7 +853,7 @@ func TestGetDesired(t *testing.T) {
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
 
-		// Api is returning a renderd version that is different from the read desired spec
+		// Api is returning a rendered version that is different from the read desired spec
 		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "5"}
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
 
