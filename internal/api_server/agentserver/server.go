@@ -13,6 +13,7 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	service "github.com/flightctl/flightctl/internal/service/agent"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -70,6 +71,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(
+		instrumentation.AgentServerMiddleware,
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,

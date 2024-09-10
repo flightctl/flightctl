@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -87,6 +88,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(
+		instrumentation.ServerMiddleware,
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
