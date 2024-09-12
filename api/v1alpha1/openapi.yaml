@@ -62,6 +62,11 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: repository
+          in: query
+          description: The name of the repository to filter results by.
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -1008,6 +1013,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/enrollmentconfig/{name}:
+    get:
+      tags:
+        - enrollmentconfig
+      description: Get config for enrolling devices
+      operationId: enrollmentConfig
+      parameters:
+        - name: name
+          in: path
+          description: the name of approved CSR
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentConfig'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -1656,6 +1699,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1670,6 +1719,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: InternalServerError
           content:
             application/json:
               schema:
@@ -3053,6 +3108,49 @@ components:
           description: 'approvedAt is the time at which the request was approved.'
       required:
         - approved
+    EnrollmentServiceAuth:
+      type: object
+      properties:
+        client-certificate-data:
+          type: string
+        client-key-data:
+          type: string
+      required:
+        - client-certificate-data
+        - client-key-data
+    EnrollmentServiceService:
+      type: object
+      properties:
+        certificate-authority-data:
+          type: string
+        server:
+          type: string
+      required:
+        - certificate-authority-data
+        - server
+    EnrollmentService:
+      type: object
+      properties:
+        authentication:
+          $ref: '#/components/schemas/EnrollmentServiceAuth'
+        service:
+          $ref: '#/components/schemas/EnrollmentServiceService'
+        enrollment-ui-endpoint:
+          type: string
+      required:
+        - authentication
+        - service
+        - enrollment-ui-endpoint
+    EnrollmentConfig:
+      type: object
+      properties:
+        enrollment-service:
+          $ref: '#/components/schemas/EnrollmentService'
+        grpc-management-endpoint:
+          type: string
+      required:
+        - enrollment-service
+        - grpc-management-endpoint
     EnrollmentRequest:
       type: object
       properties:

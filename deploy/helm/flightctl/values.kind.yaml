@@ -10,8 +10,9 @@ flightctl:
       image:  localhost/flightctl-api
       pullPolicy: IfNotPresent
     nodePort: 3443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
-    agentNodePort: 7443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+    agentAPINodePort: 7443 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
     agentGrpcNodePort: 7444 # this is also mapped in /hack/kind_cluster.yaml as an extraPortMapping
+    baseUIUrl: "http://localhost:9000"
     auth:
       enabled: false
       internalOidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8080/realms/flightctl
