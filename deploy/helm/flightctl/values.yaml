@@ -27,6 +27,7 @@ global:
       enabled: true
     internalNamespace: ""
     clusterLevelSecretAccess: false
+    networkPolicyAllowList: [] # List of additional namespaces that will be allowed to talk to flightctl services
   storageClassName: "standard"
 
 
@@ -54,12 +55,13 @@ flightctl:
       pullPolicy: Always
       tag: ""
     nodePort: "" # used for local development
-    agentNodePort: "" # used for local development
+    agentAPINodePort: "" # used for local development
     agentGrpcNodePort: "" # used for local development
     hostName: "" # api.flightctl.example.com
     agentAPIHostName: "" # agent-api.flightctl.example.com
     agentGrpcHostName: "" # agent-grpc.flightctl.example.com
     agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
+    baseUIUrl: "" # ui.flightctl.example.com
     auth:
       ## @param enabled True if auth should be enabled. One of 'openShiftApiUrl' or 'oidcAuthority' params will be required.
       enabled: false

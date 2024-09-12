@@ -84,6 +84,9 @@ type ServerInterface interface {
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
+	// (GET /api/v1/enrollmentconfig/{name})
+	EnrollmentConfig(w http.ResponseWriter, r *http.Request, name string)
+
 	// (DELETE /api/v1/enrollmentrequests)
 	DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request)
 
@@ -304,6 +307,11 @@ func (_ Unimplemented) ReadDeviceStatus(w http.ResponseWriter, r *http.Request, 
 
 // (PUT /api/v1/devices/{name}/status)
 func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/enrollmentconfig/{name})
+func (_ Unimplemented) EnrollmentConfig(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1082,6 +1090,32 @@ func (siw *ServerInterfaceWrapper) ReplaceDeviceStatus(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceDeviceStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// EnrollmentConfig operation middleware
+func (siw *ServerInterfaceWrapper) EnrollmentConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EnrollmentConfig(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1945,6 +1979,14 @@ func (siw *ServerInterfaceWrapper) ListResourceSync(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// ------------- Optional query parameter "repository" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "repository", r.URL.Query(), &params.Repository)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "repository", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListResourceSync(w, r, params)
 	}))
@@ -2253,6 +2295,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/enrollmentconfig/{name}", wrapper.EnrollmentConfig)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.DeleteEnrollmentRequests)
@@ -2801,6 +2846,15 @@ func (response ApproveCertificateSigningRequest200JSONResponse) VisitApproveCert
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ApproveCertificateSigningRequest400JSONResponse Error
+
+func (response ApproveCertificateSigningRequest400JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ApproveCertificateSigningRequest401JSONResponse Error
 
 func (response ApproveCertificateSigningRequest401JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
@@ -2824,6 +2878,15 @@ type ApproveCertificateSigningRequest409JSONResponse Error
 func (response ApproveCertificateSigningRequest409JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ApproveCertificateSigningRequest500JSONResponse Error
+
+func (response ApproveCertificateSigningRequest500JSONResponse) VisitApproveCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3299,6 +3362,50 @@ func (response ReplaceDeviceStatus401JSONResponse) VisitReplaceDeviceStatusRespo
 type ReplaceDeviceStatus404JSONResponse Error
 
 func (response ReplaceDeviceStatus404JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type EnrollmentConfigRequestObject struct {
+	Name string `json:"name"`
+}
+
+type EnrollmentConfigResponseObject interface {
+	VisitEnrollmentConfigResponse(w http.ResponseWriter) error
+}
+
+type EnrollmentConfig200JSONResponse EnrollmentConfig
+
+func (response EnrollmentConfig200JSONResponse) VisitEnrollmentConfigResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type EnrollmentConfig400JSONResponse Error
+
+func (response EnrollmentConfig400JSONResponse) VisitEnrollmentConfigResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type EnrollmentConfig401JSONResponse Error
+
+func (response EnrollmentConfig401JSONResponse) VisitEnrollmentConfigResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type EnrollmentConfig404JSONResponse Error
+
+func (response EnrollmentConfig404JSONResponse) VisitEnrollmentConfigResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 
@@ -4842,6 +4949,9 @@ type StrictServerInterface interface {
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(ctx context.Context, request ReplaceDeviceStatusRequestObject) (ReplaceDeviceStatusResponseObject, error)
 
+	// (GET /api/v1/enrollmentconfig/{name})
+	EnrollmentConfig(ctx context.Context, request EnrollmentConfigRequestObject) (EnrollmentConfigResponseObject, error)
+
 	// (DELETE /api/v1/enrollmentrequests)
 	DeleteEnrollmentRequests(ctx context.Context, request DeleteEnrollmentRequestsRequestObject) (DeleteEnrollmentRequestsResponseObject, error)
 
@@ -5585,6 +5695,32 @@ func (sh *strictHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceDeviceStatusResponseObject); ok {
 		if err := validResponse.VisitReplaceDeviceStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EnrollmentConfig operation middleware
+func (sh *strictHandler) EnrollmentConfig(w http.ResponseWriter, r *http.Request, name string) {
+	var request EnrollmentConfigRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EnrollmentConfig(ctx, request.(EnrollmentConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EnrollmentConfig")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EnrollmentConfigResponseObject); ok {
+		if err := validResponse.VisitEnrollmentConfigResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

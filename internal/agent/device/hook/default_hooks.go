@@ -2,7 +2,7 @@ package hook
 
 import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/agent/client"
 )
 
 func marshalExecutable(run string, envVars *[]string, workDir string, timeout string) v1alpha1.HookAction {
@@ -19,50 +19,52 @@ func marshalExecutable(run string, envVars *[]string, workDir string, timeout st
 	return ret
 }
 
-func defaultAfterUpdateHooks() []v1alpha1.DeviceUpdateHookSpec {
-	return []v1alpha1.DeviceUpdateHookSpec{
+func executableActionFactory(run string, envVars *[]string, workDir string, timeout string) ActionHookFactory {
+	return newApiHookActionFactory(marshalExecutable(run, envVars, workDir, timeout))
+}
+
+func defaultAfterUpdateHooks() []HookDefinition {
+	return []HookDefinition{
 		{
-			Name:        util.StrToPtr("podman compose up"),
-			Path:        util.StrToPtr("/var/run/flightctl/compose"),
-			Description: util.StrToPtr("Bring up a multi-container system based on the provided YAML podman-compose definition file"),
-			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate, v1alpha1.FileOperationReboot},
-			Actions: []v1alpha1.HookAction{
-				marshalExecutable("podman-compose -f {{ .FilePath }} up -d", nil,
-					"/var/run/flightctl/compose", "1m"),
+			name:        "podman compose up",
+			path:        "/var/run/flightctl/compose",
+			description: "Bring up a multi-container system based on the provided YAML podman-compose definition file",
+			ops:         []v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate, v1alpha1.FileOperationReboot},
+			actionHooks: []ActionHookFactory{
+				builtinHookFactory(client.PodmanComposeUp),
 			},
 		},
 		{
-			Name:        util.StrToPtr("microshift manifest up"),
-			Path:        util.StrToPtr("/var/usr/klusterlet-manifests"),
-			Description: util.StrToPtr("Apply the provided microshift manifest"),
-			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate},
-			Actions: []v1alpha1.HookAction{
-				marshalExecutable("kubectl apply -f {{ .FileName }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
+			name:        "microshift manifest up",
+			path:        "/var/usr/klusterlet-manifests",
+			description: "Apply the provided microshift manifest",
+			ops:         []v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate},
+			actionHooks: []ActionHookFactory{
+				executableActionFactory("kubectl apply -f {{ .FilePath }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
 					"/var/usr/klusterlet-manifests", "1m"),
 			},
 		},
 	}
 }
 
-func defaultBeforeUpdateHooks() []v1alpha1.DeviceUpdateHookSpec {
-	return []v1alpha1.DeviceUpdateHookSpec{
+func defaultBeforeUpdateHooks() []HookDefinition {
+	return []HookDefinition{
 		{
-			Name:        util.StrToPtr("podman compose down"),
-			Path:        util.StrToPtr("/var/run/flightctl/compose"),
-			Description: util.StrToPtr("Bring down a multi-container system based on the provided YAML podman-compose definition file"),
-			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationUpdate, v1alpha1.FileOperationRemove},
-			Actions: []v1alpha1.HookAction{
-				marshalExecutable("podman-compose -f {{ .FilePath }} down", nil,
-					"/var/run/flightctl/compose", "1m"),
+			name:        "podman compose down",
+			path:        "/var/run/flightctl/compose",
+			description: "Bring down a multi-container system based on the provided YAML podman-compose definition file",
+			ops:         []v1alpha1.FileOperation{v1alpha1.FileOperationUpdate, v1alpha1.FileOperationRemove},
+			actionHooks: []ActionHookFactory{
+				builtinHookFactory(client.PodmanComposeDown),
 			},
 		},
 		{
-			Name:        util.StrToPtr("microshift manifest down"),
-			Path:        util.StrToPtr("/var/usr/klusterlet-manifests"),
-			Description: util.StrToPtr("Delete the provided microshift manifest"),
-			OnFile:      &[]v1alpha1.FileOperation{v1alpha1.FileOperationRemove},
-			Actions: []v1alpha1.HookAction{
-				marshalExecutable("kubectl delete -f {{ .FileName }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
+			name:        "microshift manifest down",
+			path:        "/var/usr/klusterlet-manifests",
+			description: "Delete the provided microshift manifest",
+			ops:         []v1alpha1.FileOperation{v1alpha1.FileOperationRemove},
+			actionHooks: []ActionHookFactory{
+				executableActionFactory("kubectl delete -f {{ .FileName }}", &[]string{"KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"},
 					"/var/usr/klusterlet-manifests", "1m"),
 			},
 		},
