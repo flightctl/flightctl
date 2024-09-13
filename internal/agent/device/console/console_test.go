@@ -27,7 +27,7 @@ var _ = Describe("ConsoleController", func() {
 		mockStreamClient *MockRouterService_StreamClient
 		mockExecutor     *executer.MockExecuter
 		desired          *v1alpha1.RenderedDeviceSpec
-		bashCommand      *exec.Cmd
+		testCommand      *exec.Cmd
 		sessionId        string
 		deviceName       string
 	)
@@ -49,7 +49,7 @@ var _ = Describe("ConsoleController", func() {
 			},
 		}
 
-		bashCommand = exec.Command("bash", "-i", "-l")
+		testCommand = exec.Command("test")
 		sessionId = "session-1"
 		deviceName = "test-device"
 	})
@@ -99,8 +99,8 @@ var _ = Describe("ConsoleController", func() {
 			consoleController.lastClosedStream = ""
 
 			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(nil, errors.New("shell error"))
-			bashCommand.Process = nil
-			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(bashCommand)
+			testCommand.Process = nil
+			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(testCommand)
 
 			err := consoleController.Sync(ctx, desired)
 			Expect(err).To(HaveOccurred())
@@ -111,7 +111,7 @@ var _ = Describe("ConsoleController", func() {
 			consoleController.grpcClient = mockGrpcClient
 
 			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(nil, errors.New("stream error"))
-			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(bashCommand)
+			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(testCommand)
 
 			err := consoleController.Sync(ctx, desired)
 			Expect(err).To(HaveOccurred())
@@ -123,7 +123,8 @@ var _ = Describe("ConsoleController", func() {
 			consoleController.grpcClient = mockGrpcClient
 
 			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(mockStreamClient, nil)
-			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(exec.Command("test"))
+			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(testCommand)
+			mockStreamClient.EXPECT().Recv().Return(nil, nil)
 
 			err := consoleController.Sync(ctx, desired)
 			Expect(err).ToNot(HaveOccurred())
