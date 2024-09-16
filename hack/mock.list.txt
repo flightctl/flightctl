@@ -9,4 +9,6 @@ internal/agent/device/fileio/fileio.go=internal/agent/device/fileio/mock_fileio.
 internal/agent/device/resource/resource.go=internal/agent/device/resource/mock_resource.go
 internal/agent/device/config/controller.go=internal/agent/device/config/mock_controller.go
 internal/tasks/callback_manager.go=internal/tasks/mock_callback_manager.go
+internal/store/store.go=internal/store/mock_store.go
+internal/store/templateversion.go=internal/store/mock_templateversion.go
 internal/container/container.go=internal/container/mock_container.go

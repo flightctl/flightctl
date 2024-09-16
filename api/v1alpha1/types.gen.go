@@ -51,6 +51,7 @@ const (
 	ResourceSyncAccessible            ConditionType = "Accessible"
 	ResourceSyncResourceParsed        ConditionType = "ResourceParsed"
 	ResourceSyncSynced                ConditionType = "Synced"
+	TemplateVersionApproved           ConditionType = "Approved"
 	TemplateVersionValid              ConditionType = "Valid"
 )
 
@@ -1104,6 +1105,18 @@ type TemplateVersion struct {
 	Status   *TemplateVersionStatus `json:"status,omitempty"`
 }
 
+// TemplateVersionApproval defines model for TemplateVersionApproval.
+type TemplateVersionApproval struct {
+	// Approved approved indicates whether the request has been approved.
+	Approved bool `json:"approved"`
+
+	// ApprovedAt approvedAt is the time at which the request was approved.
+	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+
+	// ApprovedBy approvedBy is the name of the approver.
+	ApprovedBy *string `json:"approvedBy,omitempty"`
+}
+
 // TemplateVersionList TemplateVersionList is a list of TemplateVersions.
 type TemplateVersionList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -1127,6 +1140,8 @@ type TemplateVersionSpec struct {
 
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
+	Approval *TemplateVersionApproval `json:"approval,omitempty"`
+
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
@@ -1299,6 +1314,9 @@ type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest
 
 // CreateFleetJSONRequestBody defines body for CreateFleet for application/json ContentType.
 type CreateFleetJSONRequestBody = Fleet
+
+// ApproveTemplateVersionJSONRequestBody defines body for ApproveTemplateVersion for application/json ContentType.
+type ApproveTemplateVersionJSONRequestBody = TemplateVersionApproval
 
 // PatchFleetApplicationJSONPatchPlusJSONRequestBody defines body for PatchFleet for application/json-patch+json ContentType.
 type PatchFleetApplicationJSONPatchPlusJSONRequestBody = PatchRequest
