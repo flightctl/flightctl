@@ -1132,6 +1132,108 @@ func Test_getRenderedVersion(t *testing.T) {
 	}
 }
 
+func Test_isOsSame(t *testing.T) {
+	require := require.New(t)
+
+	digest := "sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5"
+	digestTwo := "sha256:bd1b50c5a1df1bcb701e3556075a890c4e4a87765f985ee3a4b87df91db98c4d"
+	testCases := []struct {
+		name           string
+		osOne          *v1alpha1.DeviceOSSpec
+		osTwo          *v1alpha1.DeviceOSSpec
+		expectedResult bool
+	}{
+		{
+			name:           "both are nil",
+			osOne:          nil,
+			osTwo:          nil,
+			expectedResult: true,
+		},
+		{
+			name:  "one is defined and the other nil",
+			osOne: nil,
+			osTwo: &v1alpha1.DeviceOSSpec{
+				Image: "device:v1",
+			},
+			expectedResult: false,
+		},
+		{
+			name: "images are the same",
+			osOne: &v1alpha1.DeviceOSSpec{
+				Image: "device:v1",
+			},
+			osTwo: &v1alpha1.DeviceOSSpec{
+				Image: "device:v1",
+			},
+			expectedResult: true,
+		},
+		{
+			name: "images and digests are the same",
+			osOne: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v1",
+				ImageDigest: &digest,
+			},
+			osTwo: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v1",
+				ImageDigest: &digest,
+			},
+			expectedResult: true,
+		}, {
+			name: "images are the same but digests are different",
+			osOne: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v1",
+				ImageDigest: &digest,
+			},
+			osTwo: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v1",
+				ImageDigest: &digestTwo,
+			},
+			expectedResult: false,
+		},
+		{
+			name: "images are different and digests are nil",
+			osOne: &v1alpha1.DeviceOSSpec{
+				Image: "device:v1",
+			},
+			osTwo: &v1alpha1.DeviceOSSpec{
+				Image: "device:v2",
+			},
+			expectedResult: false,
+		},
+		{
+			name: "images are different and digests are different",
+			osOne: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v1",
+				ImageDigest: &digest,
+			},
+			osTwo: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v2",
+				ImageDigest: &digestTwo,
+			},
+			expectedResult: false,
+		},
+		{
+			name: "images are different but digests are the same",
+			osOne: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v1",
+				ImageDigest: &digest,
+			},
+			osTwo: &v1alpha1.DeviceOSSpec{
+				Image:       "device:v2",
+				ImageDigest: &digest,
+			},
+			expectedResult: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := isOsSame(testCase.osOne, testCase.osTwo)
+			require.Equal(testCase.expectedResult, result)
+		})
+	}
+}
+
 func createTestSpec(image string) ([]byte, error) {
 	spec := createRenderedTestSpec(image)
 	return json.Marshal(spec)
