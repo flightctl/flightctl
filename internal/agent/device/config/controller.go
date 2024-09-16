@@ -10,8 +10,8 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 )
 
 type Controller interface {
@@ -42,10 +42,10 @@ func NewController(
 }
 
 func (c *controller) Initialize(ctx context.Context, current *v1alpha1.RenderedDeviceSpec) {
-	if current == nil {
+	if current.Config == nil {
 		return
 	}
-	currentIgnition, err := parseAndConvertConfig(lo.FromPtr(current.Config))
+	currentIgnition, err := parseAndConvertConfig(*current.Config)
 	if err != nil {
 		c.log.Warnf("failed to parse current ignition: %+v", err)
 		return
@@ -62,7 +62,7 @@ func (c *controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 	// config
 	if desired.Config != nil {
 		c.log.Debug("syncing config data")
-		return c.ensureConfigData(ctx, lo.FromPtr(current.Config), lo.FromPtr(desired.Config))
+		return c.ensureConfigData(ctx, util.FromPtr(current.Config), util.FromPtr(desired.Config))
 	}
 
 	return nil
@@ -78,9 +78,22 @@ func parseAndConvertConfig(data string) (ignv3types.Config, error) {
 }
 
 func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string {
-	currentFiles := lo.Map(currentFileList, func(f ignv3types.File, _ int) string { return f.Path })
-	desiredFiles := lo.Map(desiredFileList, func(f ignv3types.File, _ int) string { return f.Path })
-	return lo.Without(currentFiles, desiredFiles...)
+	desiredFiles := getFilePaths(desiredFileList)
+	result := []string{}
+	desiredMap := make(map[string]bool)
+
+	for _, file := range desiredFiles {
+		desiredMap[file] = true
+	}
+
+	currentFiles := getFilePaths(currentFileList)
+	for _, file := range currentFiles {
+		if !desiredMap[file] {
+			result = append(result, file)
+		}
+	}
+
+	return result
 }
 
 func (c *controller) ensureConfigData(ctx context.Context, currentData, desiredData string) error {
@@ -157,4 +170,12 @@ func (c *controller) WriteIgnitionFiles(ctx context.Context, files []ignv3types.
 		}
 	}
 	return nil
+}
+
+func getFilePaths(currentFileList []ignv3types.File) []string {
+	result := make([]string, len(currentFileList))
+	for i, f := range currentFileList {
+		result[i] = f.Path
+	}
+	return result
 }

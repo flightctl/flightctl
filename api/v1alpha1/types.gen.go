@@ -503,9 +503,6 @@ type DiskResourceMonitorSpec struct {
 type EnrollmentConfig struct {
 	EnrollmentService      EnrollmentService `json:"enrollment-service"`
 	GrpcManagementEndpoint string            `json:"grpc-management-endpoint"`
-	SpecFetchInterval      string            `json:"spec-fetch-interval"`
-	StatusUpdateInterval   string            `json:"status-update-interval"`
-	TpmPath                string            `json:"tpm-path"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.

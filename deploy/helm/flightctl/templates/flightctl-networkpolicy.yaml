@@ -11,8 +11,11 @@ spec:
         - key: kubernetes.io/metadata.name
           operator: In
           values:
-          -  {{ .Release.Namespace }}
-          -  {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
+          - {{ .Release.Namespace }}
+          - {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
+          {{- if .Values.global.flightctl.networkPolicyAllowList }}
+          {{ toYaml .Values.global.flightctl.networkPolicyAllowList }}
+          {{- end }}
       podSelector: {}
   podSelector: {}
   policyTypes:

@@ -19,8 +19,20 @@ import (
 )
 
 var (
-	ErrMissingRenderedSpec = fmt.Errorf("missing rendered spec")
-	ErrNoContent           = fmt.Errorf("no content")
+	ErrMissingRenderedSpec  = fmt.Errorf("missing rendered spec")
+	ErrReadingRenderedSpec  = fmt.Errorf("reading rendered spec")
+	ErrWritingRenderedSpec  = fmt.Errorf("writing rendered spec")
+	ErrCheckingFileExists   = fmt.Errorf("checking if file exists")
+	ErrUnmarshalSpec        = fmt.Errorf("unmarshalling spec")
+	ErrCopySpec             = fmt.Errorf("copying spec")
+	ErrGettingBootcStatus   = fmt.Errorf("getting current bootc status")
+	ErrInvalidSpecType      = fmt.Errorf("invalid spec type")
+	ErrParseRenderedVersion = fmt.Errorf("failed to convert version to integer")
+
+	// Errors related to fetching the rendered device spec
+	ErrNoContent         = fmt.Errorf("no content")
+	ErrNilResponse       = fmt.Errorf("received nil response for rendered device spec")
+	ErrGettingDeviceSpec = fmt.Errorf("getting device spec")
 )
 
 type Type string
@@ -99,15 +111,15 @@ func NewManager(
 func (s *SpecManager) Initialize() error {
 	// current
 	if err := s.write(Current, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-		return fmt.Errorf("writing current rendered spec: %w", err)
+		return err
 	}
 	// desired
 	if err := s.write(Desired, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-		return fmt.Errorf("writing desired rendered spec: %w", err)
+		return err
 	}
 	// rollback
 	if err := s.write(Rollback, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-		return fmt.Errorf("writing rollback rendered spec: %w", err)
+		return err
 	}
 	return nil
 }
@@ -122,7 +134,7 @@ func (s *SpecManager) Ensure() error {
 		if !exists {
 			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
 			if err := s.write(specType, &v1alpha1.RenderedDeviceSpec{}); err != nil {
-				return fmt.Errorf("writing %s rendered spec: %w", specType, err)
+				return err
 			}
 		}
 	}
@@ -168,11 +180,11 @@ func (s *SpecManager) IsRollingBack(ctx context.Context) (bool, error) {
 func (s *SpecManager) Upgrade() error {
 	desired, err := s.Read(Desired)
 	if err != nil {
-		return fmt.Errorf("read current rendered spec: %w", err)
+		return err
 	}
 
 	if err := s.write(Current, desired); err != nil {
-		return fmt.Errorf("write current rendered spec: %w", err)
+		return err
 	}
 
 	s.log.Infof("Spec upgrade complete: clearing rollback spec")
@@ -183,7 +195,7 @@ func (s *SpecManager) Upgrade() error {
 func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 	current, err := s.Read(Current)
 	if err != nil {
-		return fmt.Errorf("read rollback rendered spec: %w", err)
+		return err
 	}
 
 	// it is possible that the current rendered spec does not have an OS image.
@@ -192,7 +204,7 @@ func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 	if current.Os == nil || current.Os.Image == "" {
 		bootcStatus, err := s.bootcClient.Status(ctx)
 		if err != nil {
-			return fmt.Errorf("getting current bootc status: %w", err)
+			return fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
 		}
 		currentOSImage = bootcStatus.GetBootedImage()
 	} else {
@@ -207,7 +219,7 @@ func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 	}
 
 	if err := s.write(Rollback, rollback); err != nil {
-		return fmt.Errorf("write rollback to desired rendered spec: %w", err)
+		return err
 	}
 	return nil
 }
@@ -215,7 +227,11 @@ func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 func (s *SpecManager) Rollback() error {
 	// copy the current rendered spec to the desired rendered spec
 	// this will reconcile the device with the desired "rollback" state
-	return s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath)
+	err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath)
+	if err != nil {
+		return fmt.Errorf("%w: copy %q to %q", ErrCopySpec, s.currentPath, s.desiredPath)
+	}
+	return nil
 }
 
 func (s *SpecManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
@@ -223,18 +239,22 @@ func (s *SpecManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) 
 	if err != nil {
 		return nil, err
 	}
-	return readRenderedSpecFromFile(s.deviceReadWriter, filePath)
+	spec, err := readRenderedSpecFromFile(s.deviceReadWriter, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", specType, err)
+	}
+	return spec, nil
 }
 
 func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion string) (*v1alpha1.RenderedDeviceSpec, error) {
 	desired, err := s.Read(Desired)
 	if err != nil {
-		return nil, fmt.Errorf("read desired rendered spec: %w", err)
+		return nil, err
 	}
 
 	rollback, err := s.Read(Rollback)
 	if err != nil {
-		return nil, fmt.Errorf("read rollback rendered spec: %w", err)
+		return nil, err
 	}
 
 	renderedVersion, err := s.getRenderedVersion(currentRenderedVersion, desired.RenderedVersion, rollback.RenderedVersion)
@@ -266,7 +286,7 @@ func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion str
 	// write to disk
 	s.log.Infof("Writing desired rendered spec to disk with rendered version: %s", newDesired.RenderedVersion)
 	if err := s.write(Desired, newDesired); err != nil {
-		return nil, fmt.Errorf("write rendered spec to disk: %w", err)
+		return nil, err
 	}
 	return newDesired, nil
 }
@@ -299,7 +319,7 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
 	bootc, err := s.bootcClient.Status(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("getting current bootc status: %w", err)
+		return "", false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
 	}
 	bootedOSImage := bootc.GetBootedImage()
 
@@ -320,7 +340,12 @@ func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) er
 	if err != nil {
 		return err
 	}
-	return writeRenderedToFile(s.deviceReadWriter, spec, filePath)
+
+	err = writeRenderedToFile(s.deviceReadWriter, spec, filePath)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", specType, err)
+	}
+	return nil
 }
 
 func (s *SpecManager) exists(specType Type) (bool, error) {
@@ -328,7 +353,11 @@ func (s *SpecManager) exists(specType Type) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return s.deviceReadWriter.FileExists(filePath)
+	exists, err := s.deviceReadWriter.FileExists(filePath)
+	if err != nil {
+		return false, fmt.Errorf("%w: %s: %w:", ErrCheckingFileExists, specType, err)
+	}
+	return exists, nil
 }
 
 // getRenderedVersion returns the last rendered version observed by the device. If the current rendered version
@@ -360,7 +389,7 @@ func (s *SpecManager) pathFromType(specType Type) (string, error) {
 	case Rollback:
 		filePath = s.rollbackPath
 	default:
-		return "", fmt.Errorf("unknown spec type: %s", specType)
+		return "", fmt.Errorf("%w: %s", ErrInvalidSpecType, specType)
 	}
 	return filePath, nil
 }
@@ -377,7 +406,7 @@ func (m *SpecManager) getRenderedFromManagementAPIWithRetry(
 
 	resp, statusCode, err := m.managementClient.GetRenderedDeviceSpec(ctx, m.deviceName, params)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: %w", ErrGettingDeviceSpec, err)
 	}
 	if statusCode == http.StatusNoContent || statusCode == http.StatusConflict {
 		// TODO: this is a bit of a hack
@@ -388,7 +417,7 @@ func (m *SpecManager) getRenderedFromManagementAPIWithRetry(
 		*rendered = *resp
 		return true, nil
 	}
-	return false, fmt.Errorf("received nil response for rendered device spec")
+	return false, ErrNilResponse
 }
 
 func readRenderedSpecFromFile(
@@ -400,14 +429,14 @@ func readRenderedSpecFromFile(
 	if err != nil {
 		if os.IsNotExist(err) {
 			// if the file does not exist, this means it has been removed/corrupted
-			return nil, fmt.Errorf("%w: current: %w", ErrMissingRenderedSpec, err)
+			return nil, fmt.Errorf("%w: reading %q: %w", ErrMissingRenderedSpec, filePath, err)
 		}
-		return nil, fmt.Errorf("read device specification from '%s': %w", filePath, err)
+		return nil, fmt.Errorf("%w: reading %q: %w", ErrReadingRenderedSpec, filePath, err)
 	}
 
 	// read bytes from file
 	if err := json.Unmarshal(renderedBytes, &current); err != nil {
-		return nil, fmt.Errorf("unmarshal device specification: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrUnmarshalSpec, err)
 	}
 
 	return &current, nil
@@ -419,7 +448,7 @@ func writeRenderedToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDevice
 		return err
 	}
 	if err := writer.WriteFile(filePath, renderedBytes, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("write default device spec file %q: %w", filePath, err)
+		return fmt.Errorf("%w: writing to %q: %w", ErrWritingRenderedSpec, filePath, err)
 	}
 	return nil
 }
@@ -435,7 +464,7 @@ func getNextRenderedVersion(renderedVersion string) (string, error) {
 	}
 	version, err := strconv.Atoi(renderedVersion)
 	if err != nil {
-		return "", fmt.Errorf("failed to convert version to integer: %v", err)
+		return "", fmt.Errorf("%w: %v", ErrParseRenderedVersion, err)
 	}
 
 	nextVersion := version + 1
