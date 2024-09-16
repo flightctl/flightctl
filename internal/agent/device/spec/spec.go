@@ -305,15 +305,31 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 		return false, err
 	}
 
-	currentImage := ""
-	if current.Os != nil {
-		currentImage = current.Os.Image
+	return isOsSame(current.Os, desired.Os), nil
+}
+
+func isOsSame(first *v1alpha1.DeviceOSSpec, second *v1alpha1.DeviceOSSpec) bool {
+	firstImage := ""
+	firstDigest := ""
+	if first != nil {
+		firstImage = first.Image
+		if first.ImageDigest != nil {
+			firstDigest = *first.ImageDigest
+		}
 	}
-	desiredImage := ""
-	if desired.Os != nil {
-		desiredImage = desired.Os.Image
+	secondImage := ""
+	secondDigest := ""
+	if second != nil {
+		secondImage = second.Image
+		if second.ImageDigest != nil {
+			secondDigest = *second.ImageDigest
+		}
 	}
-	return currentImage != desiredImage, nil
+
+	if firstDigest != "" && secondDigest != "" {
+		return firstDigest == secondDigest
+	}
+	return firstImage == secondImage
 }
 
 func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
