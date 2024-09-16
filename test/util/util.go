@@ -104,9 +104,9 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig, provider queues.Provider) (*apiserver.Server, net.Listener, error) {
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca crypto.CA, serverCerts *crypto.TLSCertificateConfig, provider queues.Provider) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port
-	tlsConfig, _, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, _, _, err := crypto.TLSConfigForServer(ca.GetConfig(), serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestServer: error creating TLS certs: %w", err)
 	}
@@ -123,9 +123,9 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*agentserver.AgentServer, net.Listener, error) {
+func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
-	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetConfig(), serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
@@ -173,8 +173,27 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 }
 
 // NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.
-func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
-	ca, _, err := crypto.EnsureCA(filepath.Join(cfg.Service.CertStore, "ca.crt"), filepath.Join(cfg.Service.CertStore, "ca.key"), "", "ca", caCertValidityDays)
+func NewTestCerts(cfg *config.Config) (crypto.CA, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
+
+	cryptocfg := cfg.Cryptography
+
+	if cryptocfg == nil {
+		cryptocfg = &config.CryptographyConfig{
+			CA:&config.CryptographyConfigEntry{
+				CAType:config.InternalCA,
+				InternalCAcfg: &config.InternalCAConfig{
+					Cert: filepath.Join(cfg.Service.CertStore, "ca.crt"),
+					Key: filepath.Join(cfg.Service.CertStore, "ca.key"),
+					Serial: "",
+					SignerName: "ca",
+					ExpireDays: caCertValidityDays,
+				},
+			},
+		}
+	}
+
+
+	ca, _, err := crypto.EnsureCA(cryptocfg)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
 	}

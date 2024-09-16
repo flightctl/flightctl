@@ -93,7 +93,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 
 	ctrl := gomock.NewController(GinkgoT())
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
-	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient)
+	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient, ca)
 
 	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts)
 	if err != nil {
@@ -164,7 +164,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}
 
 	// create client to talk to the server
-	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.Config)
+	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.GetConfig())
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}

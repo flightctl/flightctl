@@ -23,36 +23,33 @@ import (
 
 const ClientCertExpiryDays = 365
 
-func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
+func approveEnrollmentRequest(enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
 	if enrollmentRequest == nil {
-		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
+		return errors.New("approveEnrollmentRequest: enrollmentRequest is nil")
 	}
 
 	if enrollmentRequest.Metadata.Name == nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: enrollment request is missing metadata.name")
+		return fmt.Errorf("approveEnrollmentRequest: enrollment request is missing metadata.name")
 	}
 
 	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
 	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
+		return fmt.Errorf("approveEnrollmentRequest: error parsing CSR: %w", err)
 	}
 
 	csr.Subject.CommonName, err = crypto.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
 	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
+		return fmt.Errorf("approveEnrollmentRequest: error setting CN in CSR: %w", err)
 	}
 
 	if err := csr.CheckSignature(); err != nil {
 		return fmt.Errorf("failed to verify signature of CSR: %w", err)
 	}
 
-	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
-	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
 	if err != nil {
 		return err
 	}
 	enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
-		Certificate: util.StrToPtr(string(certData)),
 		Conditions:  []v1alpha1.Condition{},
 		Approval:    approval,
 	}
@@ -274,7 +271,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 			request.Body.ApprovedBy = util.StrToPtr("unknown")
 		}
 
-		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
+		if err := approveEnrollmentRequest(enrollmentReq, request.Body); err != nil {
 			return server.ApproveEnrollmentRequest400JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
 		}
 
@@ -286,6 +283,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
 	switch err {
 	case nil:
+		h.callbackManager.EnrollmentApproved(orgId)
 		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ApproveEnrollmentRequest404JSONResponse{}, nil

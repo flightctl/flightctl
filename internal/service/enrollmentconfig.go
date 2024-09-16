@@ -30,7 +30,7 @@ func (h *ServiceHandler) EnrollmentConfig(ctx context.Context, request server.En
 		return server.EnrollmentConfig400JSONResponse{Message: "CSR is not signed"}, nil
 	}
 
-	cert, _, err := h.ca.Config.GetPEMBytes()
+	cert, _, err := h.ca.GetConfig().GetPEMBytes()
 	if err != nil {
 		return server.EnrollmentConfig400JSONResponse{Message: err.Error()}, nil
 	}

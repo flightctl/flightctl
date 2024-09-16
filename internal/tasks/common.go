@@ -21,6 +21,9 @@ const (
 	DeviceRenderOpUpdate              = "update"
 	RepositoryUpdateOpUpdate          = "update"
 	RepositoryUpdateOpDeleteAll       = "delete-all"
+	AsyncSignOpSignAll                = "sign-all"
+	AsyncSignOpSignCSR                = "sign-csrs"
+	AsyncSignOpSignEnrollment         = "sign-enrollment"
 )
 
 type ResourceReference struct {
