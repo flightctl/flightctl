@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	. "github.com/onsi/ginkgo/v2"
@@ -26,59 +26,83 @@ var _ = Describe("ConsoleController", func() {
 		mockGrpcClient   *MockRouterServiceClient
 		mockStreamClient *MockRouterService_StreamClient
 		mockExecutor     *executer.MockExecuter
-		desired          *v1alpha1.RenderedDeviceSpec
-		testCommand      *exec.Cmd
-		sessionId        string
-		deviceName       string
+
+		consoleController *ConsoleController
+
+		desired     *api.RenderedDeviceSpec
+		testCommand *exec.Cmd
+		sessionId   string
+		deviceName  string
 	)
 
 	BeforeEach(func() {
 		ctrl := gomock.NewController(GinkgoT())
-		defer ctrl.Finish()
+		DeferCleanup(ctrl.Finish)
 
-		logger = log.NewPrefixLogger("test")
+		logger = log.NewPrefixLogger("TestConsoleController")
+
+		sessionId = "session-1"
+		deviceName = "test-device"
 
 		ctx = context.TODO()
 		mockGrpcClient = NewMockRouterServiceClient(ctrl)
 		mockStreamClient = NewMockRouterService_StreamClient(ctrl)
 		mockExecutor = executer.NewMockExecuter(ctrl)
 
-		desired = &v1alpha1.RenderedDeviceSpec{
-			Console: &v1alpha1.DeviceConsole{
+		consoleController = NewConsoleController(mockGrpcClient, deviceName, mockExecutor, logger)
+
+		desired = &api.RenderedDeviceSpec{
+			Console: &api.DeviceConsole{
 				SessionID: sessionId,
 			},
 		}
 
-		testCommand = exec.Command("test")
-		sessionId = "session-1"
-		deviceName = "test-device"
+		testCommand = exec.Command("bash", "-i", "-l")
 	})
 
 	When("Test Console.Sync()", func() {
 		It("no desired console", func() {
-			mockStreamClient.EXPECT().CloseSend().Return(nil)
-
-			consoleController := NewConsoleController(mockGrpcClient, deviceName, mockExecutor, logger)
 			consoleController.active = true
-			consoleController.streamClient = mockStreamClient
 
-			err := consoleController.Sync(ctx, &v1alpha1.RenderedDeviceSpec{})
+			err := consoleController.Sync(ctx, &api.RenderedDeviceSpec{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(consoleController.active).To(BeFalse())
 		})
 
-		It("active console with same session ID", func() {
-			consoleController := NewConsoleController(mockGrpcClient, deviceName, mockExecutor, logger)
+		It("active console with new desired console", func() {
 			consoleController.active = true
 			consoleController.streamClient = mockStreamClient
+
+			err := consoleController.Sync(ctx, desired)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(consoleController.active).To(BeTrue())
+		})
+
+		It("no desired console with active stream failure", func() {
+			consoleController.active = true
+			consoleController.streamClient = mockStreamClient
+
+			mockStreamClient.EXPECT().CloseSend().Return(errors.New("close send error"))
+
+			err := consoleController.Sync(ctx, &api.RenderedDeviceSpec{})
+			Expect(err).To(HaveOccurred())
+			Expect(consoleController.active).To(BeTrue())
+		})
+
+		It("active console with same session ID", func() {
 			consoleController.currentStreamID = sessionId
+
+			mockStreamClient.EXPECT().Recv().Return(nil, nil).AnyTimes()
+			mockStreamClient.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
+			mockStreamClient.EXPECT().CloseSend().Return(nil).AnyTimes()
+			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(mockStreamClient, nil)
+			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(testCommand)
 
 			err := consoleController.Sync(ctx, desired)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("console session was closed", func() {
-			consoleController := NewConsoleController(mockGrpcClient, deviceName, mockExecutor, logger)
 			consoleController.lastClosedStream = sessionId
 
 			err := consoleController.Sync(ctx, desired)
@@ -86,19 +110,16 @@ var _ = Describe("ConsoleController", func() {
 		})
 
 		It("no gRPC client available", func() {
-			consoleController := NewConsoleController(nil, deviceName, mockExecutor, logger)
+			consoleController.grpcClient = nil
 
 			err := consoleController.Sync(ctx, desired)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("error creating shell process", func() {
-			consoleController := NewConsoleController(mockGrpcClient, deviceName, mockExecutor, logger)
-			consoleController.grpcClient = mockGrpcClient
-			consoleController.streamClient = nil
 			consoleController.lastClosedStream = ""
 
-			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(nil, errors.New("shell error"))
+			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(nil, errors.New("shell creation error"))
 			testCommand.Process = nil
 			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(testCommand)
 
@@ -107,10 +128,7 @@ var _ = Describe("ConsoleController", func() {
 		})
 
 		It("error creating console stream client", func() {
-			consoleController := NewConsoleController(mockGrpcClient, deviceName, mockExecutor, logger)
-			consoleController.grpcClient = mockGrpcClient
-
-			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(nil, errors.New("stream error"))
+			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(nil, errors.New("stream creation error"))
 			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(testCommand)
 
 			err := consoleController.Sync(ctx, desired)
@@ -118,13 +136,11 @@ var _ = Describe("ConsoleController", func() {
 		})
 
 		It("successful console sync", func() {
-			consoleController := NewConsoleController(mockGrpcClient, deviceName, mockExecutor, logger)
-			consoleController.active = false
-			consoleController.grpcClient = mockGrpcClient
-
+			mockStreamClient.EXPECT().Recv().Return(nil, nil).AnyTimes()
+			mockStreamClient.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
+			mockStreamClient.EXPECT().CloseSend().Return(nil).AnyTimes()
 			mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(mockStreamClient, nil)
 			mockExecutor.EXPECT().CommandContext(gomock.Any(), gomock.Any(), gomock.Any()).Return(testCommand)
-			mockStreamClient.EXPECT().Recv().Return(nil, nil)
 
 			err := consoleController.Sync(ctx, desired)
 			Expect(err).ToNot(HaveOccurred())
