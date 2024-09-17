@@ -27,7 +27,7 @@ type ConsoleController struct {
 	executor         executer.Executer
 }
 
-func NewConsoleController(
+func NewController(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
 	executor executer.Executer,
@@ -140,10 +140,6 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 			if err != nil {
 				c.log.Errorf("stream > bash:error receiving message for stdin: %s", err)
 				return fmt.Errorf("stream > bash:error receiving message for stdin: %w", err)
-			}
-			if msg == nil {
-				c.log.Errorf("stream > bash: error receiving nil message")
-				return fmt.Errorf("stream > bash: received nil message")
 			}
 			payload := msg.GetPayload()
 			c.log.Infof("stream > bash: received: %s", (string)(payload))
