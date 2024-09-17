@@ -169,6 +169,10 @@ func (b *BootcHost) GetBootedImage() string {
 	return b.Status.Booted.Image.Image.Image
 }
 
+func (b *BootcHost) GetBootedImageDigeest() string {
+	return b.Status.Booted.Image.ImageDigest
+}
+
 func (b *BootcHost) GetStagedImage() string {
 	return b.Status.Staged.Image.Image.Image
 }
