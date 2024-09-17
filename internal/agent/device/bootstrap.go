@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
@@ -191,7 +192,7 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 		return fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
 
-	desiredImage := spec.SpecToImage(desired.Os)
+	desiredImage := image.SpecToImage(desired.Os)
 	if !reconciled {
 		return b.checkRollback(ctx, bootedOSImage, desiredImage)
 	}
@@ -220,8 +221,8 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	return nil
 }
 
-func (b *Bootstrap) checkRollback(ctx context.Context, bootedImage, desiredImage *spec.Image) error {
-	if spec.AreImagesEquivalent(bootedImage, desiredImage) {
+func (b *Bootstrap) checkRollback(ctx context.Context, bootedImage, desiredImage *image.Image) error {
+	if image.AreImagesEquivalent(bootedImage, desiredImage) {
 		return nil
 	}
 
