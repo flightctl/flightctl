@@ -1013,6 +1013,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /api/v1/devices/summary:
+    get:
+      tags:
+        - device
+      summary: Get summary of all devices
+      operationId: getDevicesSummary
+      parameters:
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: owner
+          in: query
+          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevicesSummary"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentconfig/{name}:
     get:
       tags:
@@ -3549,16 +3593,25 @@ components:
       properties:
         total:
           type: integer
+          format: int64
           description: The total number of devices in the fleet.
+        applicationStatus:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+          description: A breakdown of the devices in the fleet by "application" status.
         summaryStatus:
           type: object
           additionalProperties:
             type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "summary" status.
         updateStatus:
           type: object
           additionalProperties:
             type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object
@@ -3889,6 +3942,7 @@ components:
           items:
             allOf:
               - $ref: '#/components/schemas/Condition'
+            type: object
             default: {}
           type: array
       required:

@@ -86,7 +86,7 @@ func WithDeviceCount(val bool) ListOption {
 
 type fleetWithCount struct {
 	model.Fleet
-	DeviceCount int
+	DeviceCount int64
 }
 
 func fleetSelectStr(withDeviceCount bool) string {
@@ -100,6 +100,11 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	var nextContinue *string
 	var numRemaining *int64
 	var options listOptions
+
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitInvalid
+	}
+
 	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })
 	dbModel := s.db.Table("fleets").Select(fleetSelectStr(options.withDeviceCount))
 	query := BuildBaseListQuery(dbModel, orgId, listParams)
@@ -199,40 +204,26 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		Total: fleet.DeviceCount,
 	}
 	if options.withSummary {
-		var err error
-		summary.SummaryStatus, err = s.getDeviceSummary(ctx, orgId, name, "summary")
+		statusCount, err := CountStatusList(ctx, BuildBaseListQuery(s.db.Model(&model.Device{}), orgId, ListParams{Owners: []string{name}}),
+			"status.applications.summary.status",
+			"status.summary.status",
+			"status.updated.status")
 		if err != nil {
 			return nil, flterrors.ErrorFromGormError(err)
 		}
 
-		summary.UpdateStatus, err = s.getDeviceSummary(ctx, orgId, name, "updated")
-		if err != nil {
-			return nil, flterrors.ErrorFromGormError(err)
-		}
+		applicationStatus := statusCount.List("status.applications.summary.status")
+		summary.ApplicationStatus = &applicationStatus
+
+		summaryStatus := statusCount.List("status.summary.status")
+		summary.SummaryStatus = &summaryStatus
+
+		updateStatus := statusCount.List("status.updated.status")
+		summary.UpdateStatus = &updateStatus
 	}
 
 	apiFleet := fleet.ToApiResource(model.WithSummary(&summary))
 	return &apiFleet, nil
-}
-
-type StatusCount struct {
-	Status string
-	Count  int
-}
-
-func (s *FleetStore) getDeviceSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summaryField string) (*map[string]int, error) {
-	queryStr := `
-	SELECT count(*) as count, status::jsonb->'%s'->>'status' as status
-	FROM devices
-	WHERE owner = '%s' AND org_id = '%s'
-	GROUP BY status::jsonb->'%s'->>'status'`
-	summaryQueryStr := fmt.Sprintf(queryStr, summaryField, *util.SetResourceOwner(model.FleetKind, fleetName), orgId, summaryField)
-
-	var statusCounts []StatusCount
-	if err := s.db.WithContext(ctx).Raw(summaryQueryStr).Scan(&statusCounts).Error; err != nil {
-		return nil, err
-	}
-	return lo.ToPtr(lo.SliceToMap(statusCounts, func(s StatusCount) (string, int) { return s.Status, s.Count })), nil
 }
 
 func (s *FleetStore) createFleet(fleet *model.Fleet) (bool, error) {
