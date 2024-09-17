@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -59,7 +60,7 @@ type Manager interface {
 	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
 	IsOSUpdate() (bool, error)
 	// CheckOsReconciliation checks if the booted OS image matches the desired OS image.
-	CheckOsReconciliation(ctx context.Context) (string, bool, error)
+	CheckOsReconciliation(ctx context.Context) (*v1alpha1.DeviceOSSpec, bool, error)
 	// IsRollingBack returns true if the device is in a rollback state.
 	IsRollingBack(ctx context.Context) (bool, error)
 	// PrepareRollback creates a rollback version of the current rendered spec.
@@ -141,6 +142,7 @@ func (s *SpecManager) Ensure() error {
 	return nil
 }
 
+// TODO needs update
 func (s *SpecManager) IsRollingBack(ctx context.Context) (bool, error) {
 	desired, err := s.Read(Desired)
 	if err != nil {
@@ -332,23 +334,59 @@ func isOsSame(first *v1alpha1.DeviceOSSpec, second *v1alpha1.DeviceOSSpec) bool 
 	return firstImage == secondImage
 }
 
-func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
+func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*v1alpha1.DeviceOSSpec, bool, error) {
 	bootc, err := s.bootcClient.Status(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
+		return nil, false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
 	}
-	bootedOSImage := bootc.GetBootedImage()
+	bootedOsImage := bootc.GetBootedImage()
+	bootedOsImageDigest := bootc.GetBootedImageDigeest()
 
 	desired, err := s.Read(Desired)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
+	}
+
+	bootedSpec := &v1alpha1.DeviceOSSpec{
+		Image:       bootedOsImage,
+		ImageDigest: &bootedOsImageDigest,
 	}
 
 	if desired.Os == nil {
-		return bootedOSImage, false, nil
+		return bootedSpec, false, nil
 	}
 
-	return bootedOSImage, desired.Os.Image == bootc.GetBootedImage(), nil
+	if desired.Os.ImageDigest != nil && *desired.Os.ImageDigest != "" {
+		return bootedSpec, *desired.Os.ImageDigest == bootedOsImageDigest, nil
+	}
+
+	// TODO need additonal conversion / logic here for cases like the bootc image
+	// has a tag or digest and desired has the same base but not image or tag
+	return bootedSpec, desired.Os.Image == bootedOsImage, nil
+}
+
+// TODO where should this live
+type Image struct {
+	Base   string
+	Tag    string
+	Digest string
+}
+
+func parseImage(image string) *Image {
+	imageObj := &Image{}
+
+	imageAndDigest := strings.SplitN(image, "@", 2)
+	if len(imageAndDigest) == 2 {
+		imageObj.Digest = imageAndDigest[1]
+	}
+
+	imageAndTag := strings.SplitN(imageAndDigest[0], ":", 2)
+	imageObj.Base = imageAndTag[0]
+	if len(imageAndTag) == 2 {
+		imageObj.Tag = imageAndTag[1]
+	}
+
+	return imageObj
 }
 
 func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
