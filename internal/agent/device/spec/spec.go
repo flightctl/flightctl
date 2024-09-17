@@ -307,7 +307,10 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 		return false, err
 	}
 
-	return isOsSame(current.Os, desired.Os), nil
+	currentImage := specToImage(current.Os)
+	desiredImage := specToImage(desired.Os)
+
+	return areImagesEquivalent(currentImage, desiredImage), nil
 }
 
 func isOsSame(first *v1alpha1.DeviceOSSpec, second *v1alpha1.DeviceOSSpec) bool {
@@ -332,6 +335,30 @@ func isOsSame(first *v1alpha1.DeviceOSSpec, second *v1alpha1.DeviceOSSpec) bool 
 		return firstDigest == secondDigest
 	}
 	return firstImage == secondImage
+}
+
+// TODO does this need more handling for cases where the image might be defined but fields are ""?
+func areImagesEquivalent(first, second *Image) bool {
+	if first == nil && second == nil {
+		return true
+	} else if first == nil && second != nil || first != nil && second == nil {
+		return false
+	}
+
+	// Digests are unique identifiers and have precedence if defined
+	if first.Digest != "" && second.Digest != "" {
+		return first.Digest == second.Digest
+	}
+
+	if first.Base != second.Base {
+		return false
+	}
+
+	if first.Tag != second.Tag {
+		return false
+	}
+
+	return true
 }
 
 func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*v1alpha1.DeviceOSSpec, bool, error) {
@@ -387,6 +414,19 @@ func parseImage(image string) *Image {
 	}
 
 	return imageObj
+}
+
+func specToImage(spec *v1alpha1.DeviceOSSpec) *Image {
+	if spec == nil || spec.Image == "" {
+		return nil
+	}
+	image := parseImage(spec.Image)
+	// It is possible for the spec image string to NOT contain a digest but the
+	// saved spec has one
+	if image.Digest == "" && spec.ImageDigest != nil && *spec.ImageDigest != "" {
+		image.Digest = *spec.ImageDigest
+	}
+	return image
 }
 
 func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
