@@ -186,21 +186,24 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	}
 
 	// check if the bootedOS image is expected
-	bootedOS, reconciled, err := b.specManager.CheckOsReconciliation(ctx)
+	bootedOSImage, reconciled, err := b.specManager.CheckOsReconciliation(ctx)
 	if err != nil {
 		return fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
 
+	desiredImage := spec.SpecToImage(desired.Os)
 	if !reconciled {
-		return b.checkRollback(ctx, bootedOS, desired.Os)
+		return b.checkRollback(ctx, bootedOSImage, desiredImage)
 	}
 
+	// TODO address/fix logging (here and in checkRollback)
 	b.log.Infof("Host is booted to the desired os image %s: upgrading current spec", desired.Os.Image)
 	// image is reconciled upgrade was a success update the current spec to the desired spec if nessisary
 	if err := b.specManager.Upgrade(); err != nil {
 		return fmt.Errorf("writing current rendered spec: %w", err)
 	}
 
+	// TODO update status image digest here
 	updateFns := []status.UpdateStatusFn{
 		status.SetOSImage(v1alpha1.DeviceOSStatus{
 			Image: desired.Os.Image,
@@ -217,19 +220,17 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	return nil
 }
 
-func (b *Bootstrap) checkRollback(ctx context.Context, bootedOS, desiredOS *v1alpha1.DeviceOSSpec) error {
-	// TODO deep equals?  How do we handle the fact the image was pass to bootc might be missing info???
-	// In that case comparator that ignores the tags on both sides?
-	if bootedOS == desiredOS {
+func (b *Bootstrap) checkRollback(ctx context.Context, bootedImage, desiredImage *spec.Image) error {
+	if spec.AreImagesEquivalent(bootedImage, desiredImage) {
 		return nil
 	}
 
 	// We rebooted without applying the new OS image - something potentially went wrong
-	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedOS, desiredOS)
+	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedImage, desiredImage)
 
 	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 		Status: v1alpha1.DeviceSummaryStatusDegraded,
-		Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
+		Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedImage, desiredImage)),
 	}))
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)

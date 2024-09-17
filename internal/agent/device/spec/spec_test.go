@@ -1359,7 +1359,7 @@ func Test_areImagesEquivalent(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := areImagesEquivalent(testCase.imageOne, testCase.imageTwo)
+			result := AreImagesEquivalent(testCase.imageOne, testCase.imageTwo)
 			require.Equal(testCase.expectedResult, result)
 		})
 	}
