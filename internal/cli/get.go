@@ -114,14 +114,14 @@ func (o *GetOptions) Validate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(name) > 0 && len(o.LabelSelector) > 0 {
+	if len(name) > 0 && !strings.EqualFold(name, "summary") && len(o.LabelSelector) > 0 {
 		return fmt.Errorf("cannot specify label selector when fetching a single resource")
 	}
 	if len(o.Owner) > 0 {
 		if kind != DeviceKind && kind != FleetKind {
 			return fmt.Errorf("owner can only be specified when fetching devices and fleets")
 		}
-		if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 {
+		if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 && !strings.EqualFold(name, "summary") {
 			return fmt.Errorf("cannot specify owner together with a device or fleet name")
 		}
 	}
@@ -158,6 +158,12 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		return err
 	}
 	switch {
+	case kind == DeviceKind && strings.EqualFold(name, "summary"):
+		params := api.GetDevicesSummaryParams{
+			Owner:         util.StrToPtrWithNilDefault(o.Owner),
+			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+		}
+		response, err = c.GetDevicesSummaryWithResponse(ctx, &params)
 	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
 		response, err = c.ReadDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) > 0 && o.Rendered:
@@ -270,6 +276,8 @@ func (o *GetOptions) processReponse(response interface{}, err error, kind string
 func (o *GetOptions) printTable(response interface{}, kind string, name string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 	switch {
+	case kind == DeviceKind && strings.EqualFold(name, "summary"):
+		printDevicesSummaryTable(w, *(response.(*apiclient.GetDevicesSummaryResponse).JSON200))
 	case kind == DeviceKind && len(name) == 0:
 		o.printDevicesTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Items...)
 	case kind == DeviceKind && len(name) > 0:
@@ -305,12 +313,28 @@ func (o *GetOptions) printTable(response interface{}, kind string, name string) 
 	return nil
 }
 
-func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
-	if o.Output == wideFormat {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
-	} else {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+func printDevicesSummaryTable(w *tabwriter.Writer, summary api.DevicesSummary) {
+	fmt.Fprintln(w, "TYPE\tSTATUS\tCOUNT")
+
+	for k, v := range *summary.SummaryStatus {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", "SYSTEM", k, fmt.Sprintf("%d", v))
 	}
+
+	for k, v := range *summary.UpdateStatus {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", "UPDATED", k, fmt.Sprintf("%d", v))
+	}
+
+	for k, v := range *summary.ApplicationStatus {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", "APPLICATIONS", k, fmt.Sprintf("%d", v))
+	}
+
+	fmt.Fprintln(w, "\nDEVICES")
+	fmt.Fprintf(w, "%s\n", fmt.Sprintf("%d", summary.Total))
+
+}
+
+func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
+	fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
 	for _, d := range devices {
 		lastSeen := "<never>"
 		if !d.Status.LastSeen.IsZero() {
