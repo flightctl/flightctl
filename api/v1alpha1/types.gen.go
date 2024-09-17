@@ -496,14 +496,17 @@ type DeviceUpdatedStatusType string
 
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
+	// ApplicationStatus A breakdown of the devices in the fleet by "application" status.
+	ApplicationStatus *map[string]int64 `json:"applicationStatus,omitempty"`
+
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus *map[string]int `json:"summaryStatus,omitempty"`
+	SummaryStatus *map[string]int64 `json:"summaryStatus,omitempty"`
 
 	// Total The total number of devices in the fleet.
-	Total int `json:"total"`
+	Total int64 `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus *map[string]int `json:"updateStatus,omitempty"`
+	UpdateStatus *map[string]int64 `json:"updateStatus,omitempty"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
@@ -1219,6 +1222,15 @@ type ListDevicesParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+}
+
+// GetDevicesSummaryParams defines parameters for GetDevicesSummary.
+type GetDevicesSummaryParams struct {
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
 	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`

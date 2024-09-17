@@ -26,6 +26,7 @@ type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
 	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -130,6 +131,10 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	var nextContinue *string
 	var numRemaining *int64
 
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitInvalid
+	}
+
 	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams)
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
@@ -164,6 +169,33 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
 	return &apiDevicelist, flterrors.ErrorFromGormError(result.Error)
+}
+
+func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
+	query := BuildBaseListQuery(s.db.Model(&model.DeviceList{}), orgId, listParams)
+
+	var devicesCount int64
+	if err := query.Count(&devicesCount).Error; err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+
+	statusCount, err := CountStatusList(ctx, query,
+		"status.applications.summary.status",
+		"status.summary.status",
+		"status.updated.status")
+	if err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+
+	applicationStatus := statusCount.List("status.applications.summary.status")
+	summaryStatus := statusCount.List("status.summary.status")
+	updateStatus := statusCount.List("status.updated.status")
+	return &api.DevicesSummary{
+		Total:             devicesCount,
+		ApplicationStatus: &applicationStatus,
+		SummaryStatus:     &summaryStatus,
+		UpdateStatus:      &updateStatus,
+	}, nil
 }
 
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
