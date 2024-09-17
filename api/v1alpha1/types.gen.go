@@ -1200,6 +1200,9 @@ type ListEnrollmentRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// StatusFilter A filter to restrict the list of enrollment requests by the value of the filtered status key. Defaults to everything.
+	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }

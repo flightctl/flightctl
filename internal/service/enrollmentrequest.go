@@ -103,9 +103,21 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		labelSelector = *request.Params.LabelSelector
 	}
 
+	statusFilter := []string{}
+	if request.Params.StatusFilter != nil {
+		for _, filter := range *request.Params.StatusFilter {
+			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
+		}
+	}
+
 	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
 	if err != nil {
 		return server.ListEnrollmentRequests400JSONResponse{Message: err.Error()}, nil
+	}
+
+	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
+	if err != nil {
+		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
 	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
@@ -115,6 +127,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 	listParams := store.ListParams{
 		Labels:   labelMap,
+		Filter:   filterMap,
 		Limit:    int(swag.Int32Value(request.Params.Limit)),
 		Continue: cont,
 	}
