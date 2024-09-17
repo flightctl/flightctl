@@ -39,12 +39,6 @@ func main() {
 	}
 	log.Printf("Using config: %s", cfg)
 
-	cfg.Database.Port = uint(8888)
-	cfg.Service.Address = ":3444"
-	cfg.Service.AgentEndpointAddress = ":7445"
-	cfg.Service.AgentGrpcAddress = ":7446"
-	cfg.Queue.AmqpURL = "amqp://user:password@127.0.0.1:5674"
-
 	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
 	if err != nil {
 		logLvl = logrus.InfoLevel
