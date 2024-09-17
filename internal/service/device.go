@@ -106,6 +106,8 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	switch err {
 	case nil:
 		return server.ListDevices200JSONResponse(*result), nil
+	case flterrors.ErrLimitInvalid:
+		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
