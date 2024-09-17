@@ -503,7 +503,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 	})
 
 	t.Run("desired os is not set in the spec", func(t *testing.T) {
-		bootedImage := "flightctl-device:v1"
+		bootedImage := "flightctl-device"
 
 		bootcStatus := &container.BootcHost{}
 		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
@@ -513,7 +513,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(bootedOSImage, bootedImage)
+		require.Equal(&Image{Base: bootedImage}, bootedOSImage)
 		require.Equal(false, desiredImageIsBooted)
 	})
 
@@ -531,7 +531,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(bootedOSImage, bootedImage)
+		require.Equal(&Image{Base: "flightctl-device", Tag: "v1"}, bootedOSImage)
 		require.Equal(false, desiredImageIsBooted)
 	})
 
@@ -548,7 +548,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(bootedOSImage, image)
+		require.Equal(&Image{Base: "flightctl-device", Tag: "v2"}, bootedOSImage)
 		require.Equal(true, desiredImageIsBooted)
 	})
 }
@@ -1360,6 +1360,32 @@ func Test_areImagesEquivalent(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := areImagesEquivalent(testCase.imageOne, testCase.imageTwo)
+			require.Equal(testCase.expectedResult, result)
+		})
+	}
+}
+
+func Test_parseImage(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		name           string
+		image          string
+		expectedResult *Image
+	}{
+		{
+			name:  "image with a tag and digest",
+			image: "flightctl-device:v3@sha256:123abc",
+			expectedResult: &Image{
+				Base:   "flightctl-device",
+				Tag:    "v3",
+				Digest: "sha256:123abc",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := parseImage(testCase.image)
 			require.Equal(testCase.expectedResult, result)
 		})
 	}
