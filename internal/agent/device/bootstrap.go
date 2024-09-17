@@ -192,7 +192,7 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	}
 
 	if !reconciled {
-		return b.checkRollback(ctx, bootedOS, desired.Os.Image)
+		return b.checkRollback(ctx, bootedOS, desired.Os)
 	}
 
 	b.log.Infof("Host is booted to the desired os image %s: upgrading current spec", desired.Os.Image)
@@ -217,7 +217,9 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	return nil
 }
 
-func (b *Bootstrap) checkRollback(ctx context.Context, bootedOS, desiredOS string) error {
+func (b *Bootstrap) checkRollback(ctx context.Context, bootedOS, desiredOS *v1alpha1.DeviceOSSpec) error {
+	// TODO deep equals?  How do we handle the fact the image was pass to bootc might be missing info???
+	// In that case comparator that ignores the tags on both sides?
 	if bootedOS == desiredOS {
 		return nil
 	}
