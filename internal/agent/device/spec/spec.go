@@ -142,7 +142,6 @@ func (s *SpecManager) Ensure() error {
 	return nil
 }
 
-// TODO needs update
 func (s *SpecManager) IsRollingBack(ctx context.Context) (bool, error) {
 	desired, err := s.Read(Desired)
 	if err != nil {
@@ -175,8 +174,11 @@ func (s *SpecManager) IsRollingBack(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	bootedOSImage := bootcStatus.GetBootedImage()
-	return bootedOSImage == rollback.Os.Image && bootedOSImage != desired.Os.Image, nil
+	bootedImage := bootcStatusToImage(bootcStatus)
+	rollbackImage := SpecToImage(rollback.Os)
+	desiredImage := SpecToImage(desired.Os)
+
+	return AreImagesEquivalent(bootedImage, rollbackImage) && !AreImagesEquivalent(bootedImage, desiredImage), nil
 }
 
 func (s *SpecManager) Upgrade() error {
@@ -307,10 +309,10 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 		return false, err
 	}
 
-	currentImage := specToImage(current.Os)
-	desiredImage := specToImage(desired.Os)
+	currentImage := SpecToImage(current.Os)
+	desiredImage := SpecToImage(desired.Os)
 
-	return !areImagesEquivalent(currentImage, desiredImage), nil
+	return !AreImagesEquivalent(currentImage, desiredImage), nil
 }
 
 // TODO delete
@@ -339,7 +341,7 @@ func isOsSame(first *v1alpha1.DeviceOSSpec, second *v1alpha1.DeviceOSSpec) bool 
 }
 
 // TODO does this need more handling for cases where the image might be defined but fields are ""?
-func areImagesEquivalent(first, second *Image) bool {
+func AreImagesEquivalent(first, second *Image) bool {
 	if first == nil && second == nil {
 		return true
 	} else if first == nil && second != nil || first != nil && second == nil {
@@ -379,8 +381,8 @@ func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*Image, bool, 
 		return bootedImage, false, nil
 	}
 
-	desiredImage := specToImage(desired.Os)
-	return bootedImage, areImagesEquivalent(bootedImage, desiredImage), nil
+	desiredImage := SpecToImage(desired.Os)
+	return bootedImage, AreImagesEquivalent(bootedImage, desiredImage), nil
 }
 
 // TODO where should this live
@@ -407,7 +409,7 @@ func parseImage(image string) *Image {
 	return imageObj
 }
 
-func specToImage(spec *v1alpha1.DeviceOSSpec) *Image {
+func SpecToImage(spec *v1alpha1.DeviceOSSpec) *Image {
 	if spec == nil || spec.Image == "" {
 		return nil
 	}
