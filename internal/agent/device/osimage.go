@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
@@ -64,14 +65,14 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
-	if container.IsOsImageReconciled(host, desired) {
+	if IsOsImageReconciled(host, desired) {
 		c.log.Debugf("Host is reconciled to os image %s", desired.Os.Image)
 		return nil
 	}
 
-	desiredImage := spec.SpecToImage(desired.Os)
+	desiredImage := image.SpecToImage(desired.Os)
 	c.log.Infof("Switching to os image: %s", desiredImage)
-	target := spec.ImageToBootcTarget(desiredImage)
+	target := image.ImageToBootcTarget(desiredImage)
 	if err := c.bootc.Switch(ctx, target); err != nil {
 		return err
 	}
@@ -102,4 +103,17 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	return c.bootc.Apply(ctx)
+}
+
+// IsOsImageReconciled returns true if the booted image equals the spec image.
+func IsOsImageReconciled(host *container.BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
+	if desiredSpec.Os == nil {
+		return false
+	}
+
+	desiredImage := image.SpecToImage(desiredSpec.Os)
+	bootedImage := image.BootcStatusToImage(host)
+
+	// If the booted image equals the desired image, the OS image is reconciled
+	return image.AreImagesEquivalent(desiredImage, bootedImage)
 }

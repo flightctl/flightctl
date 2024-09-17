@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
@@ -99,7 +98,6 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 
 // Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
 // The status will be updated in logger.
-// TODO take in image object to bind contract better after moving to prevent circular import?
 func (b *BootcCmd) Switch(ctx context.Context, image string) error {
 	done := make(chan error, 1)
 	go func() {
@@ -155,16 +153,6 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 func IsOsImageDirty(host *BootcHost) bool {
 	// If the booted image does not equal the spec image, the OS image is not reconciled
 	return host.Status.Booted.Image.Image.Image != host.Spec.Image.Image
-}
-
-// TODO need to update this to look at an image after moving image stuff to avoid circular import
-// IsOsImageReconciled returns true if the booted image equals the spec image.
-func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
-	if desiredSpec.Os == nil {
-		return false
-	}
-	// If the booted image equals the desired image, the OS image is reconciled
-	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
 }
 
 func (b *BootcHost) GetBootedImage() string {

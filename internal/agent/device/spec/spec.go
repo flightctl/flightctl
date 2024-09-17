@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/net/context"
@@ -60,7 +60,7 @@ type Manager interface {
 	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
 	IsOSUpdate() (bool, error)
 	// CheckOsReconciliation checks if the booted OS image matches the desired OS image.
-	CheckOsReconciliation(ctx context.Context) (*Image, bool, error)
+	CheckOsReconciliation(ctx context.Context) (*image.Image, bool, error)
 	// IsRollingBack returns true if the device is in a rollback state.
 	IsRollingBack(ctx context.Context) (bool, error)
 	// PrepareRollback creates a rollback version of the current rendered spec.
@@ -174,11 +174,11 @@ func (s *SpecManager) IsRollingBack(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	bootedImage := bootcStatusToImage(bootcStatus)
-	rollbackImage := SpecToImage(rollback.Os)
-	desiredImage := SpecToImage(desired.Os)
+	bootedImage := image.BootcStatusToImage(bootcStatus)
+	rollbackImage := image.SpecToImage(rollback.Os)
+	desiredImage := image.SpecToImage(desired.Os)
 
-	return AreImagesEquivalent(bootedImage, rollbackImage) && !AreImagesEquivalent(bootedImage, desiredImage), nil
+	return image.AreImagesEquivalent(bootedImage, rollbackImage) && !image.AreImagesEquivalent(bootedImage, desiredImage), nil
 }
 
 func (s *SpecManager) Upgrade() error {
@@ -309,49 +309,13 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 		return false, err
 	}
 
-	currentImage := SpecToImage(current.Os)
-	desiredImage := SpecToImage(desired.Os)
+	currentImage := image.SpecToImage(current.Os)
+	desiredImage := image.SpecToImage(desired.Os)
 
-	return !AreImagesEquivalent(currentImage, desiredImage), nil
+	return !image.AreImagesEquivalent(currentImage, desiredImage), nil
 }
 
-// TODO does this need more handling for cases where the image might be defined but fields are ""?
-func AreImagesEquivalent(first, second *Image) bool {
-	if first == nil && second == nil {
-		return true
-	} else if first == nil && second != nil || first != nil && second == nil {
-		return false
-	}
-
-	// Digests are unique identifiers and have precedence if defined
-	if first.Digest != "" && second.Digest != "" {
-		return first.Digest == second.Digest
-	}
-
-	if first.Base != second.Base {
-		return false
-	}
-
-	if first.Tag != second.Tag {
-		return false
-	}
-
-	return true
-}
-
-// TODO define on Image?
-// TODO also define a string representation that spits back out the fully built image string?
-func ImageToBootcTarget(image *Image) string {
-	if image.Digest != "" {
-		return fmt.Sprintf("%s@%s", image.Base, image.Digest)
-	}
-	if image.Tag != "" {
-		return fmt.Sprintf("%s:%s", image.Base, image.Tag)
-	}
-	return image.Base
-}
-
-func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*Image, bool, error) {
+func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*image.Image, bool, error) {
 	bootc, err := s.bootcClient.Status(ctx)
 	if err != nil {
 		return nil, false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
@@ -362,67 +326,14 @@ func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*Image, bool, 
 		return nil, false, err
 	}
 
-	bootedImage := bootcStatusToImage(bootc)
+	bootedImage := image.BootcStatusToImage(bootc)
 
 	if desired.Os == nil {
 		return bootedImage, false, nil
 	}
 
-	desiredImage := SpecToImage(desired.Os)
-	return bootedImage, AreImagesEquivalent(bootedImage, desiredImage), nil
-}
-
-// TODO where should this live
-type Image struct {
-	Base   string
-	Tag    string
-	Digest string
-}
-
-func parseImage(image string) *Image {
-	imageObj := &Image{}
-
-	imageAndDigest := strings.SplitN(image, "@", 2)
-	if len(imageAndDigest) == 2 {
-		imageObj.Digest = imageAndDigest[1]
-	}
-
-	imageAndTag := strings.SplitN(imageAndDigest[0], ":", 2)
-	imageObj.Base = imageAndTag[0]
-	if len(imageAndTag) == 2 {
-		imageObj.Tag = imageAndTag[1]
-	}
-
-	return imageObj
-}
-
-func SpecToImage(spec *v1alpha1.DeviceOSSpec) *Image {
-	if spec == nil || spec.Image == "" {
-		return nil
-	}
-	image := parseImage(spec.Image)
-	// It is possible for the spec image string to NOT contain a digest but the
-	// saved spec has one
-	if image.Digest == "" && spec.ImageDigest != nil && *spec.ImageDigest != "" {
-		image.Digest = *spec.ImageDigest
-	}
-	return image
-}
-
-func bootcStatusToImage(bootc *container.BootcHost) *Image {
-	if bootc == nil {
-		return nil
-	}
-
-	bootedOsImage := bootc.GetBootedImage()
-	image := parseImage(bootedOsImage)
-
-	// If the parsed image string doesn't have a digest, explicitly set it from the bootc status
-	if image.Digest == "" {
-		image.Digest = bootc.GetBootedImageDigeest()
-	}
-
-	return image
+	desiredImage := image.SpecToImage(desired.Os)
+	return bootedImage, image.AreImagesEquivalent(bootedImage, desiredImage), nil
 }
 
 func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
