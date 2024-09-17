@@ -195,7 +195,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create console controller
-	consoleController := console.NewConsoleController(
+	consoleController := console.NewController(
 		grpcClient,
 		deviceName,
 		executer,
