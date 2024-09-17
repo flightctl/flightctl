@@ -204,7 +204,8 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		Total: fleet.DeviceCount,
 	}
 	if options.withSummary {
-		statusCount, err := CountStatusList(ctx, BuildBaseListQuery(s.db.Model(&model.Device{}), orgId, ListParams{Owners: []string{name}}),
+		statusCount, err := CountStatusList(ctx, BuildBaseListQuery(s.db.Model(&model.Device{}),
+			orgId, ListParams{Owners: []string{*util.SetResourceOwner(model.FleetKind, name)}}),
 			"status.applications.summary.status",
 			"status.summary.status",
 			"status.updated.status")
