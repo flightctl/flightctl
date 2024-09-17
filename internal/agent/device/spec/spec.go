@@ -315,31 +315,6 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 	return !AreImagesEquivalent(currentImage, desiredImage), nil
 }
 
-// TODO delete
-func isOsSame(first *v1alpha1.DeviceOSSpec, second *v1alpha1.DeviceOSSpec) bool {
-	firstImage := ""
-	firstDigest := ""
-	if first != nil {
-		firstImage = first.Image
-		if first.ImageDigest != nil {
-			firstDigest = *first.ImageDigest
-		}
-	}
-	secondImage := ""
-	secondDigest := ""
-	if second != nil {
-		secondImage = second.Image
-		if second.ImageDigest != nil {
-			secondDigest = *second.ImageDigest
-		}
-	}
-
-	if firstDigest != "" && secondDigest != "" {
-		return firstDigest == secondDigest
-	}
-	return firstImage == secondImage
-}
-
 // TODO does this need more handling for cases where the image might be defined but fields are ""?
 func AreImagesEquivalent(first, second *Image) bool {
 	if first == nil && second == nil {
