@@ -1233,6 +1233,15 @@ type ListDevicesParams struct {
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
+// GetDevicesSummaryParams defines parameters for GetDevicesSummary.
+type GetDevicesSummaryParams struct {
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+}
+
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
 type GetRenderedDeviceSpecParams struct {
 	// KnownRenderedVersion The last known renderedVersion

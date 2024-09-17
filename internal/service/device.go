@@ -244,6 +244,42 @@ func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request serv
 	return common.GetRenderedDeviceSpec(ctx, h.store, request, h.consoleGrpcEndpoint)
 }
 
+// (GET /api/v1/devices/summary/)
+func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, request server.GetDevicesSummaryRequestObject) (server.GetDevicesSummaryResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "summary")
+	if err != nil {
+		return server.GetDevicesSummary401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.GetDevicesSummary403JSONResponse{Message: "cannot summarize devices"}, nil
+	}
+
+	orgId := store.NullOrgId
+
+	labelSelector := ""
+	if request.Params.LabelSelector != nil {
+		labelSelector = *request.Params.LabelSelector
+	}
+
+	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	if err != nil {
+		return server.GetDevicesSummary400JSONResponse{Message: err.Error()}, nil
+	}
+
+	listParams := store.ListParams{
+		Labels: labelMap,
+		Owners: util.OwnerQueryParamsToArray(request.Params.Owner),
+	}
+
+	result, err := h.store.Device().Summary(ctx, orgId, listParams)
+	switch err {
+	case nil:
+		return server.GetDevicesSummary200JSONResponse(*result), nil
+	default:
+		return nil, err
+	}
+}
+
 // (PATCH /api/v1/devices/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDeviceRequestObject) (server.PatchDeviceResponseObject, error) {
