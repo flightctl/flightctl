@@ -364,6 +364,18 @@ func AreImagesEquivalent(first, second *Image) bool {
 	return true
 }
 
+// TODO define on Image?
+// TODO also define a string representation that spits back out the fully built image string?
+func ImageToBootcTarget(image *Image) string {
+	if image.Digest != "" {
+		return fmt.Sprintf("%s@%s", image.Base, image.Digest)
+	}
+	if image.Tag != "" {
+		return fmt.Sprintf("%s:%s", image.Base, image.Tag)
+	}
+	return image.Base
+}
+
 func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*Image, bool, error) {
 	bootc, err := s.bootcClient.Status(ctx)
 	if err != nil {

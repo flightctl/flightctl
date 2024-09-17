@@ -69,13 +69,14 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 		return nil
 	}
 
-	image := desired.Os.Image
-	c.log.Infof("Switching to os image: %s", image)
-	if err := c.bootc.Switch(ctx, image); err != nil {
+	desiredImage := spec.SpecToImage(desired.Os)
+	c.log.Infof("Switching to os image: %s", desiredImage)
+	target := spec.ImageToBootcTarget(desiredImage)
+	if err := c.bootc.Switch(ctx, target); err != nil {
 		return err
 	}
 
-	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", image)
+	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", desiredImage)
 	_, updateErr := c.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 		Status: v1alpha1.DeviceSummaryStatusRebooting,
 		Info:   util.StrToPtr(infoMsg),
