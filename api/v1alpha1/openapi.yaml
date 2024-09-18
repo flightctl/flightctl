@@ -2545,10 +2545,41 @@ components:
         - type: object
           properties:
             inline:
-              type: object
-              additionalProperties: true
+              type: array
+              items:
+                $ref: '#/components/schemas/FileSpec'
           required:
           - inline
+    FileSpec:
+      type: object
+      properties:
+        path:
+          type: string
+          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+        content:
+          type: string
+          description: The URL-encoded or base64-encoded contents of the file.
+        contentEncoding:
+          type: string
+          description: How the contents are encoded. The content is assumed to be plain text if encoding is not specified.
+          enum:
+          - plain
+          - base64
+        mode:
+          type: integer
+          description: |
+            The file’s permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as
+            a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified,
+            the permission mode for files defaults to 0644.
+        user:
+          type: string
+          description: The file's owner, specified either as a name or numeric ID. Defaults to "root".
+        group:
+          type: string
+          description: The file's group, specified either as a name or numeric ID. Defaults to "root".
+      required:
+      - path
+      - content
     HttpConfigProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'

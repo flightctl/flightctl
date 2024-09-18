@@ -2,7 +2,6 @@ package tasks_test
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"strings"
 
@@ -110,19 +109,20 @@ var _ = Describe("FleetValidate", func() {
 			ConfigType: string(api.TemplateDiscriminatorInlineConfig),
 			Name:       "goodInlineConfig",
 		}
-		var goodInline map[string]interface{}
-		err = json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.0\"}}"), &goodInline)
-		Expect(err).ToNot(HaveOccurred())
-		goodInlineConfig.Inline = goodInline
+		base64 := api.Base64
+		goodInlineConfig.Inline = []api.FileSpec{
+			{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
+			{Path: "/etc/notencoded", Content: "Hello world, what's up?"},
+		}
 
 		badInlineConfig = &api.InlineConfigProviderSpec{
 			ConfigType: string(api.TemplateDiscriminatorInlineConfig),
 			Name:       "badInlineConfig",
 		}
-		var badInline map[string]interface{}
-		err = json.Unmarshal([]byte("{\"ignition\": {\"version\": \"badstring\"}}"), &badInline)
-		Expect(err).ToNot(HaveOccurred())
-		badInlineConfig.Inline = badInline
+		badInlineConfig.Inline = []api.FileSpec{
+			{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
+			{Path: "/etc/notencoded", Content: "Hello world, what's up?", ContentEncoding: &base64},
+		}
 
 		goodHttpConfig = &api.HttpConfigProviderSpec{
 			ConfigType: string(api.TemplateDiscriminatorHttpConfig),
@@ -248,57 +248,6 @@ var _ = Describe("FleetValidate", func() {
 			slices.Sort(repoNames)
 			Expect(repoNames[0]).To(Equal("http-repo"))
 			Expect(repoNames[1]).To(Equal("missingrepo"))
-		})
-	})
-
-	When("a Fleet has an invalid inline configuration", func() {
-		It("sets an error Condition", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
-			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
-
-			gitItem := api.DeviceSpec_Config_Item{}
-			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			inlineItem := api.DeviceSpec_Config_Item{}
-			err = inlineItem.FromInlineConfigProviderSpec(*badInlineConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			httpItem := api.DeviceSpec_Config_Item{}
-			err = httpItem.FromHttpConfigProviderSpec(*goodHttpConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem}
-
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
-			Expect(err).To(HaveOccurred())
-
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(fleet.Status.Conditions).ToNot(BeNil())
-			Expect(fleet.Status.Conditions).To(HaveLen(1))
-			Expect(fleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
-			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
-
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(2))
-			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
-			slices.Sort(repoNames)
-			Expect(repoNames[0]).To(Equal("git-repo"))
-			Expect(repoNames[1]).To(Equal("http-repo"))
 		})
 	})
 

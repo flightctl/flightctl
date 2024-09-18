@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"reflect"
@@ -200,25 +201,88 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 
 	deviceConfig := []api.DeviceSpec_Config_Item{}
 	for _, configItem := range *templateVersion.Status.Config {
-		cfgJson, err := configItem.MarshalJSON()
+		var newConfigItem *api.DeviceSpec_Config_Item
+		var err error
+
+		// We need to decode the inline spec contents before replacing parameters
+		discriminator, err := configItem.Discriminator()
 		if err != nil {
-			return nil, fmt.Errorf("failed converting configuration to json: %w", err)
+			return nil, fmt.Errorf("failed getting discriminator: %w", err)
+		}
+		if discriminator == string(api.TemplateDiscriminatorInlineConfig) {
+			newConfigItem, err = f.replaceInlineSpecParameters(device, configItem)
+		} else {
+			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
 		}
 
-		cfgJsonReplaced, warnings := ReplaceParameters(cfgJson, device.Metadata)
+		if err != nil {
+			return nil, err
+		}
+
+		deviceConfig = append(deviceConfig, *newConfigItem)
+	}
+
+	return &deviceConfig, nil
+}
+
+func (f FleetRolloutsLogic) replaceInlineSpecParameters(device *api.Device, configItem api.TemplateVersionStatus_Config_Item) (*api.DeviceSpec_Config_Item, error) {
+	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert config to inline config: %w", err)
+	}
+
+	for fileIndex, file := range inlineSpec.Inline {
+		var decodedBytes []byte
+		var err error
+
+		if file.ContentEncoding == nil {
+			decodedBytes = []byte(file.Content)
+		} else {
+			decodedBytes, err = base64.StdEncoding.DecodeString(file.Content)
+			if err != nil {
+				return nil, fmt.Errorf("error base64 decoding: %w", err)
+			}
+		}
+
+		contentsReplaced, warnings := ReplaceParameters(decodedBytes, device.Metadata)
 		if len(warnings) > 0 {
 			f.log.Infof("failed replacing parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
 		}
 
-		var newConfigItem api.DeviceSpec_Config_Item
-		err = newConfigItem.UnmarshalJSON(cfgJsonReplaced)
-		if err != nil {
-			return nil, fmt.Errorf("failed converting configuration from json: %w", err)
+		if file.ContentEncoding != nil && (*file.ContentEncoding) == api.Base64 {
+			inlineSpec.Inline[fileIndex].Content = base64.StdEncoding.EncodeToString(contentsReplaced)
+		} else {
+			inlineSpec.Inline[fileIndex].Content = string(contentsReplaced)
 		}
-		deviceConfig = append(deviceConfig, newConfigItem)
 	}
 
-	return &deviceConfig, nil
+	newConfigItem := api.DeviceSpec_Config_Item{}
+	err = newConfigItem.FromInlineConfigProviderSpec(inlineSpec)
+	if err != nil {
+		return nil, fmt.Errorf("failed converting inline config: %w", err)
+	}
+
+	return &newConfigItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceGenericConfigParameters(device *api.Device, configItem api.TemplateVersionStatus_Config_Item) (*api.DeviceSpec_Config_Item, error) {
+	cfgJson, err := configItem.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed converting configuration to json: %w", err)
+	}
+
+	cfgJsonReplaced, warnings := ReplaceParameters(cfgJson, device.Metadata)
+	if len(warnings) > 0 {
+		f.log.Infof("failed replacing parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
+	}
+
+	var newConfigItem api.DeviceSpec_Config_Item
+	err = newConfigItem.UnmarshalJSON(cfgJsonReplaced)
+	if err != nil {
+		return nil, fmt.Errorf("failed converting configuration from json: %w", err)
+	}
+
+	return &newConfigItem, nil
 }
 
 func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api.Device, newDeviceSpec *api.DeviceSpec) error {
