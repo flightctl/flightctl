@@ -30,16 +30,9 @@ spec:
         - name: motd-update
           configType: InlineConfigProviderSpec
           inline:
-            ignition:
-              version: 3.4.0
-            storage:
-              files:
-                - contents:
-                    source: >-
-                      data:,This%20system%20is%20managed%20by%20flightctl.%0A
-                  mode: 422
-                  overwrite: true
-                  path: "/etc/motd"
+            - path: "/etc/motd"
+              content: "This system is managed by flightctl."
+              mode: 0644
       systemd:
         matchPatterns:
           - chronyd.service

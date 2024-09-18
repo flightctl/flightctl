@@ -107,10 +107,11 @@ var _ = Describe("RepoUpdate", func() {
 			ConfigType: string(api.TemplateDiscriminatorInlineConfig),
 			Name:       "inlineConfig",
 		}
-		var goodInline map[string]interface{}
-		err = json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.0\"}}"), &goodInline)
-		Expect(err).ToNot(HaveOccurred())
-		inlineConfig.Inline = goodInline
+		base64 := api.Base64
+		inlineConfig.Inline = []api.FileSpec{
+			{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
+			{Path: "/etc/notencoded", Content: "Hello world, what's up?"},
+		}
 		inlineItem := api.DeviceSpec_Config_Item{}
 		err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 		Expect(err).ToNot(HaveOccurred())

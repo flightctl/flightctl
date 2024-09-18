@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"sigs.k8s.io/yaml"
 )
 
 func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
@@ -285,7 +284,7 @@ func renderK8sConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigA
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
 	for name, contents := range secret.Data {
-		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
+		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644, false, nil, nil)
 	}
 	if !args.validateOnly {
 		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
@@ -299,36 +298,28 @@ func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConf
 		return "", fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	// Convert yaml to json
-	yamlBytes, err := yaml.Marshal(inlineSpec.Inline)
+	ignitionWrapper, err := ignition.NewWrapper()
 	if err != nil {
-		return inlineSpec.Name, fmt.Errorf("invalid yaml in inline config item %s: %w", inlineSpec.Name, err)
-	}
-	jsonBytes, err := yaml.YAMLToJSON(yamlBytes)
-	if err != nil {
-		return inlineSpec.Name, fmt.Errorf("failed converting yaml to json in inline config item %s: %w", inlineSpec.Name, err)
+		return inlineSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
-	// If we are validating and parameters are present, the ignition conversion will fail.
-	if args.validateOnly {
-		if !ContainsParameter(jsonBytes) {
-			_, _, err = config_latest.ParseCompatibleVersion(jsonBytes)
-			if err != nil {
-				return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
-			}
+	for _, file := range inlineSpec.Inline {
+		mode := 0o644
+		if file.Mode != nil {
+			mode = *file.Mode
 		}
-		return inlineSpec.Name, nil
+
+		isBase64 := false
+		if file.ContentEncoding != nil && *file.ContentEncoding == api.Base64 {
+			isBase64 = true
+		}
+		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
 	}
 
 	if !args.validateOnly {
-		// Merge the ignition into the rendered config
-		ignitionConfig, _, err := config_latest.ParseCompatibleVersion(jsonBytes)
-		if err != nil {
-			return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
-		}
-		mergedConfig := config_latest.Merge(*args.ignitionConfig, ignitionConfig)
-		args.ignitionConfig = &mergedConfig
+		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
 	}
+
 	return inlineSpec.Name, nil
 }
 
@@ -397,7 +388,7 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 		return httpConfigProviderSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
-	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644)
+	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644, false, nil, nil)
 	if !args.validateOnly {
 		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
 	}
