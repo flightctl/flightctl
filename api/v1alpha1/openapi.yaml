@@ -2569,6 +2569,42 @@ components:
               - filePath
           required:
           - httpRef
+    ApplicationSpec:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - type: object
+          properties:
+            name:
+              type: string
+              description: "The name of the application"
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
+            # extend application providers
+    ImageApplicationProvider:
+      type: object
+      properties:
+        image:
+          type: string
+          description: "Reference to the container image for the application package"
+    ApplicationEnvVars:
+      type: object
+      properties:
+        envVars:
+          type: object
+          description: "Environment variable key-value pairs, injected during runtime"
+          additionalProperties:
+            type: string
+    RenderedApplicationSpec:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - type: object
+          properties:
+            name:
+              type: string
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'
@@ -3390,6 +3426,10 @@ components:
                 type: string
         config:
           type: string
+        applications:
+          type: array
+          items:
+            $ref: '#/components/schemas/RenderedApplicationSpec'
         hooks:
           $ref: '#/components/schemas/DeviceHooksSpec'
         systemd:
@@ -3458,7 +3498,12 @@ components:
             discriminator:
               propertyName: configType
         hooks:
-          $ref: '#/components/schemas/DeviceHooksSpec' 
+          $ref: '#/components/schemas/DeviceHooksSpec'
+        applications:
+          type: array
+          description: List of applications.
+          items:
+            $ref: '#/components/schemas/ApplicationSpec'
         containers:
           type: object
           properties:

@@ -6,20 +6,35 @@ There are two types of tasks: event-based and periodic.
 
 ## Event-based tasks
 
-|          **Trigger**         |                   **Task**                  |
-|------------------------------|---------------------------------------------|
-| Fleet template updated       | Create new TemplateVersion                  |
-| Fleet created                | Create new TemplateVersion                  |
-| TemplateVersion created      | Populate the TemplateVersion's Status       |
-| TemplateVersion set as valid | Roll out TemplateVersion to Fleet's devices |
-| Device created               | Roll out latest TemplateVersion to device   |
-| Device owner updated         | Roll out latest TemplateVersion to device   |
-| Fleet created                | Update device ownership as necessary        |
-| Fleet selector updated       | Update device ownership as necessary        |
-| Fleet deleted                | Update device ownership as necessary        |
-| Device created               | Update device ownership as necessary        |
-| Device labels updated        | Update device ownership as necessary        |
-| Device deleted               | Update device ownership as necessary        |
+Tasks must be idempotent and not rely on ordering so that they can be delivered and retried without any race conditions.
+Tasks must be independent to avoid deadlocks.
+
+This flow chart depicts the tasks that each update to the store can trigger, and what store updates each task can trigger.
+
+```mermaid
+flowchart TD
+    FltTemplateUpdated[(Fleet template updated)] --> FleetValidateTask[[FleetValidateTask]]
+    FltSelectorUpdated[(Fleet selector updated)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
+    FltConfigSourceUpdated[(Fleet config source updated)] --> FleetValidateTask[[FleetValidateTask]]
+    RepoUpdated[(Repository updated)] --> RepositoryUpdatesTask[[RepositoryUpdatesTask]]
+    ReposDeleted[(All repositories deleted)] --> RepositoryUpdatesTask[[RepositoryUpdatesTask]]
+    FleetsDeleted[(All fleets deleted)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
+    DevsDeleted[(All devices deleted)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
+    DevLabelsUpdated[(Device labels updated)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
+    DevSpecUpdated[(Device spec updated)] --> DeviceRenderTask[[DeviceRenderTask]]
+    DevConfigSourceUpdated[(Device config source updated)] --> DeviceRenderTask[[DeviceRenderTask]]
+    TemplateVersionCreated[(TemplateVersion created)] --> TemplateVersionPopulateTask[[TemplateVersionPopulateTask]]
+    TemplateVersionValidated[(TemplateVersion validated)] --> FleetRolloutTask[[FleetRolloutTask]]
+    DevLabelsUpdated --> FleetRolloutTask
+    DevOwnerUpdated[(Device owner updated)] --> FleetRolloutTask
+
+    FleetRolloutTask --> DevSpecUpdated
+    FleetSelectorMatchTask --> DevOwnerUpdated
+    FleetValidateTask --> TemplateVersionCreated
+    TemplateVersionPopulateTask --> TemplateVersionValidated
+    RepositoryUpdatesTask --> FltConfigSourceUpdated
+    RepositoryUpdatesTask --> DevConfigSourceUpdated
+```
 
 ## Periodic tasks
 
