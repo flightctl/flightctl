@@ -1,12 +1,111 @@
 package image
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func Test_areImagesEquivalent(t *testing.T) {
+func TestString(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name           string
+		image          Image
+		expectedResult string
+	}{
+		{
+			name: "image without tag or digest",
+			image: Image{
+				Base: "flightctl-device",
+			},
+			expectedResult: "flightctl-device",
+		},
+		{
+			name: "image with tag",
+			image: Image{
+				Base: "flightctl-device",
+				Tag:  "v3",
+			},
+			expectedResult: "flightctl-device:v3",
+		},
+		{
+			name: "image with digest",
+			image: Image{
+				Base:   "flightctl-device",
+				Digest: "sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+			},
+			expectedResult: "flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+		},
+		{
+			name: "image with tag and digest",
+			image: Image{
+				Base:   "flightctl-device",
+				Tag:    "v3",
+				Digest: "sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+			},
+			expectedResult: "flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(testCase.expectedResult, fmt.Sprintf("%s", testCase.image))
+		})
+	}
+}
+
+func TestToBootcTarget(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name           string
+		image          *Image
+		expectedResult string
+	}{
+		{
+			name: "image without tag or digest",
+			image: &Image{
+				Base: "flightctl-device",
+			},
+			expectedResult: "flightctl-device",
+		},
+		{
+			name: "image with tag",
+			image: &Image{
+				Base: "flightctl-device",
+				Tag:  "v3",
+			},
+			expectedResult: "flightctl-device:v3",
+		},
+		{
+			name: "image with digest",
+			image: &Image{
+				Base:   "flightctl-device",
+				Digest: "sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+			},
+			expectedResult: "flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+		},
+		{
+			name: "image with tag and digest",
+			image: &Image{
+				Base:   "flightctl-device",
+				Tag:    "v3",
+				Digest: "sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+			},
+			expectedResult: "flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(testCase.expectedResult, testCase.image.ToBootcTarget())
+		})
+	}
+}
+
+func TestAreImagesEquivalent(t *testing.T) {
 	require := require.New(t)
 
 	digest := "sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5"

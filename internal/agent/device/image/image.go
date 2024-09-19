@@ -14,6 +14,32 @@ type Image struct {
 	Digest string
 }
 
+// Returns the image formatted in a <base>:<tag>@<digest> format
+func (i Image) String() string {
+	if i.Digest != "" {
+		if i.Tag != "" {
+			return fmt.Sprintf("%s:%s@%s", i.Base, i.Tag, i.Digest)
+		}
+		return fmt.Sprintf("%s@%s", i.Base, i.Digest)
+	}
+	if i.Tag != "" {
+		return fmt.Sprintf("%s:%s", i.Base, i.Tag)
+	}
+	return i.Base
+}
+
+// Bootc does not accept images with a tag AND digest specified
+// In cases when both are present the digest will be returned and NOT a tag
+func (i *Image) ToBootcTarget() string {
+	if i.Digest != "" {
+		return fmt.Sprintf("%s@%s", i.Base, i.Digest)
+	}
+	if i.Tag != "" {
+		return fmt.Sprintf("%s:%s", i.Base, i.Tag)
+	}
+	return i.Base
+}
+
 func parseImage(image string) *Image {
 	imageObj := &Image{}
 
@@ -35,13 +61,7 @@ func SpecToImage(spec *v1alpha1.DeviceOSSpec) *Image {
 	if spec == nil || spec.Image == "" {
 		return nil
 	}
-	image := parseImage(spec.Image)
-	// It is possible for the spec image string to NOT contain a digest but the
-	// saved spec has one
-	if image.Digest == "" && spec.ImageDigest != nil && *spec.ImageDigest != "" {
-		image.Digest = *spec.ImageDigest
-	}
-	return image
+	return parseImage(spec.Image)
 }
 
 func BootcStatusToImage(bootc *container.BootcHost) *Image {
@@ -60,7 +80,6 @@ func BootcStatusToImage(bootc *container.BootcHost) *Image {
 	return image
 }
 
-// TODO does this need more handling for cases where the image might be defined but fields are ""?
 func AreImagesEquivalent(first, second *Image) bool {
 	if first == nil && second == nil {
 		return true
@@ -82,16 +101,4 @@ func AreImagesEquivalent(first, second *Image) bool {
 	}
 
 	return true
-}
-
-// TODO define on Image?
-// TODO also define a string representation that spits back out the fully built image string?
-func ImageToBootcTarget(image *Image) string {
-	if image.Digest != "" {
-		return fmt.Sprintf("%s@%s", image.Base, image.Digest)
-	}
-	if image.Tag != "" {
-		return fmt.Sprintf("%s:%s", image.Base, image.Tag)
-	}
-	return image.Base
 }
