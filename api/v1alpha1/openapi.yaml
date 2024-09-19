@@ -2866,9 +2866,6 @@ components:
         image:
           type: string
           description: 'ostree image name or URL.'
-        imageDigest:
-          type: string
-          description: "The digest of the OS image (e.g. sha256:a0...)"
       required:
         - image
     DeviceStatus:
