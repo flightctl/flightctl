@@ -199,8 +199,13 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	}
 
 	if desired.Os != nil {
+		bootedImage, err := a.osImageController.GetCurrentBootcImage(ctx)
+		if err != nil {
+			return false, err
+		}
 		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: desired.Os.Image,
+			Image:       desired.Os.Image,
+			ImageDigest: bootedImage.Digest,
 		}))
 	}
 

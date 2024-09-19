@@ -191,23 +191,25 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	if err != nil {
 		return fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
+	if bootedOSImage == nil {
+		return fmt.Errorf("no booted os image to check against")
+	}
 
 	desiredImage := image.SpecToImage(desired.Os)
 	if !reconciled {
 		return b.checkRollback(ctx, bootedOSImage, desiredImage)
 	}
 
-	// TODO address/fix logging (here and in checkRollback)
 	b.log.Infof("Host is booted to the desired os image %s: upgrading current spec", desired.Os.Image)
-	// image is reconciled upgrade was a success update the current spec to the desired spec if nessisary
+	// image is reconciled upgrade was a success update the current spec to the desired spec if necessary
 	if err := b.specManager.Upgrade(); err != nil {
 		return fmt.Errorf("writing current rendered spec: %w", err)
 	}
 
-	// TODO update status image digest here
 	updateFns := []status.UpdateStatusFn{
 		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: desired.Os.Image,
+			Image:       desired.Os.Image,
+			ImageDigest: bootedOSImage.Digest,
 		}),
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
 			RenderedVersion: desired.RenderedVersion,

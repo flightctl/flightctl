@@ -172,7 +172,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		osReconciliationError := errors.New("reconciliation failed")
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
-		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", isReconciled, osReconciliationError)
+		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(&image.Image{}, isReconciled, osReconciliationError)
 
 		err := b.ensureBootedOS(ctx, desired)
 		require.Error(err)
@@ -182,7 +182,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := false
 		isRollingBack := true
-		bootedImage := "unexpected-booted-image"
+		bootedImage := &image.Image{Base: "unexpected-booted-image"}
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
@@ -197,7 +197,7 @@ func TestEnsureBootedOS(t *testing.T) {
 	t.Run("OS image reconciled", func(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := true
-		bootedImage := "desired-image"
+		bootedImage := &image.Image{Base: "desired-image"}
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
@@ -211,7 +211,7 @@ func TestEnsureBootedOS(t *testing.T) {
 	t.Run("error during upgrade", func(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := true
-		bootedImage := "desired-image"
+		bootedImage := &image.Image{Base: "desired-image"}
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
@@ -224,7 +224,7 @@ func TestEnsureBootedOS(t *testing.T) {
 	t.Run("error updating status", func(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := true
-		bootedImage := "desired-image"
+		bootedImage := &image.Image{Base: "desired-image"}
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
