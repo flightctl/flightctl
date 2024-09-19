@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -67,8 +68,8 @@ func TestBootstrapCheckRollback(t *testing.T) {
 	}
 
 	ctx := context.TODO()
-	bootedOS := "1.0.0"
-	desiredOS := "2.0.0"
+	bootedOS := &image.Image{Base: "1.0.0"}
+	desiredOS := &image.Image{Base: "2.0.0"}
 
 	t.Run("happy path", func(t *testing.T) {
 		err := b.checkRollback(ctx, desiredOS, desiredOS)
