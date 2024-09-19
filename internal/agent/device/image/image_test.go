@@ -1,7 +1,6 @@
 package image
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -51,7 +50,7 @@ func TestString(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			require.Equal(testCase.expectedResult, fmt.Sprintf("%s", testCase.image))
+			require.Equal(testCase.expectedResult, testCase.image.String())
 		})
 	}
 }
