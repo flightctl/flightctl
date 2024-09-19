@@ -149,12 +149,6 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 	return nil
 }
 
-// IsOsImageDirty returns true if the booted image does not equal the spec image.
-func IsOsImageDirty(host *BootcHost) bool {
-	// If the booted image does not equal the spec image, the OS image is not reconciled
-	return host.Status.Booted.Image.Image.Image != host.Spec.Image.Image
-}
-
 func (b *BootcHost) GetBootedImage() string {
 	return b.Status.Booted.Image.Image.Image
 }

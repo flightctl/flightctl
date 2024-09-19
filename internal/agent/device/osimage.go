@@ -72,7 +72,7 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 
 	desiredImage := image.SpecToImage(desired.Os)
 	c.log.Infof("Switching to os image: %s", desiredImage)
-	target := image.ImageToBootcTarget(desiredImage)
+	target := desiredImage.ToBootcTarget()
 	if err := c.bootc.Switch(ctx, target); err != nil {
 		return err
 	}
