@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -194,7 +195,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create console controller
-	consoleController := device.NewConsoleController(
+	consoleController := console.NewController(
 		grpcClient,
 		deviceName,
 		executer,
