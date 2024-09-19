@@ -31,6 +31,11 @@ func (r Device) Validate() []error {
 				}
 			}
 		}
+		if r.Spec.Applications != nil {
+			for _, app := range *r.Spec.Applications {
+				allErrs = append(allErrs, app.Validate()...)
+			}
+		}
 		if r.Spec.Containers != nil {
 			for i, matchPattern := range *r.Spec.Containers.MatchPatterns {
 				matchPattern := matchPattern
@@ -44,6 +49,33 @@ func (r Device) Validate() []error {
 			}
 		}
 	}
+	return allErrs
+}
+
+func (a ApplicationSpec) Validate() []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
+
+	// validate the application provider type
+	t, err := a.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case ImageApplicationProviderType:
+		provider, err := a.AsImageApplicationProvider()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateOciImageReference(provider.Image, "spec.applications[].image")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("unknown application provider type: %s", t))
+	}
+
 	return allErrs
 }
 
@@ -118,6 +150,12 @@ func (r Fleet) Validate() []error {
 	// Validate the Device spec settings
 	if r.Spec.Template.Spec.Os != nil {
 		allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
+	}
+
+	if r.Spec.Template.Spec.Applications != nil {
+		for _, app := range *r.Spec.Template.Spec.Applications {
+			allErrs = append(allErrs, app.Validate()...)
+		}
 	}
 
 	if r.Spec.Template.Spec.Config != nil {
