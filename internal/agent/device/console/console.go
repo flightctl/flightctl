@@ -1,4 +1,4 @@
-package device
+package console
 
 import (
 	"context"
@@ -27,7 +27,7 @@ type ConsoleController struct {
 	executor         executer.Executer
 }
 
-func NewConsoleController(
+func NewController(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
 	executor executer.Executer,

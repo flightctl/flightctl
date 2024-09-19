@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -27,7 +28,7 @@ type Agent struct {
 	configController   config.Controller
 	osImageController  *OSImageController
 	resourceController *resource.Controller
-	consoleController  *ConsoleController
+	consoleController  *console.ConsoleController
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
@@ -47,7 +48,7 @@ func NewAgent(
 	configController config.Controller,
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
-	consoleController *ConsoleController,
+	consoleController *console.ConsoleController,
 	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{
