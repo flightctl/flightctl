@@ -90,18 +90,26 @@ jobs:
           merge-multiple: true
           path: release
 
-      - name: "Publish"
+      # if this is a push to the main branch, we update the latest release of binaries
+      - name: "Publish latest"
+        if: ${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           OLD_RELEASE=$(gh release list | awk '/^latest\s/ { print $1 }')
           if [ $OLD_RELEASE ]; then
-            gh release delete $OLD_RELEASE
+            # if there is a release already we only update the binaries
+            # otherwise a new release will trigger an rpm build from packit
+            gh release upload latest --clobber release/*
+          else
+            # if the release did not exist, we should create it at least once
+            gh release create -p -n "Flightctl CLI pre-release" latest release/*
           fi
-          OLD_TAG=$(git tag | awk '/^latest\s/ { print $1 }')
-          if [ $OLD_TAG ]; then
-            git push --delete origin $OLD_TAG
-          fi
-          
-          gh release create -p -n "Flightctl CLI pre-release" latest release/*
 
+      # if this is a tag, we upload the release binaries, the release already exists
+      - name: "Publish tag"
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} release/*
