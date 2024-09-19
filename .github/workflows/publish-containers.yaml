@@ -13,28 +13,57 @@ env:
   QUAY_CHARTS: quay.io/flightctl/charts
 
 jobs:
-  publish-helm-charts-containers:
+  generate-tags:
     runs-on: ubuntu-latest
-    needs: publish-flightctl-containers
+    outputs:
+      image_tags: ${{ steps.get-tags.outputs.image_tags }}
+      helm_tag: ${{ steps.get-tags.outputs.helm_tag }}
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+          fetch-tags: true
+
+      - name: Generate version tag
+        id: get-tags
+        run: |
+          if ${{ github.ref_type == 'tag' }}; then
+            # The images tags will match the Release tag
+            image_tags=( ${{ github.ref_name }} )
+            image_tags=${image_tags#v} # remove the leading v prefix for version
+
+            echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
+            echo "helm_tag=${image_tags[@]}" >> $GITHUB_OUTPUT
+            echo "image_tags,helm_tag=${image_tags[@]}"
+
+          else
+            version=$(git describe --long --tags --exclude latest)
+            version=${version#v} # remove the leading v prefix for version
+            # The images tags are taken from git
+            image_tags=( latest-${GITHUB_SHA} latest ${version} )
+            echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
+            echo "image_tags=${image_tags[@]}"
+
+            helm_tag=${version} # remove the leading v prefix for version
+            echo "helm_tag=${helm_tag}" >> $GITHUB_OUTPUT
+            echo "helm_tag=${helm_tag}"
+          fi
+
+  publish-helm-charts-containers:
+    runs-on: ubuntu-latest
+    needs: [publish-flightctl-containers, generate-tags]
+    steps:
+      - uses: actions/checkout@v3
 
       - name: Setup all dependencies
         uses: ./.github/actions/setup-dependencies
 
-      - name: Get version
-        run: |
-          VERSION=$(git describe --long --tags --exclude latest)
-          VERSION=${VERSION#v} # remove the leading v prefix for version
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "VERSION=${VERSION}"
-
       - name: Build helm charts
         run: |
-          echo packaging "${VERSION}"
-          helm package ./deploy/helm/flightctl --version "${VERSION}" --app-version "${VERSION}"
+          echo packaging "${{ needs.generate-tags.outputs.helm_tag }}"
+          helm package ./deploy/helm/flightctl \
+              --version "${{ needs.generate-tags.outputs.helm_tag }}" \
+              --app-version "${{ needs.generate-tags.outputs.helm_tag }}"
 
       - name: Login helm
         env:
@@ -45,37 +74,23 @@ jobs:
 
       - name: Push helm charts
         run: |
-          helm push "flightctl-${VERSION}.tgz" oci://${{ env.QUAY_CHARTS }}/
+          helm push "flightctl-${{ needs.generate-tags.outputs.helm_tag }}.tgz" oci://${{ env.QUAY_CHARTS }}/
 
   publish-flightctl-containers:
     strategy:
       matrix:
         image: ['api', 'periodic', 'worker']
-  
+    needs: [generate-tags]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Generate tags
-        id: generate-tags
-        run: |
-          VERSION=$(git describe --long --tags --exclude latest)
-          VERSION=${VERSION#v} # remove the leading v prefix for version
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "VERSION=${VERSION}"
-
-          tags=( latest-${GITHUB_SHA} latest ${VERSION} )
-          echo "tags=${tags[@]}" >> $GITHUB_OUTPUT
-          echo "tags=${tags[@]}"
 
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
         with:
           image: flightctl-${{ matrix.image }}
-          tags: ${{ steps.generate-tags.outputs.tags }}
+          tags: ${{ needs.generate-tags.outputs.image_tags }}
           labels: |
             org.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
             org.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
