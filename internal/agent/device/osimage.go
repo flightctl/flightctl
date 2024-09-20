@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
@@ -59,24 +58,24 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 		return nil
 	}
 
-	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
-	desiredImage := image.SpecToImage(desired.Os)
-	reconciled, err := c.isOsImageReconciled(ctx, desiredImage)
+	host, err := c.bootc.Status(ctx)
 	if err != nil {
 		return err
 	}
-	if reconciled {
+
+	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
+	if container.IsOsImageReconciled(host, desired) {
 		c.log.Debugf("Host is reconciled to os image %s", desired.Os.Image)
 		return nil
 	}
 
-	c.log.Infof("Switching to os image: %s", desired.Os.Image)
-	target := desiredImage.ToBootcTarget()
-	if err := c.bootc.Switch(ctx, target); err != nil {
+	image := desired.Os.Image
+	c.log.Infof("Switching to os image: %s", image)
+	if err := c.bootc.Switch(ctx, image); err != nil {
 		return err
 	}
 
-	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", desired.Os.Image)
+	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", image)
 	_, updateErr := c.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 		Status: v1alpha1.DeviceSummaryStatusRebooting,
 		Info:   util.StrToPtr(infoMsg),
@@ -102,23 +101,4 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	return c.bootc.Apply(ctx)
-}
-
-func (c *OSImageController) GetCurrentBootcImage(ctx context.Context) (*image.Image, error) {
-	host, err := c.bootc.Status(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return image.BootcStatusToImage(host), nil
-}
-
-// isOsImageReconciled returns true if the booted image equals the spec image.
-func (c *OSImageController) isOsImageReconciled(ctx context.Context, desired *image.Image) (bool, error) {
-	bootedImage, err := c.GetCurrentBootcImage(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	// If the booted image equals the desired image, the OS image is reconciled
-	return image.AreImagesEquivalent(desired, bootedImage), nil
 }
