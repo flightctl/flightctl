@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/net/context"
@@ -60,7 +59,7 @@ type Manager interface {
 	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
 	IsOSUpdate() (bool, error)
 	// CheckOsReconciliation checks if the booted OS image matches the desired OS image.
-	CheckOsReconciliation(ctx context.Context) (*image.Image, bool, error)
+	CheckOsReconciliation(ctx context.Context) (string, bool, error)
 	// IsRollingBack returns true if the device is in a rollback state.
 	IsRollingBack(ctx context.Context) (bool, error)
 	// PrepareRollback creates a rollback version of the current rendered spec.
@@ -174,11 +173,8 @@ func (s *SpecManager) IsRollingBack(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	bootedImage := image.BootcStatusToImage(bootcStatus)
-	rollbackImage := image.SpecToImage(rollback.Os)
-	desiredImage := image.SpecToImage(desired.Os)
-
-	return image.AreImagesEquivalent(bootedImage, rollbackImage) && !image.AreImagesEquivalent(bootedImage, desiredImage), nil
+	bootedOSImage := bootcStatus.GetBootedImage()
+	return bootedOSImage == rollback.Os.Image && bootedOSImage != desired.Os.Image, nil
 }
 
 func (s *SpecManager) Upgrade() error {
@@ -309,31 +305,34 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 		return false, err
 	}
 
-	currentImage := image.SpecToImage(current.Os)
-	desiredImage := image.SpecToImage(desired.Os)
-
-	return !image.AreImagesEquivalent(currentImage, desiredImage), nil
+	currentImage := ""
+	if current.Os != nil {
+		currentImage = current.Os.Image
+	}
+	desiredImage := ""
+	if desired.Os != nil {
+		desiredImage = desired.Os.Image
+	}
+	return currentImage != desiredImage, nil
 }
 
-func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (*image.Image, bool, error) {
+func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
 	bootc, err := s.bootcClient.Status(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
+		return "", false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
 	}
+	bootedOSImage := bootc.GetBootedImage()
 
 	desired, err := s.Read(Desired)
 	if err != nil {
-		return nil, false, err
+		return "", false, err
 	}
-
-	bootedImage := image.BootcStatusToImage(bootc)
 
 	if desired.Os == nil {
-		return bootedImage, false, nil
+		return bootedOSImage, false, nil
 	}
 
-	desiredImage := image.SpecToImage(desired.Os)
-	return bootedImage, image.AreImagesEquivalent(bootedImage, desiredImage), nil
+	return bootedOSImage, desired.Os.Image == bootc.GetBootedImage(), nil
 }
 
 func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {

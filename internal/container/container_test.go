@@ -39,3 +39,39 @@ func TestBootcHost(t *testing.T) {
 	require.Equal(4, status.Status.Staged.Ostree.DeploySerial)
 
 }
+
+func Test_imageToBootcTarget(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		name           string
+		image          string
+		expectedResult string
+	}{
+		{
+			name:           "iamge with no tag or digest",
+			image:          "quay.io/org/flightctl-device",
+			expectedResult: "quay.io/org/flightctl-device",
+		},
+		{
+			name:           "iamge with a tag",
+			image:          "quay.io/org/flightctl-device:v3",
+			expectedResult: "quay.io/org/flightctl-device:v3",
+		},
+		{
+			name:           "iamge with a digest",
+			image:          "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+			expectedResult: "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+		},
+		{
+			name:           "iamge with a tag and digest",
+			image:          "quay.io/org/flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+			expectedResult: "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(testCase.expectedResult, imageToBootcTarget(testCase.image))
+		})
+	}
+}

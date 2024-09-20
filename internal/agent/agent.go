@@ -216,6 +216,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceController,
 		consoleController,
 		a.log,
+		bootcClient,
 	)
 
 	go hookManager.Run(ctx)

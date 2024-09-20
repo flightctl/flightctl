@@ -3,8 +3,10 @@ package container
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
@@ -99,9 +101,10 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 // Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
 // The status will be updated in logger.
 func (b *BootcCmd) Switch(ctx context.Context, image string) error {
+	target := imageToBootcTarget(image)
 	done := make(chan error, 1)
 	go func() {
-		args := []string{"switch", "--retain", image}
+		args := []string{"switch", "--retain", target}
 		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
 		if exitCode != 0 {
 			done <- fmt.Errorf("stage image: %s", stderr)
@@ -149,6 +152,15 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 	return nil
 }
 
+// IsOsImageReconciled returns true if the booted image equals the spec image.
+func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
+	if desiredSpec.Os == nil {
+		return false
+	}
+	// If the booted image equals the desired image, the OS image is reconciled
+	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
+}
+
 func (b *BootcHost) GetBootedImage() string {
 	return b.Status.Booted.Image.Image.Image
 }
@@ -163,4 +175,24 @@ func (b *BootcHost) GetStagedImage() string {
 
 func (b *BootcHost) GetRollbackImage() string {
 	return b.Status.Rollback.Image.Image.Image
+}
+
+// Bootc does not accept images with tags AND diegsts specified - in the case when we
+// get both we will use the image digest
+func imageToBootcTarget(image string) string {
+	imageAndDigest := strings.SplitN(image, "@", 2)
+
+	// Check if there is a digest present
+	if len(imageAndDigest) == 2 {
+		baseAndTag := strings.SplitN(imageAndDigest[0], ":", 2)
+
+		// Check if there is also a tag present
+		if len(baseAndTag) == 2 {
+			base := baseAndTag[0]
+			digest := imageAndDigest[1]
+			return fmt.Sprintf("%s@%s", base, digest)
+		}
+	}
+
+	return image
 }

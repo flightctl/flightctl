@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -504,7 +503,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 	})
 
 	t.Run("desired os is not set in the spec", func(t *testing.T) {
-		bootedImage := "flightctl-device"
+		bootedImage := "flightctl-device:v1"
 
 		bootcStatus := &container.BootcHost{}
 		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
@@ -514,7 +513,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(&image.Image{Base: bootedImage}, bootedOSImage)
+		require.Equal(bootedOSImage, bootedImage)
 		require.Equal(false, desiredImageIsBooted)
 	})
 
@@ -532,24 +531,24 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(&image.Image{Base: "flightctl-device", Tag: "v1"}, bootedOSImage)
+		require.Equal(bootedOSImage, bootedImage)
 		require.Equal(false, desiredImageIsBooted)
 	})
 
 	t.Run("booted image and desired image are the same", func(t *testing.T) {
-		testImage := "flightctl-device:v2"
+		image := "flightctl-device:v2"
 
 		bootcStatus := &container.BootcHost{}
-		bootcStatus.Status.Booted.Image.Image.Image = testImage
+		bootcStatus.Status.Booted.Image.Image.Image = image
 		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
 
-		desiredSpec, err := createTestSpec(testImage)
+		desiredSpec, err := createTestSpec(image)
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(&image.Image{Base: "flightctl-device", Tag: "v2"}, bootedOSImage)
+		require.Equal(bootedOSImage, image)
 		require.Equal(true, desiredImageIsBooted)
 	})
 }
