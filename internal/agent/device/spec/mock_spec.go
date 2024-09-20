@@ -14,7 +14,6 @@ import (
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
-	image "github.com/flightctl/flightctl/internal/agent/device/image"
 	gomock "go.uber.org/mock/gomock"
 	context "golang.org/x/net/context"
 )
@@ -43,10 +42,10 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // CheckOsReconciliation mocks base method.
-func (m *MockManager) CheckOsReconciliation(ctx context.Context) (*image.Image, bool, error) {
+func (m *MockManager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CheckOsReconciliation", ctx)
-	ret0, _ := ret[0].(*image.Image)
+	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2

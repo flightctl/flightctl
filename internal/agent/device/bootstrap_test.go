@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -68,8 +67,8 @@ func TestBootstrapCheckRollback(t *testing.T) {
 	}
 
 	ctx := context.TODO()
-	bootedOS := &image.Image{Base: "1.0.0"}
-	desiredOS := &image.Image{Base: "2.0.0"}
+	bootedOS := "1.0.0"
+	desiredOS := "2.0.0"
 
 	t.Run("happy path", func(t *testing.T) {
 		err := b.checkRollback(ctx, desiredOS, desiredOS)
@@ -172,7 +171,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		osReconciliationError := errors.New("reconciliation failed")
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
-		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(&image.Image{}, isReconciled, osReconciliationError)
+		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", isReconciled, osReconciliationError)
 
 		err := b.ensureBootedOS(ctx, desired)
 		require.Error(err)
@@ -182,7 +181,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := false
 		isRollingBack := true
-		bootedImage := &image.Image{Base: "unexpected-booted-image"}
+		bootedImage := "unexpected-booted-image"
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
@@ -197,7 +196,7 @@ func TestEnsureBootedOS(t *testing.T) {
 	t.Run("OS image reconciled", func(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := true
-		bootedImage := &image.Image{Base: "desired-image"}
+		bootedImage := "desired-image"
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
@@ -211,7 +210,7 @@ func TestEnsureBootedOS(t *testing.T) {
 	t.Run("error during upgrade", func(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := true
-		bootedImage := &image.Image{Base: "desired-image"}
+		bootedImage := "desired-image"
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
@@ -224,7 +223,7 @@ func TestEnsureBootedOS(t *testing.T) {
 	t.Run("error updating status", func(t *testing.T) {
 		isOSUpdate := true
 		isReconciled := true
-		bootedImage := &image.Image{Base: "desired-image"}
+		bootedImage := "desired-image"
 
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)

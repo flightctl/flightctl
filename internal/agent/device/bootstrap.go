@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/image"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
@@ -187,29 +186,24 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	}
 
 	// check if the bootedOS image is expected
-	bootedOSImage, reconciled, err := b.specManager.CheckOsReconciliation(ctx)
+	bootedOS, reconciled, err := b.specManager.CheckOsReconciliation(ctx)
 	if err != nil {
 		return fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
-	if bootedOSImage == nil {
-		return fmt.Errorf("no booted os image to check against")
-	}
 
-	desiredImage := image.SpecToImage(desired.Os)
 	if !reconciled {
-		return b.checkRollback(ctx, bootedOSImage, desiredImage)
+		return b.checkRollback(ctx, bootedOS, desired.Os.Image)
 	}
 
 	b.log.Infof("Host is booted to the desired os image %s: upgrading current spec", desired.Os.Image)
-	// image is reconciled upgrade was a success update the current spec to the desired spec if necessary
+	// image is reconciled upgrade was a success update the current spec to the desired spec if nessisary
 	if err := b.specManager.Upgrade(); err != nil {
 		return fmt.Errorf("writing current rendered spec: %w", err)
 	}
 
 	updateFns := []status.UpdateStatusFn{
 		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image:       desired.Os.Image,
-			ImageDigest: bootedOSImage.Digest,
+			Image: desired.Os.Image,
 		}),
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
 			RenderedVersion: desired.RenderedVersion,
@@ -223,17 +217,17 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	return nil
 }
 
-func (b *Bootstrap) checkRollback(ctx context.Context, bootedImage, desiredImage *image.Image) error {
-	if image.AreImagesEquivalent(bootedImage, desiredImage) {
+func (b *Bootstrap) checkRollback(ctx context.Context, bootedOS, desiredOS string) error {
+	if bootedOS == desiredOS {
 		return nil
 	}
 
 	// We rebooted without applying the new OS image - something potentially went wrong
-	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedImage, desiredImage)
+	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedOS, desiredOS)
 
 	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 		Status: v1alpha1.DeviceSummaryStatusDegraded,
-		Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedImage, desiredImage)),
+		Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
 	}))
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
