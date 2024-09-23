@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/container"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -135,12 +136,14 @@ func TestEnsureBootedOS(t *testing.T) {
 
 	mockStatusManager := status.NewMockManager(ctrl)
 	mockSpecManager := spec.NewMockManager(ctrl)
+	mockBootcClient := container.NewMockBootcClient(ctrl)
 
 	// Create a Bootstrap instance with the mocks
 	b := &Bootstrap{
 		statusManager: mockStatusManager,
 		specManager:   mockSpecManager,
 		log:           flightlog.NewPrefixLogger("test"),
+		bootcClient:   mockBootcClient,
 	}
 
 	ctx := context.TODO()
@@ -150,6 +153,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		},
 		RenderedVersion: "1",
 	}
+	bootcStatus := &container.BootcHost{}
 
 	t.Run("no desired OS image specified", func(t *testing.T) {
 		emptyDesired := &v1alpha1.RenderedDeviceSpec{}
@@ -201,6 +205,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
 		mockSpecManager.EXPECT().Upgrade().Return(nil)
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
 		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
 
 		err := b.ensureBootedOS(ctx, desired)
@@ -228,9 +233,24 @@ func TestEnsureBootedOS(t *testing.T) {
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
 		mockSpecManager.EXPECT().Upgrade().Return(nil)
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
 		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, errors.New("update status failed"))
 
 		err := b.ensureBootedOS(ctx, desired)
 		require.NoError(err)
+	})
+
+	t.Run("error fetching bootc status", func(t *testing.T) {
+		isOSUpdate := true
+		isReconciled := true
+		bootedImage := "desired-image"
+
+		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
+		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
+		mockSpecManager.EXPECT().Upgrade().Return(nil)
+		mockBootcClient.EXPECT().Status(ctx).Return(nil, errors.New("bootc problem"))
+
+		err := b.ensureBootedOS(ctx, desired)
+		require.ErrorIs(err, ErrGettingBootcStatus)
 	})
 }
