@@ -60,7 +60,7 @@ func newApiHookActionFactory(ha v1alpha1.HookAction) ActionHookFactory {
 }
 
 func (a *apiHookActionFactory) createExecutableActionHook(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
-	spec, err := a.AsHookAction0()
+	spec, err := a.AsHookActionExecutableSpec()
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (a *apiHookActionFactory) createExecutableActionHook(exec executer.Executer
 		return nil, err
 	}
 	return newExecutableActionHook(spec.Executable.Run,
-		util.FromPtr(spec.Executable.EnvVars),
+		envVars,
 		exec,
 		actionTimeout,
 		spec.Executable.WorkDir,
@@ -81,10 +81,11 @@ func (a *apiHookActionFactory) createExecutableActionHook(exec executer.Executer
 }
 
 func (a *apiHookActionFactory) createSystemdActionHook(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
-	spec, err := a.AsHookAction1()
+	spec, err := a.AsHookActionSystemdSpec()
 	if err != nil {
 		return nil, err
 	}
+
 	actionTimeout, err := parseTimeout(spec.Systemd.Timeout)
 	if err != nil {
 		return nil, err
@@ -101,11 +102,12 @@ func (a *apiHookActionFactory) Create(exec executer.Executer, log *log.PrefixLog
 	if err != nil {
 		return nil, err
 	}
+
 	var actionHook ActionHook
 	switch hookActionType {
-	case ExecutableActionType:
+	case v1alpha1.ExecutableActionType:
 		actionHook, err = a.createExecutableActionHook(exec, log)
-	case SystemdActionType:
+	case v1alpha1.SystemdActionType:
 		actionHook, err = a.createSystemdActionHook(exec, log)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)

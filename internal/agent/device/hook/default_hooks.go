@@ -6,17 +6,14 @@ import (
 )
 
 func marshalExecutable(run string, envVars *[]string, workDir string, timeout string) v1alpha1.HookAction {
-	cha := v1alpha1.HookAction0{
-		Executable: v1alpha1.HookActionExecutableSpec{
-			EnvVars: envVars,
-			Run:     run,
-			WorkDir: &workDir,
-			Timeout: &timeout,
-		},
-	}
-	var ret v1alpha1.HookAction
-	_ = ret.FromHookAction0(cha)
-	return ret
+	var hookAction v1alpha1.HookAction
+	executable := v1alpha1.HookActionExecutableSpec{}
+	executable.Executable.EnvVars = envVars
+	executable.Executable.Run = run
+	executable.Executable.WorkDir = &workDir
+	executable.Executable.Timeout = &timeout
+	_ = hookAction.FromHookActionExecutableSpec(executable)
+	return hookAction
 }
 
 func executableActionFactory(run string, envVars *[]string, workDir string, timeout string) ActionHookFactory {
