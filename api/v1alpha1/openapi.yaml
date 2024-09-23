@@ -2587,6 +2587,8 @@ components:
         image:
           type: string
           description: "Reference to the container image for the application package"
+      required:
+        - image
     ApplicationEnvVars:
       type: object
       properties:

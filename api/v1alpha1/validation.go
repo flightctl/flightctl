@@ -70,7 +70,7 @@ func (a ApplicationSpec) Validate() []error {
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
-		allErrs = append(allErrs, validation.ValidateOciImageReference(provider.Image, "spec.applications[].image")...)
+		allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
 	default:
 		// if we hit this case, it means that the type should be added to the switch statement above
 		allErrs = append(allErrs, fmt.Errorf("unknown application provider type: %s", t))
