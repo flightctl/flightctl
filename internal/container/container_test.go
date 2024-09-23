@@ -46,24 +46,30 @@ func Test_imageToBootcTarget(t *testing.T) {
 		name           string
 		image          string
 		expectedResult string
+		expectedError  error
 	}{
 		{
-			name:           "iamge with no tag or digest",
+			name:          "invalid image",
+			image:         "_invalid",
+			expectedError: ErrParsingImage,
+		},
+		{
+			name:           "image with no tag or digest",
 			image:          "quay.io/org/flightctl-device",
 			expectedResult: "quay.io/org/flightctl-device",
 		},
 		{
-			name:           "iamge with a tag",
+			name:           "image with a tag",
 			image:          "quay.io/org/flightctl-device:v3",
 			expectedResult: "quay.io/org/flightctl-device:v3",
 		},
 		{
-			name:           "iamge with a digest",
+			name:           "image with a digest",
 			image:          "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
 			expectedResult: "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
 		},
 		{
-			name:           "iamge with a tag and digest",
+			name:           "image with a tag and digest",
 			image:          "quay.io/org/flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
 			expectedResult: "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
 		},
@@ -71,7 +77,15 @@ func Test_imageToBootcTarget(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			require.Equal(testCase.expectedResult, imageToBootcTarget(testCase.image))
+			target, err := imageToBootcTarget(testCase.image)
+
+			if testCase.expectedError != nil {
+				require.ErrorIs(err, testCase.expectedError)
+				return
+			}
+
+			require.NoError(err)
+			require.Equal(testCase.expectedResult, target)
 		})
 	}
 }

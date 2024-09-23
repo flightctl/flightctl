@@ -3,10 +3,10 @@ package container
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
@@ -75,6 +75,10 @@ type BootcClient interface {
 	UsrOverlay(ctx context.Context) error
 }
 
+var (
+	ErrParsingImage = fmt.Errorf("unable to parse image reference into a valid bootc target")
+)
+
 // NewBootcCmd creates a new bootc command.
 func NewBootcCmd(executer executer.Executer) *BootcCmd {
 	return &BootcCmd{
@@ -101,7 +105,11 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 // Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
 // The status will be updated in logger.
 func (b *BootcCmd) Switch(ctx context.Context, image string) error {
-	target := imageToBootcTarget(image)
+	target, err := imageToBootcTarget(image)
+	if err != nil {
+		return err
+	}
+
 	done := make(chan error, 1)
 	go func() {
 		args := []string{"switch", "--retain", target}
@@ -177,22 +185,24 @@ func (b *BootcHost) GetRollbackImage() string {
 	return b.Status.Rollback.Image.Image.Image
 }
 
-// Bootc does not accept images with tags AND diegsts specified - in the case when we
-// get both we will use the image digest
-func imageToBootcTarget(image string) string {
-	imageAndDigest := strings.SplitN(image, "@", 2)
-
-	// Check if there is a digest present
-	if len(imageAndDigest) == 2 {
-		baseAndTag := strings.SplitN(imageAndDigest[0], ":", 2)
-
-		// Check if there is also a tag present
-		if len(baseAndTag) == 2 {
-			base := baseAndTag[0]
-			digest := imageAndDigest[1]
-			return fmt.Sprintf("%s@%s", base, digest)
-		}
+// Bootc does not accept images with tags AND digests specified - in the case when we
+// get both we will use the image digest.
+//
+// Related underlying issue: https://github.com/containers/image/issues/1736
+func imageToBootcTarget(image string) (string, error) {
+	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
+	if len(matches) == 0 {
+		return image, ErrParsingImage
 	}
 
-	return image
+	// The OciImageReferenceRegexp has 3 capture groups for the base, tag, and digest
+	base := matches[1]
+	tag := matches[2]
+	digest := matches[3]
+
+	if tag != "" && digest != "" {
+		return fmt.Sprintf("%s@%s", base, digest), nil
+	}
+
+	return image, nil
 }
