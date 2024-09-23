@@ -59,6 +59,16 @@ func Test_imageToBootcTarget(t *testing.T) {
 			expectedResult: "quay.io/org/flightctl-device",
 		},
 		{
+			name:           "image with a port",
+			image:          "some-registry:5000/flightctl-device",
+			expectedResult: "some-registry:5000/flightctl-device",
+		},
+		{
+			name:           "image with a tag and a port",
+			image:          "some-registry:5000/flightctl-device:v3",
+			expectedResult: "some-registry:5000/flightctl-device:v3",
+		},
+		{
 			name:           "image with a tag",
 			image:          "quay.io/org/flightctl-device:v3",
 			expectedResult: "quay.io/org/flightctl-device:v3",
