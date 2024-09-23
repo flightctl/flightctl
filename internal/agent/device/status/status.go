@@ -110,6 +110,7 @@ func (m *StatusManager) Sync(ctx context.Context) error {
 		return err
 	}
 	if m.managementClient == nil {
+		m.log.Warn("management client not set")
 		return nil
 	}
 	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {

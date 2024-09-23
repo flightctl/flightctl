@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -29,6 +30,10 @@ var _ = Describe("VM Agent behavior", func() {
 		harness = e2e.NewTestHarness()
 		err := harness.VM.RunAndWaitForSSH()
 		Expect(err).ToNot(HaveOccurred())
+
+		out, err := harness.CLI("login", "${API_ENDPOINT}", "--insecure-skip-tls-verify")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(ContainSubstring("Auth is disabled"))
 	})
 
 	AfterEach(func() {
@@ -71,6 +76,13 @@ var _ = Describe("VM Agent behavior", func() {
 			// wait for the device to pickup enrollment and report measurements on device status
 			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
 				enrollmentID).ShouldNot(BeNil())
+		})
+
+		It("should reconcile application and report status", func() {
+			out, err := harness.CLI("apply", "-f", filepath.Join("testdata", "fleet.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			// expect out to contain 200 OK or 201 Created
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 		})
 	})
 })
