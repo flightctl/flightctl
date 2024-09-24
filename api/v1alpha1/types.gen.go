@@ -497,16 +497,16 @@ type DeviceUpdatedStatusType string
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
 	// ApplicationStatus A breakdown of the devices in the fleet by "application" status.
-	ApplicationStatus *map[string]int64 `json:"applicationStatus,omitempty"`
+	ApplicationStatus map[string]int64 `json:"applicationStatus"`
 
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus *map[string]int64 `json:"summaryStatus,omitempty"`
+	SummaryStatus map[string]int64 `json:"summaryStatus"`
 
 	// Total The total number of devices in the fleet.
 	Total int64 `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus *map[string]int64 `json:"updateStatus,omitempty"`
+	UpdateStatus map[string]int64 `json:"updateStatus"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
@@ -1225,15 +1225,9 @@ type ListDevicesParams struct {
 
 	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
-}
 
-// GetDevicesSummaryParams defines parameters for GetDevicesSummary.
-type GetDevicesSummaryParams struct {
-	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
-	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
-
-	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.

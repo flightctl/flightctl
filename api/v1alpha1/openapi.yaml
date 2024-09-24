@@ -608,6 +608,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: summaryOnly
+          in: query
+          description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -1009,50 +1015,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/v1/devices/summary:
-    get:
-      tags:
-        - device
-      summary: Get summary of all devices
-      operationId: getDevicesSummary
-      parameters:
-        - name: labelSelector
-          in: query
-          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
-          schema:
-            type: string
-        - name: owner
-          in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
-          required: false
-          schema:
-            type: string
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DevicesSummary"
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "403":
-          description: Not allowed
           content:
             application/json:
               schema:
@@ -3586,6 +3548,9 @@ components:
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
       - total
+      - applicationStatus
+      - summaryStatus
+      - updateStatus
       properties:
         total:
           type: integer
@@ -3938,7 +3903,6 @@ components:
           items:
             allOf:
               - $ref: '#/components/schemas/Condition'
-            type: object
             default: {}
           type: array
       required:

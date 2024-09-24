@@ -42,6 +42,8 @@ type GetOptions struct {
 	Continue      string
 	FleetName     string
 	Rendered      bool
+	Summary       bool
+	SummaryOnly   bool
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -90,6 +92,8 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
 	fs.StringVar(&o.FleetName, "fleetname", o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
 	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting devices).")
+	fs.BoolVarP(&o.Summary, "summary", "s", false, "Display summary information.")
+	fs.BoolVar(&o.SummaryOnly, "summary-only", false, "Display summary information only.")
 }
 
 func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -113,15 +117,28 @@ func (o *GetOptions) Validate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(name) > 0 && !strings.EqualFold(name, "summary") && len(o.LabelSelector) > 0 {
+	if len(name) > 0 && len(o.LabelSelector) > 0 {
 		return fmt.Errorf("cannot specify label selector when fetching a single resource")
 	}
 	if len(o.Owner) > 0 {
 		if kind != DeviceKind && kind != FleetKind {
 			return fmt.Errorf("owner can only be specified when fetching devices and fleets")
 		}
-		if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 && !strings.EqualFold(name, "summary") {
+		if len(name) > 0 {
 			return fmt.Errorf("cannot specify owner together with a device or fleet name")
+		}
+	}
+	if o.Summary || o.SummaryOnly {
+		if kind != DeviceKind {
+			return fmt.Errorf("summary can only be specified when fetching devices")
+		}
+		if len(name) > 0 {
+			return fmt.Errorf("cannot specify summary when fetching a single resource")
+		}
+		if o.SummaryOnly {
+			if len(o.StatusFilter) > 0 || len(o.Continue) > 0 || o.Limit > 0 {
+				return fmt.Errorf("only the 'owner' and 'selector' flags are supported when 'summary-only' is specified")
+			}
 		}
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
@@ -152,12 +169,6 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		return err
 	}
 	switch {
-	case kind == DeviceKind && strings.EqualFold(name, "summary"):
-		params := api.GetDevicesSummaryParams{
-			Owner:         util.StrToPtrWithNilDefault(o.Owner),
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-		}
-		response, err = c.GetDevicesSummaryWithResponse(ctx, &params)
 	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
 		response, err = c.ReadDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) > 0 && o.Rendered:
@@ -169,6 +180,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 			StatusFilter:  util.SliceToPtrWithNilDefault(o.StatusFilter),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			SummaryOnly:   util.BoolToPtr(o.SummaryOnly),
 		}
 		response, err = c.ListDevicesWithResponse(ctx, &params)
 	case kind == EnrollmentRequestKind && len(name) > 0:
@@ -229,10 +241,10 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return processReponse(response, err, kind, name, o.Output)
+	return o.processReponse(response, err, kind, name, o.Output)
 }
 
-func processReponse(response interface{}, err error, kind string, name string, output string) error {
+func (o *GetOptions) processReponse(response interface{}, err error, kind string, name string, output string) error {
 	errorPrefix := fmt.Sprintf("reading %s/%s", kind, name)
 	if len(name) == 0 {
 		errorPrefix = fmt.Sprintf("listing %s", plural(kind))
@@ -263,17 +275,24 @@ func processReponse(response interface{}, err error, kind string, name string, o
 		fmt.Printf("%s\n", string(marshalled))
 		return nil
 	default:
-		return printTable(response, kind, name)
+		return o.printTable(response, kind, name)
 	}
 }
 
-func printTable(response interface{}, kind string, name string) error {
+func (o *GetOptions) printTable(response interface{}, kind string, name string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 	switch {
-	case kind == DeviceKind && strings.EqualFold(name, "summary"):
-		printDevicesSummaryTable(w, *(response.(*apiclient.GetDevicesSummaryResponse).JSON200))
 	case kind == DeviceKind && len(name) == 0:
+		if o.SummaryOnly {
+			printDevicesSummaryTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Summary)
+			break
+		}
+
 		printDevicesTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Items...)
+		if o.Summary {
+			printNewLine(w)
+			printDevicesSummaryTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Summary)
+		}
 	case kind == DeviceKind && len(name) > 0:
 		printDevicesTable(w, *(response.(*apiclient.ReadDeviceResponse).JSON200))
 	case kind == EnrollmentRequestKind && len(name) == 0:
@@ -307,24 +326,28 @@ func printTable(response interface{}, kind string, name string) error {
 	return nil
 }
 
-func printDevicesSummaryTable(w *tabwriter.Writer, summary api.DevicesSummary) {
-	fmt.Fprintln(w, "TYPE\tSTATUS\tCOUNT")
+// Helper function to print a new line
+func printNewLine(w *tabwriter.Writer) {
+	fmt.Fprintf(w, "\n")
+}
 
-	for k, v := range *summary.SummaryStatus {
+func printDevicesSummaryTable(w *tabwriter.Writer, summary *api.DevicesSummary) {
+	fmt.Fprintln(w, "DEVICES")
+	fmt.Fprintf(w, "%s\n", fmt.Sprintf("%d", summary.Total))
+
+	fmt.Fprintln(w, "\nSTATUS TYPE\tSTATUS\tCOUNT")
+
+	for k, v := range summary.SummaryStatus {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", "SYSTEM", k, fmt.Sprintf("%d", v))
 	}
 
-	for k, v := range *summary.UpdateStatus {
+	for k, v := range summary.UpdateStatus {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", "UPDATED", k, fmt.Sprintf("%d", v))
 	}
 
-	for k, v := range *summary.ApplicationStatus {
+	for k, v := range summary.ApplicationStatus {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", "APPLICATIONS", k, fmt.Sprintf("%d", v))
 	}
-
-	fmt.Fprintln(w, "\nDEVICES")
-	fmt.Fprintf(w, "%s\n", fmt.Sprintf("%d", summary.Total))
-
 }
 
 func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {

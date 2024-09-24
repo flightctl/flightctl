@@ -214,13 +214,13 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		}
 
 		applicationStatus := statusCount.List("status.applications.summary.status")
-		summary.ApplicationStatus = &applicationStatus
+		summary.ApplicationStatus = applicationStatus
 
 		summaryStatus := statusCount.List("status.summary.status")
-		summary.SummaryStatus = &summaryStatus
+		summary.SummaryStatus = summaryStatus
 
 		updateStatus := statusCount.List("status.updated.status")
-		summary.UpdateStatus = &updateStatus
+		summary.UpdateStatus = updateStatus
 	}
 
 	apiFleet := fleet.ToApiResource(model.WithSummary(&summary))

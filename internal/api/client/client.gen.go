@@ -140,9 +140,6 @@ type ClientInterface interface {
 
 	CreateDevice(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetDevicesSummary request
-	GetDevicesSummary(ctx context.Context, params *GetDevicesSummaryParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// DeleteDevice request
 	DeleteDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -519,18 +516,6 @@ func (c *Client) CreateDeviceWithBody(ctx context.Context, contentType string, b
 
 func (c *Client) CreateDevice(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateDeviceRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetDevicesSummary(ctx context.Context, params *GetDevicesSummaryParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetDevicesSummaryRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1861,6 +1846,22 @@ func NewListDevicesRequest(server string, params *ListDevicesParams) (*http.Requ
 
 		}
 
+		if params.SummaryOnly != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "summaryOnly", runtime.ParamLocationQuery, *params.SummaryOnly); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
 	}
 
@@ -1908,71 +1909,6 @@ func NewCreateDeviceRequestWithBody(server string, contentType string, body io.R
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewGetDevicesSummaryRequest generates requests for GetDevicesSummary
-func NewGetDevicesSummaryRequest(server string, params *GetDevicesSummaryParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/devices/summary")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.LabelSelector != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labelSelector", runtime.ParamLocationQuery, *params.LabelSelector); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.Owner != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "owner", runtime.ParamLocationQuery, *params.Owner); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -4097,9 +4033,6 @@ type ClientWithResponsesInterface interface {
 
 	CreateDeviceWithResponse(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error)
 
-	// GetDevicesSummaryWithResponse request
-	GetDevicesSummaryWithResponse(ctx context.Context, params *GetDevicesSummaryParams, reqEditors ...RequestEditorFn) (*GetDevicesSummaryResponse, error)
-
 	// DeleteDeviceWithResponse request
 	DeleteDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error)
 
@@ -4608,31 +4541,6 @@ func (r CreateDeviceResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r CreateDeviceResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type GetDevicesSummaryResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *DevicesSummary
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r GetDevicesSummaryResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetDevicesSummaryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5908,15 +5816,6 @@ func (c *ClientWithResponses) CreateDeviceWithResponse(ctx context.Context, body
 	return ParseCreateDeviceResponse(rsp)
 }
 
-// GetDevicesSummaryWithResponse request returning *GetDevicesSummaryResponse
-func (c *ClientWithResponses) GetDevicesSummaryWithResponse(ctx context.Context, params *GetDevicesSummaryParams, reqEditors ...RequestEditorFn) (*GetDevicesSummaryResponse, error) {
-	rsp, err := c.GetDevicesSummary(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetDevicesSummaryResponse(rsp)
-}
-
 // DeleteDeviceWithResponse request returning *DeleteDeviceResponse
 func (c *ClientWithResponses) DeleteDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error) {
 	rsp, err := c.DeleteDevice(ctx, name, reqEditors...)
@@ -7065,53 +6964,6 @@ func ParseCreateDeviceResponse(rsp *http.Response) (*CreateDeviceResponse, error
 			return nil, err
 		}
 		response.JSON409 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetDevicesSummaryResponse parses an HTTP response from a GetDevicesSummaryWithResponse call
-func ParseGetDevicesSummaryResponse(rsp *http.Response) (*GetDevicesSummaryResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetDevicesSummaryResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest DevicesSummary
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
 
 	}
 
