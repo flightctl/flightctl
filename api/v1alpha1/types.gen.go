@@ -853,7 +853,7 @@ type HttpRepoSpec struct {
 // ImageApplicationProvider defines model for ImageApplicationProvider.
 type ImageApplicationProvider struct {
 	// Image Reference to the container image for the application package
-	Image *string `json:"image,omitempty"`
+	Image string `json:"image"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
