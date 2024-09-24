@@ -1019,50 +1019,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
-  /api/v1/devices/summary:
-    get:
-      tags:
-        - device
-      summary: Get summary of all devices
-      operationId: getDevicesSummary
-      parameters:
-        - name: labelSelector
-          in: query
-          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
-          schema:
-            type: string
-        - name: owner
-          in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
-          required: false
-          schema:
-            type: string
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DevicesSummary"
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "403":
-          description: Not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentconfig/{name}:
     get:
       tags:
@@ -3951,7 +3907,6 @@ components:
           items:
             allOf:
               - $ref: '#/components/schemas/Condition'
-            type: object
             default: {}
           type: array
       required:

@@ -118,7 +118,7 @@ func (o *GetOptions) Validate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(name) > 0 && !strings.EqualFold(name, "summary") && len(o.LabelSelector) > 0 {
+	if len(name) > 0 && len(o.LabelSelector) > 0 {
 		return fmt.Errorf("cannot specify label selector when fetching a single resource")
 	}
 	if len(o.Owner) > 0 {
@@ -175,12 +175,6 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 		return err
 	}
 	switch {
-	case kind == DeviceKind && strings.EqualFold(name, "summary"):
-		params := api.GetDevicesSummaryParams{
-			Owner:         util.StrToPtrWithNilDefault(o.Owner),
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-		}
-		response, err = c.GetDevicesSummaryWithResponse(ctx, &params)
 	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
 		response, err = c.ReadDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) > 0 && o.Rendered:
