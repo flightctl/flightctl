@@ -45,6 +45,21 @@ func ValidateLabelsWithPath(labels *map[string]string, path string) []error {
 	return asErrors(errs)
 }
 
+// ValidateStringMap validates that the k,v elements in a map are correctly defined as a string.
+func ValidateStringMap(m *map[string]string, path string, minLen int, maxLen int, patternRegexp *regexp.Regexp, patternFmt string, patternExample ...string) []error {
+	allErrs := []error{}
+	if m == nil {
+		return allErrs
+	}
+	for k, v := range *m {
+		key := k
+		value := v
+		allErrs = append(allErrs, ValidateString(&key, path, minLen, maxLen, patternRegexp, patternFmt, patternExample...)...)
+		allErrs = append(allErrs, ValidateString(&value, path, minLen, maxLen, patternRegexp, patternFmt, patternExample...)...)
+	}
+	return allErrs
+}
+
 // ValidateAnnotations validates that a set of annotations are valid K8s annotations.
 func ValidateAnnotations(annotations *map[string]string) []error {
 	if annotations == nil {
