@@ -167,9 +167,9 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
 		Summary: &api.DevicesSummary{
-			ApplicationStatus: &applicationStatuses,
-			SummaryStatus:     &summaryStatuses,
-			UpdateStatus:      &updateStatuses,
+			ApplicationStatus: applicationStatuses,
+			SummaryStatus:     summaryStatuses,
+			UpdateStatus:      updateStatuses,
 			Total:             int64(len(dl)),
 		},
 	}
