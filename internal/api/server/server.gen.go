@@ -59,9 +59,6 @@ type ServerInterface interface {
 
 	// (POST /api/v1/devices)
 	CreateDevice(w http.ResponseWriter, r *http.Request)
-	// Get summary of all devices
-	// (GET /api/v1/devices/summary)
-	GetDevicesSummary(w http.ResponseWriter, r *http.Request, params GetDevicesSummaryParams)
 
 	// (DELETE /api/v1/devices/{name})
 	DeleteDevice(w http.ResponseWriter, r *http.Request, name string)
@@ -270,12 +267,6 @@ func (_ Unimplemented) ListDevices(w http.ResponseWriter, r *http.Request, param
 
 // (POST /api/v1/devices)
 func (_ Unimplemented) CreateDevice(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Get summary of all devices
-// (GET /api/v1/devices/summary)
-func (_ Unimplemented) GetDevicesSummary(w http.ResponseWriter, r *http.Request, params GetDevicesSummaryParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -863,6 +854,14 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// ------------- Optional query parameter "summaryOnly" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "summaryOnly", r.URL.Query(), &params.SummaryOnly)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "summaryOnly", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDevices(w, r, params)
 	}))
@@ -880,42 +879,6 @@ func (siw *ServerInterfaceWrapper) CreateDevice(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateDevice(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// GetDevicesSummary operation middleware
-func (siw *ServerInterfaceWrapper) GetDevicesSummary(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var err error
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetDevicesSummaryParams
-
-	// ------------- Optional query parameter "labelSelector" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
-		return
-	}
-
-	// ------------- Optional query parameter "owner" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "owner", r.URL.Query(), &params.Owner)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetDevicesSummary(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2318,9 +2281,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/devices", wrapper.CreateDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/summary", wrapper.GetDevicesSummary)
-	})
-	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/devices/{name}", wrapper.DeleteDevice)
 	})
 	r.Group(func(r chi.Router) {
@@ -3048,50 +3008,6 @@ type CreateDevice409JSONResponse Error
 func (response CreateDevice409JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetDevicesSummaryRequestObject struct {
-	Params GetDevicesSummaryParams
-}
-
-type GetDevicesSummaryResponseObject interface {
-	VisitGetDevicesSummaryResponse(w http.ResponseWriter) error
-}
-
-type GetDevicesSummary200JSONResponse DevicesSummary
-
-func (response GetDevicesSummary200JSONResponse) VisitGetDevicesSummaryResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetDevicesSummary400JSONResponse Error
-
-func (response GetDevicesSummary400JSONResponse) VisitGetDevicesSummaryResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetDevicesSummary401JSONResponse Error
-
-func (response GetDevicesSummary401JSONResponse) VisitGetDevicesSummaryResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetDevicesSummary403JSONResponse Error
-
-func (response GetDevicesSummary403JSONResponse) VisitGetDevicesSummaryResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -5016,9 +4932,6 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/devices)
 	CreateDevice(ctx context.Context, request CreateDeviceRequestObject) (CreateDeviceResponseObject, error)
-	// Get summary of all devices
-	// (GET /api/v1/devices/summary)
-	GetDevicesSummary(ctx context.Context, request GetDevicesSummaryRequestObject) (GetDevicesSummaryResponseObject, error)
 
 	// (DELETE /api/v1/devices/{name})
 	DeleteDevice(ctx context.Context, request DeleteDeviceRequestObject) (DeleteDeviceResponseObject, error)
@@ -5560,32 +5473,6 @@ func (sh *strictHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateDeviceResponseObject); ok {
 		if err := validResponse.VisitCreateDeviceResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetDevicesSummary operation middleware
-func (sh *strictHandler) GetDevicesSummary(w http.ResponseWriter, r *http.Request, params GetDevicesSummaryParams) {
-	var request GetDevicesSummaryRequestObject
-
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetDevicesSummary(ctx, request.(GetDevicesSummaryRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetDevicesSummary")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetDevicesSummaryResponseObject); ok {
-		if err := validResponse.VisitGetDevicesSummaryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

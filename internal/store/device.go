@@ -192,9 +192,9 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 	updateStatus := statusCount.List("status.updated.status")
 	return &api.DevicesSummary{
 		Total:             devicesCount,
-		ApplicationStatus: &applicationStatus,
-		SummaryStatus:     &summaryStatus,
-		UpdateStatus:      &updateStatus,
+		ApplicationStatus: applicationStatus,
+		SummaryStatus:     summaryStatus,
+		UpdateStatus:      updateStatus,
 	}, nil
 }
 
