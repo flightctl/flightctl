@@ -13,11 +13,10 @@ var ErrPathIsDir = errors.New("provided path is a directory")
 
 type managedFile struct {
 	ign3types.File
-	initialized bool
-	exists      bool
-	size        int64
-	contents    []byte
-	writer      Writer
+	exists   bool
+	size     int64
+	contents []byte
+	writer   Writer
 }
 
 func newManagedFile(f ign3types.File, writer Writer) (ManagedFile, error) {
@@ -25,21 +24,18 @@ func newManagedFile(f ign3types.File, writer Writer) (ManagedFile, error) {
 		File:   f,
 		writer: writer,
 	}
-	if err := mf.initMetadata(); err != nil {
+	if err := mf.initExistingFileMetadata(); err != nil {
 		return nil, err
 	}
 	return mf, nil
 }
 
-func (m *managedFile) initMetadata() error {
-	if m.initialized {
-		return nil
-	}
+// initExistingFileMetadata initializes the exists and size fields of the on disk managedFile.
+func (m *managedFile) initExistingFileMetadata() error {
 	path := m.writer.PathFor(m.Path())
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			m.initialized = true
 			return nil
 		}
 		return err
@@ -49,7 +45,6 @@ func (m *managedFile) initMetadata() error {
 	}
 	m.exists = true
 	m.size = fileInfo.Size()
-	m.initialized = true
 	return nil
 }
 

@@ -76,9 +76,9 @@ func TestIsUpToDate(t *testing.T) {
 	tests := []struct {
 		name string
 		// current is the current managed file instance
-		current ign3types.File
+		current *ign3types.File
 		// desired is the desired managed file
-		desired      ign3types.File
+		desired      *ign3types.File
 		wantUpToDate bool
 	}{
 		{
@@ -92,21 +92,26 @@ func TestIsUpToDate(t *testing.T) {
 			current: createTestFile("not_up_to_date", "data:,This%20system%20is%20managed%20by%20flightctl.%0A"),
 			desired: createTestFile("not_up_to_date", "data:,This%20system%20is%20managed%20by%20flightctl%20v2.%0A"),
 		},
+		{
+			name:    "file does not exist",
+			current: nil,
+			desired: createTestFile("does_not_exist", "data:,This%20system%20is%20managed%20by%20flightctl.%0A"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			writer := NewWriter()
 			writer.SetRootdir(tmpDir)
-
-			// write the current file to disk
-			managed, err := writer.CreateManagedFile(tt.current)
-			require.NoError(err)
-			err = managed.Write()
-			require.NoError(err)
-
+			if tt.current != nil {
+				// write the current file to disk if it exists
+				managed, err := writer.CreateManagedFile(*tt.current)
+				require.NoError(err)
+				err = managed.Write()
+				require.NoError(err)
+			}
 			// compare with desired file
-			managed, err = writer.CreateManagedFile(tt.desired)
+			managed, err := writer.CreateManagedFile(*tt.desired)
 			require.NoError(err)
 
 			// check if the file is up to date
@@ -117,8 +122,8 @@ func TestIsUpToDate(t *testing.T) {
 	}
 }
 
-func createTestFile(path, data string) ign3types.File {
-	return ign3types.File{
+func createTestFile(path, data string) *ign3types.File {
+	return &ign3types.File{
 		Node: ign3types.Node{
 			Path: path,
 		},
