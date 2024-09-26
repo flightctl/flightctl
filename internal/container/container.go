@@ -173,7 +173,7 @@ func (b *BootcHost) GetBootedImage() string {
 	return b.Status.Booted.Image.Image.Image
 }
 
-func (b *BootcHost) GetBootedImageDigeest() string {
+func (b *BootcHost) GetBootedImageDigest() string {
 	return b.Status.Booted.Image.ImageDigest
 }
 

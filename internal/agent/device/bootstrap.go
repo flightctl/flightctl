@@ -90,6 +90,7 @@ func NewBootstrap(
 
 func (b *Bootstrap) Initialize(ctx context.Context) error {
 	b.log.Infof("Bootstrapping device: %s", b.deviceName)
+	b.log.Info("Current code is running")
 	versionInfo := version.Get()
 	b.log.Infof("System information: version=%s, go-version=%s, platform=%s, git-commit=%s",
 		versionInfo.String(),
@@ -214,7 +215,7 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 	updateFns := []status.UpdateStatusFn{
 		status.SetOSImage(v1alpha1.DeviceOSStatus{
 			Image:       desired.Os.Image,
-			ImageDigest: bootcStatus.GetBootedImageDigeest(),
+			ImageDigest: bootcStatus.GetBootedImageDigest(),
 		}),
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
 			RenderedVersion: desired.RenderedVersion,
