@@ -98,7 +98,7 @@ func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredD
 
 	// write ignition files to disk and trigger pre hooks
 	c.log.Debug("Writing ignition files")
-	err = c.WriteIgnitionFiles(ctx, desiredIgnition.Storage.Files)
+	err = c.writeIgnitionFiles(ctx, desiredIgnition.Storage.Files)
 	if err != nil {
 		c.log.Warnf("Writing ignition files failed: %+v", err)
 		return fmt.Errorf("failed to apply configuration: %w", err)
@@ -121,7 +121,7 @@ func (c *Controller) removeObsoleteFiles(ctx context.Context, currentFiles, desi
 	return nil
 }
 
-func (c *Controller) WriteIgnitionFiles(ctx context.Context, files []ignv3types.File) error {
+func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.File) error {
 	for _, file := range files {
 		managedFile, err := c.deviceWriter.CreateManagedFile(file)
 		if err != nil {
