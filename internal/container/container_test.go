@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +40,43 @@ func TestBootcHost(t *testing.T) {
 	require.Equal(false, status.Status.Staged.Pinned)
 	// deploy serial
 	require.Equal(4, status.Status.Staged.Ostree.DeploySerial)
+}
 
+// TODO add additional test cases
+func TestIsOsImageReconciled(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		name           string
+		bootedImage    string
+		desiredOs      *v1alpha1.DeviceOSSpec
+		expectedResult bool
+		expectedError  error
+	}{
+		{
+			name:           "booted and desired are the same",
+			bootedImage:    "quay.io/org/flightctl-device",
+			desiredOs:      &v1alpha1.DeviceOSSpec{Image: "quay.io/org/flightctl-device"},
+			expectedResult: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testHost := &BootcHost{}
+			testHost.Status.Booted.Image.Image.Image = testCase.bootedImage
+			testSpec := &v1alpha1.RenderedDeviceSpec{Os: testCase.desiredOs}
+
+			reconciled, err := IsOsImageReconciled(testHost, testSpec)
+
+			if testCase.expectedError != nil {
+				require.ErrorIs(err, testCase.expectedError)
+				return
+			}
+
+			require.NoError(err)
+			require.Equal(testCase.expectedResult, reconciled)
+		})
+	}
 }
 
 func Test_imageToBootcTarget(t *testing.T) {
