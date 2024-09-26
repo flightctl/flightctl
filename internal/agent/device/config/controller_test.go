@@ -173,7 +173,7 @@ func TestComputeRemoval(t *testing.T) {
 }
 
 func expectCreateFile(ctx context.Context, mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, mockHookManager *hook.MockManager, f string) {
-	mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile)
+	mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile, nil)
 	mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
 	mockManagedFile.EXPECT().Exists().Return(false, nil)
 	mockManagedFile.EXPECT().Write().Return(nil)

@@ -47,20 +47,27 @@ func (w *writer) PathFor(filePath string) string {
 	return path.Join(w.rootDir, filePath)
 }
 
-func (w *writer) WriteFileBytes(name string, data []byte, perm os.FileMode) error {
-	uid, gid, err := getUserIdentity()
-	if err != nil {
-		return err
+// WriteFile writes the provided data to the file at the path with the provided permissions and ownership information
+func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
+	fopts := &fileOptions{}
+	for _, opt := range opts {
+		opt(fopts)
 	}
-	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
-}
 
-// WriteFile writes the provided data to the file at the path with the provided permissions
-func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	uid, gid, err := getUserIdentity()
-	if err != nil {
-		return err
+	var uid, gid int
+	// if rootDir is set use the default UID and GID
+	if w.rootDir != "" {
+		defaultUID, defaultGID, err := getUserIdentity()
+		if err != nil {
+			return err
+		}
+		uid = defaultUID
+		gid = defaultGID
+	} else {
+		uid = fopts.uid
+		gid = fopts.gid
 	}
+
 	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
 }
 
@@ -154,13 +161,7 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 }
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
-// In testMode the permissions will be defined user
-func getFileOwnership(file ign3types.File, testMode bool) (int, int, error) {
-	if testMode {
-		// use local user
-		return getUserIdentity()
-	}
-
+func getFileOwnership(file ign3types.File) (int, int, error) {
 	uid, gid := 0, 0 // default to root
 	var err error    // create default error var
 	if file.User.ID != nil {

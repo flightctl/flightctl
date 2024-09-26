@@ -104,10 +104,17 @@ func (m *managedFile) Write() error {
 	if err := m.decodeFile(); err != nil {
 		return err
 	}
+
 	mode := DefaultFilePermissions
 	if m.Mode != nil {
 		mode = os.FileMode(*m.Mode)
 	}
 
-	return m.writer.WriteFile(m.Path(), m.contents, mode)
+	// set chown if file information is provided
+	uid, gid, err := getFileOwnership(m.File)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve file ownership for file %q: %w", m.Path(), err)
+	}
+
+	return m.writer.WriteFile(m.Path(), m.contents, mode, WithGid(gid), WithUid(uid))
 }
