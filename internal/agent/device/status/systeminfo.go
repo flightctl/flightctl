@@ -55,7 +55,7 @@ func (s *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) 
 	}
 
 	status.Os.Image = osImage
-	status.Os.ImageDigest = bootcInfo.GetBootedImageDigeest()
+	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
 
 	return nil
 }

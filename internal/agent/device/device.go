@@ -210,7 +210,7 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 
 		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOSStatus{
 			Image:       desired.Os.Image,
-			ImageDigest: bootcStatus.GetBootedImageDigeest(),
+			ImageDigest: bootcStatus.GetBootedImageDigest(),
 		}))
 	}
 
