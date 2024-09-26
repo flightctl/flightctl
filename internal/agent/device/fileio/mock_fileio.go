@@ -137,17 +137,32 @@ func (mr *MockWriterMockRecorder) CopyFile(src, dst any) *gomock.Call {
 }
 
 // CreateManagedFile mocks base method.
-func (m *MockWriter) CreateManagedFile(file types.File) ManagedFile {
+func (m *MockWriter) CreateManagedFile(file types.File) (ManagedFile, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateManagedFile", file)
 	ret0, _ := ret[0].(ManagedFile)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CreateManagedFile indicates an expected call of CreateManagedFile.
 func (mr *MockWriterMockRecorder) CreateManagedFile(file any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateManagedFile", reflect.TypeOf((*MockWriter)(nil).CreateManagedFile), file)
+}
+
+// PathFor mocks base method.
+func (m *MockWriter) PathFor(filePath string) string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PathFor", filePath)
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// PathFor indicates an expected call of PathFor.
+func (mr *MockWriterMockRecorder) PathFor(filePath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathFor", reflect.TypeOf((*MockWriter)(nil).PathFor), filePath)
 }
 
 // RemoveFile mocks base method.
@@ -321,11 +336,12 @@ func (mr *MockReadWriterMockRecorder) CopyFile(src, dst any) *gomock.Call {
 }
 
 // CreateManagedFile mocks base method.
-func (m *MockReadWriter) CreateManagedFile(file types.File) ManagedFile {
+func (m *MockReadWriter) CreateManagedFile(file types.File) (ManagedFile, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateManagedFile", file)
 	ret0, _ := ret[0].(ManagedFile)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CreateManagedFile indicates an expected call of CreateManagedFile.

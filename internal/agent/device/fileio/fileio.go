@@ -16,11 +16,12 @@ type ManagedFile interface {
 
 type Writer interface {
 	SetRootdir(path string)
+	PathFor(filePath string) string
 	WriteFileBytes(name string, data []byte, perm os.FileMode) error
 	WriteFile(name string, data []byte, perm fs.FileMode) error
 	RemoveFile(file string) error
 	CopyFile(src, dst string) error
-	CreateManagedFile(file ign3types.File) ManagedFile
+	CreateManagedFile(file ign3types.File) (ManagedFile, error)
 }
 
 type Reader interface {
@@ -54,6 +55,10 @@ func NewReadWriter(opts ...Option) ReadWriter {
 func (rw *readWriter) SetRootdir(path string) {
 	rw.reader.SetRootdir(path)
 	rw.writer.SetRootdir(path)
+}
+
+func (rw *readWriter) PathFor(path string) string {
+	return rw.writer.PathFor(path)
 }
 
 type Option func(*readWriter)

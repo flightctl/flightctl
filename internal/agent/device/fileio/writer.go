@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -40,6 +41,10 @@ func NewWriter() *writer {
 // SetRootdir sets the root directory for the writer, useful for testing
 func (w *writer) SetRootdir(path string) {
 	w.rootDir = path
+}
+
+func (w *writer) PathFor(filePath string) string {
+	return path.Join(w.rootDir, filePath)
 }
 
 func (w *writer) WriteFileBytes(name string, data []byte, perm os.FileMode) error {
@@ -111,8 +116,8 @@ func (w *writer) copyFile(src, dst string) error {
 	return nil
 }
 
-func (w *writer) CreateManagedFile(file ign3types.File) ManagedFile {
-	return newManagedFile(file, w.rootDir)
+func (w *writer) CreateManagedFile(file ign3types.File) (ManagedFile, error) {
+	return newManagedFile(file, w)
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
