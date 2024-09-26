@@ -90,7 +90,6 @@ func NewBootstrap(
 
 func (b *Bootstrap) Initialize(ctx context.Context) error {
 	b.log.Infof("Bootstrapping device: %s", b.deviceName)
-	b.log.Info("Current code is running")
 	versionInfo := version.Get()
 	b.log.Infof("System information: version=%s, go-version=%s, platform=%s, git-commit=%s",
 		versionInfo.String(),
