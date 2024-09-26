@@ -23,6 +23,8 @@ func TestBootcHost(t *testing.T) {
 	require.Equal("registry", status.Spec.Image.Transport)
 	// booted
 	require.Equal("quay.io/flightctl/flightctl-agent-fedora", status.Status.Booted.Image.Image.Image)
+	// booted digest
+	require.Equal("sha256:6adcbcf13b489758cc6fc8e659b8a2e310d3af609b8d319decef1e434b83c2a7", status.Status.Booted.Image.ImageDigest)
 	// rollback image
 	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Status.Rollback.Image.Image.Image)
 	// staged image

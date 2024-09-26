@@ -160,13 +160,18 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 	return nil
 }
 
-// IsOsImageReconciled returns true if the booted image equals the spec image.
-func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
+// IsOsImageReconciled returns true if the booted image equals the target for the spec image.
+func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) (bool, error) {
 	if desiredSpec.Os == nil {
-		return false
+		return false, nil
 	}
-	// If the booted image equals the desired image, the OS image is reconciled
-	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
+
+	target, err := imageToBootcTarget(desiredSpec.Os.Image)
+	if err != nil {
+		return false, err
+	}
+	// If the booted image equals the desired target, the OS image is reconciled
+	return host.GetBootedImage() == target, nil
 }
 
 func (b *BootcHost) GetBootedImage() string {
