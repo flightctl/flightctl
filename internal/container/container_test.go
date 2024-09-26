@@ -42,7 +42,6 @@ func TestBootcHost(t *testing.T) {
 	require.Equal(4, status.Status.Staged.Ostree.DeploySerial)
 }
 
-// TODO add additional test cases
 func TestIsOsImageReconciled(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
@@ -57,6 +56,24 @@ func TestIsOsImageReconciled(t *testing.T) {
 			bootedImage:    "quay.io/org/flightctl-device",
 			desiredOs:      &v1alpha1.DeviceOSSpec{Image: "quay.io/org/flightctl-device"},
 			expectedResult: true,
+		},
+		{
+			name:           "booted and desired have different tags",
+			bootedImage:    "quay.io/org/flightctl-device:v3",
+			desiredOs:      &v1alpha1.DeviceOSSpec{Image: "quay.io/org/flightctl-device:v9"},
+			expectedResult: false,
+		},
+		{
+			name:           "booted and desired are the same after image parsed to target",
+			bootedImage:    "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
+			desiredOs:      &v1alpha1.DeviceOSSpec{Image: "quay.io/org/flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5"},
+			expectedResult: true,
+		},
+		{
+			name:          "desired image cannot be parsed",
+			bootedImage:   "quay.io/org/flightctl-device",
+			desiredOs:     &v1alpha1.DeviceOSSpec{Image: "_invalid"},
+			expectedError: ErrParsingImage,
 		},
 	}
 
