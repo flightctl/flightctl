@@ -23,20 +23,22 @@ Welcome to the Flight Control user documentation.
   * Provisioning on Red Hat OpenShift Container Native Virtualization (CNV)
   * Provisioning on Red Hat Satellite
   * Provisioning on VMware vSphere
-* **Managing Devices** - How to manage individual devices.
-  * Enrolling Devices
-  * Organizing Devices
-  * Managing Configuration
-  * Managing Applications
-  * Monitoring Device Resources
-  * Using Device Lifecycle Hooks
-  * Accessing Devices Remotely
-* **Managing Fleets** - How to manage fleets of devices.
-  * Understanding Fleets
-  * Selecting Devices into a Fleet
-  * Defining Device Templates
-  * Defining Device Policies
-  * Managing Fleets Using GitOps
+* **[Managing Devices](managing-devices.md)** - How to manage individual devices.
+  * [Enrolling Devices](managing-devices.md#enrolling-devices)
+  * [Viewing the Device Inventory and Device Details](managing-devices.md#viewing-the-device-inventory-and-device-details)
+  * [Organizing Devices](managing-devices.md#organizing-devices)
+  * [Updating the OS](managing-devices.md#updating-the-os)
+  * [Managing OS Configuration](managing-devices.md#managing-configuration)
+  * [Managing Applications](managing-devices.md#managing-applications)
+  * [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)
+  * [Monitoring Device Resources](managing-devices.md#monitoring-device-resources)
+  * [Accessing Devices Remotely](managing-devices.md#accessing-devices-remotely-experimental)
+* **[Managing Device Fleets](managing-fleets.md)** - How to manage fleets of devices.
+  * [Understanding Fleets](managing-fleets.md#understanding-fleets)
+  * [Selecting Devices into a Fleet](managing-fleets.md#selecting-devices-into-a-fleet)
+  * [Defining Device Templates](managing-fleets.md#defining-device-templates)
+  * [Defining Rollout Policies](managing-fleets.md#defining-rollout-policies)
+  * [Managing Fleets Using GitOps](managing-fleets.md#managing-fleets-using-gitops)
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * Auto-Registering Devices with MicroShift into ACM
   * Adding Device Observability
@@ -47,7 +49,7 @@ Welcome to the Flight Control user documentation.
 * Installing and Using the Flight Control CLI
 * Installing and Using the Flight Control UI
 * Configuring the Flight Control Agent
-* Troubleshooting
+* [Troubleshooting](troubleshooting.md)
 
 **References** - Useful references.
 
