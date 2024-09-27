@@ -68,6 +68,11 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 		gid = fopts.gid
 	}
 
+	// TODO: implement createOrigFile
+	// if err := createOrigFile(file.Path, file.Path); err != nil {
+	// 	return err
+	// }
+
 	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
 }
 
