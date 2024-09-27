@@ -2,13 +2,13 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 )
 
@@ -95,7 +95,7 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 	}
 
 	var bootcHost BootcHost
-	if err := yaml.Unmarshal([]byte(stdout), &bootcHost); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &bootcHost); err != nil {
 		return nil, fmt.Errorf("unmarshalling config file: %w", err)
 	}
 
