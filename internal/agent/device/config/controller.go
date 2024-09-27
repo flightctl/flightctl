@@ -44,7 +44,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 		c.log.Debug("syncing config data")
 		return c.ensureConfigData(ctx, util.FromPtr(current.Config), util.FromPtr(desired.Config))
 	} else {
-		// garbage collect all ignition files defined in the current spec
+		// the desired config is nil, so we should remove any files that are present in the current config
 		ignitionConfig, err := ParseAndConvertConfigFromStr(util.FromPtr(current.Config))
 		if err != nil {
 			return err

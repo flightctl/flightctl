@@ -174,6 +174,7 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("parsing current ignition: %w", err)
 	}
+	b.log.Info("Executing after-reboot hooks")
 	for _, f := range currentIgnition.Storage.Files {
 		b.hookManager.OnAfterReboot(ctx, f.Path)
 	}
