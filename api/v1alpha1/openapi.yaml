@@ -3002,10 +3002,14 @@ components:
       type: object
       required:
         - image
+        - imageDigest
       properties:
         image:
           type: string
           description: "Version of the OS image."
+        imageDigest:
+          type: string
+          description: "The digest of the OS image (e.g. sha256:a0...)"
     DeviceConfigStatus:
       type: object
       required:

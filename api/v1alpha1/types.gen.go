@@ -387,6 +387,9 @@ type DeviceOSSpec struct {
 type DeviceOSStatus struct {
 	// Image Version of the OS image.
 	Image string `json:"image"`
+
+	// ImageDigest The digest of the OS image (e.g. sha256:a0...)
+	ImageDigest string `json:"imageDigest"`
 }
 
 // DeviceRebootHookSpec defines model for DeviceRebootHookSpec.

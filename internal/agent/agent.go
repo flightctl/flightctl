@@ -167,6 +167,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		backoff,
 		a.log,
 		a.config.DefaultLabels,
+		bootcClient,
 	)
 
 	// bootstrap
@@ -216,6 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceController,
 		consoleController,
 		a.log,
+		bootcClient,
 	)
 
 	go hookManager.Run(ctx)
