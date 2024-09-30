@@ -335,7 +335,7 @@ func (o *GetOptions) printTable(response interface{}, kind string, name string) 
 
 // Helper function to print a new line
 func (o *GetOptions) printNewLine(w *tabwriter.Writer) {
-	fmt.Fprintf(w, "\n")
+	fmt.Fprintln(w)
 }
 
 func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.DevicesSummary) {

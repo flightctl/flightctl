@@ -102,7 +102,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	var options listOptions
 
 	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitInvalid
+		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
 	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })

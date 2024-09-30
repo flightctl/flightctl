@@ -68,7 +68,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	var numRemaining *int64
 
 	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitInvalid
+		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
 	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
