@@ -78,7 +78,7 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	var numRemaining *int64
 
 	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitInvalid
+		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
 	query := BuildBaseListQuery(s.db.Model(&templateVersions), orgId, listParams)

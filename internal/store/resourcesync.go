@@ -67,7 +67,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	var numRemaining *int64
 
 	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitInvalid
+		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
 	query := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
