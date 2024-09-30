@@ -608,6 +608,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: summaryOnly
+          in: query
+          description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -3546,19 +3552,31 @@ components:
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
       - total
+      - applicationStatus
+      - summaryStatus
+      - updateStatus
       properties:
         total:
           type: integer
+          format: int64
           description: The total number of devices in the fleet.
+        applicationStatus:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+          description: A breakdown of the devices in the fleet by "application" status.
         summaryStatus:
           type: object
           additionalProperties:
             type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "summary" status.
         updateStatus:
           type: object
           additionalProperties:
             type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object
