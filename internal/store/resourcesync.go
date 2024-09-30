@@ -66,6 +66,10 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	var nextContinue *string
 	var numRemaining *int64
 
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
 	query := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"

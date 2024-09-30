@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,6 +16,25 @@ import (
 const retryIterations = 10
 
 type CreateOrUpdateMode string
+
+type StatusCount struct {
+	Category      string
+	StatusSummary string
+	Count         int64
+}
+
+type StatusCountList []StatusCount
+
+func (s StatusCountList) List(status string) map[string]int64 {
+	res := make(map[string]int64)
+
+	for _, sType := range s {
+		if strings.EqualFold(sType.Category, status) {
+			res[sType.StatusSummary] += sType.Count
+		}
+	}
+	return res
+}
 
 const (
 	ModeCreateOnly     CreateOrUpdateMode = "create-only"
@@ -58,6 +78,39 @@ func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
 	var count int64
 	query.Where("name >= ?", lastItemName).Count(&count)
 	return count
+}
+
+func CountStatusList(ctx context.Context, query *gorm.DB, status ...string) (StatusCountList, error) {
+	var statusCounts StatusCountList
+	var statusQueries []string
+	var params []interface{}
+
+	baseQuery := query.Select("status")
+	params = append(params, baseQuery)
+
+	statusQuery := `
+	SELECT
+		(?) AS category,
+		%s AS status_summary,
+		COUNT(*) AS count
+	FROM data
+	GROUP BY status_summary`
+
+	for _, field := range status {
+		statusQueries = append(statusQueries, fmt.Sprintf(statusQuery, createParamsFromKey(field)))
+		params = append(params, field)
+	}
+
+	// Combine the device query (with Common Table Expression) and the status queries
+	queryAggregate := fmt.Sprintf(`
+		WITH data AS (?)
+		%s`, strings.Join(statusQueries, " UNION ALL "))
+
+	if err := query.WithContext(ctx).Raw(queryAggregate, params...).Scan(&statusCounts).Error; err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+
+	return statusCounts, nil
 }
 
 func GetNonNilFieldsFromResource(resource model.Resource) []string {
