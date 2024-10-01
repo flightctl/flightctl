@@ -141,7 +141,11 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	fleets := model.FleetList(lo.Map(fleetsWithCount, func(f fleetWithCount, _ int) model.Fleet {
 		if options.withDeviceCount {
 			if f.Fleet.Status.Data.DevicesSummary == nil {
-				f.Fleet.Status.Data.DevicesSummary = &api.DevicesSummary{}
+				f.Fleet.Status.Data.DevicesSummary = &api.DevicesSummary{
+					ApplicationStatus: make(map[string]int64),
+					SummaryStatus:     make(map[string]int64),
+					UpdateStatus:      make(map[string]int64),
+				}
 			}
 			f.Fleet.Status.Data.DevicesSummary.Total = f.DeviceCount
 		}
@@ -201,7 +205,10 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 	}
 
 	summary := api.DevicesSummary{
-		Total: fleet.DeviceCount,
+		Total:             fleet.DeviceCount,
+		ApplicationStatus: make(map[string]int64),
+		SummaryStatus:     make(map[string]int64),
+		UpdateStatus:      make(map[string]int64),
 	}
 	if options.withSummary {
 		statusCount, err := CountStatusList(ctx, BuildBaseListQuery(s.db.Model(&model.Device{}),
