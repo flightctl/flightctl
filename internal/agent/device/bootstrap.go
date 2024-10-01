@@ -167,8 +167,7 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 
 	currentSpec, err := b.specManager.Read(spec.Current)
 	if err != nil {
-		b.log.WithError(err).Warn("Failed to read current spec. It is expected in case this is the first run")
-		return nil
+		return err
 	}
 	b.configController.Initialize(ctx, currentSpec)
 	return nil
