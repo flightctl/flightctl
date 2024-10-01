@@ -10,9 +10,9 @@ import (
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
@@ -123,8 +123,8 @@ func (o *ConsoleOptions) connectViaGRPC(ctx context.Context, grpcEndpoint, sessi
 		return fmt.Errorf("creating grpc client: %w", err)
 	}
 	// add key-value pairs of metadata to context
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.SessionIDKey, sessionID)
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.ClientNameKey, "flightctl-cli")
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, sessionID)
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcClientNameKey, "flightctl-cli")
 	ctx = metadata.AppendToOutgoingContext(ctx, common.AuthHeader, fmt.Sprintf("Bearer %s", token))
 
 	stream, err := client.Stream(ctx)
