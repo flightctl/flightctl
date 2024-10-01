@@ -98,13 +98,13 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 	}
 
 	apiEnrollmentRequestList := enrollmentRequests.ToApiResource(nextContinue, numRemaining)
-	return &apiEnrollmentRequestList, flterrors.ErrorFromGormError(result.Error)
+	return &apiEnrollmentRequestList, ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.EnrollmentRequest{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error) {
@@ -113,7 +113,7 @@ func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name 
 	}
 	result := s.db.First(&enrollmentRequest)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiEnrollmentRequest := enrollmentRequest.ToApiResource()
 	return &apiEnrollmentRequest, nil
@@ -123,7 +123,7 @@ func (s *EnrollmentRequestStore) createEnrollmentRequest(enrollmentRequest *mode
 	enrollmentRequest.Generation = lo.ToPtr[int64](1)
 	enrollmentRequest.ResourceVersion = lo.ToPtr[int64](1)
 	if result := s.db.Create(enrollmentRequest); result.Error != nil {
-		err := flterrors.ErrorFromGormError(result.Error)
+		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
 	}
 	return false, nil
@@ -145,7 +145,7 @@ func (s *EnrollmentRequestStore) updateEnrollmentRequest(existingRecord, enrollm
 
 	result := query.Updates(&enrollmentRequest)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -207,7 +207,7 @@ func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UU
 		"status":           model.MakeJSONField(resource.Status),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	return resource, ErrorFromGormError(result.Error)
 }
 
 func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
@@ -218,5 +218,5 @@ func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, na
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil
 	}
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
