@@ -168,7 +168,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	}
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
-	return &apiDevicelist, flterrors.ErrorFromGormError(result.Error)
+	return &apiDevicelist, ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
@@ -176,7 +176,7 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 
 	var devicesCount int64
 	if err := query.Count(&devicesCount).Error; err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 
 	statusCount, err := CountStatusList(ctx, query,
@@ -184,7 +184,7 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 		"status.summary.status",
 		"status.updated.status")
 	if err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 
 	applicationStatus := statusCount.List("status.applications.summary.status")
@@ -203,7 +203,7 @@ func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback D
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 
 	if result.Error != nil {
-		return flterrors.ErrorFromGormError(result.Error)
+		return ErrorFromGormError(result.Error)
 	}
 	callback(orgId)
 
@@ -216,7 +216,7 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	}
 	result := s.db.First(&device)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiDevice := device.ToApiResource()
 	return &apiDevice, nil
@@ -226,7 +226,7 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 	device.Generation = lo.ToPtr[int64](1)
 	device.ResourceVersion = lo.ToPtr[int64](1)
 	if result := s.db.Create(device); result.Error != nil {
-		err := flterrors.ErrorFromGormError(result.Error)
+		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
 	}
 	return false, nil
@@ -256,7 +256,7 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 	query = query.Select(selectFields)
 	result := query.Updates(&device)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -361,7 +361,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 		"status":           model.MakeJSONField(resource.Status),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	return resource, ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
@@ -371,13 +371,13 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 		existingRecord = model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
+			return ErrorFromGormError(result.Error)
 		}
 
 		associatedRecord := model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
 
 		if err := innerTx.Unscoped().Delete(&existingRecord).Error; err != nil {
-			return flterrors.ErrorFromGormError(err)
+			return ErrorFromGormError(err)
 		}
 
 		if err := innerTx.Unscoped().Delete(&associatedRecord).Error; err != nil {
@@ -402,7 +402,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 
@@ -431,7 +431,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 
-	err := flterrors.ErrorFromGormError(result.Error)
+	err := ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
@@ -451,7 +451,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 
@@ -469,7 +469,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 
-	err = flterrors.ErrorFromGormError(result.Error)
+	err = ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
@@ -506,7 +506,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	}
 	result := s.db.First(&device)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 
 	annotations := util.LabelArrayToMap(device.Annotations)
@@ -548,7 +548,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 
 	if existingRecord.ServiceConditions == nil {
@@ -566,7 +566,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 		"service_conditions": existingRecord.ServiceConditions,
 		"resource_version":   gorm.Expr("resource_version + 1"),
 	})
-	err = flterrors.ErrorFromGormError(result.Error)
+	err = ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
@@ -590,7 +590,7 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 	return s.db.Transaction(func(innerTx *gorm.DB) error {
 		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		if err := innerTx.Model(&device).Association("Repositories").Replace(repos); err != nil {
-			return flterrors.ErrorFromGormError(err)
+			return ErrorFromGormError(err)
 		}
 		return nil
 	})
@@ -601,7 +601,7 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 	var repos model.RepositoryList
 	err := s.db.Model(&device).Association("Repositories").Find(&repos)
 	if err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 	repositories, err := repos.ToApiResource(nil, nil)
 	if err != nil {

@@ -2,8 +2,6 @@ package flterrors
 
 import (
 	"errors"
-
-	"gorm.io/gorm"
 )
 
 var (
@@ -32,16 +30,3 @@ var (
 	ErrSignCert        = errors.New("error signing certificate")
 	ErrEncodeCert      = errors.New("error encoding certificate")
 )
-
-func ErrorFromGormError(err error) error {
-	switch err {
-	case nil:
-		return nil
-	case gorm.ErrRecordNotFound:
-		return ErrResourceNotFound
-	case gorm.ErrDuplicatedKey:
-		return ErrDuplicateName
-	default:
-		return err
-	}
-}

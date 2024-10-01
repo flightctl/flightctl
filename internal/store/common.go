@@ -17,6 +17,19 @@ const retryIterations = 10
 
 type CreateOrUpdateMode string
 
+func ErrorFromGormError(err error) error {
+	switch err {
+	case nil:
+		return nil
+	case gorm.ErrRecordNotFound:
+		return flterrors.ErrResourceNotFound
+	case gorm.ErrDuplicatedKey:
+		return flterrors.ErrDuplicateName
+	default:
+		return err
+	}
+}
+
 type StatusCount struct {
 	Category      string
 	StatusSummary string
@@ -107,7 +120,7 @@ func CountStatusList(ctx context.Context, query *gorm.DB, status ...string) (Sta
 		%s`, strings.Join(statusQueries, " UNION ALL "))
 
 	if err := query.WithContext(ctx).Raw(queryAggregate, params...).Scan(&statusCounts).Error; err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 
 	return statusCounts, nil
@@ -255,7 +268,7 @@ func getExistingRecord[R any](db *gorm.DB, name string, orgId uuid.UUID) (*R, er
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 	return &existingRecord, nil
 }
