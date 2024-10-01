@@ -2,7 +2,6 @@ package fileio
 
 import (
 	"io/fs"
-	"os"
 
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
 )
@@ -16,11 +15,11 @@ type ManagedFile interface {
 
 type Writer interface {
 	SetRootdir(path string)
-	WriteFileBytes(name string, data []byte, perm os.FileMode) error
-	WriteFile(name string, data []byte, perm fs.FileMode) error
+	PathFor(filePath string) string
+	WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error
 	RemoveFile(file string) error
 	CopyFile(src, dst string) error
-	CreateManagedFile(file ign3types.File) ManagedFile
+	CreateManagedFile(file ign3types.File) (ManagedFile, error)
 }
 
 type Reader interface {
@@ -56,6 +55,10 @@ func (rw *readWriter) SetRootdir(path string) {
 	rw.writer.SetRootdir(path)
 }
 
+func (rw *readWriter) PathFor(path string) string {
+	return rw.writer.PathFor(path)
+}
+
 type Option func(*readWriter)
 
 // WithTestRootDir sets the root directory for the reader and writer, useful for testing.
@@ -64,5 +67,26 @@ func WithTestRootDir(testRootDir string) Option {
 		if testRootDir != "" {
 			rw.SetRootdir(testRootDir)
 		}
+	}
+}
+
+type fileOptions struct {
+	uid int
+	gid int
+}
+
+type FileOption func(*fileOptions)
+
+// WithUid sets the uid for the file.
+func WithUid(uid int) FileOption {
+	return func(o *fileOptions) {
+		o.uid = uid
+	}
+}
+
+// WithGid sets the gid for the file.
+func WithGid(gid int) FileOption {
+	return func(o *fileOptions) {
+		o.gid = gid
 	}
 }

@@ -11,7 +11,6 @@ package fileio
 
 import (
 	fs "io/fs"
-	os "os"
 	reflect "reflect"
 
 	types "github.com/coreos/ignition/v2/config/v3_4/types"
@@ -137,17 +136,32 @@ func (mr *MockWriterMockRecorder) CopyFile(src, dst any) *gomock.Call {
 }
 
 // CreateManagedFile mocks base method.
-func (m *MockWriter) CreateManagedFile(file types.File) ManagedFile {
+func (m *MockWriter) CreateManagedFile(file types.File) (ManagedFile, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateManagedFile", file)
 	ret0, _ := ret[0].(ManagedFile)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CreateManagedFile indicates an expected call of CreateManagedFile.
 func (mr *MockWriterMockRecorder) CreateManagedFile(file any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateManagedFile", reflect.TypeOf((*MockWriter)(nil).CreateManagedFile), file)
+}
+
+// PathFor mocks base method.
+func (m *MockWriter) PathFor(filePath string) string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PathFor", filePath)
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// PathFor indicates an expected call of PathFor.
+func (mr *MockWriterMockRecorder) PathFor(filePath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathFor", reflect.TypeOf((*MockWriter)(nil).PathFor), filePath)
 }
 
 // RemoveFile mocks base method.
@@ -177,31 +191,22 @@ func (mr *MockWriterMockRecorder) SetRootdir(path any) *gomock.Call {
 }
 
 // WriteFile mocks base method.
-func (m *MockWriter) WriteFile(name string, data []byte, perm fs.FileMode) error {
+func (m *MockWriter) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteFile", name, data, perm)
+	varargs := []any{name, data, perm}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "WriteFile", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // WriteFile indicates an expected call of WriteFile.
-func (mr *MockWriterMockRecorder) WriteFile(name, data, perm any) *gomock.Call {
+func (mr *MockWriterMockRecorder) WriteFile(name, data, perm any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockWriter)(nil).WriteFile), name, data, perm)
-}
-
-// WriteFileBytes mocks base method.
-func (m *MockWriter) WriteFileBytes(name string, data []byte, perm os.FileMode) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteFileBytes", name, data, perm)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// WriteFileBytes indicates an expected call of WriteFileBytes.
-func (mr *MockWriterMockRecorder) WriteFileBytes(name, data, perm any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileBytes", reflect.TypeOf((*MockWriter)(nil).WriteFileBytes), name, data, perm)
+	varargs := append([]any{name, data, perm}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockWriter)(nil).WriteFile), varargs...)
 }
 
 // MockReader is a mock of Reader interface.
@@ -321,11 +326,12 @@ func (mr *MockReadWriterMockRecorder) CopyFile(src, dst any) *gomock.Call {
 }
 
 // CreateManagedFile mocks base method.
-func (m *MockReadWriter) CreateManagedFile(file types.File) ManagedFile {
+func (m *MockReadWriter) CreateManagedFile(file types.File) (ManagedFile, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateManagedFile", file)
 	ret0, _ := ret[0].(ManagedFile)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CreateManagedFile indicates an expected call of CreateManagedFile.
@@ -405,29 +411,20 @@ func (mr *MockReadWriterMockRecorder) SetRootdir(path any) *gomock.Call {
 }
 
 // WriteFile mocks base method.
-func (m *MockReadWriter) WriteFile(name string, data []byte, perm fs.FileMode) error {
+func (m *MockReadWriter) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteFile", name, data, perm)
+	varargs := []any{name, data, perm}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "WriteFile", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // WriteFile indicates an expected call of WriteFile.
-func (mr *MockReadWriterMockRecorder) WriteFile(name, data, perm any) *gomock.Call {
+func (mr *MockReadWriterMockRecorder) WriteFile(name, data, perm any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockReadWriter)(nil).WriteFile), name, data, perm)
-}
-
-// WriteFileBytes mocks base method.
-func (m *MockReadWriter) WriteFileBytes(name string, data []byte, perm os.FileMode) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteFileBytes", name, data, perm)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// WriteFileBytes indicates an expected call of WriteFileBytes.
-func (mr *MockReadWriterMockRecorder) WriteFileBytes(name, data, perm any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileBytes", reflect.TypeOf((*MockReadWriter)(nil).WriteFileBytes), name, data, perm)
+	varargs := append([]any{name, data, perm}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockReadWriter)(nil).WriteFile), varargs...)
 }
