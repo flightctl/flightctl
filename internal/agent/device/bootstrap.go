@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -27,6 +28,7 @@ import (
 var (
 	ErrEnrollmentRequestFailed = fmt.Errorf("enrollment request failed")
 	ErrEnrollmentRequestDenied = fmt.Errorf("enrollment request denied")
+	ErrGettingBootcStatus      = fmt.Errorf("getting current bootc status")
 )
 
 // agent banner file
@@ -42,6 +44,7 @@ type Bootstrap struct {
 	statusManager        status.Manager
 	hookManager          hook.Manager
 	backoff              wait.Backoff
+	bootcClient          container.BootcClient
 
 	managementServiceConfig *client.Config
 	managementClient        client.Management
@@ -66,6 +69,7 @@ func NewBootstrap(
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 	defaultLabels map[string]string,
+	bootcClient container.BootcClient,
 ) *Bootstrap {
 	return &Bootstrap{
 		deviceName:              deviceName,
@@ -81,6 +85,7 @@ func NewBootstrap(
 		backoff:                 backoff,
 		log:                     log,
 		defaultLabels:           defaultLabels,
+		bootcClient:             bootcClient,
 	}
 }
 
@@ -214,9 +219,15 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 		return fmt.Errorf("writing current rendered spec: %w", err)
 	}
 
+	bootcStatus, err := b.bootcClient.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
+	}
+
 	updateFns := []status.UpdateStatusFn{
 		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: desired.Os.Image,
+			Image:       desired.Os.Image,
+			ImageDigest: bootcStatus.GetBootedImageDigest(),
 		}),
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
 			RenderedVersion: desired.RenderedVersion,

@@ -8,7 +8,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api_server/agentserver"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/sync/errgroup"
@@ -78,8 +78,8 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 	}
 	c.log.Infof("starting console for session %s", desired.Console.SessionID)
 	// add key-value pairs of metadata to context, for now we are ignoring the Console.GRPCEndpoint
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.SessionIDKey, desired.Console.SessionID)
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.ClientNameKey, c.deviceName)
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, desired.Console.SessionID)
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcClientNameKey, c.deviceName)
 
 	stdin, stdout, err := c.bashProcess(ctx)
 	if err != nil {

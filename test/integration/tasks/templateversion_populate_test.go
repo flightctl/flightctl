@@ -2,7 +2,6 @@ package tasks_test
 
 import (
 	"context"
-	"encoding/json"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -78,13 +77,13 @@ var _ = Describe("TVPopulate", func() {
 				ConfigType: string(api.TemplateDiscriminatorInlineConfig),
 				Name:       "inlineConfig",
 			}
-			var inline map[string]interface{}
-			err := json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.0\"}}"), &inline)
-			Expect(err).ToNot(HaveOccurred())
-			inlineConfig.Inline = inline
-
+			base64 := api.Base64
+			inlineConfig.Inline = []api.FileSpec{
+				{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
+				{Path: "/etc/notencoded", Content: "Hello world, what's up?"},
+			}
 			inlineItem := api.DeviceSpec_Config_Item{}
-			err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
+			err := inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
 			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{inlineItem}
@@ -106,7 +105,8 @@ var _ = Describe("TVPopulate", func() {
 			newInline, err := configItem.AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(newInline.Inline).To(Equal(inline))
+			Expect(newInline.Inline[0].Content).To(Equal("SGVsbG8gd29ybGQsIHdoYXQncyB1cD8="))
+			Expect(newInline.Inline[1].Content).To(Equal("Hello world, what's up?"))
 		})
 	})
 
@@ -116,13 +116,15 @@ var _ = Describe("TVPopulate", func() {
 				ConfigType: string(api.TemplateDiscriminatorInlineConfig),
 				Name:       "inlineConfig",
 			}
-			var inline map[string]interface{}
-			err := json.Unmarshal([]byte("{\"ignition\":{\"version\":\"3.4.0\"},\"storage\":{\"files\":[{\"overwrite\":true,\"path\":\"/etc/motd\",\"contents\":{\"source\":\"data:,{{ device.metadata.labels[key] }}\"},\"mode\":422}]}}"), &inline)
-			Expect(err).ToNot(HaveOccurred())
-			inlineConfig.Inline = inline
+			base64 := api.Base64
+			inlineConfig.Inline = []api.FileSpec{
+				// Unencoded: I have a parameter {{ device.metadata.labels[key] }}
+				{Path: "/etc/base64encoded", Content: "SSBoYXZlIGEgcGFyYW1ldGVyIHt7IGRldmljZS5tZXRhZGF0YS5sYWJlbHNba2V5XSB9fQ==", ContentEncoding: &base64},
+				{Path: "/etc/urlencoded", Content: "I have a parameter {{ device.metadata.labels[key] }}"},
+			}
 
 			inlineItem := api.DeviceSpec_Config_Item{}
-			err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
+			err := inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
 			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{inlineItem}
@@ -144,7 +146,8 @@ var _ = Describe("TVPopulate", func() {
 			newInline, err := configItem.AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(newInline.Inline).To(Equal(inline))
+			Expect(newInline.Inline[0].Content).To(Equal("SSBoYXZlIGEgcGFyYW1ldGVyIHt7IGRldmljZS5tZXRhZGF0YS5sYWJlbHNba2V5XSB9fQ=="))
+			Expect(newInline.Inline[1].Content).To(Equal("I have a parameter {{ device.metadata.labels[key] }}"))
 		})
 	})
 
