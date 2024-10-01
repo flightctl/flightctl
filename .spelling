@@ -140,7 +140,7 @@ beforeRebooting
 beforeUpdating
 ClusterRole
 ClusterRoleBinding
-ContentsEncoding
+ContentEncoding
 EnvVars
 FilePath
 MonitorType

@@ -2558,10 +2558,10 @@ components:
           description: The absolute path to the file on the device. Note that any existing file will be overwritten.
         content:
           type: string
-          description: The URL-encoded or base64-encoded contents of the file.
+          description: The plain text (UTF-8) or base64-encoded content of the file.
         contentEncoding:
           type: string
-          description: How the contents are encoded. The content is assumed to be plain text if encoding is not specified.
+          description: How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
           enum:
           - plain
           - base64
