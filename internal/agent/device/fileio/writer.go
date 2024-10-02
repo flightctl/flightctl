@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -42,20 +43,36 @@ func (w *writer) SetRootdir(path string) {
 	w.rootDir = path
 }
 
-func (w *writer) WriteFileBytes(name string, data []byte, perm os.FileMode) error {
-	uid, gid, err := getUserIdentity()
-	if err != nil {
-		return err
-	}
-	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
+func (w *writer) PathFor(filePath string) string {
+	return path.Join(w.rootDir, filePath)
 }
 
-// WriteFile writes the provided data to the file at the path with the provided permissions
-func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	uid, gid, err := getUserIdentity()
-	if err != nil {
-		return err
+// WriteFile writes the provided data to the file at the path with the provided permissions and ownership information
+func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
+	fopts := &fileOptions{}
+	for _, opt := range opts {
+		opt(fopts)
 	}
+
+	var uid, gid int
+	// if rootDir is set use the default UID and GID
+	if w.rootDir != "" {
+		defaultUID, defaultGID, err := getUserIdentity()
+		if err != nil {
+			return err
+		}
+		uid = defaultUID
+		gid = defaultGID
+	} else {
+		uid = fopts.uid
+		gid = fopts.gid
+	}
+
+	// TODO: implement createOrigFile
+	// if err := createOrigFile(file.Path, file.Path); err != nil {
+	// 	return err
+	// }
+
 	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
 }
 
@@ -111,8 +128,8 @@ func (w *writer) copyFile(src, dst string) error {
 	return nil
 }
 
-func (w *writer) CreateManagedFile(file ign3types.File) ManagedFile {
-	return newManagedFile(file, w.rootDir)
+func (w *writer) CreateManagedFile(file ign3types.File) (ManagedFile, error) {
+	return newManagedFile(file, w)
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
@@ -149,13 +166,7 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 }
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
-// In testMode the permissions will be defined user
-func getFileOwnership(file ign3types.File, testMode bool) (int, int, error) {
-	if testMode {
-		// use local user
-		return getUserIdentity()
-	}
-
+func getFileOwnership(file ign3types.File) (int, int, error) {
 	uid, gid := 0, 0 // default to root
 	var err error    // create default error var
 	if file.User.ID != nil {
