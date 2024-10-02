@@ -22,17 +22,88 @@ const (
 )
 
 type MetricsServer struct {
-	log logrus.FieldLogger
-	cfg *config.Config
+	log      logrus.FieldLogger
+	cfg      *config.Config
+	registry *prometheus.Registry
+	metrics  *ApiMetrics
+}
+
+type ApiMetrics struct {
+	SloMax float64
+
+	SuccessLatency prometheus.Histogram
+	ErrorLatency   prometheus.Histogram
+
+	ApiTraffic   prometheus.Counter
+	AgentTraffic prometheus.Counter
+
+	SloViolations prometheus.Counter
+	ClientErrors  prometheus.Counter
+	ServerErrors  prometheus.Counter
+
+	CpuUtilization    prometheus.Gauge
+	MemoryUtilization prometheus.Gauge
+	DiskUtilization   prometheus.Gauge
+}
+
+func NewApiMetrics(cfg *config.Config) *ApiMetrics {
+	return &ApiMetrics{
+		SloMax: cfg.Prometheus.SloMax,
+		ApiTraffic: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "flightctl_api_requests_api_total",
+			Help: "Number of requests to Flightctl API server",
+		}),
+		AgentTraffic: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "flightctl_api_requests_agent_total",
+			Help: "Number of requests to Flightctl Agent server",
+		}),
+		SuccessLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "flightctl_api_latencies_success_seconds",
+			Help:    "Distribution of latencies of Flightctl server responses that encountered no errors",
+			Buckets: cfg.Prometheus.ApiLatencyBins,
+		}),
+		ErrorLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "flightctl_api_latencies_error_seconds",
+			Help:    "Distribution of latencies of Flightctl server responses that encountered errors",
+			Buckets: cfg.Prometheus.ApiLatencyBins,
+		}),
+		SloViolations: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "flightctl_api_errors_slo_total",
+			Help: "Number of Flightctl server responses that exceeded SLO",
+		}),
+		ClientErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "flightctl_api_errors_client_total",
+			Help: "Number of Flightctl server responses that encountered client (400) errors",
+		}),
+		ServerErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "flightctl_api_errors_server_total",
+			Help: "Number of Flightctl server responses that encountered server (500) errors",
+		}),
+		CpuUtilization: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "flightctl_api_cpu_utilization",
+			Help: "Flightctl server CPU utilization",
+		}),
+		MemoryUtilization: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "flightctl_api_memory_utilization",
+			Help: "Flightctl server memory utilization",
+		}),
+		DiskUtilization: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "flightctl_api_disk_utilization",
+			Help: "Flightctl server storage utilization",
+		}),
+	}
 }
 
 func NewMetricsServer(
 	log logrus.FieldLogger,
 	cfg *config.Config,
+	metrics *ApiMetrics,
 ) *MetricsServer {
 	return &MetricsServer{
-		log: log,
-		cfg: cfg,
+		log:      log,
+		cfg:      cfg,
+		metrics:  metrics,
+		registry: prometheus.NewRegistry(),
 	}
 }
 
@@ -56,96 +127,19 @@ func (lw *loggingResponseWriter) WriteHeader(statusCode int) {
 	lw.ResponseWriter.WriteHeader(statusCode)
 }
 
-var (
-	promRegistry *prometheus.Registry
-
-	success_latency prometheus.Histogram
-	error_latency   prometheus.Histogram
-
-	api_traffic   prometheus.Counter
-	agent_traffic prometheus.Counter
-
-	slo_violations prometheus.Counter
-	client_errors  prometheus.Counter
-	server_errors  prometheus.Counter
-
-	cpu_utilization    prometheus.Gauge
-	memory_utilization prometheus.Gauge
-	disk_utilization   prometheus.Gauge
-
-	slo_max float64 // responses with > this latency (in seconds) are SLO violations
-)
-
 func (m *MetricsServer) Run(ctx context.Context) error {
-	promRegistry = prometheus.NewRegistry()
-
-	// Total traffic. Distinguish between Agent Server and User API Server
-	api_traffic = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "requests_api_total",
-	})
-	promRegistry.MustRegister(api_traffic)
-
-	agent_traffic = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "requests_agent_total",
-	})
-	promRegistry.MustRegister(agent_traffic)
-
-	// Latencies. Distinguish between sucess and failure
-	success_latency = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "latencies_success_seconds",
-		Buckets: []float64{1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e-0},
-	})
-	promRegistry.MustRegister(success_latency)
-
-	error_latency = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "latencies_error_seconds",
-		Buckets: []float64{1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e-0},
-	})
-	promRegistry.MustRegister(error_latency)
-
-	// Errors. Count SLO violations, client (400), and server (500)
-	slo_violations = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "errors_slo_total",
-	})
-	promRegistry.MustRegister(slo_violations)
-
-	client_errors = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "errors_client_total",
-	})
-	promRegistry.MustRegister(client_errors)
-
-	server_errors = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "errors_server_total",
-	})
-	promRegistry.MustRegister(server_errors)
-
-	// Resource utilization. Audit % utilization of system CPU, memory, and disk
-	cpu_utilization = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "utilization_cpu",
-	})
-	promRegistry.MustRegister(cpu_utilization)
-	go m.auditCpuWorker()
-
-	memory_utilization = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "utilization_memory",
-	})
-	promRegistry.MustRegister(memory_utilization)
-	go m.auditMemoryWorker()
-
-	disk_utilization = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "utilization_disk",
-	})
-	promRegistry.MustRegister(disk_utilization)
-	go m.auditDiskWorker()
-
-	slo_max = m.cfg.Prometheus.SLOMax
+	m.metrics.RegisterWith(m.registry)
 
 	srv := &http.Server{
 		Addr:         m.cfg.Prometheus.Address,
-		Handler:      promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{Registry: promRegistry}),
+		Handler:      promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{Registry: m.registry}),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
+
+	go m.auditCpuWorker(ctx)
+	go m.auditMemoryWorker(ctx)
+	go m.auditDiskWorker(ctx)
 
 	go func() {
 		<-ctx.Done()
@@ -164,73 +158,109 @@ func (m *MetricsServer) Run(ctx context.Context) error {
 	return nil
 }
 
-func (m *MetricsServer) auditCpuWorker() {
+func (m *MetricsServer) auditCpuWorker(ctx context.Context) {
 	var lastIdle uint64 = 0
 	var lastTotal uint64 = 0
-	for {
-		time.Sleep(time.Second * 5) // Prometheus scrapes every 5s rn
-		stats, err := cpu.Get()
-		if err != nil {
-			m.log.Errorf("Could not audit cpu usage: %v", err)
-		}
 
-		// stats from /proc/stat increase monotonically, so we must
-		// compute the delta from our last audit
-		cpu_utilization.Set(
-			float64(stats.Idle-lastIdle) / float64(stats.Total-lastTotal),
-		)
-		lastIdle = stats.Idle
-		lastTotal = stats.Total
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			m.log.Debug("Stopping CPU audit")
+			return
+		case <-ticker.C:
+			stats, err := cpu.Get()
+			if err != nil {
+				m.log.Errorf("Could not audit cpu usage: %v", err)
+			}
+
+			// stats from /proc/stat increase monotonically, so we must
+			// compute the delta from our last audit
+			m.metrics.CpuUtilization.Set(
+				float64(stats.Idle-lastIdle) / float64(stats.Total-lastTotal),
+			)
+			lastIdle = stats.Idle
+			lastTotal = stats.Total
+		}
 	}
 }
 
-func (m *MetricsServer) auditMemoryWorker() {
+func (m *MetricsServer) auditMemoryWorker(ctx context.Context) {
+	ticker := time.NewTicker(time.Second * 5)
+
 	for {
-		time.Sleep(time.Second * 5)
+		select {
+		case <-ctx.Done():
+			m.log.Debug("Stopping memory audit")
+			return
+		case <-ticker.C:
+			stats, err := memory.Get()
+			if err != nil {
+				m.log.Errorf("could not audit memory usage: %v", err)
+			}
 
-		stats, err := memory.Get()
-		if err != nil {
-			m.log.Errorf("could not audit memory usage: %v", err)
+			m.metrics.MemoryUtilization.Set(
+				float64(stats.Used) / float64(stats.Total),
+			)
 		}
-
-		memory_utilization.Set(
-			float64(stats.Used) / float64(stats.Total),
-		)
 	}
 }
 
-func (m *MetricsServer) auditDiskWorker() {
+func (m *MetricsServer) auditDiskWorker(ctx context.Context) {
+	ticker := time.NewTicker(time.Second * 5)
 	var stat unix.Statfs_t
+
 	for {
-		time.Sleep(time.Second * 5)
+		select {
+		case <-ctx.Done():
+			m.log.Debug("Stopping disk audit")
+			return
+		case <-ticker.C:
+			time.Sleep(time.Second * 5)
 
-		err := unix.Statfs("/", &stat)
-		if err != nil {
-			fmt.Println("could not audit disk usage: ", err)
+			err := unix.Statfs("/", &stat)
+			if err != nil {
+				fmt.Println("could not audit disk usage: ", err)
+			}
+
+			m.metrics.DiskUtilization.Set(
+				float64(stat.Bfree) / float64(stat.Blocks),
+			)
 		}
-
-		disk_utilization.Set(
-			float64(stat.Bfree) / float64(stat.Blocks),
-		)
 	}
 }
 
-func ServerMiddleware(next http.Handler) http.Handler {
-	return instrumentationMiddleware(next, false)
+func (m *ApiMetrics) RegisterWith(reg *prometheus.Registry) {
+	reg.MustRegister(m.SuccessLatency)
+	reg.MustRegister(m.ErrorLatency)
+	reg.MustRegister(m.ApiTraffic)
+	reg.MustRegister(m.AgentTraffic)
+	reg.MustRegister(m.SloViolations)
+	reg.MustRegister(m.ServerErrors)
+	reg.MustRegister(m.CpuUtilization)
+	reg.MustRegister(m.MemoryUtilization)
+	reg.MustRegister(m.DiskUtilization)
+
 }
 
-func AgentServerMiddleware(next http.Handler) http.Handler {
-	return instrumentationMiddleware(next, true)
+func (m *ApiMetrics) AgentServerMiddleware(next http.Handler) http.Handler {
+	return m.ServerMiddleware(next, false)
 }
 
-func instrumentationMiddleware(next http.Handler, agentServer bool) http.Handler {
+func (m *ApiMetrics) ApiServerMiddleware(next http.Handler) http.Handler {
+	return m.ServerMiddleware(next, true)
+}
+
+func (m *ApiMetrics) ServerMiddleware(next http.Handler, agentServer bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
 		if agentServer {
-			agent_traffic.Inc()
+			m.AgentTraffic.Inc()
 		} else {
-			api_traffic.Inc()
+			m.ApiTraffic.Inc()
 		}
 
 		lw := NewLoggingResponseWriter(w)
@@ -238,24 +268,24 @@ func instrumentationMiddleware(next http.Handler, agentServer bool) http.Handler
 		statusClass := lw.statusCode - lw.statusCode%100
 
 		if statusClass == 400 {
-			client_errors.Inc()
+			m.ClientErrors.Inc()
 		}
 
 		if statusClass == 500 {
-			server_errors.Inc()
+			m.ServerErrors.Inc()
 		}
 
 		stop := time.Now()
-		this_latency := stop.Sub(start).Seconds()
+		thisLatency := stop.Sub(start).Seconds()
 
-		if statusClass == 200 && this_latency > slo_max {
-			slo_violations.Inc()
+		if statusClass == 200 && thisLatency > m.SloMax {
+			m.SloViolations.Inc()
 		}
 
 		if statusClass == 200 {
-			success_latency.Observe(this_latency)
+			m.SuccessLatency.Observe(thisLatency)
 		} else {
-			error_latency.Observe(this_latency)
+			m.ErrorLatency.Observe(thisLatency)
 		}
 	})
 }

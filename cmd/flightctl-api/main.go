@@ -91,6 +91,8 @@ func main() {
 	}
 	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
 
+	metrics := instrumentation.NewApiMetrics(cfg)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -98,7 +100,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 
-		server := apiserver.New(log, cfg, store, ca, listener, provider)
+		server := apiserver.New(log, cfg, store, ca, listener, provider, metrics)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -111,7 +113,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 
-		agentserver := agentserver.New(log, cfg, store, ca, listener)
+		agentserver := agentserver.New(log, cfg, store, ca, listener, metrics)
 		if err := agentserver.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -119,7 +121,6 @@ func main() {
 	}()
 
 	go func() {
-
 		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, grpcTlsConfig)
 		if err := grpcServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
@@ -128,8 +129,8 @@ func main() {
 	}()
 
 	go func() {
-		server := instrumentation.NewMetricsServer(log, cfg)
-		if err := server.Run(ctx); err != nil {
+		metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics)
+		if err := metricsServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
 		cancel()

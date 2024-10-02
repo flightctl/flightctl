@@ -83,4 +83,7 @@ data:
         insecureSkipTlsVerify: {{ .Values.flightctl.api.auth.insecureSkipTlsVerify }}
         {{ end }}
     {{ end }}
+    prometheus:
+        address: ":15690"
+        sloMax: 4.0
 {{ end }}

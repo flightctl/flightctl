@@ -36,6 +36,7 @@ type Server struct {
 	ca       *crypto.CA
 	listener net.Listener
 	provider queues.Provider
+	metrics  *instrumentation.ApiMetrics
 }
 
 // New returns a new instance of a flightctl server.
@@ -46,6 +47,7 @@ func New(
 	ca *crypto.CA,
 	listener net.Listener,
 	provider queues.Provider,
+	metrics *instrumentation.ApiMetrics,
 ) *Server {
 	return &Server{
 		log:      log,
@@ -54,6 +56,7 @@ func New(
 		ca:       ca,
 		listener: listener,
 		provider: provider,
+		metrics:  metrics,
 	}
 }
 
@@ -88,7 +91,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(
-		instrumentation.ServerMiddleware,
+		s.metrics.ApiServerMiddleware,
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
