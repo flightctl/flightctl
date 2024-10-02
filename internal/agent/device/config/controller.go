@@ -14,15 +14,9 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-type Controller interface {
-	Initialize(ctx context.Context, current *v1alpha1.RenderedDeviceSpec)
-	Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error
-	WriteIgnitionFiles(ctx context.Context, files []ignv3types.File) error
-}
-
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
-type controller struct {
+type Controller struct {
 	hookManager  hook.Manager
 	deviceWriter fileio.Writer
 	log          *log.PrefixLogger
@@ -33,29 +27,15 @@ func NewController(
 	hookManager hook.Manager,
 	deviceWriter fileio.Writer,
 	log *log.PrefixLogger,
-) Controller {
-	return &controller{
+) *Controller {
+	return &Controller{
 		hookManager:  hookManager,
 		deviceWriter: deviceWriter,
 		log:          log,
 	}
 }
 
-func (c *controller) Initialize(ctx context.Context, current *v1alpha1.RenderedDeviceSpec) {
-	if current.Config == nil {
-		return
-	}
-	currentIgnition, err := parseAndConvertConfig(*current.Config)
-	if err != nil {
-		c.log.Warnf("failed to parse current ignition: %+v", err)
-		return
-	}
-	for _, f := range currentIgnition.Storage.Files {
-		c.hookManager.OnAfterReboot(ctx, f.Path)
-	}
-}
-
-func (c *controller) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	c.log.Debug("Syncing device configuration")
 	defer c.log.Debug("Finished syncing device configuration")
 
@@ -63,18 +43,18 @@ func (c *controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 	if desired.Config != nil {
 		c.log.Debug("syncing config data")
 		return c.ensureConfigData(ctx, util.FromPtr(current.Config), util.FromPtr(desired.Config))
+	} else {
+		// the desired config is nil, so we should remove any files that are present in the current config
+		ignitionConfig, err := ParseAndConvertConfigFromStr(util.FromPtr(current.Config))
+		if err != nil {
+			return err
+		}
+		if err := c.removeObsoleteFiles(ctx, ignitionConfig.Storage.Files, []ignv3types.File{}); err != nil {
+			return fmt.Errorf("failed to garbage collect stale files: %w", err)
+		}
 	}
 
 	return nil
-}
-
-func parseAndConvertConfig(data string) (ignv3types.Config, error) {
-	configRaw := []byte(data)
-	ignitionConfig, err := ParseAndConvertConfig(configRaw)
-	if err != nil {
-		return ignv3types.Config{}, fmt.Errorf("parsing and converting config failed: %w", err)
-	}
-	return ignitionConfig, nil
 }
 
 func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string {
@@ -96,27 +76,19 @@ func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string
 	return result
 }
 
-func (c *controller) ensureConfigData(ctx context.Context, currentData, desiredData string) error {
-	currentIgnition, err := parseAndConvertConfig(currentData)
+func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredData string) error {
+	currentIgnition, err := ParseAndConvertConfigFromStr(currentData)
 	if err != nil {
 		c.log.Warnf("failed to parse current ignition: %+v", err)
 	}
-	desiredIgnition, err := parseAndConvertConfig(desiredData)
+	desiredIgnition, err := ParseAndConvertConfigFromStr(desiredData)
 	if err != nil {
 		c.log.Warnf("failed to parse desired config: %+v", err)
 		return err
 	}
 
-	// calculate diff between existing and desired files
-	removeFiles := computeRemoval(currentIgnition.Storage.Files, desiredIgnition.Storage.Files)
-	for _, file := range removeFiles {
-		c.log.Infof("Deleting file: %s", file)
-		// trigger delete pre hook and wait for it to complete
-		c.hookManager.OnBeforeRemove(ctx, file)
-		if err := c.deviceWriter.RemoveFile(file); err != nil {
-			return fmt.Errorf("deleting files failed: %w", err)
-		}
-		c.hookManager.OnAfterRemove(ctx, file)
+	if err := c.removeObsoleteFiles(ctx, currentIgnition.Storage.Files, desiredIgnition.Storage.Files); err != nil {
+		return fmt.Errorf("failed to remove obsolete files: %w", err)
 	}
 
 	if len(desiredIgnition.Storage.Files) == 0 {
@@ -126,7 +98,7 @@ func (c *controller) ensureConfigData(ctx context.Context, currentData, desiredD
 
 	// write ignition files to disk and trigger pre hooks
 	c.log.Debug("Writing ignition files")
-	err = c.WriteIgnitionFiles(ctx, desiredIgnition.Storage.Files)
+	err = c.writeIgnitionFiles(ctx, desiredIgnition.Storage.Files)
 	if err != nil {
 		c.log.Warnf("Writing ignition files failed: %+v", err)
 		return fmt.Errorf("failed to apply configuration: %w", err)
@@ -134,9 +106,27 @@ func (c *controller) ensureConfigData(ctx context.Context, currentData, desiredD
 	return nil
 }
 
-func (c *controller) WriteIgnitionFiles(ctx context.Context, files []ignv3types.File) error {
+// removeObsoleteFiles removes files that are present in the currentFiles but not in the desiredFiles.
+func (c *Controller) removeObsoleteFiles(ctx context.Context, currentFiles, desiredFiles []ignv3types.File) error {
+	removeFiles := computeRemoval(currentFiles, desiredFiles)
+	for _, file := range removeFiles {
+		c.log.Infof("Deleting file: %s", file)
+		// trigger delete pre hook and wait for it to complete
+		c.hookManager.OnBeforeRemove(ctx, file)
+		if err := c.deviceWriter.RemoveFile(file); err != nil {
+			return fmt.Errorf("deleting files failed: %w", err)
+		}
+		c.hookManager.OnAfterRemove(ctx, file)
+	}
+	return nil
+}
+
+func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.File) error {
 	for _, file := range files {
-		managedFile := c.deviceWriter.CreateManagedFile(file)
+		managedFile, err := c.deviceWriter.CreateManagedFile(file)
+		if err != nil {
+			return err
+		}
 		upToDate, err := managedFile.IsUpToDate()
 		if err != nil {
 			return err
