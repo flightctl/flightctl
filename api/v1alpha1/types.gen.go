@@ -638,10 +638,10 @@ type FileOperation string
 
 // FileSpec defines model for FileSpec.
 type FileSpec struct {
-	// Content The URL-encoded or base64-encoded contents of the file.
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
 	Content string `json:"content"`
 
-	// ContentEncoding How the contents are encoded. The content is assumed to be plain text if encoding is not specified.
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
 	ContentEncoding *FileSpecContentEncoding `json:"contentEncoding,omitempty"`
 
 	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
@@ -659,7 +659,7 @@ type FileSpec struct {
 	User *string `json:"user,omitempty"`
 }
 
-// FileSpecContentEncoding How the contents are encoded. The content is assumed to be plain text if encoding is not specified.
+// FileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
 type FileSpecContentEncoding string
 
 // Fleet Fleet represents a set of devices.
