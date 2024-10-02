@@ -46,7 +46,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
 	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "list")
 	if err != nil {
-		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+		return server.ListDevices401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
 	}
 	if !allowed {
 		return server.ListDevices403JSONResponse{Message: "cannot list devices"}, nil
@@ -66,16 +66,43 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		}
 		labelSelector = strings.Join(labels, ",")
 	}
+
+	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	if err != nil {
+		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
+	}
+
+	// Check if SummaryOnly is true
+	if request.Params.SummaryOnly != nil && *request.Params.SummaryOnly {
+		// Check for unsupported parameters
+		if request.Params.StatusFilter != nil ||
+			request.Params.Limit != nil ||
+			request.Params.Continue != nil {
+			return server.ListDevices400JSONResponse{
+				Message: "Only 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true",
+			}, nil
+		}
+		result, err := h.store.Device().Summary(ctx, orgId, store.ListParams{
+			Labels: labelMap,
+			Owners: util.OwnerQueryParamsToArray(request.Params.Owner),
+		})
+
+		switch err {
+		case nil:
+			// Create an empty DeviceList and set the summary
+			emptyList := model.DeviceList.ToApiResource(nil, nil, nil)
+			emptyList.Summary = result
+			return server.ListDevices200JSONResponse(emptyList), nil
+		default:
+			return nil, err
+		}
+	}
+
 	statusFilter := []string{}
 	if request.Params.StatusFilter != nil {
 		for _, filter := range *request.Params.StatusFilter {
 			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
 		}
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	}
 
 	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
@@ -106,6 +133,8 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	switch err {
 	case nil:
 		return server.ListDevices200JSONResponse(*result), nil
+	case flterrors.ErrLimitParamOutOfBounds:
+		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}

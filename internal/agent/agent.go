@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -145,13 +146,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create config controller
-	configController := config.NewController(
-		hookManager,
-		deviceReadWriter,
-		a.log,
-	)
-
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		executer,
@@ -159,13 +153,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		specManager,
 		statusManager,
-		configController,
+		hookManager,
 		enrollmentClient,
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		&a.config.ManagementService.Config,
 		backoff,
 		a.log,
 		a.config.DefaultLabels,
+		bootcClient,
 	)
 
 	// bootstrap
@@ -194,10 +189,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create console controller
-	consoleController := device.NewConsoleController(
+	consoleController := console.NewController(
 		grpcClient,
 		deviceName,
 		executer,
+		a.log,
+	)
+
+	// create config controller
+	configController := config.NewController(
+		hookManager,
+		deviceReadWriter,
 		a.log,
 	)
 
@@ -215,6 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceController,
 		consoleController,
 		a.log,
+		bootcClient,
 	)
 
 	go hookManager.Run(ctx)

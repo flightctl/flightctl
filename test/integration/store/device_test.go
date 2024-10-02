@@ -201,10 +201,14 @@ var _ = Describe("DeviceStore create", func() {
 			allDevices, err := devStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
-			expectedSummaryMap := make(map[string]int)
-			expectedUpdatedMap := make(map[string]int)
+			expectedApplicationMap := make(map[string]int64)
+			expectedSummaryMap := make(map[string]int64)
+			expectedUpdatedMap := make(map[string]int64)
 			for i := range allDevices.Items {
 				d := &allDevices.Items[i]
+				applicationStatus := fmt.Sprintf("application-%d", i)
+				d.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusType(applicationStatus)
+				expectedApplicationMap[applicationStatus] = expectedApplicationMap[applicationStatus] + 1
 				status := lo.Ternary(i%2 == 0, "status-1", "status-2")
 				expectedSummaryMap[status] = expectedSummaryMap[status] + 1
 				d.Status.Summary.Status = api.DeviceSummaryStatusType(status)
@@ -217,9 +221,17 @@ var _ = Describe("DeviceStore create", func() {
 			allDevices, err = devStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
-			Expect(lo.FromPtr(allDevices.Summary.SummaryStatus)).To(Equal(expectedSummaryMap))
-			Expect(lo.FromPtr(allDevices.Summary.UpdateStatus)).To(Equal(expectedUpdatedMap))
-			Expect(allDevices.Summary.Total).To(Equal(3))
+			Expect(allDevices.Summary.ApplicationStatus).To(Equal(expectedApplicationMap))
+			Expect(allDevices.Summary.SummaryStatus).To(Equal(expectedSummaryMap))
+			Expect(allDevices.Summary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(allDevices.Summary.Total).To(Equal(int64(3)))
+
+			allDevicesSummary, err := devStore.Summary(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(allDevicesSummary.ApplicationStatus).To(Equal(expectedApplicationMap))
+			Expect(allDevicesSummary.SummaryStatus).To(Equal(expectedSummaryMap))
+			Expect(allDevicesSummary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(allDevicesSummary.Total).To(Equal(int64(3)))
 		})
 
 		It("List with paging", func() {

@@ -7,10 +7,11 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/container"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -23,13 +24,13 @@ func TestInitialization(t *testing.T) {
 
 	mockStatusManager := status.NewMockManager(ctrl)
 	mockSpecManager := spec.NewMockManager(ctrl)
-	mockCnfigController := config.NewMockController(ctrl)
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockHookManager := hook.NewMockManager(ctrl)
 
 	b := &Bootstrap{
 		statusManager:           mockStatusManager,
 		specManager:             mockSpecManager,
-		configController:        mockCnfigController,
+		hookManager:             mockHookManager,
 		deviceReadWriter:        mockReadWriter,
 		managementServiceConfig: &client.Config{},
 		log:                     flightlog.NewPrefixLogger("test"),
@@ -46,7 +47,6 @@ func TestInitialization(t *testing.T) {
 		mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1alpha1.RenderedDeviceSpec{}, nil)
 		currentDeviceSpec := &v1alpha1.RenderedDeviceSpec{}
 		mockSpecManager.EXPECT().Read(spec.Current).Return(currentDeviceSpec, nil)
-		mockCnfigController.EXPECT().Initialize(gomock.Any(), currentDeviceSpec)
 		mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
 		require.NoError(b.Initialize(ctx))
 	})
@@ -135,12 +135,14 @@ func TestEnsureBootedOS(t *testing.T) {
 
 	mockStatusManager := status.NewMockManager(ctrl)
 	mockSpecManager := spec.NewMockManager(ctrl)
+	mockBootcClient := container.NewMockBootcClient(ctrl)
 
 	// Create a Bootstrap instance with the mocks
 	b := &Bootstrap{
 		statusManager: mockStatusManager,
 		specManager:   mockSpecManager,
 		log:           flightlog.NewPrefixLogger("test"),
+		bootcClient:   mockBootcClient,
 	}
 
 	ctx := context.TODO()
@@ -150,6 +152,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		},
 		RenderedVersion: "1",
 	}
+	bootcStatus := &container.BootcHost{}
 
 	t.Run("no desired OS image specified", func(t *testing.T) {
 		emptyDesired := &v1alpha1.RenderedDeviceSpec{}
@@ -201,6 +204,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
 		mockSpecManager.EXPECT().Upgrade().Return(nil)
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
 		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
 
 		err := b.ensureBootedOS(ctx, desired)
@@ -228,9 +232,24 @@ func TestEnsureBootedOS(t *testing.T) {
 		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
 		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
 		mockSpecManager.EXPECT().Upgrade().Return(nil)
+		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
 		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, errors.New("update status failed"))
 
 		err := b.ensureBootedOS(ctx, desired)
 		require.NoError(err)
+	})
+
+	t.Run("error fetching bootc status", func(t *testing.T) {
+		isOSUpdate := true
+		isReconciled := true
+		bootedImage := "desired-image"
+
+		mockSpecManager.EXPECT().IsOSUpdate().Return(isOSUpdate, nil)
+		mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return(bootedImage, isReconciled, nil)
+		mockSpecManager.EXPECT().Upgrade().Return(nil)
+		mockBootcClient.EXPECT().Status(ctx).Return(nil, errors.New("bootc problem"))
+
+		err := b.ensureBootedOS(ctx, desired)
+		require.ErrorIs(err, ErrGettingBootcStatus)
 	})
 }

@@ -69,7 +69,7 @@ func resetDeviceStatus(db *gorm.DB, deviceNames []string) error {
 		for _, name := range deviceNames {
 			result := innerTx.Model(&model.Device{}).Where("name = ?", name).Update("status", status)
 			if result.Error != nil {
-				return flterrors.ErrorFromGormError(result.Error)
+				return store.ErrorFromGormError(result.Error)
 			}
 		}
 		return nil
@@ -122,7 +122,7 @@ func batchCreateDeviceTransaction(db *gorm.DB, devices []v1alpha1.Device) error 
 			}
 			result := innerTx.Create(modelDevice)
 			if result.Error != nil {
-				return flterrors.ErrorFromGormError(result.Error)
+				return store.ErrorFromGormError(result.Error)
 			}
 		}
 		return nil
