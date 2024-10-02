@@ -5,9 +5,6 @@ import (
 )
 
 const (
-	SystemdActionType    = "systemd"
-	ExecutableActionType = "executable"
-
 	// FilePathKey is a placeholder which will be replaced with the file path
 	FilePathKey = "FilePath"
 	noValueKey  = "<no value>"

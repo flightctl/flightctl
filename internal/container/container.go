@@ -2,12 +2,13 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 )
 
@@ -74,6 +75,10 @@ type BootcClient interface {
 	UsrOverlay(ctx context.Context) error
 }
 
+var (
+	ErrParsingImage = fmt.Errorf("unable to parse image reference into a valid bootc target")
+)
+
 // NewBootcCmd creates a new bootc command.
 func NewBootcCmd(executer executer.Executer) *BootcCmd {
 	return &BootcCmd{
@@ -90,7 +95,7 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 	}
 
 	var bootcHost BootcHost
-	if err := yaml.Unmarshal([]byte(stdout), &bootcHost); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &bootcHost); err != nil {
 		return nil, fmt.Errorf("unmarshalling config file: %w", err)
 	}
 
@@ -100,9 +105,14 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 // Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
 // The status will be updated in logger.
 func (b *BootcCmd) Switch(ctx context.Context, image string) error {
+	target, err := imageToBootcTarget(image)
+	if err != nil {
+		return err
+	}
+
 	done := make(chan error, 1)
 	go func() {
-		args := []string{"switch", "--retain", image}
+		args := []string{"switch", "--retain", target}
 		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
 		if exitCode != 0 {
 			done <- fmt.Errorf("stage image: %s", stderr)
@@ -150,23 +160,26 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 	return nil
 }
 
-// IsOsImageDirty returns true if the booted image does not equal the spec image.
-func IsOsImageDirty(host *BootcHost) bool {
-	// If the booted image does not equal the spec image, the OS image is not reconciled
-	return host.Status.Booted.Image.Image.Image != host.Spec.Image.Image
-}
-
-// IsOsImageReconciled returns true if the booted image equals the spec image.
-func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) bool {
+// IsOsImageReconciled returns true if the booted image equals the target for the spec image.
+func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) (bool, error) {
 	if desiredSpec.Os == nil {
-		return false
+		return false, nil
 	}
-	// If the booted image equals the desired image, the OS image is reconciled
-	return host.Status.Booted.Image.Image.Image == desiredSpec.Os.Image
+
+	target, err := imageToBootcTarget(desiredSpec.Os.Image)
+	if err != nil {
+		return false, err
+	}
+	// If the booted image equals the desired target, the OS image is reconciled
+	return host.GetBootedImage() == target, nil
 }
 
 func (b *BootcHost) GetBootedImage() string {
 	return b.Status.Booted.Image.Image.Image
+}
+
+func (b *BootcHost) GetBootedImageDigest() string {
+	return b.Status.Booted.Image.ImageDigest
 }
 
 func (b *BootcHost) GetStagedImage() string {
@@ -175,4 +188,26 @@ func (b *BootcHost) GetStagedImage() string {
 
 func (b *BootcHost) GetRollbackImage() string {
 	return b.Status.Rollback.Image.Image.Image
+}
+
+// Bootc does not accept images with tags AND digests specified - in the case when we
+// get both we will use the image digest.
+//
+// Related underlying issue: https://github.com/containers/image/issues/1736
+func imageToBootcTarget(image string) (string, error) {
+	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
+	if len(matches) == 0 {
+		return image, ErrParsingImage
+	}
+
+	// The OciImageReferenceRegexp has 3 capture groups for the base, tag, and digest
+	base := matches[1]
+	tag := matches[2]
+	digest := matches[3]
+
+	if tag != "" && digest != "" {
+		return fmt.Sprintf("%s@%s", base, digest), nil
+	}
+
+	return image, nil
 }

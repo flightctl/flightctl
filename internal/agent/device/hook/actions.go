@@ -103,9 +103,9 @@ func (a *apiHookActionFactory) Create(exec executer.Executer, log *log.PrefixLog
 	}
 	var actionHook ActionHook
 	switch hookActionType {
-	case ExecutableActionType:
+	case v1alpha1.ExecutableActionType:
 		actionHook, err = a.createExecutableActionHook(exec, log)
-	case SystemdActionType:
+	case v1alpha1.SystemdActionType:
 		actionHook, err = a.createSystemdActionHook(exec, log)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)

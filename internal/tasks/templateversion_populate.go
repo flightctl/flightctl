@@ -10,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
@@ -173,25 +172,26 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 			return fmt.Errorf("parameters in field %s of secret reference are not currently supported", key)
 		}
 	}
+
 	secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 	if err != nil {
 		return fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 	}
-	ignitionWrapper, err := ignition.NewWrapper()
-	if err != nil {
-		return fmt.Errorf("failed to create ignition wrapper: %w", err)
-	}
+
+	files := []api.FileSpec{}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
 	for name, contents := range secret.Data {
-		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
+		file := api.FileSpec{
+			Path:    filepath.Join(append(splits, name)...),
+			Content: string(contents),
+			Mode:    util.IntToPtr(0o644),
+		}
+		files = append(files, file)
 	}
-	m, err := ignitionWrapper.AsMap()
-	if err != nil {
-		return fmt.Errorf("failed to convert ignition to ap: %w", err)
-	}
+
 	newConfig := api.TemplateVersionStatus_Config_Item{}
 	inlineSpec := api.InlineConfigProviderSpec{
-		Inline: m,
+		Inline: files,
 		Name:   k8sSpec.Name,
 	}
 	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
@@ -205,6 +205,16 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
 		return fmt.Errorf("failed getting config item as InlineConfigProviderSpec: %w", err)
+	}
+
+	for _, file := range inlineSpec.Inline {
+		if file.User != nil && ContainsParameter([]byte(*file.User)) {
+			return fmt.Errorf("parameters in user field of inline configuration are not supported")
+		}
+
+		if file.Group != nil && ContainsParameter([]byte(*file.Group)) {
+			return fmt.Errorf("parameters in group field of inline configuration are not supported")
+		}
 	}
 
 	// Just add the inline config as-is

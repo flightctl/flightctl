@@ -7,6 +7,7 @@ import (
 )
 
 const maxBase64CertificateLength = 20 * 1024 * 1024
+const maxInlineConfigLength = 1024 * 1024
 
 type Validator interface {
 	Validate() []error
@@ -31,6 +32,11 @@ func (r Device) Validate() []error {
 				}
 			}
 		}
+		if r.Spec.Applications != nil {
+			for _, app := range *r.Spec.Applications {
+				allErrs = append(allErrs, app.Validate()...)
+			}
+		}
 		if r.Spec.Containers != nil {
 			for i, matchPattern := range *r.Spec.Containers.MatchPatterns {
 				matchPattern := matchPattern
@@ -44,6 +50,33 @@ func (r Device) Validate() []error {
 			}
 		}
 	}
+	return allErrs
+}
+
+func (a ApplicationSpec) Validate() []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
+
+	// validate the application provider type
+	t, err := a.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case ImageApplicationProviderType:
+		provider, err := a.AsImageApplicationProvider()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("unknown application provider type: %s", t))
+	}
+
 	return allErrs
 }
 
@@ -61,13 +94,30 @@ func (c KubernetesSecretProviderSpec) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Name, "spec.config[].secretRef.name")...)
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Namespace, "spec.config[].secretRef.namespace")...)
-	allErrs = append(allErrs, validation.ValidateString(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath", 0, 2048, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateFilePath(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath")...)
+
 	return allErrs
 }
 
 func (c InlineConfigProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
+	for i := range c.Inline {
+		allErrs = append(allErrs, validation.ValidateFilePath(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i))...)
+		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].User, fmt.Sprintf("spec.config[].inline[%d].user", i))...)
+		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
+		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
+
+		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64 {
+			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
+			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
+		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
+			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
+			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineConfigLength, nil, "")...)
+		} else {
+			allErrs = append(allErrs, fmt.Errorf("unknown contentEncoding: %s", *(c.Inline[i].ContentEncoding)))
+		}
+	}
 	return allErrs
 }
 
@@ -75,7 +125,7 @@ func (h HttpConfigProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
-	allErrs = append(allErrs, validation.ValidateString(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath", 0, 2048, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateFilePath(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath")...)
 	allErrs = append(allErrs, validation.ValidateString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", 0, 2048, nil, "")...)
 
 	return allErrs
@@ -118,6 +168,12 @@ func (r Fleet) Validate() []error {
 	// Validate the Device spec settings
 	if r.Spec.Template.Spec.Os != nil {
 		allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
+	}
+
+	if r.Spec.Template.Spec.Applications != nil {
+		for _, app := range *r.Spec.Template.Spec.Applications {
+			allErrs = append(allErrs, app.Validate()...)
+		}
 	}
 
 	if r.Spec.Template.Spec.Config != nil {

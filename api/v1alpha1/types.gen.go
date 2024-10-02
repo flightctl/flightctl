@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/oapi-codegen/runtime"
@@ -97,6 +98,12 @@ const (
 	FileOperationUpdate FileOperation = "Update"
 )
 
+// Defines values for FileSpecContentEncoding.
+const (
+	Base64 FileSpecContentEncoding = "base64"
+	Plain  FileSpecContentEncoding = "plain"
+)
+
 // Defines values for HookActionSystemdUnitOperations.
 const (
 	SystemdDaemonReload HookActionSystemdUnitOperations = "DaemonReload"
@@ -135,6 +142,22 @@ const (
 	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
+
+// ApplicationEnvVars defines model for ApplicationEnvVars.
+type ApplicationEnvVars struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+}
+
+// ApplicationSpec defines model for ApplicationSpec.
+type ApplicationSpec struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Name The name of the application
+	Name  *string `json:"name,omitempty"`
+	union json.RawMessage
+}
 
 // ApplicationStatus defines model for ApplicationStatus.
 type ApplicationStatus struct {
@@ -370,6 +393,9 @@ type DeviceOSSpec struct {
 type DeviceOSStatus struct {
 	// Image Version of the OS image.
 	Image string `json:"image"`
+
+	// ImageDigest The digest of the OS image (e.g. sha256:a0...)
+	ImageDigest string `json:"imageDigest"`
 }
 
 // DeviceRebootHookSpec defines model for DeviceRebootHookSpec.
@@ -392,6 +418,9 @@ type DeviceResourceStatusType string
 
 // DeviceSpec defines model for DeviceSpec.
 type DeviceSpec struct {
+	// Applications List of applications.
+	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+
 	// Config List of config resources.
 	Config     *[]DeviceSpec_Config_Item `json:"config,omitempty"`
 	Containers *struct {
@@ -476,14 +505,17 @@ type DeviceUpdatedStatusType string
 
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
+	// ApplicationStatus A breakdown of the devices in the fleet by "application" status.
+	ApplicationStatus map[string]int64 `json:"applicationStatus"`
+
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus *map[string]int `json:"summaryStatus,omitempty"`
+	SummaryStatus map[string]int64 `json:"summaryStatus"`
 
 	// Total The total number of devices in the fleet.
-	Total int `json:"total"`
+	Total int64 `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus *map[string]int `json:"updateStatus,omitempty"`
+	UpdateStatus map[string]int64 `json:"updateStatus"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
@@ -603,6 +635,32 @@ type Error struct {
 
 // FileOperation The type of operation that was observed on the file.
 type FileOperation string
+
+// FileSpec defines model for FileSpec.
+type FileSpec struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *FileSpecContentEncoding `json:"contentEncoding,omitempty"`
+
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file’s permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as
+	// a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified,
+	// the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// Path The absolute path to the file on the device. Note that any existing file will be overwritten.
+	Path string `json:"path"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
+// FileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type FileSpecContentEncoding string
 
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
@@ -827,11 +885,17 @@ type HttpRepoSpec struct {
 	Url string `json:"url"`
 }
 
+// ImageApplicationProvider defines model for ImageApplicationProvider.
+type ImageApplicationProvider struct {
+	// Image Reference to the container image for the application package
+	Image string `json:"image"`
+}
+
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
-	ConfigType string                 `json:"configType"`
-	Inline     map[string]interface{} `json:"inline"`
-	Name       string                 `json:"name"`
+	ConfigType string     `json:"configType"`
+	Inline     []FileSpec `json:"inline"`
+	Name       string     `json:"name"`
 }
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
@@ -900,11 +964,20 @@ type PatchRequest = []struct {
 // PatchRequestOp The operation to perform.
 type PatchRequestOp string
 
+// RenderedApplicationSpec defines model for RenderedApplicationSpec.
+type RenderedApplicationSpec struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+	Name    *string            `json:"name,omitempty"`
+	union   json.RawMessage
+}
+
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
-	Config     *string        `json:"config,omitempty"`
-	Console    *DeviceConsole `json:"console,omitempty"`
-	Containers *struct {
+	Applications *[]RenderedApplicationSpec `json:"applications,omitempty"`
+	Config       *string                    `json:"config,omitempty"`
+	Console      *DeviceConsole             `json:"console,omitempty"`
+	Containers   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
 	Hooks           *DeviceHooksSpec `json:"hooks,omitempty"`
@@ -1127,6 +1200,9 @@ type TemplateVersionSpec struct {
 
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
+	// Applications List of applications.
+	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
@@ -1184,6 +1260,9 @@ type ListDevicesParams struct {
 
 	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
@@ -1326,6 +1405,90 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
+
+// AsImageApplicationProvider returns the union data inside the ApplicationSpec as a ImageApplicationProvider
+func (t ApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+	var body ImageApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProvider overwrites any union data inside the ApplicationSpec as the provided ImageApplicationProvider
+func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
+func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	return err
+}
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
@@ -1535,6 +1698,90 @@ func (t HookAction) MarshalJSON() ([]byte, error) {
 
 func (t *HookAction) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsImageApplicationProvider returns the union data inside the RenderedApplicationSpec as a ImageApplicationProvider
+func (t RenderedApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+	var body ImageApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProvider overwrites any union data inside the RenderedApplicationSpec as the provided ImageApplicationProvider
+func (t *RenderedApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProvider performs a merge with any union data inside the RenderedApplicationSpec, using the provided ImageApplicationProvider
+func (t *RenderedApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RenderedApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *RenderedApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
 	return err
 }
 
