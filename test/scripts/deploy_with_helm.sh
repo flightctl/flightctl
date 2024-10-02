@@ -156,6 +156,8 @@ if [ -z "$ONLY_DB" ]; then
   chmod og-rwx ~/.flightctl/certs/*.key
 fi
 
+./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:3443
+
 # in github CI load docker-image does not seem to work for our images
 kind_load_image localhost/git-server:latest
 kind_load_image docker.io/library/registry:2
