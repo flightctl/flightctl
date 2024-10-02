@@ -33,6 +33,7 @@ type AgentServer struct {
 	store    store.Store
 	ca       *crypto.CA
 	listener net.Listener
+	metrics  *instrumentation.ApiMetrics
 }
 
 // New returns a new instance of a flightctl server.
@@ -42,6 +43,7 @@ func New(
 	store store.Store,
 	ca *crypto.CA,
 	listener net.Listener,
+	metrics *instrumentation.ApiMetrics,
 ) *AgentServer {
 	return &AgentServer{
 		log:      log,
@@ -49,6 +51,7 @@ func New(
 		store:    store,
 		ca:       ca,
 		listener: listener,
+		metrics:  metrics,
 	}
 }
 
@@ -71,7 +74,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(
-		instrumentation.AgentServerMiddleware,
+		s.metrics.AgentServerMiddleware,
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
