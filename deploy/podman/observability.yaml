@@ -53,6 +53,8 @@ volumes:
   prometheus_data: {}
 networks:
   flightctl-network:
+    driver: bridge
+
 
 
 
