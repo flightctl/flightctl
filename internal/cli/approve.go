@@ -51,7 +51,7 @@ func NewCmdApprove() *cobra.Command {
 func (o *ApproveOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
-	fs.StringArrayVarP(&o.ApproveLabels, "label", "l", []string{}, "Labels to add to the device, as a comma-separated list of key=value.")
+	fs.StringSliceVarP(&o.ApproveLabels, "label", "l", []string{}, "Labels to add to the device, as a comma-separated list of key=value.")
 }
 
 func (o *ApproveOptions) Complete(cmd *cobra.Command, args []string) error {
