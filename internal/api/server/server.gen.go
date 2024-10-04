@@ -854,6 +854,14 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// ------------- Optional query parameter "summaryOnly" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "summaryOnly", r.URL.Query(), &params.SummaryOnly)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "summaryOnly", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDevices(w, r, params)
 	}))

@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/lthibault/jitterbug"
@@ -25,10 +26,11 @@ type Agent struct {
 	statusManager      status.Manager
 	specManager        spec.Manager
 	hookManager        hook.Manager
-	configController   config.Controller
+	configController   *config.Controller
 	osImageController  *OSImageController
 	resourceController *resource.Controller
 	consoleController  *console.ConsoleController
+	bootcClient        container.BootcClient
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
@@ -45,11 +47,12 @@ func NewAgent(
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
-	configController config.Controller,
+	configController *config.Controller,
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,
 	log *log.PrefixLogger,
+	bootcClient container.BootcClient,
 ) *Agent {
 	return &Agent{
 		name:                name,
@@ -64,6 +67,7 @@ func NewAgent(
 		resourceController:  resourceController,
 		consoleController:   consoleController,
 		log:                 log,
+		bootcClient:         bootcClient,
 	}
 }
 
@@ -199,8 +203,14 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	}
 
 	if desired.Os != nil {
+		bootcStatus, err := a.bootcClient.Status(ctx)
+		if err != nil {
+			return false, err
+		}
+
 		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: desired.Os.Image,
+			Image:       desired.Os.Image,
+			ImageDigest: bootcStatus.GetBootedImageDigest(),
 		}))
 	}
 

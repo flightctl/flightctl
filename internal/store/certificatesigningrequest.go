@@ -98,13 +98,13 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	}
 
 	apiCertificateSigningRequestList := certificateSigningRequests.ToApiResource(nextContinue, numRemaining)
-	return &apiCertificateSigningRequestList, flterrors.ErrorFromGormError(result.Error)
+	return &apiCertificateSigningRequestList, ErrorFromGormError(result.Error)
 }
 
 func (s *CertificateSigningRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.CertificateSigningRequest{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error) {
@@ -113,7 +113,7 @@ func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUI
 	}
 	result := s.db.First(&certificateSigningRequest)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiCertificateSigningRequest := certificateSigningRequest.ToApiResource()
 	return &apiCertificateSigningRequest, nil
@@ -123,7 +123,7 @@ func (s *CertificateSigningRequestStore) createCertificateSigningRequest(certifi
 	certificateSigningRequest.Generation = lo.ToPtr[int64](1)
 	certificateSigningRequest.ResourceVersion = lo.ToPtr[int64](1)
 	if result := s.db.Create(certificateSigningRequest); result.Error != nil {
-		err := flterrors.ErrorFromGormError(result.Error)
+		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
 	}
 	return false, nil
@@ -145,7 +145,7 @@ func (s *CertificateSigningRequestStore) updateCertificateSigningRequest(existin
 
 	result := query.Updates(&certificateSigningRequest)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -216,7 +216,7 @@ func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId
 		"status":           model.MakeJSONField(resource.Status),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	return resource, ErrorFromGormError(result.Error)
 }
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
@@ -227,14 +227,14 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil
 	}
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *CertificateSigningRequestStore) updateConditions(orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
 	existingRecord := model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 
 	if existingRecord.Status == nil {
@@ -255,7 +255,7 @@ func (s *CertificateSigningRequestStore) updateConditions(orgId uuid.UUID, name 
 		"status":           existingRecord.Status,
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
-	err := flterrors.ErrorFromGormError(result.Error)
+	err := ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
