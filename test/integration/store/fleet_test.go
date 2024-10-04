@@ -74,6 +74,11 @@ var _ = Describe("FleetStore create", func() {
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Status: &api.DeviceStatus{
+					Applications: api.DeviceApplicationsStatus{
+						Summary: api.ApplicationsSummaryStatus{
+							Status: api.ApplicationsSummaryStatusHealthy,
+						},
+					},
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 					},
@@ -85,20 +90,24 @@ var _ = Describe("FleetStore create", func() {
 			_, err := storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-2")
+			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-3")
+			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-4")
+			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-5")
+			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusError
 			device.Status.Summary.Status = api.DeviceSummaryStatusError
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
@@ -107,26 +116,32 @@ var _ = Describe("FleetStore create", func() {
 			// A device in another org that shouldn't be included
 			testutil.CreateTestDevice(ctx, storeInst.Device(), uuid.New(), "other-org-dev", util.SetResourceOwner(model.FleetKind, "myfleet-1"), nil, nil)
 
-			// mydevice-1 | Online    | UpToDate
-			// mydevice-2 | Degraded  | UpToDate
-			// mydevice-3 | Online    | Updating
-			// mydevice-4 | Rebooting | Updating
-			// mydevice-5 | Error     | Unknown
+			//				App:        Device:     updated:
+			// mydevice-1 | Healthy   | Online    | UpToDate
+			// mydevice-2 | Degraded  | Degraded  | UpToDate
+			// mydevice-3 | Healthy   | Online    | Updating
+			// mydevice-4 | Healthy   | Rebooting | Updating
+			// mydevice-5 | Error     | Error     | Unknown
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1", store.WithSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
-			Expect(fleet.Status.DevicesSummary.Total).To(Equal(5))
-			summaryStatus := lo.FromPtr(fleet.Status.DevicesSummary.SummaryStatus)
+			Expect(fleet.Status.DevicesSummary.Total).To(Equal(int64(5)))
+			applicationStatus := fleet.Status.DevicesSummary.ApplicationStatus
+			Expect(applicationStatus).ToNot(BeNil())
+			Expect(applicationStatus[string(api.ApplicationsSummaryStatusHealthy)]).To(Equal(int64(3)))
+			Expect(applicationStatus[string(api.ApplicationsSummaryStatusDegraded)]).To(Equal(int64(1)))
+			Expect(applicationStatus[string(api.ApplicationsSummaryStatusError)]).To(Equal(int64(1)))
+			summaryStatus := fleet.Status.DevicesSummary.SummaryStatus
 			Expect(summaryStatus).ToNot(BeNil())
-			Expect(summaryStatus[string(api.DeviceSummaryStatusOnline)]).To(Equal(2))
-			Expect(summaryStatus[string(api.DeviceSummaryStatusDegraded)]).To(Equal(1))
-			Expect(summaryStatus[string(api.DeviceSummaryStatusRebooting)]).To(Equal(1))
-			Expect(summaryStatus[string(api.DeviceSummaryStatusError)]).To(Equal(1))
-			updateStatus := lo.FromPtr(fleet.Status.DevicesSummary.UpdateStatus)
+			Expect(summaryStatus[string(api.DeviceSummaryStatusOnline)]).To(Equal(int64(2)))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusDegraded)]).To(Equal(int64(1)))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusRebooting)]).To(Equal(int64(1)))
+			Expect(summaryStatus[string(api.DeviceSummaryStatusError)]).To(Equal(int64(1)))
+			updateStatus := fleet.Status.DevicesSummary.UpdateStatus
 			Expect(updateStatus).ToNot(BeNil())
-			Expect(updateStatus[string(api.DeviceUpdatedStatusUpToDate)]).To(Equal(2))
-			Expect(updateStatus[string(api.DeviceUpdatedStatusUpdating)]).To(Equal(2))
-			Expect(updateStatus[string(api.DeviceUpdatedStatusUnknown)]).To(Equal(1))
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUpToDate)]).To(Equal(int64(2)))
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUpdating)]).To(Equal(int64(2)))
+			Expect(updateStatus[string(api.DeviceUpdatedStatusUnknown)]).To(Equal(int64(1)))
 		})
 
 		It("Delete fleet success", func() {
@@ -242,11 +257,11 @@ var _ = Describe("FleetStore create", func() {
 				total := fleet.Status.DevicesSummary.Total
 				switch lo.FromPtr(fleet.Metadata.Name) {
 				case "myfleet-1":
-					Expect(total).To(Equal(5))
+					Expect(total).To(Equal(int64(5)))
 				case "myfleet-2":
-					Expect(total).To(Equal(3))
+					Expect(total).To(Equal(int64(3)))
 				case "myfleet-3":
-					Expect(total).To(Equal(0))
+					Expect(total).To(Equal(int64(0)))
 				default:
 					Fail(fmt.Sprintf("unexpected fleet %s", lo.FromPtr(fleet.Metadata.Name)))
 				}

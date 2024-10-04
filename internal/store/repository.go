@@ -67,6 +67,10 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	var nextContinue *string
 	var numRemaining *int64
 
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
 	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
@@ -102,7 +106,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	}
 
 	apiRepositoryList, toApiErr := repositories.ToApiResource(nextContinue, numRemaining)
-	err := flterrors.ErrorFromGormError(result.Error)
+	err := ErrorFromGormError(result.Error)
 	if err == nil {
 		err = toApiErr
 	}
@@ -116,7 +120,7 @@ func (s *RepositoryStore) ListIgnoreOrg() ([]model.Repository, error) {
 
 	result := s.db.Model(&repositories).Where("spec IS NOT NULL").Find(&repositories)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	return repositories, nil
 }
@@ -127,7 +131,7 @@ func (s *RepositoryStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callba
 	if result.Error == nil {
 		callback(orgId)
 	}
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
@@ -145,7 +149,7 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	}
 	result := s.db.Where("spec IS NOT NULL").First(&repository)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	return &repository, nil
 }
@@ -154,7 +158,7 @@ func (s *RepositoryStore) createRepository(repository *model.Repository) (bool, 
 	repository.Generation = lo.ToPtr[int64](1)
 	repository.ResourceVersion = lo.ToPtr[int64](1)
 	if result := s.db.Create(repository); result.Error != nil {
-		err := flterrors.ErrorFromGormError(result.Error)
+		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
 	}
 	return false, nil
@@ -176,7 +180,7 @@ func (s *RepositoryStore) updateRepository(existingRecord, repository *model.Rep
 
 	result := query.Updates(&repository)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -240,13 +244,13 @@ func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) erro
 	result := s.db.Model(&repository).Updates(map[string]interface{}{
 		"status": model.MakeJSONField(resource.Status),
 	})
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error {
 	var existingRecords []*model.Repository
 	if err := s.db.Raw(`delete from repositories where org_id = ? and name = ? and spec is not null returning *`, orgId, name).Scan(&existingRecords).Error; err != nil {
-		return flterrors.ErrorFromGormError(err)
+		return ErrorFromGormError(err)
 	}
 	for i := range existingRecords {
 		callback(existingRecords[i])
@@ -259,7 +263,7 @@ func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, nam
 	var fleets model.FleetList
 	err := s.db.Model(&repository).Association("Fleets").Find(&fleets)
 	if err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 	fleetList := fleets.ToApiResource(nil, nil)
 	return &fleetList, nil
@@ -270,7 +274,7 @@ func (s *RepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, na
 	var devices model.DeviceList
 	err := s.db.Model(&repository).Association("Devices").Find(&devices)
 	if err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 	deviceList := devices.ToApiResource(nil, nil)
 	return &deviceList, nil

@@ -146,13 +146,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create config controller
-	configController := config.NewController(
-		hookManager,
-		deviceReadWriter,
-		a.log,
-	)
-
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		executer,
@@ -160,13 +153,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		specManager,
 		statusManager,
-		configController,
+		hookManager,
 		enrollmentClient,
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		&a.config.ManagementService.Config,
 		backoff,
 		a.log,
 		a.config.DefaultLabels,
+		bootcClient,
 	)
 
 	// bootstrap
@@ -202,6 +196,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create config controller
+	configController := config.NewController(
+		hookManager,
+		deviceReadWriter,
+		a.log,
+	)
+
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
@@ -216,6 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceController,
 		consoleController,
 		a.log,
+		bootcClient,
 	)
 
 	go hookManager.Run(ctx)
