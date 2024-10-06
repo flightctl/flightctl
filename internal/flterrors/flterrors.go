@@ -15,6 +15,8 @@ var (
 	ErrIllegalResourceVersionFormat        = errors.New("resource version does not match the required integer format")
 	ErrNoRowsUpdated                       = errors.New("no rows were updated; assuming resource version was updated or resource was deleted")
 	ErrLimitParamOutOfBounds               = errors.New("the limit parameter is out of the valid bounds")
+	ErrorInvalidFieldKey                   = errors.New("invalid field key")
+	ErrorInvalidFieldValue                 = errors.New("invalid field value")
 
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
