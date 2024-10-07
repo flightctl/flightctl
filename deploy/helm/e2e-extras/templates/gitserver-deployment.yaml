@@ -4,7 +4,7 @@ metadata:
   labels:
     flightctl.service: e2e-git-server
   name: e2e-git-server
-  namespace: {{ .Values.gitserver.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
@@ -24,10 +24,11 @@ spec:
             - containerPort: 22
               protocol: TCP
           imagePullPolicy: IfNotPresent
-      securityContext:
-        allowPrivilegeEscalation: true
-        capabilities:
-          add:
-          - NET_BIND_SERVICE
-          - SYS_CHROOT 
+          #TODO(make sure the container works with this security context in openshift)
+          #securityContext:
+          #  allowPrivilegeEscalation: true
+          #  capabilities:
+          #    add:
+          #    - NET_BIND_SERVICE
+          #    - SYS_CHROOT
       restartPolicy: Always

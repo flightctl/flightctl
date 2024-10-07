@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-prometheus-config
-  namespace: {{ .Values.prometheus.namespace }}
+  namespace: {{ .Release.Namespace }}
 data:
   prometheus.yml: |-
     global:

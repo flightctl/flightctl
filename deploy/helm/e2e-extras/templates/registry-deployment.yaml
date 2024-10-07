@@ -4,7 +4,7 @@ metadata:
   labels:
     flightctl.service: e2e-container-registry
   name: e2e-container-registry
-  namespace: {{ .Values.registry.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
@@ -16,6 +16,10 @@ spec:
     metadata:
       labels:
         flightctl.service: e2e-container-registry
+      #annotation:
+        # make sure that cert changes will trigger reload of the pods
+        # cert-checksum: {{ .Files.Get "secrets/registry.crt" | sha256sum }}
+        # this triggers Upgrade "flightctl-e2e-extras" failed: failed to create patch: unable to find api field in struct ObjectMeta for the json field "annotation"
     spec:
       containers:
         - name: container-reg
@@ -27,6 +31,7 @@ spec:
           volumeMounts:
             - name: certs
               mountPath: /certs
+              readOnly: true
           env:
             - name: REGISTRY_HTTP_TLS_CERTIFICATE
               value: /certs/registry.crt
@@ -34,7 +39,6 @@ spec:
               value: /certs/registry.key
       volumes:
         - name: certs
-          hostPath:
-            path: {{ .Values.registry.certsPath }}
-            type: Directory
+          secret:
+            secretName: e2e-registry-keys
       restartPolicy: Always
