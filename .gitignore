@@ -3,5 +3,3 @@
 /.vscode/
 /.idea/
 /reports/
-**/*.tar
-**/*.tar.gz

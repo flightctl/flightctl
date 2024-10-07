@@ -19,6 +19,8 @@ import (
 
 const (
 	gracefulShutdownTimeout = 5 * time.Second
+	readTimeout             = 5 * time.Second
+	writeTimeout            = 10 * time.Second
 )
 
 type MetricsServer struct {
@@ -133,8 +135,8 @@ func (m *MetricsServer) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:         m.cfg.Prometheus.Address,
 		Handler:      promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{Registry: m.registry}),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
 	}
 
 	go m.auditCpuWorker(ctx)
@@ -179,7 +181,7 @@ func (m *MetricsServer) auditCpuWorker(ctx context.Context) {
 			// stats from /proc/stat increase monotonically, so we must
 			// compute the delta from our last audit
 			m.metrics.CpuUtilization.Set(
-				float64(stats.Idle-lastIdle) / float64(stats.Total-lastTotal),
+				1.0 - float64(stats.Idle-lastIdle)/float64(stats.Total-lastTotal),
 			)
 			lastIdle = stats.Idle
 			lastTotal = stats.Total
@@ -189,6 +191,7 @@ func (m *MetricsServer) auditCpuWorker(ctx context.Context) {
 
 func (m *MetricsServer) auditMemoryWorker(ctx context.Context) {
 	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -210,6 +213,8 @@ func (m *MetricsServer) auditMemoryWorker(ctx context.Context) {
 
 func (m *MetricsServer) auditDiskWorker(ctx context.Context) {
 	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+
 	var stat unix.Statfs_t
 
 	for {
@@ -218,15 +223,13 @@ func (m *MetricsServer) auditDiskWorker(ctx context.Context) {
 			m.log.Debug("Stopping disk audit")
 			return
 		case <-ticker.C:
-			time.Sleep(time.Second * 5)
-
 			err := unix.Statfs("/", &stat)
 			if err != nil {
 				fmt.Println("could not audit disk usage: ", err)
 			}
 
 			m.metrics.DiskUtilization.Set(
-				float64(stat.Bfree) / float64(stat.Blocks),
+				1.0 - float64(stat.Bfree)/float64(stat.Blocks),
 			)
 		}
 	}
@@ -275,8 +278,7 @@ func (m *ApiMetrics) ServerMiddleware(next http.Handler, agentServer bool) http.
 			m.ServerErrors.Inc()
 		}
 
-		stop := time.Now()
-		thisLatency := stop.Sub(start).Seconds()
+		thisLatency := time.Since(start).Seconds()
 
 		if statusClass == 200 && thisLatency > m.SloMax {
 			m.SloViolations.Inc()
