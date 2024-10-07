@@ -25,7 +25,7 @@ _integration_test: $(REPORTS)
 
 _e2e_test: $(REPORTS)
 	sudo chown $(shell whoami):$(shell whoami) -R bin/output
-	ginkgo run --timeout 30m --race -vv --junit-report $(REPORTS)/junit_e2e_test.xml --github-output $(GO_E2E_DIRS)
+	test/scripts/run_e2e_tests.sh "$(REPORTS)" $(GO_E2E_DIRS)
 
 _unit_test: $(REPORTS)
 	gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
@@ -44,7 +44,14 @@ run-integration-test:
 
 integration-test: deploy-db run-integration-test kill-db
 
-e2e-test: deploy bin/output/qcow2/disk.qcow2
+
+deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
+	test/scripts/deploy_e2e_extras_with_helm.sh
+
+in-cluster-e2e-test: build-cli deploy-e2e-extras bin/output/qcow2/disk.qcow2
+	$(MAKE) _e2e_test
+
+e2e-test: deploy deploy-e2e-extras bin/output/qcow2/disk.qcow2
 	$(MAKE) _e2e_test
 
 run-e2e-test:
@@ -59,10 +66,10 @@ test: unit-test integration-test e2e-test
 
 run-test: unit-test run-intesgration-test
 
-bin/e2e-certs/ca.pem:
+bin/e2e-certs/ca.pem bin/.ssh/id_rsa.pub:
 	test/scripts/create_e2e_certs.sh
 
-git-server-container:
+git-server-container: bin/.ssh/id_rsa.pub
 	test/scripts/prepare_git_server.sh
 
 .PHONY: test run-test git-server-container

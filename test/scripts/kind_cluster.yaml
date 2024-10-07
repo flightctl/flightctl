@@ -32,7 +32,3 @@ nodes:
   - containerPort: 9090 # Prometheus server
     hostPort: 9090
     protocol: TCP
-  extraMounts:
-  - hostPath: ./bin/e2e-certs
-    containerPath: /tmp/e2e-certs
-  

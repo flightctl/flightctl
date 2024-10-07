@@ -4,7 +4,7 @@ metadata:
   labels:
     flightctl.service: flightctl-prometheus
   name: flightctl-prometheus
-  namespace:  {{ .Values.prometheus.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:

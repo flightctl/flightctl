@@ -220,7 +220,11 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 }
 
 func (h *Harness) CLIWithStdin(stdin string, args ...string) (string, error) {
-	cmd := exec.Command(flightctlPath()) //nolint:gosec
+	return h.SHWithStdin(stdin, flightctlPath(), args...)
+}
+
+func (h *Harness) SHWithStdin(stdin, command string, args ...string) (string, error) {
+	cmd := exec.Command(command)
 
 	cmd.Stdin = strings.NewReader(stdin)
 
@@ -245,4 +249,8 @@ func flightctlPath() string {
 
 func (h *Harness) CLI(args ...string) (string, error) {
 	return h.CLIWithStdin("", args...)
+}
+
+func (h *Harness) SH(command string, args ...string) (string, error) {
+	return h.SHWithStdin("", command, args...)
 }
