@@ -8,49 +8,7 @@ RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
 
 IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
 
-
-# Function to save images to kind, with workaround for github CI and other environment issues
-# In github CI, kind gets confused and tries to pull the image from docker instead
-# of podman, so if regular docker-image fails we need to:
-#   * save it to OCI image format
-#   * then load it into kind
-kind_load_image() {
-  local image=$1
-  local keep_tar=${2:-"do-not-keep-tar"}
-  local tar_filename=$(echo $image.tar | sed 's/[:\/]/_/g')
-
-  # First, try to load the image directly
-  if kind load docker-image "${image}"; then
-    echo "Image ${image} loaded successfully."
-    return
-  fi
-
-  # If that fails, we have the workaround in place
-  if [ -f "${tar_filename}" ] && [ "${keep_tar}" == "keep-tar" ]; then
-    echo "File ${tar_filename} already exists. Skipping save."
-  else
-    echo "Saving ${image} to ${tar_filename}..."
-
-    # If the image is not local we may need to pull it first
-    if [[ "${image}" != localhost* ]]; then
-      podman pull "${image}"
-    fi
-
-    # Save to tar file
-    podman save "${image}" -o "${tar_filename}"
-    if [ $? -eq 0 ]; then
-      echo "Image saved successfully to ${tar_filename}."
-    else
-      echo "Failed to save image to ${tar_filename}."
-      exit 1
-    fi
-  fi
-
-  kind load image-archive "${tar_filename}"
-  if [ "${keep_tar}" != "keep-tar" ]; then
-    rm -f "${tar_filename}"
-  fi
-}
+source "${SCRIPT_DIR}"/functions
 
 # Use external getopt for long options
 options=$(getopt -o adh --long only-db,auth,help -n "$0" -- "$@")
@@ -123,52 +81,12 @@ kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- psql -c 'A
 kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- createdb admin 2>/dev/null|| true
 
 
-if [ -z "$ONLY_DB" ]; then
-
-  if [ "$AUTH" ]; then
-    kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
-    kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
-  fi
-
-  mkdir -p  ~/.flightctl/certs
-
-  # Extract .fligthctl files from the api pod, but we must wait for the server to be ready
-
-  kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s --context kind-kind
-
-  # we actually don't need to download the ca.key or server.key but apparently the flightctl
-  # client expects them to be present TODO: fix this in flightctl
-  API_POD=$(kubectl get pod -n flightctl-external -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" --context kind-kind | head -1 )
-
-  # wait for the server to write the client.yaml file
-  until kubectl exec -n flightctl-external "${API_POD}" --context kind-kind  -- cat /root/.flightctl/client.yaml > /dev/null 2>&1;
-  do
-    sleep 1;
-  done
-
-  # pull agent-usable details as well as client configuration file
-  for f in certs/{ca.crt,client-enrollment.crt,client-enrollment.key} client.yaml; do
-    # a kubectl cp would be more efficient, but tar is not available on the image, and we don't want
-    # to switch from ubi9-micro just for tar
-    kubectl exec -n flightctl-external "${API_POD}" --context kind-kind  -- cat /root/.flightctl/$f > ~/.flightctl/$f
-  done
-
-  chmod og-rwx ~/.flightctl/certs/*.key
+if [ "$AUTH" ]; then
+  kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
+  kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
 fi
+
 
 # in github CI load docker-image does not seem to work for our images
 kind_load_image localhost/git-server:latest
 kind_load_image docker.io/library/registry:2
-
-# deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
-helm ${METHOD} --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
-                        ./deploy/helm/e2e-extras/ --kube-context kind-kind
-
-sudo tee /etc/containers/registries.conf.d/flightctl-e2e.conf <<EOF
-[[registry]]
-location = "${IP}:5000"
-insecure = true
-[[registry]]
-location = "localhost:5000"
-insecure = true
-EOF

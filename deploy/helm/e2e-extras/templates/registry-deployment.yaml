@@ -16,6 +16,9 @@ spec:
     metadata:
       labels:
         flightctl.service: e2e-container-registry
+      annotation:
+        # make sure that cert changes will trigger reload of the pods
+        cert-checksum: {{ .Files.Get "secrets/registry.crt" | sha256sum }}
     spec:
       containers:
         - name: container-reg
@@ -27,6 +30,7 @@ spec:
           volumeMounts:
             - name: certs
               mountPath: /certs
+              readOnly: true
           env:
             - name: REGISTRY_HTTP_TLS_CERTIFICATE
               value: /certs/registry.crt
@@ -34,7 +38,6 @@ spec:
               value: /certs/registry.key
       volumes:
         - name: certs
-          hostPath:
-            path: {{ .Values.registry.certsPath }}
-            type: Directory
+          secret:
+            secretName: e2e-registry-keys
       restartPolicy: Always
