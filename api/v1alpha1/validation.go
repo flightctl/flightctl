@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
@@ -35,6 +36,11 @@ func (r Device) Validate() []error {
 		if r.Spec.Applications != nil {
 			for _, app := range *r.Spec.Applications {
 				allErrs = append(allErrs, app.Validate()...)
+			}
+		}
+		if r.Spec.Resources != nil {
+			for _, resource := range *r.Spec.Resources {
+				allErrs = append(allErrs, resource.Validate()...)
 			}
 		}
 		if r.Spec.Containers != nil {
@@ -77,6 +83,78 @@ func (a ApplicationSpec) Validate() []error {
 		allErrs = append(allErrs, fmt.Errorf("unknown application provider type: %s", t))
 	}
 
+	return allErrs
+}
+
+func (r ResourceMonitor) Validate() []error {
+	allErrs := []error{}
+
+	monitorType, err := r.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, err)
+	}
+
+	validateAlertRulesFn := func(alertRules []ResourceAlertRule, samplingInterval string) []error {
+		seen := make(map[string]struct{})
+		for _, rule := range alertRules {
+			// ensure uniqueness of Severity per resource type
+			if _, exists := seen[string(rule.Severity)]; exists {
+				allErrs = append(allErrs, fmt.Errorf("duplicate alertRule severity: %s", rule.Severity))
+			} else {
+				seen[string(rule.Severity)] = struct{}{}
+			}
+			allErrs = append(allErrs, rule.Validate(samplingInterval)...)
+		}
+		return allErrs
+	}
+
+	switch monitorType {
+	case "CPU":
+		spec, err := r.AsCPUResourceMonitorSpec()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+	case "Disk":
+		spec, err := r.AsDiskResourceMonitorSpec()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateString(&spec.Path, "spec.resources[].disk.path", 0, 2048, nil, "")...)
+		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+	case "Memory":
+		spec, err := r.AsMemoryResourceMonitorSpec()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown monitor type valid types are CPU, Disk and Memory: %s", monitorType))
+	}
+
+	return allErrs
+}
+
+func (r ResourceAlertRule) Validate(specSampleInterval string) []error {
+	allErrs := []error{}
+
+	sampleInterval, err := time.ParseDuration(specSampleInterval)
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid sampling interval: %s", err))
+	}
+	if r.Percentage < 0 || r.Percentage > 100 {
+		allErrs = append(allErrs, fmt.Errorf("percentage must be between 0 and 100: %v", r.Percentage))
+	}
+	durationInterval, err := time.ParseDuration(r.Duration)
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid duration: %s", err))
+	}
+	if sampleInterval >= durationInterval {
+		allErrs = append(allErrs, fmt.Errorf("sampling interval %s must be less than the duration: %s", sampleInterval.String(), durationInterval.String()))
+	}
+	if r.Description != "" {
+		allErrs = append(allErrs, validation.ValidateString(&r.Description, "spec.resources[].alertRules.description", 1, 256, nil, "")...)
+	}
 	return allErrs
 }
 
@@ -173,6 +251,12 @@ func (r Fleet) Validate() []error {
 	if r.Spec.Template.Spec.Applications != nil {
 		for _, app := range *r.Spec.Template.Spec.Applications {
 			allErrs = append(allErrs, app.Validate()...)
+		}
+	}
+
+	if r.Spec.Template.Spec.Resources != nil {
+		for _, resource := range *r.Spec.Template.Spec.Resources {
+			allErrs = append(allErrs, resource.Validate()...)
 		}
 	}
 
