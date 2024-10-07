@@ -74,7 +74,7 @@ lint: tools
 	$(GOBIN)/golangci-lint run -v
 
 build: bin build-cli
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
+	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
 		./cmd/devicesimulator \
 		./cmd/flightctl-agent \
 		./cmd/flightctl-api \
