@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -233,7 +232,7 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 }
 
 func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
-	sameSpec := reflect.DeepEqual(existingRecord.Spec, device.Spec)
+	sameSpec := DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
 	if !sameSpec {
