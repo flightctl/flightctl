@@ -1296,6 +1296,9 @@ type ListFleetsParams struct {
 
 	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// AddDevicesCount include the number of devices in each fleet
+	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
