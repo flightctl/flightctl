@@ -282,18 +282,3 @@ func asErrors(errs field.ErrorList) []error {
 	}
 	return agg.Errors()
 }
-
-// CheckUnique checks for duplicate values in a slice of items.
-func CheckUnique[T any](slice []T, fieldFn func(T) string) error {
-	seen := make(map[string]struct{})
-
-	for _, item := range slice {
-		fieldValue := fieldFn(item)
-		if _, exists := seen[fieldValue]; exists {
-			return fmt.Errorf("duplicate value found: %s", fieldValue)
-		}
-		seen[fieldValue] = struct{}{}
-	}
-
-	return nil
-}

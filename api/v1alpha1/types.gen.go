@@ -1041,7 +1041,7 @@ type ResourceAlertRule struct {
 	// Description A human-readable description of the alert.
 	Description string `json:"description"`
 
-	// Duration Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	// Duration Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours
 	Duration string `json:"duration"`
 
 	// Percentage The percentage of usage that triggers the alert.

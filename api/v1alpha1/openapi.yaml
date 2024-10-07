@@ -2713,8 +2713,8 @@ components:
           description: "Severity of the alert."
         duration:
           type: string
-          pattern: '^\d+[smhd]$'
-          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+          pattern: '^\d+[smh]$'
+          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours"
         percentage:
           type: number
           description: 'The percentage of usage that triggers the alert.'
