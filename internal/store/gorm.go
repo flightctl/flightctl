@@ -49,6 +49,7 @@ func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 		return nil, err
 	}
 
+	// TODO: Make exposing DB metrics optional
 	err = newDB.Use(prometheus.New(prometheus.Config{
 		DBName:          cfg.Database.Name,
 		RefreshInterval: 5,

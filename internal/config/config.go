@@ -108,7 +108,7 @@ func NewDefault() *Config {
 		Prometheus: &prometheusConfig{
 			Address:        ":15690",
 			SloMax:         4.0,
-			ApiLatencyBins: []float64{1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
 		},
 	}
 	return c

@@ -91,6 +91,7 @@ func main() {
 	}
 	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
 
+	// TODO: Make API instrumentation optional
 	metrics := instrumentation.NewApiMetrics(cfg)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)

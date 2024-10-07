@@ -173,7 +173,6 @@ clean: clean-agent-vm clean-e2e-agent-images
 	- rm -f -r $(shell uname -m)
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
-	- rm -f -r *.tar
 
 .PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container
 tools: $(GOBIN)/golangci-lint
