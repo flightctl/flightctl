@@ -514,7 +514,7 @@ Alert rules take the following parameters:
 
 To monitor resource utilization, add resource monitors in the `resources:` section of the device's specification.
 
-For example, to monitor disk utilization on the filesystem associated with the path /applications which can trigger a warning alert if the average utilization exceeds 75% for more than 30 minutes, and a critical alert if it exceeds 90% for over 10 minutes with a sampling interval of 5s.
+For example, to monitor disk utilization on the filesystem associated with the path /applications, which can trigger a warning alert if the average utilization exceeds 75% for more than 30 minutes and a critical alert if it exceeds 90% for over 10 minutes with a sampling interval of 5 seconds.
 
 ```yaml
 apiVersion: v1alpha1
