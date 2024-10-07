@@ -292,7 +292,7 @@ type CustomResourceMonitorSpec struct {
 	AlertRules  []ResourceAlertRule `json:"alertRules"`
 	MonitorType string              `json:"monitorType"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
@@ -527,7 +527,7 @@ type DiskResourceMonitorSpec struct {
 	// Path The directory path to monitor for disk usage.
 	Path string `json:"path"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
@@ -1041,7 +1041,7 @@ type ResourceAlertRule struct {
 	// Description A human-readable description of the alert.
 	Description string `json:"description"`
 
-	// Duration Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours
+	// Duration Duration is the time over which the average usage is observed before alerting. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	Duration string `json:"duration"`
 
 	// Percentage The percentage of usage that triggers the alert.
@@ -1063,7 +1063,7 @@ type ResourceMonitorSpec struct {
 	AlertRules  []ResourceAlertRule `json:"alertRules"`
 	MonitorType string              `json:"monitorType"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
