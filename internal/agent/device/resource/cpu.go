@@ -58,7 +58,7 @@ func (m *CPUMonitor) Run(ctx context.Context) {
 		case newInterval := <-m.updateIntervalCh:
 			ticker.Reset(newInterval)
 		case <-ticker.C:
-			m.log.Debug("Checking disk usage")
+			m.log.Debug("Checking cpu usage")
 			usage := CPUUsage{}
 			m.sync(ctx, &usage)
 		}
