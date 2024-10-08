@@ -52,6 +52,7 @@ func (m *DiskMonitor) Run(ctx context.Context) {
 		case newInterval := <-m.updateIntervalCh:
 			ticker.Reset(newInterval)
 		case <-ticker.C:
+			m.log.Debug("Checking disk usage")
 			usage := DiskUsage{}
 			m.sync(ctx, &usage)
 		}
