@@ -1802,6 +1802,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: addDevicesCount
+          in: query
+          description: include the number of devices in each fleet
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
