@@ -1,4 +1,4 @@
-{{ if .Values.flightctl.api.enabled }}
+{{ if .Values.api.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,56 +7,52 @@ metadata:
 data:
   config.yaml: |-
     database:
-        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}.svc.cluster.local
+        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         type: pgsql
         port: 5432
         name: flightctl
-        user: {{ .Values.flightctl.db.masterUser }}
-        password: {{ .Values.flightctl.db.masterPassword }}   # we should funnel this via secrets instead
+        user: {{ .Values.db.masterUser }}
+        password: {{ .Values.db.masterPassword }}   # we should funnel this via secrets instead
     service:
         address: :3443
         agentEndpointAddress: :7443
         agentGrpcAddress: :7444
-        {{ if .Values.flightctl.api.hostName }}
-        baseUrl: https://{{ .Values.flightctl.api.hostName }}{{ if .Values.flightctl.api.nodePort }}:{{ .Values.flightctl.api.nodePort }}{{ end }}/
-        {{ else }}
-        baseUrl: https://api.{{ .Values.global.flightctl.baseDomain }}{{ if .Values.flightctl.api.nodePort }}:{{ .Values.flightctl.api.nodePort }}{{ end }}/
-        {{ end }}
-
-        {{ if .Values.flightctl.api.agentAPIHostName }}
-        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.agentAPIHostName }}{{ if .Values.flightctl.api.agentAPINodePort }}:{{ .Values.flightctl.api.agentAPINodePort }}{{ end }}/
-        {{ else }}
-        baseAgentEndpointUrl:  https://agent-api.{{ .Values.global.flightctl.baseDomain }}{{ if .Values.flightctl.api.agentAPINodePort }}:{{ .Values.flightctl.api.agentAPINodePort }}{{ end }}/
-        {{ end }}
-
-        {{ if .Values.flightctl.api.agentGrpcBaseURL }}
-        baseAgentGrpcUrl:  {{ .Values.flightctl.api.agentGrpcBaseURL }}
-        {{ else }}
-        baseAgentGrpcUrl:  grpcs://agent-grpc.{{ .Values.global.flightctl.baseDomain }}{{ if .Values.flightctl.api.agentGrpcNodePort }}:{{ .Values.flightctl.api.agentGrpcNodePort }}{{ end }}
-        {{ end }}
-
-        {{ if .Values.flightctl.api.baseUIUrl }}
-        baseUIUrl:  {{ .Values.flightctl.api.baseUIUrl }}
-        {{ else }}
-        baseUIUrl:  https://ui.{{ .Values.global.flightctl.baseDomain }}
-        {{ end }}
-
+        {{- if .Values.api.hostNames.api }}
+        baseUrl: https://{{ .Values.api.hostNames.api }}{{ if .Values.api.nodePorts.api }}:{{ .Values.api.nodePorts.api }}{{ end }}/
+        {{- else }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}{{ if .Values.api.nodePorts.api }}:{{ .Values.api.nodePorts.api }}{{ end }}/
+        {{- end }}
+        {{- if .Values.api.hostNames.agent }}
+        baseAgentEndpointUrl:  https://{{ .Values.api.hostNames.agent }}{{ if .Values.api.nodePorts.agent }}:{{ .Values.api.nodePorts.agent }}{{ end }}/
+        {{- else }}
+        baseAgentEndpointUrl:  https://agent-api.{{ include "flightctl.getBaseDomain" . }}{{ if .Values.api.nodePorts.agent }}:{{ .Values.api.nodePorts.agent }}{{ end }}/
+        {{- end }}
+        {{- if .Values.api.agentGrpcBaseURL }}
+        baseAgentGrpcUrl:  {{ .Values.api.agentGrpcBaseURL }}
+        {{- else }}
+        baseAgentGrpcUrl:  grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}{{ if .Values.api.nodePorts.grpc }}:{{ .Values.api.nodePorts.grpc }}{{ end }}
+        {{- end }}
+        {{- if .Values.api.baseUIUrl }}
+        baseUIUrl:  {{ .Values.api.baseUIUrl }}
+        {{- else }}
+        baseUIUrl:  https://ui.{{ include "flightctl.getBaseDomain" . }}
+        {{- end }}
         altNames:
-          {{ if .Values.flightctl.api.hostName }}
-          - {{ .Values.flightctl.api.hostName }}
-          {{ else }}
-          - api.{{ .Values.global.flightctl.baseDomain }}
-          {{ end }}
-          {{ if .Values.flightctl.api.agentAPIHostName }}
-          - {{ .Values.flightctl.api.agentAPIHostName }}
-          {{ else }}
-          - agent-api.{{ .Values.global.flightctl.baseDomain }}
-          {{ end }}
-          {{ if .Values.flightctl.api.agentGrpcHostName }}
-          - {{ .Values.flightctl.api.agentGrpcHostName }}
-          {{ else }}
-          - agent-grpc.{{ .Values.global.flightctl.baseDomain }}
-          {{ end }} 
+          {{- if .Values.api.hostNames.api }}
+          - {{ .Values.api.hostNames.api }}
+          {{- else }}
+          - api.{{ include "flightctl.getBaseDomain" . }}
+          {{- end }}
+          {{- if .Values.api.hostNames.agent }}
+          - {{ .Values.api.hostNames.agent }}
+          {{- else }}
+          - agent-api.{{ include "flightctl.getBaseDomain" . }}
+          {{- end }}
+          {{- if .Values.api.hostNames.grpc }}
+          - {{ .Values.api.hostNames.grpc }}
+          {{- else }}
+          - agent-grpc.{{ include "flightctl.getBaseDomain" . }}
+          {{- end }} 
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
@@ -64,23 +60,20 @@ data:
           - flightctl-api-agent-grpc.{{ .Release.Namespace }}
           - flightctl-api-agent-grpc.{{ .Release.Namespace }}.svc.cluster.local
     queue:
-        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
-    {{ if .Values.flightctl.api.auth.enabled }}
+        amqpUrl: amqp://{{ .Values.rabbitmq.auth.username }}:{{ .Values.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:{{ .Values.rabbitmq.ports.amqp }}/
+    {{- if not (eq .Values.global.auth.type "none")  }}
+    {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:
-        {{ if .Values.flightctl.api.auth.oidcAuthority }}
-        oidcAuthority: {{ .Values.flightctl.api.auth.oidcAuthority }}
-        {{ end }}
-        {{ if .Values.flightctl.api.auth.internalOidcAuthority }}
-        internalOidcAuthority: {{ .Values.flightctl.api.auth.internalOidcAuthority }}
-        {{ end }}
-        {{ if .Values.flightctl.api.auth.openShiftApiUrl }}
-        openShiftApiUrl: {{ .Values.flightctl.api.auth.openShiftApiUrl }}
-        {{ end }}
-        {{ if .Values.flightctl.api.auth.caCert }}
-        caCert: {{ .Values.flightctl.api.auth.caCert }}
-        {{ end }}
-        {{ if .Values.flightctl.api.auth.insecureSkipTlsVerify }}
-        insecureSkipTlsVerify: {{ .Values.flightctl.api.auth.insecureSkipTlsVerify }}
-        {{ end }}
-    {{ end }}
+        openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
+    {{- else }}
+    auth:
+        {{- if .Values.global.auth.oidcAuthority }}
+        oidcAuthority: {{ .Values.global.auth.oidcAuthority }}
+        internalOidcAuthority: {{ .Values.global.auth.internalOidcAuthority }}
+        {{- else }}
+        oidcAuthority: https://auth.{{ include "flightctl.getBaseDomain" . }}/realms/flightctl
+        internalOidcAuthority: http://keycloak:8080/realms/flightctl
+        {{- end }}
+    {{- end }}
+    {{- end }}
 {{ end }}

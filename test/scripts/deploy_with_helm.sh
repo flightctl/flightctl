@@ -102,14 +102,15 @@ fi
 
 AUTH_ARGS=""
 if [ "$AUTH" ]; then
-  AUTH_ARGS="--set keycloak.enabled=true --set flightctl.api.auth.enabled=true"
+  AUTH_ARGS="--set global.auth.type=builtin --set global.auth.oidcAuthority=http://${IP}:8080/realms/flightctl"
 fi
+
+helm dependency build ./deploy/helm/flightctl
 
 helm ${METHOD} --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.kind.yaml \
-                  --set global.flightctl.baseDomain=${IP}.nip.io \
-                  --set flightctl.api.auth.oidcAuthority=http://${IP}:8080/realms/flightctl \
-                   ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} flightctl \
+                  --set global.baseDomain=${IP}.nip.io \
+                  ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s

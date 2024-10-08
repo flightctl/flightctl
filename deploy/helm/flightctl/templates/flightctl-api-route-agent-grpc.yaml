@@ -1,20 +1,22 @@
-{{ if and (.Values.flightctl.api.enabled) (not .Values.flightctl.api.nodePort) }}
+{{ if and (.Values.api.enabled) (not .Values.api.nodePorts.grpc) }}
 
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
+  {{- if .Values.global.appCode }}
   labels:
     external-exposed: "true"
-    paas.redhat.com/appcode: {{ .Values.appCode }}
+    paas.redhat.com/appcode: {{ .Values.global.appCode }}
     shard: external
+  {{- end }}
   name: flightctl-api-route-agent-grpc
   namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.flightctl.api.agentGrpcHostName }}
-  host: {{ .Values.flightctl.api.agentGrpcHostName }}
-  {{ else }}
-  host: agent-grpc.{{ .Values.global.flightctl.baseDomain }}
-  {{ end }}
+  {{- if .Values.api.hostNames.grpc }}
+  host: {{ .Values.api.hostNames.grpc }}
+  {{- else }}
+  host: agent-grpc.{{ include "flightctl.getBaseDomain" . }}
+  {{- end }}
   port:
     targetPort: 7444
   tls:

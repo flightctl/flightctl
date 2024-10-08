@@ -2,94 +2,27 @@
 # SPDX-License-Identifier: APACHE-2.0
 
 global:
-  ## @param storageClassName Storage class to use for all RWO persistent volumes
-  storageClassName: standard
-  ## @param storageClassNameRWM Storage class to use for all RWM persistent volumes
-  storageClassNameRWM: standard
-
-## @param namespace The namespace into which to deploy Keycloak
-namespace: flightctl
+  ## @param storageClassName Storage class to use for all persistent volumes
+  storageClassName: ""
 
 ## @param image The container image to use for Keycloak
 image: quay.io/keycloak/keycloak:25.0.1
 ## @param imagePullPolicy The container imagePullPolicy to use for Keycloak
 imagePullPolicy: IfNotPresent
-
-auth:
-  ## @param adminUsername The username for the Keycloak admin account
-  adminUsername: admin
-
-realm:
-  ## @param name The name of the Keycloak realm for Flight Control
-  name: flightctl
-  ## @param clientid: The client ID for Flight Control
-  clientid: flightctl
-
-  ## @param adminUrl The URL for the Keycloak admin console
-  adminUrl: https://api.flightctl.127.0.0.1.nip.io
-  ## @param baseUrl The base URL for the Keycloak realm
-  baseUrl: https://api.flightctl.127.0.0.1.nip.io
-  ## @param rootUrl The root URL for the Keycloak realm
-  rootUrl: https://api.flightctl.127.0.0.1.nip.io
-  ## @param redirectUris The redirect URIs for Flight Control
-  redirectUris:
-    - /realms/flightctl/account/*
-    - http://127.0.0.1/callback
-  ## @param webOrigins The web origins for Flight Control
-  webOrigins:
-    - https://api.flightctl.127.0.0.1.nip.io
-    - https://ui.flightctl.127.0.0.1.nip.io
-
-  demoUser:
-    ## @param enabled Whether to create a demo user at installation time
-    enabled: true
-    ## @param username The name of the demo user if created
-    username: demouser
-
 service:
-  ports:
-    http: 8080
-    https: 8443
   nodePorts:
     http: ""
     https: ""
-
-ingress:
-  hostname: ""
-
 route:
   hostname: ""
   tls:
     cert: ""
     key: ""
+realm:
+  redirectUris: ""
+  webOrigins: ""
 db:
-  ## @param db.namespace The namespace into which to deploy the Keycloak database
-  namespace: flightctl
-
   ## @param db.image The container image to use for the Keycloak database
   image: quay.io/sclorg/postgresql-16-c9s:latest
   ## @param imagePullPolicy The container imagePullPolicy to use for the Keycloak database
   imagePullPolicy: IfNotPresent
-
-  auth:
-    ## @param db.auth.adminAccess Whether to expose access to the admin account (if false, the admin needs to access from within the container)
-    adminAccess: true
-    ## @param db.auth.adminUsername Name of the database admin user
-    adminUsername: admin
-
-    ## @param db.auth.database Name of the database to create for Keycloak
-    database: keycloak
-    ## @param db.auth.username Name of the database user to create for Keycloak
-    username: keycloak
-
-  pvc:
-    labels: {
-      app: keycloak,
-    }
-    annotations: {
-      kubernetes.io/reclaimPolicy: Delete
-    }
-    accessModes: 
-      - ReadWriteOnce
-    size: 1Gi
-    volumeMode: Filesystem
