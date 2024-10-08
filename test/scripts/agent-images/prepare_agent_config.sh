@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
+set -e -x -o pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 $("${SCRIPT_DIR}/../get_endpoints.sh")
 
 OUTFILE=bin/agent/etc/flightctl/config.yaml
+
+"${SCRIPT_DIR}/get_certificates.sh"
+
 mkdir -p bin/agent/etc/flightctl/certs
 cp ~/.flightctl/certs/ca.crt bin/agent/etc/flightctl/certs/ca.crt
 cp ~/.flightctl/certs/client-enrollment.{crt,key} bin/agent/etc/flightctl/certs/

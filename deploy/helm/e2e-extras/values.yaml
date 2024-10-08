@@ -1,10 +1,10 @@
 registry:
   image: docker.io/library/registry:2
-  nodePort: 5000
+  nodeport: ""
   namespace: flightctl-e2e
-  route: false
+  route: true
   hostName: ""
 gitserver:
   image: localhost/git-server:latest
-  nodePort: 3222
+  nodePort: ""
   namespace: flightctl-e2e
