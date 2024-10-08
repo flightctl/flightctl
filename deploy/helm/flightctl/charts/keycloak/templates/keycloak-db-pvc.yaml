@@ -1,16 +1,22 @@
+{{ if and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin") }}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: keycloak-db
-  namespace: {{ .Values.db.namespace }}
+  namespace: {{ .Release.Namespace }}
   annotations:
-{{ toYaml .Values.db.pvc.annotations | indent 4 }}
+    kubernetes.io/reclaimPolicy: Delete
   labels:
-{{ toYaml .Values.db.pvc.labels | indent 4 }}
+    app: keycloak
+    {{ if .Values.global.appCode }}
+      paas.redhat.com/appcode: {{ .Values.global.appCode }}
+    {{ end }}
 spec:
-  accessModes: {{ toYaml .Values.db.pvc.accessModes | nindent 4 }}
+  accessModes:
+    - ReadWriteOnce
   resources:
     requests:
-      storage: {{ .Values.db.pvc.size }}
+      storage: 1Gi
   storageClassName: {{ .Values.global.storageClassName }}
-  volumeMode: {{ .Values.db.pvc.volumeMode }}
+  volumeMode: Filesystem
+{{ end }}

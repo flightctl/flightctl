@@ -1,14 +1,14 @@
-{{ if .Values.flightctl.rabbitmq.enabled }}
+{{ if .Values.rabbitmq.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: flightctl-rabbitmq
-  namespace: {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
     flightctl.service: flightctl-rabbitmq
 spec:
   serviceName: flightctl-rabbitmq
-  replicas: {{ .Values.flightctl.rabbitmq.replicaCount }}
+  replicas: {{ .Values.rabbitmq.replicaCount }}
   selector:
     matchLabels:
       flightctl.service: flightctl-rabbitmq
@@ -19,8 +19,8 @@ spec:
     spec:
       containers:
         - name: rabbitmq
-          image: {{ .Values.flightctl.rabbitmq.image.image }}:{{ .Values.flightctl.rabbitmq.image.tag }}
-          imagePullPolicy: {{ .Values.flightctl.rabbitmq.image.pullPolicy }}
+          image: {{ .Values.rabbitmq.image.image }}:{{ .Values.rabbitmq.image.tag }}
+          imagePullPolicy: {{ .Values.rabbitmq.image.pullPolicy }}
           ports:
             - name: amqp
               containerPort: 5672
@@ -28,9 +28,9 @@ spec:
               containerPort: 15672
           env:
             - name: RABBITMQ_DEFAULT_USER
-              value: "{{ .Values.flightctl.rabbitmq.auth.username }}"
+              value: "{{ .Values.rabbitmq.auth.username }}"
             - name: RABBITMQ_DEFAULT_PASS
-              value: "{{ .Values.flightctl.rabbitmq.auth.password }}"
+              value: "{{ .Values.rabbitmq.auth.password }}"
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
@@ -39,13 +39,15 @@ spec:
         name: rabbitmq-data
         annotations:
           kubernetes.io/reclaimPolicy: Delete
+        {{ if .Values.global.appCode }}
         labels:
-          paas.redhat.com/appcode: {{ .Values.appCode }}
+          paas.redhat.com/appcode: {{ .Values.global.appCode }}
+        {{ end }}
       spec:
         storageClassName: {{ .Values.global.storageClassName }}
         accessModes:
-          - {{ .Values.flightctl.rabbitmq.persistence.accessMode }}
+          - {{ .Values.rabbitmq.persistence.accessMode }}
         resources:
           requests:
-            storage: {{ .Values.flightctl.rabbitmq.persistence.size }}
+            storage: {{ .Values.rabbitmq.persistence.size }}
   {{ end }}
