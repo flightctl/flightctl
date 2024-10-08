@@ -25,11 +25,13 @@ Containerfile
 CSR
 darwin
 DeviceTemplate
+df
 e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
 FIDO
+filesystem
 fleetless
 flightctl
 frontend
