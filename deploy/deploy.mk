@@ -14,7 +14,7 @@ deploy-helm: git-server-container flightctl-api-container flightctl-worker-conta
 	test/scripts/deploy_with_helm.sh
 
 prepare-agent-config:
-	test/scripts/prepare_agent_config.sh
+	test/scripts/agent-images/prepare_agent_config.sh
 
 deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db

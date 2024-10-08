@@ -1,37 +1,32 @@
-{{- if .Values.global.flightctl.useRoutes -}}
+{{ if and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin") }}
+{{- if not .Values.service.nodePorts.http -}}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   labels:
     app: keycloak
   name: keycloak
-  namespace: {{ default .Release.Namespace .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.global.flightctl.baseDomain }}
-  host: auth.{{ .Values.global.flightctl.baseDomain }}
-  {{ else }}
+  {{- if include "flightctl.getBaseDomain" . }}
+  host: auth.{{ include "flightctl.getBaseDomain" . }}
+  {{- else }}
   host: {{ .Values.route.hostname }}
-  {{ end }}
+  {{- end }}
   port:
     targetPort: 8080
   tls:
     termination: edge
-
-    {{ if .Values.route.tls.cert }}
+    {{- if .Values.route.tls.cert }}
     certificate: {{ .Values.route.tls.cert | quote }}
-    {{ else }}
-        {{ if .Values.global.flightctl.baseDomainTls.cert }}
-    certificate: {{ .Values.global.flightctl.baseDomainTls.cert | quote }}
-        {{ end }}
-    {{ end }}
-
-    {{ if .Values.route.tls.key }}
+    {{- else if (.Values.global.baseDomainTls).cert }}
+    certificate: {{ .Values.global.baseDomainTls.cert | quote }}
+    {{- end }}
+    {{- if .Values.route.tls.key }}
     key: {{ .Values.route.tls.key | quote }}
-    {{ else }}
-        {{ if .Values.global.flightctl.baseDomainTls.key }}
-    key: {{ .Values.global.flightctl.baseDomainTls.key | quote }}
-        {{ end }}
-    {{ end }}
+    {{- else if (.Values.global.baseDomainTls).key }}
+    key: {{ .Values.global.baseDomainTls.key | quote }}
+    {{- end }}
     insecureEdgeTerminationPolicy: None
   to:
     kind: Service
@@ -39,3 +34,4 @@ spec:
     weight: 100
   wildcardPolicy: None
 {{- end -}}
+{{ end }}

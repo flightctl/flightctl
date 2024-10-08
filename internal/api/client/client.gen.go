@@ -2784,6 +2784,22 @@ func NewListFleetsRequest(server string, params *ListFleetsParams) (*http.Reques
 
 		}
 
+		if params.AddDevicesCount != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesCount", runtime.ParamLocationQuery, *params.AddDevicesCount); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
 	}
 
