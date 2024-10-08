@@ -26,7 +26,7 @@ type Agent struct {
 	statusManager      status.Manager
 	specManager        spec.Manager
 	hookManager        hook.Manager
-	configController   config.Controller
+	configController   *config.Controller
 	osImageController  *OSImageController
 	resourceController *resource.Controller
 	consoleController  *console.ConsoleController
@@ -47,7 +47,7 @@ func NewAgent(
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
-	configController config.Controller,
+	configController *config.Controller,
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,

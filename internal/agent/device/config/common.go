@@ -15,6 +15,10 @@ type Ignition struct {
 	Name string          `json:"name"`
 }
 
+func ParseAndConvertConfigFromStr(rawIgn string) (ignv3types.Config, error) {
+	return ParseAndConvertConfig([]byte(rawIgn))
+}
+
 // ParseAndConvertConfig parses rawIgn V3 ignition bytes and returns
 // a V3 config or an error.
 func ParseAndConvertConfig(rawIgn []byte) (ignv3types.Config, error) {

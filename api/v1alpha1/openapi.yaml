@@ -1802,6 +1802,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: addDevicesCount
+          in: query
+          description: include the number of devices in each fleet
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -2545,10 +2551,41 @@ components:
         - type: object
           properties:
             inline:
-              type: object
-              additionalProperties: true
+              type: array
+              items:
+                $ref: '#/components/schemas/FileSpec'
           required:
           - inline
+    FileSpec:
+      type: object
+      properties:
+        path:
+          type: string
+          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+        content:
+          type: string
+          description: The plain text (UTF-8) or base64-encoded content of the file.
+        contentEncoding:
+          type: string
+          description: How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+          enum:
+          - plain
+          - base64
+        mode:
+          type: integer
+          description: |
+            The file’s permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as
+            a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified,
+            the permission mode for files defaults to 0644.
+        user:
+          type: string
+          description: The file's owner, specified either as a name or numeric ID. Defaults to "root".
+        group:
+          type: string
+          description: The file's group, specified either as a name or numeric ID. Defaults to "root".
+      required:
+      - path
+      - content
     HttpConfigProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'
@@ -3562,18 +3599,21 @@ components:
           description: The total number of devices in the fleet.
         applicationStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
             format: int64
           description: A breakdown of the devices in the fleet by "application" status.
         summaryStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
             format: int64
           description: A breakdown of the devices in the fleet by "summary" status.
         updateStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
             format: int64

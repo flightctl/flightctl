@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
@@ -41,7 +42,7 @@ type Bootstrap struct {
 	enrollmentUIEndpoint string
 	specManager          spec.Manager
 	statusManager        status.Manager
-	configController     config.Controller
+	hookManager          hook.Manager
 	backoff              wait.Backoff
 	bootcClient          container.BootcClient
 
@@ -61,7 +62,7 @@ func NewBootstrap(
 	enrollmentCSR []byte,
 	specManager spec.Manager,
 	statusManager status.Manager,
-	configController config.Controller,
+	hookManager hook.Manager,
 	enrollmentClient client.Enrollment,
 	enrollmentUIEndpoint string,
 	managementServiceConfig *client.Config,
@@ -77,7 +78,7 @@ func NewBootstrap(
 		enrollmentCSR:           enrollmentCSR,
 		specManager:             specManager,
 		statusManager:           statusManager,
-		configController:        configController,
+		hookManager:             hookManager,
 		enrollmentClient:        enrollmentClient,
 		enrollmentUIEndpoint:    enrollmentUIEndpoint,
 		managementServiceConfig: managementServiceConfig,
@@ -167,10 +168,22 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 
 	currentSpec, err := b.specManager.Read(spec.Current)
 	if err != nil {
-		b.log.WithError(err).Warn("Failed to read current spec. It is expected in case this is the first run")
+		return err
+	}
+
+	if currentSpec.Config == nil {
 		return nil
 	}
-	b.configController.Initialize(ctx, currentSpec)
+
+	currentIgnition, err := config.ParseAndConvertConfigFromStr(*currentSpec.Config)
+	if err != nil {
+		return fmt.Errorf("parsing current ignition: %w", err)
+	}
+	b.log.Info("Executing after-reboot hooks")
+	for _, f := range currentIgnition.Storage.Files {
+		b.hookManager.OnAfterReboot(ctx, f.Path)
+	}
+
 	return nil
 }
 

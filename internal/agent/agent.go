@@ -146,13 +146,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create config controller
-	configController := config.NewController(
-		hookManager,
-		deviceReadWriter,
-		a.log,
-	)
-
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		executer,
@@ -160,7 +153,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		specManager,
 		statusManager,
-		configController,
+		hookManager,
 		enrollmentClient,
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		&a.config.ManagementService.Config,
@@ -200,6 +193,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		grpcClient,
 		deviceName,
 		executer,
+		a.log,
+	)
+
+	// create config controller
+	configController := config.NewController(
+		hookManager,
+		deviceReadWriter,
 		a.log,
 	)
 
