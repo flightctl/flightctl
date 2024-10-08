@@ -1419,6 +1419,14 @@ func (siw *ServerInterfaceWrapper) ListFleets(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "addDevicesCount" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "addDevicesCount", r.URL.Query(), &params.AddDevicesCount)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "addDevicesCount", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListFleets(w, r, params)
 	}))

@@ -98,6 +98,12 @@ const (
 	FileOperationUpdate FileOperation = "Update"
 )
 
+// Defines values for FileSpecContentEncoding.
+const (
+	Base64 FileSpecContentEncoding = "base64"
+	Plain  FileSpecContentEncoding = "plain"
+)
+
 // Defines values for HookActionSystemdUnitOperations.
 const (
 	SystemdDaemonReload HookActionSystemdUnitOperations = "DaemonReload"
@@ -630,6 +636,32 @@ type Error struct {
 // FileOperation The type of operation that was observed on the file.
 type FileOperation string
 
+// FileSpec defines model for FileSpec.
+type FileSpec struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *FileSpecContentEncoding `json:"contentEncoding,omitempty"`
+
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file’s permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as
+	// a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified,
+	// the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// Path The absolute path to the file on the device. Note that any existing file will be overwritten.
+	Path string `json:"path"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
+// FileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type FileSpecContentEncoding string
+
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -861,9 +893,9 @@ type ImageApplicationProvider struct {
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
-	ConfigType string                 `json:"configType"`
-	Inline     map[string]interface{} `json:"inline"`
-	Name       string                 `json:"name"`
+	ConfigType string     `json:"configType"`
+	Inline     []FileSpec `json:"inline"`
+	Name       string     `json:"name"`
 }
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
@@ -1264,6 +1296,9 @@ type ListFleetsParams struct {
 
 	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// AddDevicesCount include the number of devices in each fleet
+	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.

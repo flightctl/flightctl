@@ -79,7 +79,7 @@ var _ = Describe("DeviceStore create", func() {
 				return
 			}
 			raceCalled = true
-			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}})
+			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -379,6 +379,20 @@ var _ = Describe("DeviceStore create", func() {
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, callback)
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+		})
+
+		It("CreateOrUpdateDevice update labels owned from API", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "owned-device", util.StrToPtr("ownerfleet"), nil, nil)
+			dev, err := devStore.Get(ctx, orgId, "owned-device")
+			Expect(err).ToNot(HaveOccurred())
+
+			newDev := testutil.ReturnTestDevice(orgId, "owned-device", util.StrToPtr("ownerfleet"), nil, &map[string]string{"newkey": "newval"})
+			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
+
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, callback)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
 		})
 
 		It("UpdateDeviceStatus", func() {
