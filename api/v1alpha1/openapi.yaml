@@ -55,6 +55,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -65,6 +70,12 @@ paths:
         - name: repository
           in: query
           description: The name of the repository to filter results by.
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          required: false
           schema:
             type: string
       responses:
@@ -324,6 +335,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -331,6 +347,12 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -588,6 +610,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          schema:
+            type: string
         - name: statusFilter
           in: query
           description: A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
@@ -614,6 +641,12 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: sortBy
+          in: query
+          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -1075,6 +1108,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1082,6 +1120,12 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -1422,6 +1466,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1429,6 +1478,12 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -1789,6 +1844,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1808,6 +1868,12 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: sortBy
+          in: query
+          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -2152,6 +2218,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -2159,6 +2230,12 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: OK

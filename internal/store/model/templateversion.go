@@ -22,22 +22,22 @@ var (
 
 type TemplateVersion struct {
 	OrgID           uuid.UUID      `gorm:"type:uuid;primary_key;"`
-	Name            string         `gorm:"primary_key;"`
-	FleetName       string         `gorm:"primary_key;"`
+	Name            string         `gorm:"primary_key;" selector:"metadata.name"`
+	FleetName       string         `gorm:"primary_key;" selector:"metadata.fleetname"`
 	Fleet           Fleet          `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
 	Labels          pq.StringArray `gorm:"type:text[]"`
 	Annotations     pq.StringArray `gorm:"type:text[]"`
 	Generation      *int64
 	ResourceVersion *int64
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	CreatedAt       time.Time      `selector:"metadata.created_at"`
+	UpdatedAt       time.Time      `selector:"metadata.updated_at"`
 	DeletedAt       gorm.DeletedAt `gorm:"index"`
 
 	// The desired state, stored as opaque JSON object.
 	Spec *JSONField[api.TemplateVersionSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.TemplateVersionStatus] `gorm:"type:jsonb"`
+	Status *JSONField[api.TemplateVersionStatus] `gorm:"type:jsonb" selector:"status"`
 
 	// An indication if this version is valid. It exposed in a Condition but easier to query here.
 	Valid *bool

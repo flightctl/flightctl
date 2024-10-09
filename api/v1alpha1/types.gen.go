@@ -1317,8 +1317,14 @@ type ListCertificateSigningRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
 
 // ListDevicesParams defines parameters for ListDevices.
@@ -1328,6 +1334,9 @@ type ListDevicesParams struct {
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
 	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
@@ -1340,6 +1349,9 @@ type ListDevicesParams struct {
 
 	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
+
+	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
@@ -1356,8 +1368,14 @@ type ListEnrollmentRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
 
 // ListFleetsParams defines parameters for ListFleets.
@@ -1368,6 +1386,9 @@ type ListFleetsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
@@ -1376,6 +1397,9 @@ type ListFleetsParams struct {
 
 	// AddDevicesCount include the number of devices in each fleet
 	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
+
+	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
@@ -1386,8 +1410,14 @@ type ListTemplateVersionsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
 
 // ReadFleetParams defines parameters for ReadFleet.
@@ -1404,8 +1434,14 @@ type ListRepositoriesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
 
 // ListResourceSyncParams defines parameters for ListResourceSync.
@@ -1416,11 +1452,17 @@ type ListResourceSyncParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Repository The name of the repository to filter results by.
 	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
+
+	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.

@@ -37,6 +37,7 @@ type GetOptions struct {
 
 	Owner         string
 	LabelSelector string
+	FieldSelector string
 	StatusFilter  []string
 	Output        string
 	Limit         int32
@@ -52,6 +53,7 @@ func DefaultGetOptions() *GetOptions {
 		GlobalOptions: DefaultGlobalOptions(),
 		Owner:         "",
 		LabelSelector: "",
+		FieldSelector: "",
 		StatusFilter:  []string{},
 		Limit:         0,
 		Continue:      "",
@@ -87,6 +89,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 
 	fs.StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
 	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, as a comma-separated list of key=value.")
+	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supports '=', '==', and '!='.(e.g. --field-selector key1=value1,key2=value2).")
 	fs.StringSliceVar(&o.StatusFilter, "status-filter", o.StatusFilter, "Filter the results by status field path using key-value pairs. Example: --status-filter=updated.status=UpToDate")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
 	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
@@ -120,6 +123,9 @@ func (o *GetOptions) Validate(args []string) error {
 	}
 	if len(name) > 0 && len(o.LabelSelector) > 0 {
 		return fmt.Errorf("cannot specify label selector when fetching a single resource")
+	}
+	if len(name) > 0 && len(o.FieldSelector) > 0 {
+		return fmt.Errorf("cannot specify field selector when fetching a single resource")
 	}
 	if len(o.Owner) > 0 {
 		if kind != DeviceKind && kind != FleetKind {
@@ -183,6 +189,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		params := api.ListDevicesParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
 			StatusFilter:  util.SliceToPtrWithNilDefault(o.StatusFilter),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
@@ -194,6 +201,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		params := api.ListEnrollmentRequestsParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
@@ -204,6 +212,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		params := api.ListFleetsParams{
 			Owner:         util.StrToPtrWithNilDefault(o.Owner),
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
@@ -213,6 +222,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	case kind == TemplateVersionKind && len(name) == 0:
 		params := api.ListTemplateVersionsParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
@@ -222,6 +232,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	case kind == RepositoryKind && len(name) == 0:
 		params := api.ListRepositoriesParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
@@ -231,6 +242,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	case kind == ResourceSyncKind && len(name) == 0:
 		params := api.ListResourceSyncParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
@@ -240,6 +252,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	case kind == CertificateSigningRequestKind && len(name) == 0:
 		params := api.ListCertificateSigningRequestsParams{
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 		}
