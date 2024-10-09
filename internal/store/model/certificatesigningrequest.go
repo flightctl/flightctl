@@ -23,7 +23,7 @@ type CertificateSigningRequest struct {
 	Spec *JSONField[api.CertificateSigningRequestSpec] `gorm:"type:jsonb"`
 
 	// The last reported state of the enrollment request, stored as opaque JSON object.
-	Status *JSONField[api.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
+	Status *JSONField[api.CertificateSigningRequestStatus] `gorm:"type:jsonb" selector:"status"`
 }
 
 type CertificateSigningRequestList []CertificateSigningRequest
