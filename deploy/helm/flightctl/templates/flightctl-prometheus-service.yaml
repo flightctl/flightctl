@@ -6,15 +6,15 @@ metadata:
   name: flightctl-prometheus
   namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.flightctl.db.nodePort }}
+  {{- if .Values.db.nodePort }}
   type: NodePort
-  {{ end }}
+  {{- end }}
   ports:
     - name: "flightctl-prometheus"
       port: 9090
       targetPort: 9090
-      {{ if .Values.flightctl.api.nodePort }}
-      nodePort: 9090
-      {{ end }}
+      {{- if .Values.api.nodePorts.prometheus }}
+      nodePort: {{ .Values.api.nodePorts.prometheus }}
+      {{- end }}
   selector:
     flightctl.service: flightctl-prometheus
