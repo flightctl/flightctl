@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -23,7 +22,6 @@ var _ Exporter = (*SystemD)(nil)
 // SystemD collects systemd unit status as defined by match patterns.
 type SystemD struct {
 	exec          executer.Executer
-	mu            sync.Mutex
 	matchPatterns []string
 }
 
@@ -43,8 +41,6 @@ type SystemDUnitListEntry struct {
 }
 
 func (c *SystemD) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.matchPatterns == nil {
 		return nil
 	}
@@ -77,7 +73,5 @@ func (c *SystemD) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
 	if spec.Systemd == nil || spec.Systemd.MatchPatterns == nil {
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.matchPatterns = *spec.Systemd.MatchPatterns
 }

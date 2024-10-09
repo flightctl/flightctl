@@ -25,11 +25,13 @@ Containerfile
 CSR
 darwin
 DeviceTemplate
+df
 e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
 FIDO
+filesystem
 fleetless
 flightctl
 frontend
@@ -84,6 +86,8 @@ rollbacks
 rollout
 runtime
 schemas
+Sigstore
+Skopeo
 spec
 specs
 SpiceDB
@@ -102,6 +106,7 @@ versioned
 versioning
 virtualization
 VM
+vmdk
 VMDK
 VMware
 vSphere
@@ -157,3 +162,5 @@ v3.4
 WorkDir
  - docs/user/managing-fleets.md
 OverlappingSelectors
+ - docs/user/building-images.md
+usr
