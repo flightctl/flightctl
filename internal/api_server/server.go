@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -35,6 +36,7 @@ type Server struct {
 	ca       *crypto.CA
 	listener net.Listener
 	provider queues.Provider
+	metrics  *instrumentation.ApiMetrics
 }
 
 // New returns a new instance of a flightctl server.
@@ -45,6 +47,7 @@ func New(
 	ca *crypto.CA,
 	listener net.Listener,
 	provider queues.Provider,
+	metrics *instrumentation.ApiMetrics,
 ) *Server {
 	return &Server{
 		log:      log,
@@ -53,6 +56,7 @@ func New(
 		ca:       ca,
 		listener: listener,
 		provider: provider,
+		metrics:  metrics,
 	}
 }
 
@@ -87,6 +91,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(
+		s.metrics.ApiServerMiddleware,
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
