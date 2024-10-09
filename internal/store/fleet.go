@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -249,12 +248,12 @@ func (s *FleetStore) updateFleet(existingRecord, fleet *model.Fleet) (bool, erro
 		return false, flterrors.ErrResourceVersionConflict
 	}
 
-	sameSpec := reflect.DeepEqual(existingRecord.Spec, fleet.Spec)
+	sameSpec := FleetSpecsAreEqual(fleet.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
 	fleet.Generation = lo.Ternary(!sameSpec, lo.ToPtr(lo.FromPtr(existingRecord.Generation)+1), existingRecord.Generation)
 
-	sameTemplateSpec := reflect.DeepEqual(existingRecord.Spec.Data.Template.Spec, fleet.Spec.Data.Template.Spec)
+	sameTemplateSpec := DeviceSpecsAreEqual(fleet.Spec.Data.Template.Spec, existingRecord.Spec.Data.Template.Spec)
 	if fleet.Spec.Data.Template.Metadata == nil {
 		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 	}

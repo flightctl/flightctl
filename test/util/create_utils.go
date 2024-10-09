@@ -12,9 +12,42 @@ import (
 	"github.com/google/uuid"
 )
 
-func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
+func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) api.Device {
 	deviceStatus := api.NewDeviceStatus()
 	deviceStatus.Os.Image = "quay.io/flightctl/test-osimage:latest"
+
+	gitConfig := &api.GitConfigProviderSpec{
+		ConfigType: string(api.TemplateDiscriminatorGitConfig),
+		Name:       "paramGitConfig",
+	}
+	gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
+	gitConfig.GitRef.Repository = "repo"
+	gitConfig.GitRef.TargetRevision = "rev"
+	gitItem := api.DeviceSpec_Config_Item{}
+	_ = gitItem.FromGitConfigProviderSpec(*gitConfig)
+
+	inlineConfig := &api.InlineConfigProviderSpec{
+		ConfigType: string(api.TemplateDiscriminatorInlineConfig),
+		Name:       "paramInlineConfig",
+	}
+	enc := api.Base64
+	inlineConfig.Inline = []api.FileSpec{
+		// Unencoded: My version is {{ device.metadata.labels[version] }}
+		{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},
+	}
+	inlineItem := api.DeviceSpec_Config_Item{}
+	_ = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
+
+	httpConfig := &api.HttpConfigProviderSpec{
+		ConfigType: string(api.TemplateDiscriminatorHttpConfig),
+		Name:       "paramHttpConfig",
+	}
+	httpConfig.HttpRef.Repository = "http-repo"
+	httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
+	httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
+	httpItem := api.DeviceSpec_Config_Item{}
+	_ = httpItem.FromHttpConfigProviderSpec(*httpConfig)
+
 	resource := api.Device{
 		Metadata: api.ObjectMeta{
 			Name:   &name,
@@ -25,6 +58,7 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 			Os: &api.DeviceOSSpec{
 				Image: "os",
 			},
+			Config: &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem},
 		},
 		Status: &deviceStatus,
 	}
@@ -38,8 +72,13 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 		deviceStatus.Config.RenderedVersion = rv
 	}
 
+	return resource
+}
+
+func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
+	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
 	callback := store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {})
-	_, err := deviceStore.Create(ctx, orgId, &resource, callback)
+	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, callback)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
