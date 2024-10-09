@@ -113,10 +113,10 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
-		Cap:      3 * time.Minute,
+		Cap:      1 * time.Minute,
 		Duration: 10 * time.Second,
 		Factor:   1.5,
-		Steps:    24,
+		Steps:    6,
 	}
 
 	// create spec manager

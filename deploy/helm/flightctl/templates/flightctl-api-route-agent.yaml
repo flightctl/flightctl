@@ -1,20 +1,21 @@
-{{ if and (.Values.flightctl.api.enabled) (not .Values.flightctl.api.nodePort) }}
-
+{{ if and (.Values.api.enabled) (not .Values.api.nodePorts.agent) }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
+  {{- if .Values.global.appCode }}
   labels:
     external-exposed: "true"
-    paas.redhat.com/appcode: {{ .Values.appCode }}
+    paas.redhat.com/appcode: {{ .Values.global.appCode }}
     shard: external
+  {{- end }}
   name: flightctl-api-route-agent
   namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.flightctl.api.agentAPIHostName }}
-  host: {{ .Values.flightctl.api.agentAPIHostName }}
-  {{ else }}
-  host: agent-api.{{ .Values.global.flightctl.baseDomain }}
-  {{ end }}
+  {{- if .Values.api.hostNames.agent }}
+  host: {{ .Values.api.hostNames.agent }}
+  {{- else }}
+  host: agent-api.{{ include "flightctl.getBaseDomain" . }}
+  {{- end }}
   port:
     targetPort: 7443
   tls:
@@ -25,5 +26,4 @@ spec:
     name: flightctl-api-agent
     weight: 100
   wildcardPolicy: None
-
 {{ end }}

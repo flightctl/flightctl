@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/flightctl/flightctl/internal/client"
+	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
@@ -70,6 +71,8 @@ func (o *EnrollmentConfigOptions) Validate(args []string) error {
 }
 
 func (o *EnrollmentConfigOptions) Run(ctx context.Context, args []string) error {
+	var pw []byte
+
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -90,6 +93,20 @@ func (o *EnrollmentConfigOptions) Run(ctx context.Context, args []string) error 
 		return fmt.Errorf("failed to get enrollment config: %w", err)
 	}
 
+	encrypted, err := fccrypto.IsEncryptedPEMKey(privKey)
+	if err != nil {
+		return fmt.Errorf("invalid key specified: path: %s, error %w", o.PrivateKey, err)
+	}
+	if encrypted {
+		pw, err = getPassword()
+		if err != nil {
+			return fmt.Errorf("getting password for encrypted key: %w", err)
+		}
+		privKey, err = fccrypto.DecryptKeyBytes(privKey, pw)
+		if err != nil {
+			return fmt.Errorf("unable to decrypt key: %w", err)
+		}
+	}
 	response.JSON200.EnrollmentService.Authentication.ClientKeyData = base64.StdEncoding.EncodeToString(privKey)
 
 	marshalled, err := yaml.Marshal(response.JSON200)

@@ -495,18 +495,18 @@ Resource monitors take the following parameters:
 | Parameter | Description |
 | --------- | ----------- |
 | MonitorType | The resource to monitor. Currently supported resources are "CPU", "Memory", and "Disk". **[TODO: Check whether the "Custom" resource type is implemented.]** |
-| SamplingInterval | The interval in which the monitor samples utilization, specified as positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours, 'd' for days). |
+| SamplingInterval | The interval in which the monitor samples utilization, specified as positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours). |
 | AlertRules | A list of alert rules. |
-| Path | (Disk monitor only) The absolute path to the directory to monitor. **[TODO: With utilization defined on file systems, need to describe behavior if path is not a file system mount. `df` behavior?]** |
+| Path | (Disk monitor only) The absolute path to the directory to monitor. Utilization reflects the filesystem containing the path, similar to df, even if it’s not a mount point. |
 
 Alert rules take the following parameters:
 
 | Parameter | Description |
 | --------- | ----------- |
 | Severity | The alert rule's severity level out of "Info", "Warning", or "Critical". Only one alert rule is allowed per severity level and monitor. |
-| Duration | The duration that resource utilization is measured and averaged over when sampling, specified as positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours, 'd' for days). Must be smaller than the sampling interval. |
+| Duration | The duration that resource utilization is measured and averaged over when sampling, specified as positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours). Must be smaller than the sampling interval. |
 | Percentage | The utilization threshold that triggers the alert, as percentage value (range 0 to 100 without the "%" sign). |
-| Description | A human-readable description of the alert. **[TODO: What is this used for?]** |
+| Description | A human-readable description of the alert. This is useful for adding details about the alert that might help with debugging. By default it populates the alert as <severity>: <type> load is above <percentage>>% for more than <duration>  |
 
 ### Monitoring Device Resources on the Web UI
 
@@ -514,7 +514,7 @@ Alert rules take the following parameters:
 
 To monitor resource utilization, add resource monitors in the `resources:` section of the device's specification.
 
-For example, to monitor disk utilization of the file system `/application_data`, sampling every 10 minutes for 1 second and sending a warning-level alert if average utilization exceeds 75% and a critical-level alert if it exceeds 90%, you would specify the monitor as follows:
+For example, to monitor disk utilization on the filesystem associated with the path /applications, which can trigger a warning alert if the average utilization exceeds 75% for more than 30 minutes and a critical alert if it exceeds 90% for over 10 minutes with a sampling interval of 5 seconds.
 
 ```yaml
 apiVersion: v1alpha1
@@ -525,17 +525,17 @@ spec:
 [...]
   resources:
   - monitorType: Disk
-    samplingInterval: 10m
+    samplingInterval: 5s
     path: /application_data
     alertRules:
     - severity: Warning
-      duration: 1s
+      duration: 30m
       percentage: 75
-      description: Disk space for application data is >75% full.
+      description: Disk space for application data is >75% full for over 30m.
     - severity: Critical
-      duration: 1s
+      duration: 10m
       percentage: 90
-      description: Disk space for application data is >90% full.
+      description: Disk space for application data is >90% full over 10m.
 [...]
 ```
 

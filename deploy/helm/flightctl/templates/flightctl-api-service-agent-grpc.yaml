@@ -1,4 +1,4 @@
-{{ if .Values.flightctl.api.enabled }}
+{{ if .Values.api.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,16 +7,16 @@ metadata:
   name: flightctl-api-agent-grpc
   namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.flightctl.api.agentGrpcNodePort }}
+  {{- if .Values.api.nodePorts.grpc }}
   type: NodePort
-  {{ end }}
+  {{- end }}
   ports:
     - name: "agent-grpc"
       port: 7444
       targetPort: 7444
-      {{ if .Values.flightctl.api.agentGrpcNodePort }}
-      nodePort: {{ .Values.flightctl.api.agentGrpcNodePort }}
-      {{ end }}
+      {{- if .Values.api.nodePorts.grpc }}
+      nodePort: {{ .Values.api.nodePorts.grpc }}
+      {{- end }}
   selector:
     flightctl.service: flightctl-api
 {{ end }}

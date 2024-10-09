@@ -232,6 +232,16 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
+		if request.Body.Spec.SignerName == "enrollment" {
+			approveReq := server.ApproveCertificateSigningRequestRequestObject{
+				Name: *request.Body.Metadata.Name,
+			}
+			approveResp, _ := h.ApproveCertificateSigningRequest(ctx, approveReq)
+			_, ok := approveResp.(server.ApproveCertificateSigningRequest200JSONResponse)
+			if !ok {
+				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: "CSR created but could not be approved"}, nil
+			}
+		}
 		if created {
 			return server.ReplaceCertificateSigningRequest201JSONResponse(*result), nil
 		} else {

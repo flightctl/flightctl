@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -263,9 +264,17 @@ func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion str
 	}
 
 	newDesired := &v1alpha1.RenderedDeviceSpec{}
+	startTime := time.Now()
 	err = wait.ExponentialBackoff(s.backoff, func() (bool, error) {
 		return s.getRenderedFromManagementAPIWithRetry(ctx, renderedVersion, newDesired)
 	})
+
+	// log slow calls
+	duration := time.Since(startTime)
+	if duration > time.Minute {
+		s.log.Debugf("Dialing management API took: %v", duration)
+	}
+
 	if err != nil {
 		// no content means there is no new rendered version
 		if errors.Is(err, ErrNoContent) {

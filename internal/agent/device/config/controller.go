@@ -39,7 +39,6 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 	c.log.Debug("Syncing device configuration")
 	defer c.log.Debug("Finished syncing device configuration")
 
-	// config
 	if desired.Config != nil {
 		c.log.Debug("syncing config data")
 		return c.ensureConfigData(ctx, util.FromPtr(current.Config), util.FromPtr(desired.Config))
@@ -50,7 +49,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 			return err
 		}
 		if err := c.removeObsoleteFiles(ctx, ignitionConfig.Storage.Files, []ignv3types.File{}); err != nil {
-			return fmt.Errorf("failed to garbage collect stale files: %w", err)
+			return fmt.Errorf("failed to remove stale files: %w", err)
 		}
 	}
 
