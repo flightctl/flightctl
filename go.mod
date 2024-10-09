@@ -22,6 +22,7 @@ require (
 	github.com/lestrrat-go/jwx/v2 v2.1.0
 	github.com/lib/pq v1.10.9
 	github.com/lthibault/jitterbug v2.0.0+incompatible
+	github.com/mackerelio/go-osstat v0.2.5
 	github.com/oapi-codegen/nethttp-middleware v1.0.1
 	github.com/oapi-codegen/runtime v1.1.1
 	github.com/onsi/ginkgo/v2 v2.19.0
@@ -49,6 +50,7 @@ require (
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/driver/sqlite v1.5.5
 	gorm.io/gorm v1.25.10
+	gorm.io/plugin/prometheus v0.1.0
 	k8s.io/api v0.30.2
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v1.5.2
