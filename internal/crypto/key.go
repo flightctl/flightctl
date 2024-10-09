@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 )
 
 func NewKeyPair() (crypto.PublicKey, crypto.PrivateKey, error) {
@@ -89,6 +91,34 @@ func WriteKey(keyPath string, key crypto.PrivateKey) error {
 	return os.WriteFile(keyPath, keyPEM, os.FileMode(0600))
 }
 
+// this copies functionality from sigstore's cosign to encrypt the private key using functionality
+// from secure systems lab, which relies on golang crypto's secretbox and scrypt. see:
+// https://github.com/sigstore/cosign/blob/77f71e0d7470e31ed4ed5653fe5a7c8e3b283606/pkg/cosign/keys.go#L158
+// https://github.com/secure-systems-lab/go-securesystemslib/blob/7dd9eabdaf9ea98ba33653cdfbdec7057bd662fd/encrypted/encrypted.go#L158
+func WritePasswordEncryptedKey(keyPath string, key crypto.PrivateKey, password []byte) error {
+	if len(password) == 0 {
+		return WriteKey(keyPath, key)
+	}
+
+	keyPEM, err := PEMEncodeKey(key)
+	if err != nil {
+		return fmt.Errorf("PEM encoding private key: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), os.FileMode(0755)); err != nil {
+		return fmt.Errorf("creating directory for private key: %v", err)
+	}
+
+	encBytes, err := encrypted.Encrypt(keyPEM, password)
+	if err != nil {
+		return fmt.Errorf("encrypting private key: %w", err)
+	}
+	privBytes := pem.EncodeToMemory(&pem.Block{
+		Bytes: encBytes,
+		Type:  "ENCRYPTED PRIVATE KEY",
+	})
+	return os.WriteFile(keyPath, privBytes, os.FileMode(0600))
+}
+
 func PEMEncodeKey(key crypto.PrivateKey) ([]byte, error) {
 	b := bytes.Buffer{}
 	switch key := key.(type) {
@@ -119,19 +149,53 @@ func LoadKey(keyFile string) (crypto.PrivateKey, error) {
 	return key, nil
 }
 
-func ParseKeyPEM(pemKey []byte) (crypto.PrivateKey, error) {
+func IsEncryptedPEMKey(pemKey []byte) (bool, error) {
+	block, err := GetPEMBlock(pemKey)
+	if err != nil {
+		return false, err
+	}
+	if block.Headers["Proc-Type"] == "4,ENCRYPTED" || block.Type == "ENCRYPTED PRIVATE KEY" {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func GetPEMBlock(pemKey []byte) (*pem.Block, error) {
 	block, rest := pem.Decode(pemKey)
 	switch {
 	case block == nil:
 		return nil, fmt.Errorf("not a valid PEM encoded block")
 	case len(bytes.TrimSpace(rest)) > 0:
 		return nil, fmt.Errorf("not a valid PEM encoded block")
-	case block.Headers["Proc-Type"] == "4,ENCRYPTED" || block.Type == "ENCRYPTED PRIVATE KEY":
-		return nil, fmt.Errorf("encrypted PEM private key")
+	default:
+		return block, nil
+	}
+}
+
+func DecryptKeyBytes(pemKeyEncrypted []byte, pw []byte) ([]byte, error) {
+	block, err := GetPEMBlock(pemKeyEncrypted)
+	if err != nil {
+		return nil, err
 	}
 
+	decrypted, err := encrypted.Decrypt(block.Bytes, pw)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting key: %w", err)
+	}
+
+	return decrypted, nil
+}
+
+func ParseKeyPEM(pemKey []byte) (crypto.PrivateKey, error) {
 	var key crypto.PrivateKey
 	var err error
+
+	block, err := GetPEMBlock(pemKey)
+	if err != nil {
+		return nil, err
+	}
+
 	switch block.Type {
 	case "RSA PRIVATE KEY":
 		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
@@ -143,7 +207,7 @@ func ParseKeyPEM(pemKey []byte) (crypto.PrivateKey, error) {
 		return nil, fmt.Errorf("unknown PEM private key type: %s", block.Type)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error parsing private key: %v", err)
+		return nil, fmt.Errorf("parsing private key: %v", err)
 	}
 	return key, nil
 }
