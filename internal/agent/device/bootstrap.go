@@ -429,10 +429,18 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 		},
 	}
 
-	_, err = b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
+	err = wait.ExponentialBackoffWithContext(ctx, b.backoff, func() (bool, error) {
+		_, err = b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
+		if err != nil {
+			b.log.Warnf("failed to create enrollment request: %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create enrollment request: %w", err)
+		return fmt.Errorf("creating enrollment request: %w", err)
 	}
+
 	return nil
 }
 
