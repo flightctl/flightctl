@@ -14,6 +14,8 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
@@ -119,6 +121,40 @@ func ConvertFieldFilterParamsToMap(params []string) (map[string][]string, error)
 	}
 
 	return fieldMap, nil
+}
+
+// validateSortField validates a sort field and returns a slice of SortField and a boolean indicating success.
+func validateSortField(field string) ([]store.SortField, bool) {
+	if field == "" {
+		return nil, false
+	}
+
+	sortFields := strings.Split(field, ",")
+	res := make([]store.SortField, 0, len(sortFields))
+
+	for _, sortField := range sortFields {
+		parts := strings.Split(sortField, ":")
+		if len(parts) != 2 {
+			return nil, false
+		}
+
+		if !strings.EqualFold(parts[1], string(store.SortAsc)) &&
+			!strings.EqualFold(parts[1], string(store.SortDesc)) {
+			return nil, false
+		}
+
+		sortOrder := store.SortAsc
+		if strings.EqualFold(parts[1], string(store.SortDesc)) {
+			sortOrder = store.SortDesc
+		}
+
+		res = append(res, store.SortField{
+			FieldName: selector.SelectorFieldName(parts[0]),
+			Order:     sortOrder,
+		})
+	}
+
+	return res, true
 }
 
 // validateFieldKey validates a field key. Valid characters are [a-zA-Z.]

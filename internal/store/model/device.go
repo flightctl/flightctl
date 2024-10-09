@@ -27,7 +27,7 @@ type Device struct {
 	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
+	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb" selector:"status"`
 
 	// Conditions set by the service, as opposed to the agent.
 	ServiceConditions *JSONField[ServiceConditions]

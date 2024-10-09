@@ -3,10 +3,10 @@ package selector
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/pkg/queryparser"
@@ -34,15 +34,15 @@ func NewFieldSelector(dest any) (*fieldSelector, error) {
 	var err error
 	fs.fieldResolver, err = SelectorFieldResolver(dest)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve fields: %w", err)
+		return nil, err
 	}
 
 	fs.parser, err = sql.NewSQLParser(
 		sql.WithTokenizer(fs),
-		sql.WithOverrideFunction("K", sql.Wrap(fs.queryKey)),
+		sql.WithOverrideFunction("K", sql.Wrap(fs.queryField)),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create parser: %w", err)
+		return nil, err
 	}
 
 	return fs, nil
@@ -52,14 +52,29 @@ func NewFieldSelector(dest any) (*fieldSelector, error) {
 func (fs *fieldSelector) ParseFromString(ctx context.Context, input string) (string, []any, error) {
 	selector, err := fields.ParseSelector(input)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to parse input: %w", err)
+		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax, err)
 	}
-	return fs.parser.Parse(ctx, selector)
+
+	q, args, err := fs.parser.Parse(ctx, selector)
+	if err != nil {
+		if se, ok := IsSelectorError(err); ok {
+			return "", nil, se
+		}
+		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed, err)
+	}
+	return q, args, nil
 }
 
 // Parse parses the selector and returns a SQL query with parameters.
 func (fs *fieldSelector) Parse(ctx context.Context, selector fields.Selector) (string, []any, error) {
-	return fs.parser.Parse(ctx, selector)
+	q, args, err := fs.parser.Parse(ctx, selector)
+	if err != nil {
+		if se, ok := IsSelectorError(err); ok {
+			return "", nil, se
+		}
+		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed, err)
+	}
+	return q, args, nil
 }
 
 // Tokenize converts a selector string into a set of queryparser tokens.
@@ -159,7 +174,8 @@ func (fs *fieldSelector) createOperatorToken(operator selection.Operator, schema
 func (fs *fieldSelector) resolveQuery(operator selection.Operator, schemaField *schema.Field, resolve resolverFunc[string]) (*queryparser.TokenSet, error) {
 	op, exists := fs.operators[operator]
 	if !exists {
-		return nil, fmt.Errorf("unknown operator %q", operator)
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("unknown operator %q", operator))
 	}
 
 	switch schemaField.DataType {
@@ -186,40 +202,37 @@ func (fs *fieldSelector) resolveValue(schemaField *schema.Field, value string, r
 	case schema.Int:
 		v, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil {
-			return nil, err
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
 		}
 		return resolve(v), nil
 
 	case schema.Uint:
 		v, err := strconv.ParseUint(strings.TrimSpace(value), 10, 0)
 		if err != nil {
-			return nil, err
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
 		}
 		return resolve(v), nil
 
 	case schema.Bool:
 		v, err := strconv.ParseBool(strings.TrimSpace(value))
 		if err != nil {
-			return nil, err
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
 		}
 		return resolve(v), nil
 
 	case schema.Float:
 		v, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 		if err != nil {
-			return nil, err
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
 		}
 		return resolve(v), nil
 
 	case schema.Time:
 		v, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
 		if err != nil {
-			return nil, err
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
 		}
 		return resolve(v), nil
-
-	case schema.Bytes:
-		return resolve([]byte(strings.TrimSpace(value))), nil
 
 	default:
 		return resolve(value), nil
@@ -234,7 +247,8 @@ func (fs *fieldSelector) applyTextArrayOperator(operator selection.Operator, res
 	case selection.NotEquals:
 		return resolve("NCONTAINS"), nil
 	default:
-		return nil, fmt.Errorf("operator %q is unsupported for the type text[]", operator)
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("operator %q is unsupported for the type text[]", operator))
 	}
 }
 
@@ -244,22 +258,25 @@ func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, res
 	case selection.Equals, selection.DoubleEquals, selection.NotEquals:
 		return resolve(fs.operators[operator]), nil
 	default:
-		return nil, fmt.Errorf("operator %q is unsupported for the type timestamp", operator)
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("operator %q is unsupported for the type timestamp", operator))
 	}
 }
 
-func (fs *fieldSelector) queryKey(args ...string) (*sql.FunctionResult, error) {
+var fieldRegex = regexp.MustCompile(`^[a-zA-Z0-9._]+$`)
+
+func (fs *fieldSelector) queryField(args ...string) (*sql.FunctionResult, error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("expected one argument")
 	}
 
-	key := args[0]
-	if _, err := validateFieldKey(key); err != nil {
-		return nil, err
+	field := strings.TrimSpace(args[0])
+	if !fieldRegex.MatchString(field) {
+		return nil, fmt.Errorf("the field name contains invalid characters")
 	}
 
 	return &sql.FunctionResult{
-		Query: createParamsFromKey(key),
+		Query: createParamsFromKey(field),
 	}, nil
 }
 
@@ -283,15 +300,4 @@ func createParamsFromKey(key string) string {
 	}
 
 	return params.String()
-}
-
-// validateFieldKey validates a field key. Valid characters are [a-zA-Z0-9._]
-func validateFieldKey(key string) (string, error) {
-	key = strings.TrimSpace(key)
-	for _, char := range key {
-		if !unicode.IsLetter(char) && !unicode.IsNumber(char) && char != '.' && char != '_' {
-			return "", fmt.Errorf("%w: the key contains invalid character %q", flterrors.ErrorInvalidFieldKey, char)
-		}
-	}
-	return key, nil
 }
