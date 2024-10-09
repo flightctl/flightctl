@@ -11,6 +11,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -59,24 +60,53 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
-func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) *gorm.DB {
-	query = query.Where("org_id = ?", orgId).Order("name")
-	invertLabels := false
+type listQuery struct {
+	dest any
+}
+
+func ListQuery(model any) *listQuery {
+	return &listQuery{dest: model}
+}
+
+func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	query := db.Model(lq.dest)
+	query = query.Where("org_id = ?", orgId)
+
+	var invertLabels bool
 	if listParams.InvertLabels != nil && *listParams.InvertLabels {
 		invertLabels = true
 	}
 	query = LabelSelectionQuery(query, listParams.Labels, invertLabels)
-	query = FieldFilterSelectionQuery(query, listParams.Filter)
 
-	queryStr, args := createOrQuery("owner", listParams.Owners)
-	if len(queryStr) > 0 {
-		query = query.Where(queryStr, args...)
+	if listParams.FieldSelector != nil {
+		fs, err := selector.NewFieldSelector(lq.dest)
+		if err != nil {
+			return nil, err
+		}
+
+		q, p, err := fs.Parse(ctx, listParams.FieldSelector)
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where(q, p...)
 	}
 
-	if listParams.FleetName != nil {
-		query = query.Where("fleet_name = ?", *listParams.FleetName)
+	resolver, err := selector.SelectorFieldResolver(lq.dest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve fields: %w", err)
 	}
-	return query
+
+	for _, sortField := range listParams.SortBy {
+		fields, err := resolver.ResolveNames(sortField.FieldName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to resolve field name %q", sortField.FieldName)
+		}
+		for _, name := range fields {
+			query = query.Order(fmt.Sprintf("%s %s", createParamsFromKey(name), sortField.Order))
+		}
+	}
+
+	return query, nil
 }
 
 func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {

@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -71,11 +72,29 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector fields.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var sortFields []store.SortField
+	if request.Params.SortBy != nil {
+		if sortFields, _ = validateSortField(*request.Params.SortBy); sortFields == nil {
+			return server.ListFleets400JSONResponse{
+				Message: fmt.Sprintf("sort field %q is incorrectly formatted. Expected format: fieldName:order", *request.Params.SortBy),
+			}, nil
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
-		Owners:   util.OwnerQueryParamsToArray(request.Params.Owner),
+		Labels:        labelMap,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
+		FieldSelector: fieldSelector,
+		SortBy:        sortFields,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest

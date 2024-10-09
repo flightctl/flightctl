@@ -71,7 +71,10 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
+	query, err := ListQuery(&repositories).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -94,7 +97,10 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&repositories), orgId, listParams)
+			countQuery, err := ListQuery(&repositories).Build(ctx, s.db, orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
 			countQuery = countQuery.Where("spec IS NOT NULL")
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
@@ -106,7 +112,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	}
 
 	apiRepositoryList, toApiErr := repositories.ToApiResource(nextContinue, numRemaining)
-	err := ErrorFromGormError(result.Error)
+	err = ErrorFromGormError(result.Error)
 	if err == nil {
 		err = toApiErr
 	}
