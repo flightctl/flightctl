@@ -32,6 +32,7 @@ require (
 	github.com/prometheus/client_golang v1.19.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/samber/lo v1.44.0
+	github.com/secure-systems-lab/go-securesystemslib v0.8.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.8.0
@@ -51,7 +52,7 @@ require (
 	gorm.io/gorm v1.25.10
 	gorm.io/plugin/prometheus v0.1.0
 	k8s.io/api v0.30.2
-	k8s.io/apimachinery v0.29.0
+	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v1.5.2
 	k8s.io/klog/v2 v2.120.1
 	libvirt.org/go/libvirt v1.10003.0
