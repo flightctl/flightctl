@@ -10,7 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -40,11 +42,29 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector fields.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var sortFields []store.SortField
+	if request.Params.SortBy != nil {
+		if sortFields, _ = validateSortField(*request.Params.SortBy); sortFields == nil {
+			return server.ListTemplateVersions400JSONResponse{
+				Message: fmt.Sprintf("sort field %q is incorrectly formatted. Expected format: fieldName:order", *request.Params.SortBy),
+			}, nil
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:    labelMap,
-		Limit:     int(swag.Int32Value(request.Params.Limit)),
-		Continue:  cont,
-		FleetName: &request.Fleet,
+		Labels:        labelMap,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		FleetName:     &request.Fleet,
+		FieldSelector: fieldSelector,
+		SortBy:        sortFields,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -58,6 +78,9 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	case nil:
 		return server.ListTemplateVersions200JSONResponse(*result), nil
 	default:
+		if s, ok := selector.IsSelectorError(err); ok {
+			return server.ListTemplateVersions400JSONResponse{Message: s.Error()}, nil
+		}
 		return nil, err
 	}
 }

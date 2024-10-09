@@ -1,10 +1,12 @@
 package selector
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	gormschema "gorm.io/gorm/schema"
 )
 
@@ -97,7 +99,8 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) (map[Sel
 			for _, ref := range refs {
 				resolvedField := resolve(ref)
 				if resolvedField == nil {
-					return nil, fmt.Errorf("unable to resolve field name %q", ref)
+					return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
+						fmt.Errorf("unable to resolve field name %q", ref))
 				}
 				fields[ref] = resolvedField
 			}
@@ -105,7 +108,8 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) (map[Sel
 		}
 	}
 
-	return nil, fmt.Errorf("unknown field name %q", field)
+	return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
+		fmt.Errorf("unable to resolve field name %q", field))
 }
 
 // ResolveFieldsFromSchema parses the schema of the given model and extracts the fields annotated with
@@ -123,4 +127,37 @@ func ResolveFieldsFromSchema(dest any) (map[SelectorFieldName]*gormschema.Field,
 		}
 	}
 	return fieldMap, nil
+}
+
+// SelectorError represents an error related to a selector, wrapping another error.
+type SelectorError struct {
+	SelectorError error
+	OriginalError error
+}
+
+// NewSelectorError creates a new SelectorError.
+func NewSelectorError(selectorError, originalError error) *SelectorError {
+	return &SelectorError{
+		SelectorError: selectorError,
+		OriginalError: originalError,
+	}
+}
+
+// Error returns the string representation of the SelectorError.
+func (e *SelectorError) Error() string {
+	return fmt.Sprintf("%s: %v", e.SelectorError.Error(), e.OriginalError)
+}
+
+// Unwrap returns the original error.
+func (e *SelectorError) Unwrap() error {
+	return e.OriginalError
+}
+
+// IsSelectorError checks if an error is of type SelectorError.
+func IsSelectorError(err error) (*SelectorError, bool) {
+	var selectorErr *SelectorError
+	if errors.As(err, &selectorErr) {
+		return selectorErr, true
+	}
+	return nil, false
 }
