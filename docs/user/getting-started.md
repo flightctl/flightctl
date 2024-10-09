@@ -47,70 +47,35 @@ NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 
 ## Deploying the Flight Control Service
 
-### Standalone flightctl with keycloak integration
+### Standalone flightctl with built-in Keycloak
 
-Create a values.yaml file with the following content, replace
+Install a released version of the Flight Control Service into the cluster by running:
 
-  1. `flightctl.MY.DOMAIN` with your base domain
-  2. `storageClassName` with the name of the storage class you want to use for creating PVs.
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl
 
-Please note this values file will be simplified in the future to avoid duplication
-by making use of the global.flightctl.baseDomain value.
+```
+
+Verify your Flight Control Service is up and running:
+
+```console
+$ kubectl get pods -n flightctl
+
+[...]
+```
+
+### Standalone flightctl with external OIDC
+
+Create a values.yaml file with the following content
 
 ```yaml
 global:
-  flightctl:
-    baseDomain: "flightctl.MY.DOMAIN"
-    clusterLevelSecretAccess: true
-    useRoutes: true
-  storageClassName: "lvms-vg1"
-flightctl:
-  api:
-    auth:
-      oidcAuthority: "https://auth.flightctl.MY.DOMAIN/realms/flightctl"
-      internalOidcAuthority: "http://keycloak:8080/realms/flightctl"
-      enabled: true
-
-# using keycloak as our OIDC authority for authentication
-
-keycloak:
-  enabled: true
-  namespace: "flightctl"
-  db:
-    namespace: "flightctl"
-
-  realm:
-    redirectUris:
-      - /realms/flightctl/account/*
-      - http://127.0.0.1/callback
-      - https://ui.flightctl.MY.DOMAIN/*
-      - https://ui.flightctl.MY.DOMAIN/
-      - https://ui.flightctl.MY.DOMAIN
-    webOrigins:
-      - https://api.flightctl.MY.DOMAIN
-      - https://ui.flightctl.MY.DOMAIN
-    adminUrl: "https://auth.flightctl.MY.DOMAIN"
-    baseUrl: "https://auth.flightctl.MY.DOMAIN"
-    rootUrl: "https://auth.flightctl.MY.DOMAIN"
-
-  # section consumed by the ui charts
-  # using keycloak as our OIDC authority for authentication
-  authority: https://auth.flightctl.MY.DOMAIN/realms/flightctl
-  clientid: flightctl
-  redirect: https://ui.flightctl.MY.DOMAIN
-
-# ui configuration
-flightctlUi:
-  namespace: flightctl
-  hostName: ui.flightctl.MY.DOMAIN
-  image: quay.io/flightctl/flightctl-ui:0.1.1
-  flightctlServer: https://flightctl-api:3443
-  flightctlMetricsServer: https://flightctl-api:9090
-  flightctlGrpcServer: flightctl-api-agent-grpc:7444
-  certs:
-    ca: "" # use --set-file flightctlUi.certs.ca=ca.crt
-    frontRouter: ""
-    frontRouterKey: ""
+  auth:
+    type: oidc
+    oidcAuthority: https://oidc/realms/your_realm 
+    internalOidcAuthority: https://internal.oidc/realms/your_realm 
 
 ```
 
@@ -122,26 +87,6 @@ $ helm upgrade --install --version=<version-to-install> \
     flightctl oci://quay.io/flightctl/charts/flightctl \
     --values values.yaml
 
-```
-
-Retrieve the CA certificate for the API service:
-
-```console
-kubectl rollout status deployment flightctl-api -n flightctl -w --timeout=300s
-
-API_POD=$(kubectl get pod -n flightctl -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" | head -1)
-
-kubectl exec -n flightctl "${API_POD}" -- cat /root/.flightctl/certs/ca.crt > ca.crt
-```
-
-Install a release version of the Flight Control UI into the cluster by running:
-
-```console
-$ helm upgrade --install --version=<version-to-install> \
-    --namespace flightctl --create-namespace \
-    flightctl-ui oci://quay.io/flightctl/charts/flightctl-ui \
-    --values values.yaml \
-    --set-file flightctlUi.certs.ca=ca.crt
 ```
 
 Verify your Flight Control Service is up and running:
@@ -154,42 +99,11 @@ $ kubectl get pods -n flightctl
 
 ### flightctl in ACM
 
-Create a values.yaml file with the following content, replace
-
- 1. `baseDomain` with your base domain.
- 2. `storageClassName` with the name of the storage class you want to use for creating PVs.
- 3. `openShiftApiUrl` with your actual OpenShift API URL.
-
-Please note this values file will be simplified in the future to avoid duplication
-by making use of the global.flightctl.baseDomain value.
+Create a values.yaml file with the following content
 
 ```yaml
 global:
-  flightctl:
-    baseDomain: "flightctl.MY.DOMAIN"
-    clusterLevelSecretAccess: true
-    useRoutes: true
-    networkPolicyAllowList:
-      - openshift-console
-  storageClassName: "lvms-vg1"
-flightctl:
-  api:
-    auth:
-      enabled: true
-      openShiftApiUrl: "https://api.openshift.cluster.com:6443"
-
-keycloak:
-  enabled: false
-
-# ui configuration
-flightctlUi:
-  namespace: flightctl
-  image: quay.io/flightctl/flightctl-ocp-ui:0.1.1
-  flightctlServer: https://flightctl-api:3443
-  flightctlMetricsServer: https://flightctl-api:9090
-  flightctlGrpcServer: flightctl-api-agent-grpc:7444
-  certs:
-    ca: "" # use --set-file flightctlUi.certs.ca=ca.crt
+  target: acm
 
 ```
 
@@ -201,26 +115,6 @@ $ helm upgrade --install --version=<version-to-install> \
     flightctl oci://quay.io/flightctl/charts/flightctl \
     --values values.yaml
 
-```
-
-Retrieve the CA certificate for the API service:
-
-```console
-kubectl rollout status deployment flightctl-api -n flightctl -w --timeout=300s
-
-API_POD=$(kubectl get pod -n flightctl -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" | head -1)
-
-kubectl exec -n flightctl "${API_POD}" -- cat /root/.flightctl/certs/ca.crt > ca.crt
-```
-
-Install a release version of the Flight Control ACM UI plugin into the cluster by running:
-
-```console
-$ helm upgrade --install --version=<version-to-install> \
-    --namespace flightctl --create-namespace \
-    flightctl-ui oci://quay.io/flightctl/charts/flightctl-ocp-ui \
-    --values values.yaml \
-    --set-file flightctlUi.certs.ca=ca.crt
 ```
 
 Verify your Flight Control Service is up and running:

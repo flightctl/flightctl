@@ -8,18 +8,16 @@ Welcome to the Flight Control user documentation.
 
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 
-* **Building Images** - How to build your own OS images and publish them to a container registry.
-  * Understanding OS Images and the Build Process
-  * Building and Publishing OS Images
-  * Considerations for Specific Target Platforms
-    * FIDO Device Onboard
-    * Red Hat OpenShift Container Native Virtualization (CNV)
-    * Red Hat Satellite
-    * VMware vSphere
-  * Best Practices
+* **[Building Images](building-images.md)** - How to build your own OS images and publish them to a container registry.
+  * [Understanding OS Images and the Image Build Process](building-images.md#understanding-os-images-and-the-image-build-process)
+  * [Building and Publishing OS Images and Disk Images](building-images.md#building-and-publishing-os-images-and-disk-images)
+  * [Considerations for Specific Target Platforms](building-images.md#considerations-for-specific-target-platforms)
+    * [Red Hat OpenShift Container Native Virtualization (CNV)](building-images.md#red-hat-openshift-container-native-virtualization-cnv)
+    * [Red Hat Satellite](building-images.md#red-hat-satellite)
+    * [VMware vSphere](building-images.md#vmware-vsphere)
+  * [Best Practices](building-images.md#best-practices)
 * **Provisioning Devices** - How to provision a device with an OS image.
   * Provisioning to a Physical Device
-  * Provisioning to a Physical Device with FIDO Device Onboard
   * Provisioning on Red Hat OpenShift Container Native Virtualization (CNV)
   * Provisioning on Red Hat Satellite
   * Provisioning on VMware vSphere

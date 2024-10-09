@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -27,7 +26,6 @@ var _ Exporter = (*Container)(nil)
 // Container collects container status.
 type Container struct {
 	exec          executer.Executer
-	mu            sync.Mutex
 	matchPatterns []string
 	notRunning    int
 }
@@ -164,7 +162,5 @@ func (c *Container) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
 	if spec.Containers == nil || spec.Containers.MatchPatterns == nil {
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.matchPatterns = *spec.Containers.MatchPatterns
 }
