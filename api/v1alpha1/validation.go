@@ -1,10 +1,12 @@
 package v1alpha1
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/samber/lo"
 )
 
 const maxBase64CertificateLength = 20 * 1024 * 1024
@@ -249,6 +251,20 @@ func (r Fleet) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
+	allErrs = append(allErrs, r.Spec.Selector.Validate()...)
+	if r.Spec.RolloutPolicy != nil {
+		i, err := r.Spec.RolloutPolicy.DeviceSelection.ValueByDiscriminator()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		} else {
+			switch v := i.(type) {
+			case BatchSequence:
+				for _, b := range lo.FromPtr(v.Sequence) {
+					allErrs = append(allErrs, b.Selector.Validate()...)
+				}
+			}
+		}
+	}
 
 	// Validate the Device spec settings
 	if r.Spec.Template.Spec.Os != nil {
@@ -316,6 +332,13 @@ func (r ResourceSync) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateGitRevision(&r.Spec.TargetRevision, "spec.targetRevision")...)
 	allErrs = append(allErrs, validation.ValidateString(&r.Spec.Path, "spec.path", 0, 2048, nil, "")...)
 	return allErrs
+}
+
+func (l *LabelSelector) Validate() []error {
+	if l != nil && l.MatchExpressions == nil && l.MatchLabels == nil {
+		return []error{errors.New("At least one of [matchLabels,matchExpressions] must appear in a label selector")}
+	}
+	return nil
 }
 
 func (d *DeviceSystemInfo) IsEmpty() bool {
