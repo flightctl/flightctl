@@ -194,6 +194,30 @@ type AuthConfig struct {
 	AuthURL string `json:"authURL"`
 }
 
+// Batch Batch is an element in batch sequence.
+type Batch struct {
+	Limit *Batch_Limit `json:"limit,omitempty"`
+
+	// Selector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
+	Selector *LabelSelector `json:"selector,omitempty"`
+
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+}
+
+// BatchLimit1 defines model for .
+type BatchLimit1 = int
+
+// Batch_Limit defines model for Batch.Limit.
+type Batch_Limit struct {
+	union json.RawMessage
+}
+
+// BatchSequence BatchSequence defines the list of batches to be executed in sequence.
+type BatchSequence struct {
+	Sequence *[]Batch `json:"sequence,omitempty"`
+}
+
 // CPUResourceMonitorSpec defines model for CPUResourceMonitorSpec.
 type CPUResourceMonitorSpec = ResourceMonitorSpec
 
@@ -531,6 +555,27 @@ type DiskResourceMonitorSpec struct {
 	SamplingInterval string `json:"samplingInterval"`
 }
 
+// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+type DisruptionAllowance struct {
+	// GroupBy List of label keys to perform grouping for the disruption allowance.
+	GroupBy *[]string `json:"groupBy,omitempty"`
+
+	// MaxUnavailable The minimum number of required available devices during rollout.
+	MaxUnavailable *int `json:"maxUnavailable,omitempty"`
+
+	// MinAvailable The maximum number of unavailable devices allowed during rollout.
+	MinAvailable *int `json:"minAvailable,omitempty"`
+}
+
+// Duration The maximum duration allowed for the action to complete.
+// The duration should be specified as a positive integer
+// followed by a time unit. Supported time units are:
+// - 's' for seconds
+// - 'm' for minutes
+// - 'h' for hours
+// - 'd' for days
+type Duration = string
+
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
 	EnrollmentService      EnrollmentService `json:"enrollment-service"`
@@ -695,8 +740,16 @@ type FleetList struct {
 	Metadata ListMeta `json:"metadata"`
 }
 
+// FleetRolloutStatus defines model for FleetRolloutStatus.
+type FleetRolloutStatus struct {
+	CurrentBatch *int `json:"currentBatch,omitempty"`
+}
+
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
+	// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
+	RolloutPolicy *RolloutPolicy `json:"rolloutPolicy,omitempty"`
+
 	// Selector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
 	Selector *LabelSelector `json:"selector,omitempty"`
 	Template struct {
@@ -712,7 +765,8 @@ type FleetStatus struct {
 	Conditions []Condition `json:"conditions"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
-	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
+	DevicesSummary *DevicesSummary     `json:"devicesSummary,omitempty"`
+	Rollout        *FleetRolloutStatus `json:"rollout,omitempty"`
 }
 
 // GenericConfigSpec defines model for GenericConfigSpec.
@@ -964,6 +1018,9 @@ type PatchRequest = []struct {
 // PatchRequestOp The operation to perform.
 type PatchRequestOp string
 
+// Percentage Percentage is the string format representing percentage string.
+type Percentage = string
+
 // RenderedApplicationSpec defines model for RenderedApplicationSpec.
 type RenderedApplicationSpec struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime
@@ -1123,6 +1180,31 @@ type ResourceSyncStatus struct {
 
 	// ObservedGeneration The last generation that was synced
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+}
+
+// RolloutDeviceSelection defines model for RolloutDeviceSelection.
+type RolloutDeviceSelection struct {
+	Strategy string `json:"strategy"`
+	union    json.RawMessage
+}
+
+// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
+type RolloutPolicy struct {
+	// DefaultUpdateTimeout The maximum duration allowed for the action to complete.
+	// The duration should be specified as a positive integer
+	// followed by a time unit. Supported time units are:
+	// - 's' for seconds
+	// - 'm' for minutes
+	// - 'h' for hours
+	// - 'd' for days
+	DefaultUpdateTimeout *Duration               `json:"defaultUpdateTimeout,omitempty"`
+	DeviceSelection      *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
+
+	// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+	DisruptionAllowance *DisruptionAllowance `json:"disruptionAllowance,omitempty"`
+
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
 
 // SshConfig defines model for SshConfig.
@@ -1490,6 +1572,68 @@ func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	return err
+}
+
+// AsPercentage returns the union data inside the Batch_Limit as a Percentage
+func (t Batch_Limit) AsPercentage() (Percentage, error) {
+	var body Percentage
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPercentage overwrites any union data inside the Batch_Limit as the provided Percentage
+func (t *Batch_Limit) FromPercentage(v Percentage) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePercentage performs a merge with any union data inside the Batch_Limit, using the provided Percentage
+func (t *Batch_Limit) MergePercentage(v Percentage) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsBatchLimit1 returns the union data inside the Batch_Limit as a BatchLimit1
+func (t Batch_Limit) AsBatchLimit1() (BatchLimit1, error) {
+	var body BatchLimit1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBatchLimit1 overwrites any union data inside the Batch_Limit as the provided BatchLimit1
+func (t *Batch_Limit) FromBatchLimit1(v BatchLimit1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBatchLimit1 performs a merge with any union data inside the Batch_Limit, using the provided BatchLimit1
+func (t *Batch_Limit) MergeBatchLimit1(v BatchLimit1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Batch_Limit) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Batch_Limit) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
 	return err
 }
 
@@ -1992,6 +2136,100 @@ func (t ResourceMonitor) MarshalJSON() ([]byte, error) {
 
 func (t *ResourceMonitor) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsBatchSequence returns the union data inside the RolloutDeviceSelection as a BatchSequence
+func (t RolloutDeviceSelection) AsBatchSequence() (BatchSequence, error) {
+	var body BatchSequence
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBatchSequence overwrites any union data inside the RolloutDeviceSelection as the provided BatchSequence
+func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
+	t.Strategy = "BatchSequence"
+
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBatchSequence performs a merge with any union data inside the RolloutDeviceSelection, using the provided BatchSequence
+func (t *RolloutDeviceSelection) MergeBatchSequence(v BatchSequence) error {
+	t.Strategy = "BatchSequence"
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RolloutDeviceSelection) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"strategy"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RolloutDeviceSelection) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "BatchSequence":
+		return t.AsBatchSequence()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["strategy"], err = json.Marshal(t.Strategy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'strategy': %w", err)
+	}
+
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["strategy"]; found {
+		err = json.Unmarshal(raw, &t.Strategy)
+		if err != nil {
+			return fmt.Errorf("error reading 'strategy': %w", err)
+		}
+	}
+
 	return err
 }
 

@@ -162,16 +162,11 @@ func ValidateLinuxUserGroup(s *string, path string) []error {
 }
 
 func ValidateLinuxFileMode(m *int, path string) []error {
-	if m == nil {
-		return []error{}
+	if m != nil && (*m < 0 || *m > 07777) {
+		return asErrors(field.ErrorList{field.Invalid(fieldPathFor(path), *m, "is not a valid mode")})
 	}
 
-	errs := field.ErrorList{}
-	if *m < 0 || *m > 0o777 {
-		errs = append(errs, field.Invalid(fieldPathFor(path), *m, "is not a valid mode"))
-	}
-
-	return asErrors(errs)
+	return []error{}
 }
 
 func ValidateBase64Field(s string, path string, maxLen int) []error {

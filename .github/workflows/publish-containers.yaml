@@ -64,6 +64,7 @@ jobs:
       - name: Build helm charts
         run: |
           echo packaging "${{ needs.generate-tags.outputs.helm_tag }}"
+          helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
               --version "${{ needs.generate-tags.outputs.helm_tag }}" \
               --app-version "${{ needs.generate-tags.outputs.helm_tag }}"
