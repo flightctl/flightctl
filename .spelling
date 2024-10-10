@@ -22,6 +22,7 @@ ClickOps
 CNV
 config
 Containerfile
+CRD
 CSR
 darwin
 DeviceTemplate
@@ -45,6 +46,7 @@ IP
 JSON-encoded
 JWT
 Keycloak
+Klusterlet
 Kubernetes
 kustomize
 KVM
@@ -81,6 +83,7 @@ resource-unintensive
 ResourceSync
 ResourceSyncs
 RFE
+RHACM
 RHEL
 rollbacks
 rollout
@@ -164,3 +167,6 @@ WorkDir
 OverlappingSelectors
  - docs/user/building-images.md
 usr
+ - docs/user/registering-microshift-devices-acm.md
+Pre-requisite
+import.yaml
