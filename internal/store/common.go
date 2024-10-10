@@ -331,7 +331,7 @@ func applicationsAreEqual(c1, c2 *[]api.ApplicationSpec) bool {
 			return false
 		}
 		switch type1 {
-		case string(api.ImageApplicationProviderType):
+		case api.ImageApplicationProviderType:
 			imageSpec1, err := item1.AsImageApplicationProvider()
 			if err != nil {
 				return false

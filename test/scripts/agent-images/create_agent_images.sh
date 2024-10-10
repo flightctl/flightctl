@@ -4,7 +4,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 IP=$("${SCRIPT_DIR}"/../get_ext_ip.sh)
 
 
-IMAGE_LIST="base v2 v3"
+IMAGE_LIST="base v2 v3 app"
 
 for img in $IMAGE_LIST; do
    echo -e "\033[32mCreating image "${IP}:5000/flightctl-device:${img}" \033[m"
