@@ -80,7 +80,12 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, renderErr)
 	}
 
-	err = t.store.Device().UpdateRendered(ctx, t.resourceRef.OrgID, t.resourceRef.Name, string(renderedConfig))
+	renderedApplications, err := renderApplications(ctx, t.store, t.resourceRef.OrgID, device.Spec.Applications, !util.IsEmptyString(device.Metadata.Owner), false)
+	if err != nil {
+		return t.setStatus(ctx, err)
+	}
+
+	err = t.store.Device().UpdateRendered(ctx, t.resourceRef.OrgID, t.resourceRef.Name, string(renderedConfig), string(renderedApplications))
 	return t.setStatus(ctx, err)
 }
 
@@ -111,6 +116,72 @@ type renderConfigArgs struct {
 	repoNames            []string
 	validateOnly         bool
 	deviceBelongsToFleet bool
+}
+
+type renderApplicationArgs struct {
+	orgId                uuid.UUID
+	store                store.Store
+	applications         []api.RenderedApplicationSpec
+	validateOnly         bool
+	deviceBelongsToFleet bool
+}
+
+func renderApplications(ctx context.Context, store store.Store, orgId uuid.UUID, applications *[]api.ApplicationSpec, deviceBelongsToFleet bool, validateOnly bool) (renderedApplications []byte, err error) {
+	if applications == nil {
+		return nil, nil
+	}
+
+	args := renderApplicationArgs{
+		orgId:                orgId,
+		store:                store,
+		deviceBelongsToFleet: deviceBelongsToFleet,
+		validateOnly:         validateOnly,
+	}
+
+	var invalidApplications []string
+	var firstError error
+
+	for i := range *applications {
+		application := (*applications)[i]
+		var applicationName string
+		name, renderErr := renderApplication(ctx, &application, &args)
+		if errors.Is(renderErr, ErrUnknownApplicationType) {
+			applicationName = "<unknown>"
+		} else {
+			applicationName = name
+		}
+
+		if paramErr := validateParameters(&application, args.validateOnly, args.deviceBelongsToFleet); paramErr != nil {
+			// An error message regarding invalid parameters should take precedence
+			// because it may be the cause of the render error
+			renderErr = paramErr
+		}
+
+		// Append invalid configs only if there's an error
+		if renderErr != nil {
+			invalidApplications = append(invalidApplications, applicationName)
+			if firstError == nil {
+				firstError = renderErr
+			}
+		}
+	}
+
+	if len(invalidApplications) > 0 {
+		pluralSuffix := ""
+		errorPrefix := "Error"
+		if len(invalidApplications) > 1 {
+			pluralSuffix = "s"
+			errorPrefix = "First error"
+		}
+		return nil, fmt.Errorf("%d invalid application%s: %s. %s: %v", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
+	}
+
+	renderedApplications, err = json.Marshal(&args.applications)
+	if err != nil {
+		return nil, fmt.Errorf("failed marshalling applications: %w", err)
+	}
+
+	return renderedApplications, nil
 }
 
 func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, deviceBelongsToFleet bool, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
@@ -154,7 +225,7 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 	for i := range *config {
 		configItem := (*config)[i]
 		name, err := renderConfigItem(ctx, &configItem, args)
-		paramErr := validateConfigParameters(&configItem, args)
+		paramErr := validateParameters(&configItem, args.validateOnly, args.deviceBelongsToFleet)
 
 		if err != nil && errors.Is(err, ErrUnknownConfigName) {
 			name = "<unknown>"
@@ -187,19 +258,23 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 	return nil
 }
 
-func validateConfigParameters(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) error {
-	cfgJson, err := configItem.MarshalJSON()
+type RenderItem interface {
+	MarshalJSON() ([]byte, error)
+}
+
+func validateParameters(item RenderItem, validateOnly, deviceBelongsToFleet bool) error {
+	cfgJson, err := item.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("failed converting configuration to json: %w", err)
 	}
-	if args.validateOnly {
+	if validateOnly {
 		// Make sure all parameters are in the proper format
 		return ValidateParameterFormat(cfgJson)
 	}
 
 	// If we're rendering the device config and it still has parameters, something went wrong
 	if ContainsParameter(cfgJson) {
-		if args.deviceBelongsToFleet {
+		if deviceBelongsToFleet {
 			return fmt.Errorf("configuration contains parameter, perhaps due to a missing device label")
 		} else {
 			return fmt.Errorf("configuration contains parameter, but parameters can only be used in fleet templates")
@@ -227,6 +302,41 @@ func renderConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Ite
 	default:
 		return "", fmt.Errorf("%w: unsupported discriminator: %s", ErrUnknownConfigName, disc)
 	}
+}
+
+func renderApplication(_ context.Context, app *api.ApplicationSpec, args *renderApplicationArgs) (string, error) {
+	appType, err := app.Type()
+	if err != nil {
+		return "", fmt.Errorf("failed getting application type: %w", err)
+	}
+	switch appType {
+	case api.ImageApplicationProviderType:
+		return renderImageApplicationProvider(app, args)
+	default:
+		return "", fmt.Errorf("%w: unsupported application type: %s", ErrUnknownApplicationType, appType)
+	}
+}
+
+func renderImageApplicationProvider(app *api.ApplicationSpec, args *renderApplicationArgs) (string, error) {
+	imageProvider, err := app.AsImageApplicationProvider()
+	if err != nil {
+		return "", fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
+	}
+
+	if args.validateOnly {
+		return *app.Name, nil
+	}
+
+	renderedApp := api.RenderedApplicationSpec{
+		Name:    app.Name,
+		EnvVars: app.EnvVars,
+	}
+	if err := renderedApp.FromImageApplicationProvider(imageProvider); err != nil {
+		return *app.Name, fmt.Errorf("failed rendering application %s: %w", *app.Name, err)
+	}
+
+	args.applications = append(args.applications, renderedApp)
+	return *app.Name, nil
 }
 
 func renderGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
