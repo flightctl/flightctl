@@ -248,12 +248,12 @@ func (s *FleetStore) updateFleet(existingRecord, fleet *model.Fleet) (bool, erro
 		return false, flterrors.ErrResourceVersionConflict
 	}
 
-	sameSpec := FleetSpecsAreEqual(fleet.Spec.Data, existingRecord.Spec.Data)
+	sameSpec := api.FleetSpecsAreEqual(fleet.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
 	fleet.Generation = lo.Ternary(!sameSpec, lo.ToPtr(lo.FromPtr(existingRecord.Generation)+1), existingRecord.Generation)
 
-	sameTemplateSpec := DeviceSpecsAreEqual(fleet.Spec.Data.Template.Spec, existingRecord.Spec.Data.Template.Spec)
+	sameTemplateSpec := api.DeviceSpecsAreEqual(fleet.Spec.Data.Template.Spec, existingRecord.Spec.Data.Template.Spec)
 	if fleet.Spec.Data.Template.Metadata == nil {
 		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 	}

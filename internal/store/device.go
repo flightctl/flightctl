@@ -232,7 +232,7 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 }
 
 func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
-	sameSpec := DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
+	sameSpec := api.DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
 	if !sameSpec {
