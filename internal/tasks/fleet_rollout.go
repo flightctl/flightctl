@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -172,7 +171,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		Hooks:      templateVersion.Status.Hooks,
 	}
 
-	if currentVersion == *templateVersion.Metadata.Name && reflect.DeepEqual(newDeviceSpec, *device.Spec) {
+	if currentVersion == *templateVersion.Metadata.Name && api.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
 		return nil
 	}
