@@ -66,6 +66,8 @@ func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) 
 		invertLabels = true
 	}
 	query = LabelSelectionQuery(query, listParams.Labels, invertLabels)
+	query = LabelMatchExpressionsQuery(query, listParams.LabelMatchExpressions)
+	query = AnnotationsMatchExpressionsQuery(query, listParams.AnnotationsMatchExpressions)
 	query = FieldFilterSelectionQuery(query, listParams.Filter)
 
 	queryStr, args := createOrQuery("owner", listParams.Owners)
@@ -154,6 +156,66 @@ func GetNonNilFieldsFromResource(resource model.Resource) []string {
 	}
 
 	return ret
+}
+
+func matchExpressionQueryAndArgs(matchExpression api.MatchExpression, colName string) (string, []any) {
+	params := strings.Join(lo.Map(lo.FromPtr(matchExpression.Values), func(_ string, _ int) string { return "?" }), ",")
+	args := lo.Map(lo.FromPtr(matchExpression.Values), func(val string, _ int) any { return matchExpression.Key + "=" + val })
+	return fmt.Sprintf("%s && ARRAY[%s]", colName, params), args
+}
+
+func matchInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	whereStr, args := matchExpressionQueryAndArgs(matchExpression, colName)
+	return query.Where(whereStr, args...)
+}
+
+func matchNotInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	whereStr, args := matchExpressionQueryAndArgs(matchExpression, colName)
+	return query.Not(whereStr, args...)
+}
+
+func existsQuery(colName string) string {
+	return fmt.Sprintf("exists (select 1 from unnest(%s) as element where element like ?)", colName)
+}
+
+func matchExistsQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	return query.Where(existsQuery(colName), matchExpression.Key+"=%")
+}
+
+func matchDoesNotExistQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	return query.Not(existsQuery(colName), matchExpression.Key+"=%")
+}
+
+func matchExpressionQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	switch matchExpression.Operator {
+	case api.In:
+		return matchInQuery(query, matchExpression, colName)
+	case api.NotIn:
+		return matchNotInQuery(query, matchExpression, colName)
+	case api.Exists:
+		return matchExistsQuery(query, matchExpression, colName)
+	case api.DoesNotExist:
+		return matchDoesNotExistQuery(query, matchExpression, colName)
+	default:
+		// TODO: Return error for this case and handle it
+		return query
+	}
+}
+
+func matchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions, colName string) *gorm.DB {
+	for _, me := range matchExpressions {
+		query = matchExpressionQuery(query, me, colName)
+	}
+	return query
+
+}
+
+func LabelMatchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions) *gorm.DB {
+	return matchExpressionsQuery(query, matchExpressions, "labels")
+}
+
+func AnnotationsMatchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions) *gorm.DB {
+	return matchExpressionsQuery(query, matchExpressions, "annotations")
 }
 
 // LabelSelectionQuery applies a label-based selection query to the given GORM DB query.
