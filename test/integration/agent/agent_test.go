@@ -137,8 +137,8 @@ var _ = Describe("Device Agent behavior", func() {
 				dev := enrollAndWaitForDevice(h, approval)
 
 				waitForFile("/var/lib/flightctl/certs/agent.crt", *dev.Metadata.Name, h.TestDirPath, nil, nil)
-				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This system is managed by flightctl."), util.IntToPtr(0600))
-				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This text is encoded."), util.IntToPtr(0666))
+				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This system is managed by flightctl."), util.IntToPtr(0o0600))
+				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This text is encoded."), util.IntToPtr(0o1775))
 
 				for key, value := range secrets {
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
@@ -242,7 +242,20 @@ func waitForFile(path, devName, testDirPath string, contents *string, mode *int)
 	Expect(fileInfo.IsDir()).To(Equal(false))
 
 	if mode != nil {
-		Expect(fileInfo.Mode().Perm()).To(Equal(os.FileMode(*mode)))
+		Expect(fileInfo.Mode().Perm()).To(Equal(os.FileMode(*mode).Perm()))
+		fmt.Printf("FILE: %s, MODE: %d\n", path, *mode)
+		fmt.Printf("MODE1: %d\n", *mode&0o1000)
+		fmt.Printf("MODE2: %d\n", *mode&0o2000)
+		fmt.Printf("MODE4: %d\n", *mode&0o4000)
+		if *mode&0o1000 != 0 {
+			Expect(fileInfo.Mode() & os.ModeSticky).ToNot(Equal(0))
+		}
+		if *mode&0o2000 != 0 {
+			Expect(fileInfo.Mode() & os.ModeSetgid).ToNot(Equal(0))
+		}
+		if *mode&0o4000 != 0 {
+			Expect(fileInfo.Mode() & os.ModeSetuid).ToNot(Equal(0))
+		}
 	}
 	if contents != nil {
 		Expect(os.ReadFile(filepath.Join(testDirPath, path))).To(Equal([]byte(*contents)))
