@@ -242,6 +242,100 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
 		})
 
+		It("List by in match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.In,
+						Values:   lo.ToPtr([]string{"value-1"}),
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(1))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+		})
+		It("List by not in match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.NotIn,
+						Values:   lo.ToPtr([]string{"value-1"}),
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(2))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-2"))
+			Expect(*fleets.Items[1].Metadata.Name).To(Equal("myfleet-3"))
+		})
+
+		It("List by exists match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.Exists,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+			Expect(*fleets.Items[1].Metadata.Name).To(Equal("myfleet-2"))
+			Expect(*fleets.Items[2].Metadata.Name).To(Equal("myfleet-3"))
+		})
+
+		It("List by exists match expression where key doesn't exist", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key1",
+						Operator: api.Exists,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(0))
+		})
+
+		It("List by does not exist match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.DoesNotExist,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(0))
+		})
+
+		It("List by does not exist match expression where key does not exist", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key1",
+						Operator: api.DoesNotExist,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+			Expect(*fleets.Items[1].Metadata.Name).To(Equal("myfleet-2"))
+			Expect(*fleets.Items[2].Metadata.Name).To(Equal("myfleet-3"))
+		})
+
 		It("List with device count", func() {
 			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
 			testutil.CreateTestDevicesWithOffset(ctx, 3, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-2"), true, 5)
