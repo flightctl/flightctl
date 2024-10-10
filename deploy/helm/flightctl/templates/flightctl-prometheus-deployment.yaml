@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-prometheus
+  name: flightctl-prometheus
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-prometheus
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-prometheus
+    spec:
+      containers:
+        - name: flightctl-prometheus
+          image: quay.io/prometheus/prometheus:v2.54.0
+          ports:
+            - containerPort: 9090
+              name: service-api
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /etc/prometheus/prometheus.yml
+              name: flightctl-prometheus-config
+              subPath: prometheus.yml
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-prometheus-config
+          configMap:
+            name: flightctl-prometheus-config

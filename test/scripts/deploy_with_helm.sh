@@ -156,6 +156,14 @@ if [ -z "$ONLY_DB" ]; then
   chmod og-rwx ~/.flightctl/certs/*.key
 fi
 
+# attempt to login, it could take some time for API to be stable
+for i in {1..5}; do
+  if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:3443; then
+    break
+  fi
+  sleep 5
+done
+
 # in github CI load docker-image does not seem to work for our images
 kind_load_image localhost/git-server:latest
 kind_load_image docker.io/library/registry:2
