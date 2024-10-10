@@ -23,7 +23,7 @@ spec:
           - path: "/etc/testdir/encoded"
             content: "VGhpcyB0ZXh0IGlzIGVuY29kZWQu"
             contentEncoding: base64
-            mode: 0666
+            mode: 01775
         - name: kubernetes-secret
           configType: KubernetesSecretProviderSpec
           secretRef:
