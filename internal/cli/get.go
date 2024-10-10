@@ -448,7 +448,7 @@ func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) 
 		f := fleets[i]
 		selector := "<none>"
 		if f.Spec.Selector != nil {
-			selector = strings.Join(util.LabelMapToArray(&f.Spec.Selector.MatchLabels), ",")
+			selector = strings.Join(util.LabelMapToArray(f.Spec.Selector.MatchLabels), ",")
 		}
 		valid := "Unknown"
 		if f.Status != nil {

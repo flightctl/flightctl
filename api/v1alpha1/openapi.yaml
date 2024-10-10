@@ -3958,6 +3958,28 @@ components:
           type: string
           description: An opaque string that identifies the server's internal version of an object.
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+
+    MatchExpression:
+      properties:
+        key:
+          type: string
+        operator:
+          type: string
+          enum: [In, NotIn, Exists, DoesNotExist]
+        values:
+          type: array
+          items:
+            type: string
+      required:
+        - key
+        - operator
+
+    MatchExpressions:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/components/schemas/MatchExpression'
+
     LabelSelector:
       type: object
       properties:
@@ -3965,8 +3987,9 @@ components:
           type: object
           additionalProperties:
             type: string
-      required:
-        - matchLabels
+        matchExpressions:
+          $ref: '#/components/schemas/MatchExpressions'
+
       description: A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
     Status:
       type: object
