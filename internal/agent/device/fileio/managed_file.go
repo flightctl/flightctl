@@ -102,7 +102,18 @@ func (m *managedFile) Write() error {
 
 	mode := DefaultFilePermissions
 	if m.Mode != nil {
-		mode = os.FileMode(*m.Mode)
+		// Go stores setuid/setgid/sticky differently, so we
+		// strip them off and then add them back
+		mode = os.FileMode(*m.Mode).Perm()
+		if *m.Mode&0o1000 != 0 {
+			mode = mode | os.ModeSticky
+		}
+		if *m.Mode&0o2000 != 0 {
+			mode = mode | os.ModeSetgid
+		}
+		if *m.Mode&0o4000 != 0 {
+			mode = mode | os.ModeSetuid
+		}
 	}
 
 	// set chown if file information is provided
