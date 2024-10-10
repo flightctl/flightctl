@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -129,13 +130,15 @@ func (s *DataStore) Close() error {
 }
 
 type ListParams struct {
-	Labels       map[string]string
-	Filter       map[string][]string
-	InvertLabels *bool
-	Owners       []string
-	Limit        int
-	Continue     *Continue
-	FleetName    *string
+	Labels                      map[string]string
+	LabelMatchExpressions       v1alpha1.MatchExpressions
+	AnnotationsMatchExpressions v1alpha1.MatchExpressions
+	Filter                      map[string][]string
+	InvertLabels                *bool
+	Owners                      []string
+	Limit                       int
+	Continue                    *Continue
+	FleetName                   *string
 }
 
 type Continue struct {

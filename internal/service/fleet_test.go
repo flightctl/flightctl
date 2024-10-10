@@ -57,7 +57,7 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 		},
 		Spec: v1alpha1.FleetSpec{
 			Selector: &v1alpha1.LabelSelector{
-				MatchLabels: map[string]string{"devKey": "devValue"},
+				MatchLabels: &map[string]string{"devKey": "devValue"},
 			},
 			Template: struct {
 				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
@@ -144,7 +144,7 @@ func TestFleetPatchSpec(t *testing.T) {
 		{Op: "replace", Path: "/spec/selector/matchLabels/devKey", Value: &value},
 	}
 	resp, device := testFleetPatch(require, pr)
-	device.Spec.Selector.MatchLabels = map[string]string{"devKey": "newValue"}
+	device.Spec.Selector.MatchLabels = &map[string]string{"devKey": "newValue"}
 	require.Equal(server.PatchFleet200JSONResponse(device), resp)
 
 	value = 1234

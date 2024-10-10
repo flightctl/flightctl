@@ -242,6 +242,100 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
 		})
 
+		It("List by in match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.In,
+						Values:   lo.ToPtr([]string{"value-1"}),
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(1))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+		})
+		It("List by not in match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.NotIn,
+						Values:   lo.ToPtr([]string{"value-1"}),
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(2))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-2"))
+			Expect(*fleets.Items[1].Metadata.Name).To(Equal("myfleet-3"))
+		})
+
+		It("List by exists match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.Exists,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+			Expect(*fleets.Items[1].Metadata.Name).To(Equal("myfleet-2"))
+			Expect(*fleets.Items[2].Metadata.Name).To(Equal("myfleet-3"))
+		})
+
+		It("List by exists match expression where key doesn't exist", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key1",
+						Operator: api.Exists,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(0))
+		})
+
+		It("List by does not exist match expression", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key",
+						Operator: api.DoesNotExist,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(0))
+		})
+
+		It("List by does not exist match expression where key does not exist", func() {
+			listParams := store.ListParams{
+				Limit: 1000,
+				LabelMatchExpressions: api.MatchExpressions{
+					{
+						Key:      "key1",
+						Operator: api.DoesNotExist,
+					},
+				}}
+			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(fleets.Items)).To(Equal(3))
+			Expect(*fleets.Items[0].Metadata.Name).To(Equal("myfleet-1"))
+			Expect(*fleets.Items[1].Metadata.Name).To(Equal("myfleet-2"))
+			Expect(*fleets.Items[2].Metadata.Name).To(Equal("myfleet-3"))
+		})
+
 		It("List with device count", func() {
 			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
 			testutil.CreateTestDevicesWithOffset(ctx, 3, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-2"), true, 5)
@@ -275,7 +369,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": "value"},
+						MatchLabels: &map[string]string{"key": "value"},
 					},
 				},
 				Status: nil,
@@ -293,7 +387,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(createdFleet.Kind).To(Equal(model.FleetKind))
-			Expect(createdFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
+			Expect(lo.FromPtr(createdFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
 			Expect(createdFleet.Status.Conditions).To(BeEmpty())
 			Expect(*createdFleet.Metadata.Generation).To(Equal(int64(1)))
@@ -321,7 +415,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
 			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
 
-			updatedFleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
+			updatedFleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
 
 			called := false
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
@@ -336,7 +430,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
-			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
+			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
 			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
@@ -362,7 +456,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
-			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
+			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
 			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
@@ -389,7 +483,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
-			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
+			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
 			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
@@ -459,7 +553,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": "value"},
+						MatchLabels: &map[string]string{"key": "value"},
 					},
 				},
 				Status: nil,
@@ -470,7 +564,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": "value"},
+						MatchLabels: &map[string]string{"key": "value"},
 					},
 				},
 				Status: nil,
@@ -487,7 +581,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(createdFleet.Kind).To(Equal(model.FleetKind))
-			Expect(createdFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
+			Expect(lo.FromPtr(createdFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
 			Expect(createdFleet.Status.Conditions).To(BeEmpty())
 			Expect(*createdFleet.Metadata.Generation).To(Equal(int64(1)))
@@ -497,7 +591,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdFleet2.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(createdFleet2.Kind).To(Equal(model.FleetKind))
-			Expect(createdFleet2.Spec.Selector.MatchLabels["key"]).To(Equal("value"))
+			Expect(lo.FromPtr(createdFleet2.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
 			Expect(createdFleet2.Status.Conditions).To(BeEmpty())
 			Expect(*createdFleet2.Metadata.Generation).To(Equal(int64(1)))
@@ -510,7 +604,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": "value"},
+						MatchLabels: &map[string]string{"key": "value"},
 					},
 				},
 				Status: nil,
@@ -519,7 +613,7 @@ var _ = Describe("FleetStore create", func() {
 				Metadata: api.ObjectMeta{},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
-						MatchLabels: map[string]string{"key": "value"},
+						MatchLabels: &map[string]string{"key": "value"},
 					},
 				},
 				Status: nil,
@@ -545,7 +639,7 @@ var _ = Describe("FleetStore create", func() {
 
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: map[string]string{"key": "value"}}
+			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
 			fleet.Status = &api.FleetStatus{Conditions: []api.Condition{condition}}
 
 			_, err = storeInst.Fleet().UpdateStatus(ctx, orgId, fleet)
@@ -554,7 +648,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
 			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
-			Expect(updatedFleet.Spec.Selector.MatchLabels["key"]).To(Equal("value-1"))
+			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
 			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
 		})
