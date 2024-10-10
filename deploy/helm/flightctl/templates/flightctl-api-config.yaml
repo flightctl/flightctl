@@ -34,7 +34,9 @@ data:
         {{- end }}
         {{- if .Values.api.baseUIUrl }}
         baseUIUrl:  {{ .Values.api.baseUIUrl }}
-        {{- else }}
+        {{- else if eq .Values.global.target "acm" }}
+        baseUIUrl:  https://console-openshift-console.{{ include "flightctl.getBaseDomain" (dict "noNs" "true") }}/edge
+        {{- else  }}
         baseUIUrl:  https://ui.{{ include "flightctl.getBaseDomain" . }}
         {{- end }}
         altNames:
@@ -65,6 +67,7 @@ data:
     {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:
         openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
+        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
     {{- else }}
     auth:
         {{- if .Values.global.auth.oidcAuthority }}
@@ -74,6 +77,7 @@ data:
         oidcAuthority: https://auth.{{ include "flightctl.getBaseDomain" . }}/realms/flightctl
         internalOidcAuthority: http://keycloak:8080/realms/flightctl
         {{- end }}
+        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
     {{- end }}
     {{- end }}
     prometheus:
