@@ -15,6 +15,7 @@ api:
     api: 3443 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
     agent: 7443 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
     grpc: 7444 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
+    prometheus: 15690
   baseUIUrl: "http://localhost:9000"
 worker:
   image:

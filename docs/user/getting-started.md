@@ -270,7 +270,7 @@ metadata:
   name: mycsr
 spec:
   request: <add base64-encoded CSR>
-  signerName: ca
+  signerName: enrollment
   usages: ["clientAuth", "CA:false"]
   expirationSeconds: 604800
 EOF
@@ -315,7 +315,7 @@ The Condition of the certificate signing request will then show:
 ```console
 $ flightctl get csr/mycsr
 NAME    AGE     SIGNERNAME  USERNAME    REQUESTEDDURATION   CONDITION
-mycsr   3m4s    ca          <none>      10m0s               Approved
+mycsr   3m4s    enrollment  <none>      10m0s               Approved
 
 ```
 

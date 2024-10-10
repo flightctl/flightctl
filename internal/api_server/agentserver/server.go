@@ -13,6 +13,7 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	service "github.com/flightctl/flightctl/internal/service/agent"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,7 @@ type AgentServer struct {
 	store    store.Store
 	ca       *crypto.CA
 	listener net.Listener
+	metrics  *instrumentation.ApiMetrics
 }
 
 // New returns a new instance of a flightctl server.
@@ -41,6 +43,7 @@ func New(
 	store store.Store,
 	ca *crypto.CA,
 	listener net.Listener,
+	metrics *instrumentation.ApiMetrics,
 ) *AgentServer {
 	return &AgentServer{
 		log:      log,
@@ -48,6 +51,7 @@ func New(
 		store:    store,
 		ca:       ca,
 		listener: listener,
+		metrics:  metrics,
 	}
 }
 
@@ -70,6 +74,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(
+		s.metrics.AgentServerMiddleware,
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
