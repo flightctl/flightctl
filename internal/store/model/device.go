@@ -35,6 +35,9 @@ type Device struct {
 	// The rendered ignition config, exposed in a separate endpoint.
 	RenderedConfig *string
 
+	// The rendered application provided by the service.
+	RenderedApplications *JSONField[*[]api.RenderedApplicationSpec] `gorm:"type:jsonb"`
+
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
 }

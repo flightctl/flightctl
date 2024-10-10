@@ -517,7 +517,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).Should(MatchError(flterrors.ErrNoRenderedVersion))
 
 			// Set first rendered config
-			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the first config")
+			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the first config", "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -533,7 +533,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedConfig).To(BeNil())
 
 			// Set second rendered config
-			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the second config")
+			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the second config", "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
