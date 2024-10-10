@@ -22,7 +22,9 @@ ClickOps
 CNV
 config
 Containerfile
+containerfile
 CSR
+CSRs
 darwin
 DeviceTemplate
 df
