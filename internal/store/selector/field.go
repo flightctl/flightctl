@@ -12,8 +12,9 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/pkg/queryparser"
 	"github.com/flightctl/flightctl/pkg/queryparser/sql"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/selection"
+	"github.com/flightctl/flightctl/pkg/selector"
+	"github.com/flightctl/flightctl/pkg/selector/fields"
+	"github.com/flightctl/flightctl/pkg/selector/selection"
 )
 
 type fieldSelector struct {
@@ -59,7 +60,7 @@ func (fs *fieldSelector) ParseFromString(ctx context.Context, input string) (str
 }
 
 // Parse parses the selector and returns a SQL query with parameters.
-func (fs *fieldSelector) Parse(ctx context.Context, selector fields.Selector) (string, []any, error) {
+func (fs *fieldSelector) Parse(ctx context.Context, selector selector.Selector) (string, []any, error) {
 	q, args, err := fs.parser.Parse(ctx, selector)
 	if err != nil {
 		if ok := IsSelectorError(err); ok {
@@ -77,20 +78,23 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 	}
 
 	// Assert that input is a selector
-	selector, ok := input.(fields.Selector)
+	selector, ok := input.(selector.Selector)
 	if !ok {
 		return nil, fmt.Errorf("invalid input type: expected fieldSelector, got %T", input)
 	}
 
-	requirements := selector.Requirements()
-	tokens := make(queryparser.TokenSet, 0)
+	requirements, selectable := selector.Requirements()
+	if !selectable {
+		return nil, nil
+	}
 
+	tokens := make(queryparser.TokenSet, 0)
 	for _, req := range requirements {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		field, value, operator := SelectorFieldName(strings.TrimSpace(req.Field)), req.Value, req.Operator
+		field, values, operator := SelectorFieldName(strings.TrimSpace(req.Key())), req.Values(), req.Operator()
 		resolvedFields, err := fs.fieldResolver.ResolveFields(field)
 		if err != nil {
 			return nil, err
@@ -103,17 +107,19 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 				return nil, err
 			}
 
-			var valueToken queryparser.TokenSet
-			if value != "" {
-				valueToken = queryparser.NewTokenSet()
-				vtokens, err := fs.createValueToken(resolvedField, value)
-				if err != nil {
-					return nil, err
+			var valuesToken queryparser.TokenSet
+			if values.Len() > 0 {
+				valuesToken = queryparser.NewTokenSet()
+				for _, val := range values.List() {
+					valueToken, err := fs.createValueToken(resolvedField, val)
+					if err != nil {
+						return nil, err
+					}
+					valuesToken = valuesToken.Append(valueToken)
 				}
-				valueToken = valueToken.Append(vtokens)
 			}
 
-			operatorToken, err := fs.createOperatorToken(operator, resolvedField, fieldToken, valueToken)
+			operatorToken, err := fs.createOperatorToken(operator, resolvedField, fieldToken, valuesToken)
 			if err != nil {
 				return nil, err
 			}
@@ -297,7 +303,8 @@ func (fs *fieldSelector) applyArrayOperator(operator selection.Operator, resolve
 // applyTimestampOperator applies the appropriate operator for timestamp fields.
 func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan,
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan,
+		selection.GreaterThanOrEquals, selection.LessThan, selection.LessThanOrEquals,
 		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
@@ -309,7 +316,8 @@ func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, res
 // applyNumbersOperator applies the appropriate operator for numbers fields.
 func (fs *fieldSelector) applyNumbersOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan,
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan,
+		selection.GreaterThanOrEquals, selection.LessThan, selection.LessThanOrEquals,
 		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:

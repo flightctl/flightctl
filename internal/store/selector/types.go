@@ -3,8 +3,8 @@ package selector
 import (
 	"reflect"
 
+	"github.com/flightctl/flightctl/pkg/selector/selection"
 	gormschema "gorm.io/gorm/schema"
-	"k8s.io/apimachinery/pkg/selection"
 )
 
 const (
@@ -26,15 +26,19 @@ const (
 )
 
 var operatorsMap = map[selection.Operator]string{
-	selection.Exists:       "ISNOTNULL",
-	selection.DoesNotExist: "ISNULL",
-	selection.Equals:       "EQ",
-	selection.DoubleEquals: "EQ",
-	selection.NotEquals:    "NOTEQ",
-	selection.In:           "IN",
-	selection.NotIn:        "NOTIN",
-	selection.LessThan:     "LT",
-	selection.GreaterThan:  "GT",
+	selection.Exists:              "ISNOTNULL",
+	selection.DoesNotExist:        "ISNULL",
+	selection.Equals:              "EQ",
+	selection.DoubleEquals:        "EQ",
+	selection.NotEquals:           "NOTEQ",
+	selection.Like:                "LIKE",
+	selection.NotLike:             "NOTLIKE",
+	selection.In:                  "IN",
+	selection.NotIn:               "NOTIN",
+	selection.LessThan:            "LT",
+	selection.LessThanOrEquals:    "LTE",
+	selection.GreaterThan:         "GT",
+	selection.GreaterThanOrEquals: "GTE",
 }
 
 // SelectorFieldName represents the name of a field used in a selector.

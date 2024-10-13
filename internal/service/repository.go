@@ -13,8 +13,9 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	k8s_selector "github.com/flightctl/flightctl/pkg/selector"
+	k8s_fields "github.com/flightctl/flightctl/pkg/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -60,9 +61,9 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector fields.Selector
+	var fieldSelector k8s_selector.Selector
 	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+		if fieldSelector, err = k8s_fields.ParseSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 		}
 	}

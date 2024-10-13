@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/flightctl/flightctl/pkg/selector/selection"
 	k8sLabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -38,7 +38,9 @@ var (
 	binaryOperators = []string{
 		string(selection.In), string(selection.NotIn),
 		string(selection.Equals), string(selection.DoubleEquals), string(selection.NotEquals),
-		string(selection.GreaterThan), string(selection.LessThan),
+		string(selection.Like), string(selection.NotLike),
+		string(selection.GreaterThan), string(selection.GreaterThanOrEquals),
+		string(selection.LessThan), string(selection.LessThanOrEquals),
 	}
 	validRequirementOperators = append(binaryOperators, unaryOperators...)
 )
@@ -163,21 +165,17 @@ type Requirement struct {
 
 // NewRequirement is the constructor for a Requirement.
 // If any of these rules is violated, an error is returned:
-//  1. The operator can only be In, NotIn, Equals, DoubleEquals, Gt, Lt, NotEquals, Exists, or DoesNotExist.
+//  1. The operator can only be In, NotIn, Equals, DoubleEquals, Like, NotLike, Gt, Lt, Gte, Lte, NotEquals, Exists, or DoesNotExist.
 //  2. If the operator is In or NotIn, the values set must be non-empty.
 //  3. If the operator is Equals, DoubleEquals, or NotEquals, the values set must contain one value.
 //  4. If the operator is Exists or DoesNotExist, the value set must be empty.
-//  5. If the operator is Gt or Lt, the values set must contain only one value, which will be interpreted as an integer.
-//  6. The key is invalid due to its length, or sequence of characters. See validateLabelKey for more details.
+//  5. If the operator is Gt, Lt, Gte, Lte, the values set must contain only one value.
 //
 // The empty string is a valid value in the input values set.
 // Returned error, if not nil, is guaranteed to be an aggregated field.ErrorList
 func NewRequirement(key string, op selection.Operator, vals []string, opts ...field.PathOption) (*Requirement, error) {
 	var allErrs field.ErrorList
 	path := field.ToPath(opts...)
-	if err := validateLabelKey(key, path.Child("key")); err != nil {
-		allErrs = append(allErrs, err)
-	}
 
 	valuePath := path.Child("values")
 	switch op {
@@ -189,27 +187,20 @@ func NewRequirement(key string, op selection.Operator, vals []string, opts ...fi
 		if len(vals) != 1 {
 			allErrs = append(allErrs, field.Invalid(valuePath, vals, "exact-match compatibility requires one single value"))
 		}
+	case selection.Like, selection.NotLike:
+		if len(vals) != 1 {
+			allErrs = append(allErrs, field.Invalid(valuePath, vals, "partial-match compatibility requires one single value"))
+		}
 	case selection.Exists, selection.DoesNotExist:
 		if len(vals) != 0 {
 			allErrs = append(allErrs, field.Invalid(valuePath, vals, "values set must be empty for exists and does not exist"))
 		}
-	case selection.GreaterThan, selection.LessThan:
+	case selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
 		if len(vals) != 1 {
-			allErrs = append(allErrs, field.Invalid(valuePath, vals, "for 'Gt', 'Lt' operators, exactly one value is required"))
-		}
-		for i := range vals {
-			if _, err := strconv.ParseInt(vals[i], 10, 64); err != nil {
-				allErrs = append(allErrs, field.Invalid(valuePath.Index(i), vals[i], "for 'Gt', 'Lt' operators, the value must be an integer"))
-			}
+			allErrs = append(allErrs, field.Invalid(valuePath, vals, "for 'Gt', 'Lt', 'Gte', Lte operators, exactly one value is required"))
 		}
 	default:
 		allErrs = append(allErrs, field.NotSupported(path.Child("operator"), op, validRequirementOperators))
-	}
-
-	for i := range vals {
-		if err := validateLabelValue(key, vals[i], valuePath.Index(i)); err != nil {
-			allErrs = append(allErrs, err)
-		}
 	}
 	return &Requirement{key: key, operator: op, strValues: vals}, allErrs.ToAggregate()
 }
@@ -349,14 +340,22 @@ func (r *Requirement) String() string {
 		sb.WriteString("==")
 	case selection.NotEquals:
 		sb.WriteString("!=")
+	case selection.Like:
+		sb.WriteString("~=")
+	case selection.NotLike:
+		sb.WriteString("!~")
 	case selection.In:
 		sb.WriteString(" in ")
 	case selection.NotIn:
 		sb.WriteString(" notin ")
 	case selection.GreaterThan:
 		sb.WriteString(">")
+	case selection.GreaterThanOrEquals:
+		sb.WriteString(">=")
 	case selection.LessThan:
 		sb.WriteString("<")
+	case selection.LessThanOrEquals:
+		sb.WriteString("<=")
 	case selection.Exists, selection.DoesNotExist:
 		return sb.String()
 	}
@@ -461,12 +460,20 @@ const (
 	EqualsToken
 	// GreaterThanToken represents greater than
 	GreaterThanToken
+	// GreaterThanOrEqualsToken represents greater than or equal
+	GreaterThanOrEqualsToken
 	// IdentifierToken represents identifier, e.g. keys and values
 	IdentifierToken
 	// InToken represents in
 	InToken
-	// LessThanToken represents less than
+	// LikeToken represents like
+	LikeToken
+	// NotLikeToken represents not like
+	NotLikeToken
+	// LessThanToken represents less than or equal
 	LessThanToken
+	// LessThanOrEqualsToken represents less than
+	LessThanOrEqualsToken
 	// NotEqualsToken represents not equal
 	NotEqualsToken
 	// NotInToken represents not in
@@ -484,8 +491,12 @@ var string2token = map[string]Token{
 	"==":    DoubleEqualsToken,
 	"=":     EqualsToken,
 	">":     GreaterThanToken,
+	">=":    GreaterThanOrEqualsToken,
 	"in":    InToken,
+	"~=":    LikeToken,
+	"!~":    NotLikeToken,
 	"<":     LessThanToken,
+	"<=":    LessThanOrEqualsToken,
 	"!=":    NotEqualsToken,
 	"notin": NotInToken,
 	"(":     OpenParToken,
@@ -505,7 +516,7 @@ func isWhitespace(ch byte) bool {
 // isSpecialSymbol detects if the character ch can be an operator
 func isSpecialSymbol(ch byte) bool {
 	switch ch {
-	case '=', '!', '(', ')', ',', '>', '<':
+	case '~', '=', '!', '(', ')', ',', '>', '<':
 		return true
 	}
 	return false
@@ -536,26 +547,45 @@ func (l *Lexer) unread() {
 	l.pos--
 }
 
-// scanIDOrKeyword scans string to recognize literal token (for example 'in') or an identifier.
+// scanIDOrKeyword scans the input to recognize a literal token (e.g., 'in') or an identifier.
 func (l *Lexer) scanIDOrKeyword() (tok Token, lit string) {
 	var buffer []byte
-IdentifierLoop:
+	var escapeNextChar bool
+
+	// Read characters one by one.
 	for {
-		switch ch := l.read(); {
-		case ch == 0:
-			break IdentifierLoop
-		case isSpecialSymbol(ch) || isWhitespace(ch):
+		ch := l.read()
+
+		// Exit loop if end of input is reached.
+		if ch == 0 {
+			break
+		}
+
+		// Handle special symbols and whitespace unless escaping is enabled.
+		if (isSpecialSymbol(ch) || isWhitespace(ch)) && !escapeNextChar {
 			l.unread()
-			break IdentifierLoop
-		default:
+			break
+		}
+
+		// Toggle escape flag on encountering backslash.
+		if ch == '\\' && !escapeNextChar {
+			escapeNextChar = true
+		} else {
+			escapeNextChar = false
 			buffer = append(buffer, ch)
 		}
 	}
+
+	// Convert buffer to string.
 	s := string(buffer)
-	if val, ok := string2token[s]; ok { // is a literal token?
+
+	// Check if the string corresponds to a literal token.
+	if val, ok := string2token[s]; ok {
 		return val, s
 	}
-	return IdentifierToken, s // otherwise is an identifier
+
+	// Return as identifier token if no literal match found.
+	return IdentifierToken, s
 }
 
 // scanSpecialSymbol scans string starting with special symbol.
@@ -722,7 +752,8 @@ func (p *Parser) parseRequirement() (*Requirement, error) {
 	switch operator {
 	case selection.In, selection.NotIn:
 		values, err = p.parseValues()
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan:
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.Like, selection.NotLike,
+		selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
 		values, err = p.parseExactValue()
 	}
 	if err != nil {
@@ -746,9 +777,6 @@ func (p *Parser) parseKeyAndInferOperator() (string, selection.Operator, error) 
 		err := fmt.Errorf("found '%s', expected: identifier", literal)
 		return "", "", err
 	}
-	if err := validateLabelKey(literal, p.path); err != nil {
-		return "", "", err
-	}
 	if t, _ := p.lookahead(Values); t == EndOfStringToken || t == CommaToken {
 		if operator != selection.DoesNotExist {
 			operator = selection.Exists
@@ -769,10 +797,18 @@ func (p *Parser) parseOperator() (op selection.Operator, err error) {
 		op = selection.Equals
 	case DoubleEqualsToken:
 		op = selection.DoubleEquals
+	case LikeToken:
+		op = selection.Like
+	case NotLikeToken:
+		op = selection.NotLike
 	case GreaterThanToken:
 		op = selection.GreaterThan
+	case GreaterThanOrEqualsToken:
+		op = selection.GreaterThanOrEquals
 	case LessThanToken:
 		op = selection.LessThan
+	case LessThanOrEqualsToken:
+		op = selection.LessThanOrEquals
 	case NotInToken:
 		op = selection.NotIn
 	case NotEqualsToken:
@@ -861,23 +897,20 @@ func (p *Parser) parseExactValue() (sets.String, error) {
 	return nil, fmt.Errorf("found '%s', expected: identifier", lit)
 }
 
-// Parse takes a string representing a selector and returns a selector
-// object, or an error. This parsing function differs from ParseSelector
-// as they parse different selectors with different syntaxes.
+// Parse takes a string representing a selector and returns a selector object, or an error.
 // The input will cause an error if it does not follow this form:
 //
-//	<selector-syntax>         ::= <requirement> | <requirement> "," <selector-syntax>
-//	<requirement>             ::= [!] KEY [ <set-based-restriction> | <exact-match-restriction> ]
-//	<set-based-restriction>   ::= "" | <inclusion-exclusion> <value-set>
-//	<inclusion-exclusion>     ::= <inclusion> | <exclusion>
-//	<exclusion>               ::= "notin"
-//	<inclusion>               ::= "in"
-//	<value-set>               ::= "(" <values> ")"
-//	<values>                  ::= VALUE | VALUE "," <values>
-//	<exact-match-restriction> ::= ["="|"=="|"!="] VALUE
+//	<selector-syntax>           ::= <requirement> | <requirement> "," <selector-syntax>
+//	<requirement>               ::= [!] KEY [ <set-based-restriction> | <exact-match-restriction> | <partial-match-restriction> ]
+//	<set-based-restriction>     ::= "" | <inclusion-exclusion> <value-set>
+//	<inclusion-exclusion>       ::= <inclusion> | <exclusion>
+//	<exclusion>                 ::= "notin"
+//	<inclusion>                 ::= "in"
+//	<value-set>                 ::= "(" <values> ")"
+//	<values>                    ::= VALUE | VALUE "," <values>
+//	<exact-match-restriction>   ::= ["="|"=="|"!="] VALUE
+//	<partial-match-restriction> ::= ["~="|"!~"] VALUE
 //
-// KEY is a sequence of one or more characters following [ DNS_SUBDOMAIN "/" ] DNS_LABEL. Max length is 63 characters.
-// VALUE is a sequence of zero or more characters "([A-Za-z0-9_-\.])". Max length is 63 characters.
 // Delimiter is white space: (' ', '\t')
 // Example of valid syntax:
 //
