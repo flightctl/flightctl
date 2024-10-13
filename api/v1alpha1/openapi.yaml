@@ -2610,7 +2610,7 @@ components:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: '#/components/schemas/DeviceMetadata'
         spec:
           $ref: '#/components/schemas/DeviceSpec'
         status:
@@ -3972,6 +3972,14 @@ components:
           type: string
           description: An opaque string that identifies the server's internal version of an object.
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+    DeviceMetadata:
+      allOf:
+        - $ref: '#/components/schemas/ObjectMeta'
+        - type: object
+          properties:
+            alias:
+              type: string
+              description: alias of the device
     LabelSelector:
       type: object
       properties:

@@ -9,3 +9,11 @@ func NilOutManagedObjectMetaProperties(om *v1alpha1.ObjectMeta) {
 	om.CreationTimestamp = nil
 	om.DeletionTimestamp = nil
 }
+
+func NilOutManagedDeviceMetaProperties(om *v1alpha1.DeviceMetadata) {
+	om.Generation = nil
+	om.Owner = nil
+	om.Annotations = nil
+	om.CreationTimestamp = nil
+	om.DeletionTimestamp = nil
+}
