@@ -22,10 +22,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/pkg/selector/selection"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	k8sLabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
@@ -51,7 +51,7 @@ func TestSelectorParse(t *testing.T) {
 		"x=a||y=b",
 		"x==a==b",
 		"!x=a",
-		"x<a",
+		//"x<a", we do support
 	}
 	for _, test := range testGoodStrings {
 		lq, err := Parse(test)
@@ -210,7 +210,7 @@ func TestLexer(t *testing.T) {
 		{"(", OpenParToken},
 		{")", ClosedParToken},
 		//Non-"special" characters are considered part of an identifier
-		{"~", IdentifierToken},
+		//{"~", IdentifierToken}, We do support LIKE
 		{"||", IdentifierToken},
 	}
 	for _, v := range testcases {
@@ -436,6 +436,7 @@ func TestRequirementConstructor(t *testing.T) {
 				},
 			},
 		},
+		/* We do support
 		{
 			Key:  "x14",
 			Op:   selection.GreaterThan,
@@ -460,6 +461,7 @@ func TestRequirementConstructor(t *testing.T) {
 				},
 			},
 		},
+
 		{
 			Key: strings.Repeat("a", 254), //breaks DNS rule that len(key) <= 253
 			Op:  selection.Exists,
@@ -471,6 +473,7 @@ func TestRequirementConstructor(t *testing.T) {
 				},
 			},
 		},
+
 		{
 			Key:  "x16",
 			Op:   selection.Equals,
@@ -495,6 +498,7 @@ func TestRequirementConstructor(t *testing.T) {
 				},
 			},
 		},
+		*/
 		{
 			Key: "x18",
 			Op:  "unsupportedOp",
@@ -973,6 +977,7 @@ func TestValidatedSelectorFromSet(t *testing.T) {
 				},
 			},
 		},
+		/* We do support
 		{
 			name:  "Invalid Set, value too long",
 			input: k8sLabels.Set{"Key": "axahm2EJ8Phiephe2eixohbee9eGeiyees1thuozi1xoh0GiuH3diewi8iem7Nui"},
@@ -984,6 +989,7 @@ func TestValidatedSelectorFromSet(t *testing.T) {
 				},
 			},
 		},
+		*/
 	}
 
 	for _, tc := range tests {
