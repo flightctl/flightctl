@@ -15,6 +15,7 @@ import (
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
+	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -111,6 +112,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create bootc client
 	bootcClient := container.NewBootcCmd(executer)
 
+	// create podman client
+	podmanClient := client.NewPodman(a.log, executer)
+
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
@@ -137,12 +141,23 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create hook manager
 	hookManager := hook.NewManager(executer, a.log)
 
+	// create application manager
+	applicationManager := applications.NewManager(a.log, podmanClient)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
 		resourceManager,
 		hookManager,
+		applicationManager,
 		executer,
+		a.log,
+	)
+
+	// create config controller
+	configController := config.NewController(
+		hookManager,
+		deviceReadWriter,
 		a.log,
 	)
 
@@ -196,9 +211,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create config controller
-	configController := config.NewController(
-		hookManager,
+	applicationsController := applications.NewController(
+		podmanClient,
+		applicationManager,
 		deviceReadWriter,
 		a.log,
 	)
@@ -209,19 +224,23 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
+		applicationManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
 		hookManager,
+		applicationsController,
 		configController,
 		osImageController,
 		resourceController,
 		consoleController,
-		a.log,
 		bootcClient,
+		podmanClient,
+		a.log,
 	)
 
 	go hookManager.Run(ctx)
 	go resourceManager.Run(ctx)
+	go applicationManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
