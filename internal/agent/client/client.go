@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os/exec"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -50,4 +51,19 @@ type Enrollment interface {
 	SetRPCMetricsCallback(cb func(operation string, durationSeconds float64, err error))
 	CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
 	GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
+}
+
+// IsCommandAvailable checks if a command is available in the PATH.
+func IsCommandAvailable(cmdName string) bool {
+	_, err := exec.LookPath(cmdName)
+	return err == nil
+}
+
+func IsComposeAvailable() bool {
+	for _, cmdName := range []string{"podman-compose", "docker-compose"} {
+		if IsCommandAvailable(cmdName) {
+			return true
+		}
+	}
+	return false
 }
