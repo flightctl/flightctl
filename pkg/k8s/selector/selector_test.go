@@ -1,3 +1,6 @@
+//go:build !lint
+// +build !lint
+
 /*
 Copyright 2014 The Kubernetes Authors.
 
@@ -12,9 +15,12 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+Modifications by Assaf Albo (asafbss): Added support for the containment operator and unified fields and labels selector.
 */
 
-package k8sselector
+//nolint:staticcheck
+package selector
 
 import (
 	"fmt"
@@ -22,10 +28,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	k8sLabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
@@ -39,6 +45,8 @@ func TestSelectorParse(t *testing.T) {
 		"x=a,y=b,z=c",
 		"",
 		"x!=a,y=b",
+		"x@>a",
+		"x!@a",
 		"x=",
 		"x= ",
 		"x=,z= ",
@@ -46,17 +54,26 @@ func TestSelectorParse(t *testing.T) {
 		"!x",
 		"x>1",
 		"x>1,z<5",
+		"x>=1",
+		"x>=1,z<=5",
+		"x>=1",
+		"x>=1,z<=5",
+		"x>=2024-10-24T10:00:00Z",
 	}
 	testBadStrings := []string{
 		"x=a||y=b",
 		"x==a==b",
 		"!x=a",
 		"x<a",
+		"x<2024-10-24T10:00:00",
+		"x@>(a,b)",
+		"x!@(a,b)",
 	}
 	for _, test := range testGoodStrings {
 		lq, err := Parse(test)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", test, err, err)
+			continue
 		}
 		if strings.Replace(test, " ", "", -1) != lq.String() {
 			t.Errorf("%v restring gave: %v\n", test, lq.String())
@@ -121,7 +138,15 @@ func TestSelectorMatches(t *testing.T) {
 	expectMatch(t, "x", k8sLabels.Set{"x": "z"})
 	expectMatch(t, "!x", k8sLabels.Set{"y": "z"})
 	expectMatch(t, "x>1", k8sLabels.Set{"x": "2"})
+	expectMatch(t, "x>=1", k8sLabels.Set{"x": "2"})
 	expectMatch(t, "x<1", k8sLabels.Set{"x": "0"})
+	expectMatch(t, "x<=1", k8sLabels.Set{"x": "0"})
+	expectMatch(t, "x@>y", k8sLabels.Set{"x": "yw"})
+	expectMatch(t, "x@>w", k8sLabels.Set{"x": "yw"})
+	expectMatch(t, "x@>yw", k8sLabels.Set{"x": "yw"})
+	expectMatch(t, "x@>yw", k8sLabels.Set{"x": "aywb"})
+	expectMatch(t, "x@>yw", k8sLabels.Set{"x": "ayw"})
+	expectMatch(t, "x!@yw", k8sLabels.Set{"x": "ay"})
 	expectNoMatch(t, "x=z", k8sLabels.Set{})
 	expectNoMatch(t, "x=y", k8sLabels.Set{"x": "z"})
 	expectNoMatch(t, "x=y,z=w", k8sLabels.Set{"x": "w", "z": "w"})
@@ -129,7 +154,15 @@ func TestSelectorMatches(t *testing.T) {
 	expectNoMatch(t, "x", k8sLabels.Set{"y": "z"})
 	expectNoMatch(t, "!x", k8sLabels.Set{"x": "z"})
 	expectNoMatch(t, "x>1", k8sLabels.Set{"x": "0"})
+	expectNoMatch(t, "x>=1", k8sLabels.Set{"x": "0"})
 	expectNoMatch(t, "x<1", k8sLabels.Set{"x": "2"})
+	expectNoMatch(t, "x<=1", k8sLabels.Set{"x": "2"})
+	expectNoMatch(t, "x!@y", k8sLabels.Set{"x": "yw"})
+	expectNoMatch(t, "x!@w", k8sLabels.Set{"x": "yw"})
+	expectNoMatch(t, "x!@yw", k8sLabels.Set{"x": "yw"})
+	expectNoMatch(t, "x!@yw", k8sLabels.Set{"x": "aywb"})
+	expectNoMatch(t, "x!@yw", k8sLabels.Set{"x": "ayw"})
+	expectNoMatch(t, "x@>yw", k8sLabels.Set{"x": "ay"})
 
 	labelset := k8sLabels.Set{
 		"foo": "bar",
@@ -201,6 +234,8 @@ func TestLexer(t *testing.T) {
 		{"notin", NotInToken},
 		{"in", InToken},
 		{"=", EqualsToken},
+		{"@>", ContainsToken},
+		{"!@", NotContainsToken},
 		{"==", DoubleEqualsToken},
 		{">", GreaterThanToken},
 		{"<", LessThanToken},
@@ -248,6 +283,7 @@ func TestLexerSequence(t *testing.T) {
 		{"== != (), = notin", []Token{DoubleEqualsToken, NotEqualsToken, OpenParToken, ClosedParToken, CommaToken, EqualsToken, NotInToken}},
 		{"key>2", []Token{IdentifierToken, GreaterThanToken, IdentifierToken}},
 		{"key<1", []Token{IdentifierToken, LessThanToken, IdentifierToken}},
+		{"key@>a, key!@b", []Token{IdentifierToken, ContainsToken, IdentifierToken, CommaToken, IdentifierToken, NotContainsToken, IdentifierToken}},
 	}
 	for _, v := range testcases {
 		var tokens []Token
@@ -285,6 +321,7 @@ func TestParserLookahead(t *testing.T) {
 		{"== != (), = notin", []Token{DoubleEqualsToken, NotEqualsToken, OpenParToken, ClosedParToken, CommaToken, EqualsToken, NotInToken, EndOfStringToken}},
 		{"key>2", []Token{IdentifierToken, GreaterThanToken, IdentifierToken, EndOfStringToken}},
 		{"key<1", []Token{IdentifierToken, LessThanToken, IdentifierToken, EndOfStringToken}},
+		{"key@>a, key!@b", []Token{IdentifierToken, ContainsToken, IdentifierToken, CommaToken, IdentifierToken, NotContainsToken, IdentifierToken, EndOfStringToken}},
 	}
 	for _, v := range testcases {
 		p := &Parser{l: &Lexer{s: v.s, pos: 0}, position: 0}
@@ -318,6 +355,8 @@ func TestParseOperator(t *testing.T) {
 		{"<", nil},
 		{"notin", nil},
 		{"!=", nil},
+		{"@>", nil},
+		{"!@", nil},
 		{"!", fmt.Errorf("found '%s', expected: %v", selection.DoesNotExist, strings.Join(binaryOperators, ", "))},
 		{"exists", fmt.Errorf("found '%s', expected: %v", selection.Exists, strings.Join(binaryOperators, ", "))},
 		{"(", fmt.Errorf("found '%s', expected: %v", "(", strings.Join(binaryOperators, ", "))},
@@ -460,6 +499,7 @@ func TestRequirementConstructor(t *testing.T) {
 				},
 			},
 		},
+		/* We do support
 		{
 			Key: strings.Repeat("a", 254), //breaks DNS rule that len(key) <= 253
 			Op:  selection.Exists,
@@ -495,6 +535,7 @@ func TestRequirementConstructor(t *testing.T) {
 				},
 			},
 		},
+		*/
 		{
 			Key: "x18",
 			Op:  "unsupportedOp",
@@ -503,6 +544,30 @@ func TestRequirementConstructor(t *testing.T) {
 					Type:     field.ErrorTypeNotSupported,
 					Field:    "operator",
 					BadValue: selection.Operator("unsupportedOp"),
+				},
+			},
+		},
+		{
+			Key:  "x19",
+			Op:   selection.Contains,
+			Vals: sets.NewString("foo", "bar"),
+			WantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    "values",
+					BadValue: []string{"bar", "foo"},
+				},
+			},
+		},
+		{
+			Key:  "x19",
+			Op:   selection.NotContains,
+			Vals: sets.NewString("foo", "bar"),
+			WantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    "values",
+					BadValue: []string{"bar", "foo"},
 				},
 			},
 		},
@@ -553,6 +618,11 @@ func TestToString(t *testing.T) {
 			getRequirement("y", selection.LessThan, sets.NewString("8"), t),
 			getRequirement("z", selection.Exists, nil, t)},
 			"x>2,y<8,z", true},
+		{&internalSelector{
+			getRequirement("x", selection.Contains, sets.NewString("2"), t),
+			getRequirement("y", selection.NotContains, sets.NewString("8"), t),
+			getRequirement("z", selection.Exists, nil, t)},
+			"x@>2,y!@8,z", true},
 	}
 	for _, ts := range toStringTests {
 		if out := ts.In.String(); out == "" && ts.Valid {
@@ -973,6 +1043,7 @@ func TestValidatedSelectorFromSet(t *testing.T) {
 				},
 			},
 		},
+		/* We do support
 		{
 			name:  "Invalid Set, value too long",
 			input: k8sLabels.Set{"Key": "axahm2EJ8Phiephe2eixohbee9eGeiyees1thuozi1xoh0GiuH3diewi8iem7Nui"},
@@ -984,6 +1055,7 @@ func TestValidatedSelectorFromSet(t *testing.T) {
 				},
 			},
 		},
+		*/
 	}
 
 	for _, tc := range tests {

@@ -1,3 +1,6 @@
+//go:build !lint
+// +build !lint
+
 /*
 Copyright 2014 The Kubernetes Authors.
 
@@ -12,9 +15,12 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+Modifications by Assaf Albo (asafbss): Added support for the containment operator and unified fields and labels selector.
 */
 
-package k8sselector
+//nolint:gosimple,staticcheck
+package selector
 
 import (
 	"fmt"
@@ -22,11 +28,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
 	k8sLabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 )
@@ -38,7 +44,9 @@ var (
 	binaryOperators = []string{
 		string(selection.In), string(selection.NotIn),
 		string(selection.Equals), string(selection.DoubleEquals), string(selection.NotEquals),
-		string(selection.GreaterThan), string(selection.LessThan),
+		string(selection.Contains), string(selection.NotContains),
+		string(selection.GreaterThan), string(selection.GreaterThanOrEquals),
+		string(selection.LessThan), string(selection.LessThanOrEquals),
 	}
 	validRequirementOperators = append(binaryOperators, unaryOperators...)
 )
@@ -163,21 +171,17 @@ type Requirement struct {
 
 // NewRequirement is the constructor for a Requirement.
 // If any of these rules is violated, an error is returned:
-//  1. The operator can only be In, NotIn, Equals, DoubleEquals, Gt, Lt, NotEquals, Exists, or DoesNotExist.
+//  1. The operator can only be In, NotIn, Equals, DoubleEquals, Contains, NotContains, Gt, Lt, Gte, Lte, NotEquals, Exists, or DoesNotExist.
 //  2. If the operator is In or NotIn, the values set must be non-empty.
 //  3. If the operator is Equals, DoubleEquals, or NotEquals, the values set must contain one value.
 //  4. If the operator is Exists or DoesNotExist, the value set must be empty.
-//  5. If the operator is Gt or Lt, the values set must contain only one value, which will be interpreted as an integer.
-//  6. The key is invalid due to its length, or sequence of characters. See validateLabelKey for more details.
+//  5. If the operator is Gt, Lt, Gte, Lte, the values set must contain only one value.
 //
 // The empty string is a valid value in the input values set.
 // Returned error, if not nil, is guaranteed to be an aggregated field.ErrorList
 func NewRequirement(key string, op selection.Operator, vals []string, opts ...field.PathOption) (*Requirement, error) {
 	var allErrs field.ErrorList
 	path := field.ToPath(opts...)
-	if err := validateLabelKey(key, path.Child("key")); err != nil {
-		allErrs = append(allErrs, err)
-	}
 
 	valuePath := path.Child("values")
 	switch op {
@@ -189,27 +193,27 @@ func NewRequirement(key string, op selection.Operator, vals []string, opts ...fi
 		if len(vals) != 1 {
 			allErrs = append(allErrs, field.Invalid(valuePath, vals, "exact-match compatibility requires one single value"))
 		}
+	case selection.Contains, selection.NotContains:
+		if len(vals) != 1 {
+			allErrs = append(allErrs, field.Invalid(valuePath, vals, "partial-match compatibility requires one single value"))
+		}
 	case selection.Exists, selection.DoesNotExist:
 		if len(vals) != 0 {
 			allErrs = append(allErrs, field.Invalid(valuePath, vals, "values set must be empty for exists and does not exist"))
 		}
-	case selection.GreaterThan, selection.LessThan:
+	case selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
 		if len(vals) != 1 {
-			allErrs = append(allErrs, field.Invalid(valuePath, vals, "for 'Gt', 'Lt' operators, exactly one value is required"))
+			allErrs = append(allErrs, field.Invalid(valuePath, vals, "for 'Gt', 'Lt', 'Gte', Lte operators, exactly one value is required"))
 		}
 		for i := range vals {
 			if _, err := strconv.ParseInt(vals[i], 10, 64); err != nil {
-				allErrs = append(allErrs, field.Invalid(valuePath.Index(i), vals[i], "for 'Gt', 'Lt' operators, the value must be an integer"))
+				if _, err := time.Parse(time.RFC3339, vals[i]); err != nil {
+					allErrs = append(allErrs, field.Invalid(valuePath.Index(i), vals[i], "for 'Gt', 'Lt', 'Gte', and 'Lte' operators, the value must be a number or a valid time in RFC3339 format"))
+				}
 			}
 		}
 	default:
 		allErrs = append(allErrs, field.NotSupported(path.Child("operator"), op, validRequirementOperators))
-	}
-
-	for i := range vals {
-		if err := validateLabelValue(key, vals[i], valuePath.Index(i)); err != nil {
-			allErrs = append(allErrs, err)
-		}
 	}
 	return &Requirement{key: key, operator: op, strValues: vals}, allErrs.ToAggregate()
 }
@@ -241,6 +245,26 @@ func (r *Requirement) Matches(ls k8sLabels.Labels) bool {
 			return false
 		}
 		return r.hasValue(ls.Get(r.key))
+	case selection.Contains:
+		if !ls.Has(r.key) {
+			return false
+		}
+		if len(r.strValues) != 1 {
+			klog.V(10).Infof("Invalid values count %+v of requirement %#v, for 'Contains' operator, exactly one value is required", len(r.strValues), r)
+			return false
+		}
+
+		return strings.Contains(ls.Get(r.key), r.strValues[0])
+	case selection.NotContains:
+		if !ls.Has(r.key) {
+			return false
+		}
+		if len(r.strValues) != 1 {
+			klog.V(10).Infof("Invalid values count %+v of requirement %#v, for 'NotContains' operator, exactly one value is required", len(r.strValues), r)
+			return false
+		}
+
+		return !strings.Contains(ls.Get(r.key), r.strValues[0])
 	case selection.NotIn, selection.NotEquals:
 		if !ls.Has(r.key) {
 			return true
@@ -250,7 +274,7 @@ func (r *Requirement) Matches(ls k8sLabels.Labels) bool {
 		return ls.Has(r.key)
 	case selection.DoesNotExist:
 		return !ls.Has(r.key)
-	case selection.GreaterThan, selection.LessThan:
+	case selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
 		if !ls.Has(r.key) {
 			return false
 		}
@@ -274,7 +298,8 @@ func (r *Requirement) Matches(ls k8sLabels.Labels) bool {
 				return false
 			}
 		}
-		return (r.operator == selection.GreaterThan && lsValue > rValue) || (r.operator == selection.LessThan && lsValue < rValue)
+		return (r.operator == selection.GreaterThan && lsValue > rValue) || (r.operator == selection.LessThan && lsValue < rValue) ||
+			(r.operator == selection.GreaterThanOrEquals && lsValue >= rValue) || (r.operator == selection.LessThanOrEquals && lsValue <= rValue)
 	default:
 		return false
 	}
@@ -349,14 +374,22 @@ func (r *Requirement) String() string {
 		sb.WriteString("==")
 	case selection.NotEquals:
 		sb.WriteString("!=")
+	case selection.Contains:
+		sb.WriteString("@>")
+	case selection.NotContains:
+		sb.WriteString("!@")
 	case selection.In:
 		sb.WriteString(" in ")
 	case selection.NotIn:
 		sb.WriteString(" notin ")
 	case selection.GreaterThan:
 		sb.WriteString(">")
+	case selection.GreaterThanOrEquals:
+		sb.WriteString(">=")
 	case selection.LessThan:
 		sb.WriteString("<")
+	case selection.LessThanOrEquals:
+		sb.WriteString("<=")
 	case selection.Exists, selection.DoesNotExist:
 		return sb.String()
 	}
@@ -461,14 +494,22 @@ const (
 	EqualsToken
 	// GreaterThanToken represents greater than
 	GreaterThanToken
+	// GreaterThanOrEqualsToken represents greater than or equal
+	GreaterThanOrEqualsToken
 	// IdentifierToken represents identifier, e.g. keys and values
 	IdentifierToken
+	// ContainsToken represents contains
+	ContainsToken
 	// InToken represents in
 	InToken
-	// LessThanToken represents less than
+	// LessThanToken represents less than or equal
 	LessThanToken
+	// LessThanOrEqualsToken represents less than
+	LessThanOrEqualsToken
 	// NotEqualsToken represents not equal
 	NotEqualsToken
+	// NotContainsToken represents not contains
+	NotContainsToken
 	// NotInToken represents not in
 	NotInToken
 	// OpenParToken represents open parenthesis
@@ -484,9 +525,13 @@ var string2token = map[string]Token{
 	"==":    DoubleEqualsToken,
 	"=":     EqualsToken,
 	">":     GreaterThanToken,
+	">=":    GreaterThanOrEqualsToken,
+	"@>":    ContainsToken,
 	"in":    InToken,
 	"<":     LessThanToken,
+	"<=":    LessThanOrEqualsToken,
 	"!=":    NotEqualsToken,
+	"!@":    NotContainsToken,
 	"notin": NotInToken,
 	"(":     OpenParToken,
 }
@@ -505,7 +550,7 @@ func isWhitespace(ch byte) bool {
 // isSpecialSymbol detects if the character ch can be an operator
 func isSpecialSymbol(ch byte) bool {
 	switch ch {
-	case '=', '!', '(', ')', ',', '>', '<':
+	case '@', '=', '!', '(', ')', ',', '>', '<':
 		return true
 	}
 	return false
@@ -536,26 +581,45 @@ func (l *Lexer) unread() {
 	l.pos--
 }
 
-// scanIDOrKeyword scans string to recognize literal token (for example 'in') or an identifier.
+// scanIDOrKeyword scans the input to recognize a literal token (e.g., 'in') or an identifier.
 func (l *Lexer) scanIDOrKeyword() (tok Token, lit string) {
 	var buffer []byte
-IdentifierLoop:
+	var escapeNextChar bool
+
+	// Read characters one by one.
 	for {
-		switch ch := l.read(); {
-		case ch == 0:
-			break IdentifierLoop
-		case isSpecialSymbol(ch) || isWhitespace(ch):
+		ch := l.read()
+
+		// Exit loop if end of input is reached.
+		if ch == 0 {
+			break
+		}
+
+		// Handle special symbols and whitespace unless escaping is enabled.
+		if (isSpecialSymbol(ch) || isWhitespace(ch)) && !escapeNextChar {
 			l.unread()
-			break IdentifierLoop
-		default:
+			break
+		}
+
+		// Toggle escape flag on encountering backslash.
+		if ch == '\\' && !escapeNextChar {
+			escapeNextChar = true
+		} else {
+			escapeNextChar = false
 			buffer = append(buffer, ch)
 		}
 	}
+
+	// Convert buffer to string.
 	s := string(buffer)
-	if val, ok := string2token[s]; ok { // is a literal token?
+
+	// Check if the string corresponds to a literal token.
+	if val, ok := string2token[s]; ok {
 		return val, s
 	}
-	return IdentifierToken, s // otherwise is an identifier
+
+	// Return as identifier token if no literal match found.
+	return IdentifierToken, s
 }
 
 // scanSpecialSymbol scans string starting with special symbol.
@@ -722,7 +786,8 @@ func (p *Parser) parseRequirement() (*Requirement, error) {
 	switch operator {
 	case selection.In, selection.NotIn:
 		values, err = p.parseValues()
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan:
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.Contains, selection.NotContains,
+		selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
 		values, err = p.parseExactValue()
 	}
 	if err != nil {
@@ -746,9 +811,6 @@ func (p *Parser) parseKeyAndInferOperator() (string, selection.Operator, error) 
 		err := fmt.Errorf("found '%s', expected: identifier", literal)
 		return "", "", err
 	}
-	if err := validateLabelKey(literal, p.path); err != nil {
-		return "", "", err
-	}
 	if t, _ := p.lookahead(Values); t == EndOfStringToken || t == CommaToken {
 		if operator != selection.DoesNotExist {
 			operator = selection.Exists
@@ -769,14 +831,22 @@ func (p *Parser) parseOperator() (op selection.Operator, err error) {
 		op = selection.Equals
 	case DoubleEqualsToken:
 		op = selection.DoubleEquals
+	case ContainsToken:
+		op = selection.Contains
 	case GreaterThanToken:
 		op = selection.GreaterThan
+	case GreaterThanOrEqualsToken:
+		op = selection.GreaterThanOrEquals
 	case LessThanToken:
 		op = selection.LessThan
+	case LessThanOrEqualsToken:
+		op = selection.LessThanOrEquals
 	case NotInToken:
 		op = selection.NotIn
 	case NotEqualsToken:
 		op = selection.NotEquals
+	case NotContainsToken:
+		op = selection.NotContains
 	default:
 		return "", fmt.Errorf("found '%s', expected: %v", lit, strings.Join(binaryOperators, ", "))
 	}
@@ -861,23 +931,20 @@ func (p *Parser) parseExactValue() (sets.String, error) {
 	return nil, fmt.Errorf("found '%s', expected: identifier", lit)
 }
 
-// Parse takes a string representing a selector and returns a selector
-// object, or an error. This parsing function differs from ParseSelector
-// as they parse different selectors with different syntaxes.
+// Parse takes a string representing a selector and returns a selector object, or an error.
 // The input will cause an error if it does not follow this form:
 //
-//	<selector-syntax>         ::= <requirement> | <requirement> "," <selector-syntax>
-//	<requirement>             ::= [!] KEY [ <set-based-restriction> | <exact-match-restriction> ]
-//	<set-based-restriction>   ::= "" | <inclusion-exclusion> <value-set>
-//	<inclusion-exclusion>     ::= <inclusion> | <exclusion>
-//	<exclusion>               ::= "notin"
-//	<inclusion>               ::= "in"
-//	<value-set>               ::= "(" <values> ")"
-//	<values>                  ::= VALUE | VALUE "," <values>
-//	<exact-match-restriction> ::= ["="|"=="|"!="] VALUE
+//	<selector-syntax>           ::= <requirement> | <requirement> "," <selector-syntax>
+//	<requirement>               ::= [!] KEY [ <set-based-restriction> | <exact-match-restriction> | <partial-match-restriction> ]
+//	<set-based-restriction>     ::= "" | <inclusion-exclusion> <value-set>
+//	<inclusion-exclusion>       ::= <inclusion> | <exclusion>
+//	<exclusion>                 ::= "notin"
+//	<inclusion>                 ::= "in"
+//	<value-set>                 ::= "(" <values> ")"
+//	<values>                    ::= VALUE | VALUE "," <values>
+//	<exact-match-restriction>   ::= ["="|"=="|"!="] VALUE
+//	<partial-match-restriction> ::= ["@>"|"!@"] VALUE
 //
-// KEY is a sequence of one or more characters following [ DNS_SUBDOMAIN "/" ] DNS_LABEL. Max length is 63 characters.
-// VALUE is a sequence of zero or more characters "([A-Za-z0-9_-\.])". Max length is 63 characters.
 // Delimiter is white space: (' ', '\t')
 // Example of valid syntax:
 //
@@ -911,21 +978,7 @@ func parse(selector string, path *field.Path) (internalSelector, error) {
 		return nil, err
 	}
 	sort.Sort(ByKey(items)) // sort to grant determistic parsing
-	return internalSelector(items), err
-}
-
-func validateLabelKey(k string, path *field.Path) *field.Error {
-	if errs := validation.IsQualifiedName(k); len(errs) != 0 {
-		return field.Invalid(path, k, strings.Join(errs, "; "))
-	}
-	return nil
-}
-
-func validateLabelValue(k, v string, path *field.Path) *field.Error {
-	if errs := validation.IsValidLabelValue(v); len(errs) != 0 {
-		return field.Invalid(path.Key(k), v, strings.Join(errs, "; "))
-	}
-	return nil
+	return items, err
 }
 
 // SelectorFromSet returns a Selector which will match exactly the given Set. A
