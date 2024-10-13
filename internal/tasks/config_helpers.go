@@ -29,7 +29,7 @@ func ValidateParameterFormat(b []byte) error {
 	return nil
 }
 
-func ReplaceParameters(b []byte, objectMeta api.ObjectMeta) ([]byte, []string) {
+func ReplaceParameters(b []byte, objectMeta api.DeviceMetadata) ([]byte, []string) {
 	replacements := map[string]string{}
 	paramsToMatches := map[string]string{}
 

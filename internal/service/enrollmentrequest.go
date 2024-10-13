@@ -14,9 +14,10 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
+	k8s_selector "github.com/flightctl/flightctl/pkg/selector"
+	k8s_fields "github.com/flightctl/flightctl/pkg/selector/fields"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -78,7 +79,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
 	apiResource := &v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
+		Metadata: v1alpha1.DeviceMetadata{
 			Name: enrollmentRequest.Metadata.Name,
 		},
 	}
@@ -115,9 +116,9 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector fields.Selector
+	var fieldSelector k8s_selector.Selector
 	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+		if fieldSelector, err = k8s_fields.ParseSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 		}
 	}
