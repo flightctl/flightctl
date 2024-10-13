@@ -3,7 +3,10 @@ package selector
 import (
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -13,30 +16,14 @@ import (
 )
 
 var (
-	cacheStore           = &sync.Map{}
-	schemaTypeResolution = map[gormschema.DataType]SelectorFieldType{
-		gormschema.Bool:   Bool,
-		gormschema.Int:    Int,
-		gormschema.Float:  Float,
-		gormschema.String: String,
-		gormschema.Time:   Time,
-		"boolean[]":       BoolArray,
-		"integer[]":       IntArray,
-		"smallint[]":      SmallIntArray,
-		"bigint[]":        BigIntArray,
-		"real[]":          FloatArray,
-		"text[]":          TextArray,
-		"timestamp[]":     TimestampArray,
-		"jsonb":           Jsonb,
-	}
-
+	cacheStore         = &sync.Map{}
 	castTypeResolution = map[string]SelectorFieldType{
 		"boolean":   Bool,
 		"integer":   Int,
 		"smallint":  SmallInt,
 		"bigInt":    BigInt,
 		"float":     Float,
-		"timestamp": Time,
+		"timestamp": Timestamp,
 		"string":    String,
 	}
 )
@@ -97,16 +84,17 @@ func (sr *selectorFieldResolver) ResolveNames(field SelectorFieldName) ([]string
 // It returns a slice of resolved SelectorField or an error if the field cannot be resolved.
 func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*SelectorField, error) {
 	resolve := func(fn SelectorFieldName) (*SelectorField, error) {
-		if resolvedField, exists := sr.schemaFields[fn]; exists {
+		fieldName := strings.TrimSpace(string(fn))
+		if resolvedField, exists := sr.schemaFields[SelectorFieldName(fieldName)]; exists {
 			fieldType, ok := schemaTypeResolution[resolvedField.DataType]
 			if !ok {
-				return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", fn)
+				return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", fieldName)
 			}
 
 			if fieldType.IsArray() {
 				fieldKind := resolvedField.StructField.Type.Kind()
 				if fieldKind != reflect.Array && fieldKind != reflect.Slice {
-					return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", fn, fieldKind.String())
+					return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", resolvedField.DBName, fieldKind.String())
 				}
 			}
 
@@ -118,18 +106,51 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 			}, nil
 		}
 
-		// Handle JSONB fields
-		jsonbField := strings.TrimSpace(string(fn))
-		fieldParts := strings.Split(jsonbField, ".")
-		if len(fieldParts) > 1 {
-			// Iterate through schema fields to find the matching JSONB field
-			for _, schemaField := range sr.schemaFields {
-				if schemaField.DataType == "jsonb" && schemaField.DBName == fieldParts[0] {
-					// Check if there's a "::" in the JSONB field name
-					if strings.Contains(jsonbField, "::") {
-						parts := strings.Split(jsonbField, "::")
+		// Handle nested field resolutions
+		for selectorName, schemaField := range sr.schemaFields {
+			if len(fieldName) > len(selectorName) && strings.HasPrefix(fieldName, string(selectorName)) {
+				fieldType, ok := schemaTypeResolution[schemaField.DataType]
+				if !ok {
+					return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", fieldName)
+				}
+
+				if fieldType.IsArray() && fieldName[len(selectorName)] == '[' {
+					if !arrayPattern.MatchString(fieldName) {
+						return nil, fmt.Errorf(
+							"array access must specify a valid index (e.g., 'conditions[0]'); invalid field: %s", fieldName)
+					}
+
+					fieldKind := schemaField.StructField.Type.Kind()
+					if fieldKind != reflect.Array && fieldKind != reflect.Slice {
+						return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", schemaField.DBName, fieldKind.String())
+					}
+
+					arrayIndex, err := strconv.Atoi(fieldName[strings.Index(fieldName, "[")+1 : len(fieldName)-1])
+					if err != nil {
+						return nil, err
+					}
+
+					if arrayIndex == math.MaxInt {
+						return nil, fmt.Errorf("array index overflow for field %s", fieldName)
+					}
+
+					// 1-based indexing for PostgreSQL
+					arrayIndex += 1
+					return &SelectorField{
+						DBName:      fmt.Sprintf("%s[%d]", schemaField.DBName, arrayIndex),
+						Type:        fieldType.ArrayType(),
+						DataType:    schemaField.DataType,
+						StructField: schemaField.StructField,
+					}, nil
+
+				}
+
+				if fieldType == Jsonb && fieldName[len(selectorName)] == '.' {
+					fieldName = schemaField.DBName + fieldName[len(selectorName):]
+					if strings.Contains(fieldName, "::") {
+						parts := strings.Split(fieldName, "::")
 						if len(parts) != 2 {
-							return nil, fmt.Errorf("invalid field format: %s", jsonbField)
+							return nil, fmt.Errorf("invalid field format: %s", fieldName)
 						}
 						fieldName := parts[0]
 						suffix := parts[1]
@@ -151,7 +172,7 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 
 					// Original logic if no "::" is present
 					return &SelectorField{
-						DBName:      jsonbField,
+						DBName:      fieldName,
 						Type:        Jsonb,
 						DataType:    schemaField.DataType,
 						StructField: schemaField.StructField,
@@ -253,11 +274,17 @@ func ResolveFieldsFromSchema(dest any) (map[SelectorFieldName]*gormschema.Field,
 		return nil, fmt.Errorf("failed to parse schema: %w", err)
 	}
 
+	fieldList := make([]string, 0)
 	fieldMap := make(map[SelectorFieldName]*gormschema.Field)
 	for _, field := range schema.Fields {
 		if selector := field.StructField.Tag.Get("selector"); selector != "" {
+			fieldList = append(fieldList, selector)
 			fieldMap[SelectorFieldName(selector)] = field
 		}
+	}
+
+	if err := isPrefixOfAnother(fieldList); err != nil {
+		return nil, fmt.Errorf("found conflicted fields: %w", err)
 	}
 	return fieldMap, nil
 }
@@ -304,4 +331,15 @@ func AsSelectorError(err error, target any) bool {
 func IsSelectorError(err error) bool {
 	var selectorErr *SelectorError
 	return errors.As(err, &selectorErr)
+}
+
+// isPrefixOfAnother checks if any field is a prefix of another in the list.
+func isPrefixOfAnother(fields []string) error {
+	sort.Strings(fields)
+	for i := 0; i < len(fields)-1; i++ {
+		if strings.HasPrefix(fields[i+1], fields[i]+".") {
+			return fmt.Errorf("'%s' is a prefix of '%s'", fields[i], fields[i+1])
+		}
+	}
+	return nil
 }

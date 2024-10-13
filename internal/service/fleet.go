@@ -16,8 +16,9 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -73,7 +74,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector fields.Selector
+	var fieldSelector k8sselector.Selector
 	if request.Params.FieldSelector != nil {
 		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
