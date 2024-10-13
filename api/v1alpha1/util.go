@@ -9,15 +9,22 @@ import (
 	"github.com/samber/lo"
 )
 
+type HookActionType string
+
 const (
-	SystemdActionType            = "systemd"
-	ExecutableActionType         = "executable"
-	ImageApplicationProviderType = "image"
+	SystemdActionType    HookActionType = "systemd"
+	ExecutableActionType HookActionType = "executable"
+)
+
+type ApplicationProviderType string
+
+const (
+	ImageApplicationProviderType ApplicationProviderType = "image"
 )
 
 // Type returns the type of the action.
-func (t HookAction) Type() (string, error) {
-	var data map[string]interface{}
+func (t HookAction) Type() (HookActionType, error) {
+	var data map[HookActionType]struct{}
 	if err := json.Unmarshal(t.union, &data); err != nil {
 		return "", err
 	}
@@ -34,17 +41,17 @@ func (t HookAction) Type() (string, error) {
 }
 
 // Type returns the type of the application provider.
-func (a ApplicationSpec) Type() (string, error) {
+func (a ApplicationSpec) Type() (ApplicationProviderType, error) {
 	return getApplicationType(a.union)
 }
 
 // Type returns the type of the application provider.
-func (a RenderedApplicationSpec) Type() (string, error) {
+func (a RenderedApplicationSpec) Type() (ApplicationProviderType, error) {
 	return getApplicationType(a.union)
 }
 
-func getApplicationType(union json.RawMessage) (string, error) {
-	var data map[string]interface{}
+func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) {
+	var data map[ApplicationProviderType]interface{}
 	if err := json.Unmarshal(union, &data); err != nil {
 		return "", err
 	}
