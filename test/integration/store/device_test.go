@@ -64,7 +64,7 @@ var _ = Describe("DeviceStore create", func() {
 	It("CreateOrUpdateDevice create mode race", func() {
 		imageName := "tv"
 		device := api.Device{
-			Metadata: api.ObjectMeta{
+			Metadata: api.DeviceMetadata{
 				Name: util.StrToPtr("newresourcename"),
 			},
 			Spec: &api.DeviceSpec{
@@ -92,7 +92,7 @@ var _ = Describe("DeviceStore create", func() {
 	It("CreateOrUpdateDevice update mode race", func() {
 		status := api.NewDeviceStatus()
 		device := api.Device{
-			Metadata: api.ObjectMeta{
+			Metadata: api.DeviceMetadata{
 				Name: util.StrToPtr("mydevice-1"),
 			},
 			Spec: &api.DeviceSpec{
@@ -108,7 +108,7 @@ var _ = Describe("DeviceStore create", func() {
 			if raceCalled {
 				return
 			}
-			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOSSpec{Image: "bah"}}}
+			otherupdate := api.Device{Metadata: api.DeviceMetadata{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOSSpec{Image: "bah"}}}
 			device, err := model.NewDeviceFromApiResource(&otherupdate)
 			device.OrgID = orgId
 			device.ResourceVersion = lo.ToPtr(int64(5))
@@ -329,7 +329,7 @@ var _ = Describe("DeviceStore create", func() {
 		It("CreateOrUpdateDevice create mode", func() {
 			imageName := "tv"
 			device := api.Device{
-				Metadata: api.ObjectMeta{
+				Metadata: api.DeviceMetadata{
 					Name: util.StrToPtr("newresourcename"),
 				},
 				Spec: &api.DeviceSpec{
@@ -348,7 +348,7 @@ var _ = Describe("DeviceStore create", func() {
 		It("CreateOrUpdateDevice update mode", func() {
 			status := api.NewDeviceStatus()
 			device := api.Device{
-				Metadata: api.ObjectMeta{
+				Metadata: api.DeviceMetadata{
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
@@ -406,7 +406,7 @@ var _ = Describe("DeviceStore create", func() {
 				Message:            "message",
 			}
 			device := api.Device{
-				Metadata: api.ObjectMeta{
+				Metadata: api.DeviceMetadata{
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
