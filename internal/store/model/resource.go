@@ -27,9 +27,9 @@ type Resource struct {
 	// User-defined labels, used to select resources in queries.
 	// Labels are inserted in the device column as a string array, in a way
 	// that we can perform indexing and queries on them.
-	Labels pq.StringArray `gorm:"type:text[]"`
+	Labels pq.StringArray `gorm:"type:text[]" selector:"metadata.labels"`
 
-	Annotations pq.StringArray `gorm:"type:text[]"`
+	Annotations pq.StringArray `gorm:"type:text[]" selector:"metadata.annotations"`
 
 	Generation      *int64
 	ResourceVersion *int64
