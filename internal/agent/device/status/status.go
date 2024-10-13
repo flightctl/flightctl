@@ -33,7 +33,7 @@ func NewManager(
 		deviceName: deviceName,
 		exporters:  exporters,
 		device: &v1alpha1.Device{
-			Metadata: v1alpha1.ObjectMeta{
+			Metadata: v1alpha1.DeviceMetadata{
 				Name: &deviceName,
 			},
 			Status: &status,
