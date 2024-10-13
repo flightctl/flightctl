@@ -67,9 +67,6 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	if resource.Status != nil {
 		status = *resource.Status
 	}
-	if status.Applications.Data == nil {
-		status.Applications.Data = make(map[string]api.ApplicationStatus)
-	}
 	if status.Conditions == nil {
 		status.Conditions = []api.Condition{}
 	}
