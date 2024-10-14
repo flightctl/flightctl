@@ -4,16 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
-	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -300,114 +296,4 @@ func retryUpdate(fn func() (bool, error)) error {
 		i++
 	}
 	return err
-}
-
-func configsAreEqual(c1, c2 *[]api.DeviceSpec_Config_Item) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 api.DeviceSpec_Config_Item, item2 api.DeviceSpec_Config_Item) bool {
-		value1, err := item1.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		value2, err := item2.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		return reflect.DeepEqual(value1, value2)
-	})
-}
-
-func applicationsAreEqual(c1, c2 *[]api.ApplicationSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 api.ApplicationSpec, item2 api.ApplicationSpec) bool {
-		type1, err := item1.Type()
-		if err != nil {
-			return false
-		}
-		type2, err := item2.Type()
-		if err != nil {
-			return false
-		}
-
-		if type1 != type2 {
-			return false
-		}
-		switch type1 {
-		case string(api.ImageApplicationProviderType):
-			imageSpec1, err := item1.AsImageApplicationProvider()
-			if err != nil {
-				return false
-			}
-			imageSpec2, err := item2.AsImageApplicationProvider()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(imageSpec1, imageSpec2)
-		default:
-			return false
-		}
-	})
-}
-
-func resourcesAreEqual(c1, c2 *[]api.ResourceMonitor) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 api.ResourceMonitor, item2 api.ResourceMonitor) bool {
-		value1, err := item1.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		value2, err := item2.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		return reflect.DeepEqual(value1, value2)
-	})
-}
-
-func DeviceSpecsAreEqual(d1, d2 api.DeviceSpec) bool {
-	// Check OS
-	if !reflect.DeepEqual(d1.Os, d2.Os) {
-		return false
-	}
-
-	// Check Config
-	if !configsAreEqual(d1.Config, d2.Config) {
-		return false
-	}
-
-	// Check Hooks
-	if !reflect.DeepEqual(d1.Hooks, d2.Hooks) {
-		return false
-	}
-
-	// Check Applications
-	if !applicationsAreEqual(d1.Applications, d2.Applications) {
-		return false
-	}
-
-	// Check Containers
-	if !reflect.DeepEqual(d1.Containers, d2.Containers) {
-		return false
-	}
-
-	// Check Systemd
-	if !reflect.DeepEqual(d1.Systemd, d2.Systemd) {
-		return false
-	}
-
-	// Check Resources
-	if !resourcesAreEqual(d1.Resources, d2.Resources) {
-		return false
-	}
-
-	return true
-}
-
-func FleetSpecsAreEqual(f1, f2 api.FleetSpec) bool {
-	if !reflect.DeepEqual(f1.Selector, f2.Selector) {
-		return false
-	}
-
-	if !reflect.DeepEqual(f1.Template.Metadata, f2.Template.Metadata) {
-		return false
-	}
-
-	return DeviceSpecsAreEqual(f1.Template.Spec, f2.Template.Spec)
 }
