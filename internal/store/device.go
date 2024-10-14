@@ -33,7 +33,7 @@ type Device interface {
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
@@ -446,7 +446,7 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	})
 }
 
-func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered string) (retry bool, err error) {
+func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
@@ -462,10 +462,16 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 	existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
+	renderedApplicationsJSON := renderedApplications
+	if strings.TrimSpace(renderedApplications) == "" {
+		renderedApplicationsJSON = "[]"
+	}
+
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"annotations":      pq.StringArray(annotationsArray),
-		"rendered_config":  &rendered,
-		"resource_version": gorm.Expr("resource_version + 1"),
+		"annotations":           pq.StringArray(annotationsArray),
+		"rendered_config":       &renderedConfig,
+		"rendered_applications": &renderedApplicationsJSON,
+		"resource_version":      gorm.Expr("resource_version + 1"),
 	})
 
 	err = ErrorFromGormError(result.Error)
@@ -493,9 +499,9 @@ func getNextRenderedVersion(annotations map[string]string) (string, error) {
 	return strconv.FormatInt(currentRenderedVersion, 10), nil
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error {
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateRendered(orgId, name, rendered)
+		return s.updateRendered(orgId, name, renderedConfig, renderedApplications)
 	})
 }
 
@@ -538,6 +544,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Resources:       device.Spec.Data.Resources,
 		Hooks:           device.Spec.Data.Hooks,
 		Console:         console,
+		Applications:    device.RenderedApplications.Data,
 	}
 
 	return &renderedConfig, nil

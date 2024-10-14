@@ -28,14 +28,15 @@ func templateVersionPopulate(ctx context.Context, resourceRef *ResourceReference
 }
 
 type TemplateVersionPopulateLogic struct {
-	callbackManager CallbackManager
-	log             logrus.FieldLogger
-	store           store.Store
-	k8sClient       k8sclient.K8SClient
-	resourceRef     ResourceReference
-	templateVersion *api.TemplateVersion
-	fleet           *api.Fleet
-	frozenConfig    []api.TemplateVersionStatus_Config_Item
+	callbackManager    CallbackManager
+	log                logrus.FieldLogger
+	store              store.Store
+	k8sClient          k8sclient.K8SClient
+	resourceRef        ResourceReference
+	templateVersion    *api.TemplateVersion
+	fleet              *api.Fleet
+	frozenConfig       []api.TemplateVersionStatus_Config_Item
+	frozenApplications []api.ApplicationSpec
 }
 
 func NewTemplateVersionPopulateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) TemplateVersionPopulateLogic {
@@ -68,6 +69,19 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 			}
 		}
 	}
+
+	// freeze applications source
+	if t.fleet.Spec.Template.Spec.Applications != nil {
+		t.frozenApplications = []api.ApplicationSpec{}
+		for i := range *t.fleet.Spec.Template.Spec.Applications {
+			app := (*t.fleet.Spec.Template.Spec.Applications)[i]
+			err := t.handleApplication(app)
+			if err != nil {
+				return t.setStatus(ctx, err)
+			}
+		}
+	}
+
 	return t.setStatus(ctx, nil)
 }
 
@@ -114,6 +128,28 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 	default:
 		return fmt.Errorf("unsupported discriminator %s", disc)
 	}
+}
+
+func (t *TemplateVersionPopulateLogic) handleApplication(app api.ApplicationSpec) error {
+	providerType, err := app.Type()
+	if err != nil {
+		return fmt.Errorf("failed getting application type: %w", err)
+	}
+
+	switch providerType {
+	case api.ImageApplicationProviderType:
+		return t.handleImageApplicationProvider(app)
+	// Add other application providers here
+	default:
+		return fmt.Errorf("unsupported application provider type %s", providerType)
+	}
+}
+
+func (t *TemplateVersionPopulateLogic) handleImageApplicationProvider(app api.ApplicationSpec) error {
+	// Add the image-based application as is to maintain the frozen pattern,
+	// since the service won't handle image payloads directly.
+	t.frozenApplications = append(t.frozenApplications, app)
+	return nil
 }
 
 // Translate branch or tag into hash
@@ -257,6 +293,7 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.templateVersion.Status.Config = &t.frozenConfig
 		t.templateVersion.Status.Hooks = t.fleet.Spec.Template.Spec.Hooks
 		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
+		t.templateVersion.Status.Applications = &t.frozenApplications
 	}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)
 

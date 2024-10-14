@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -23,6 +22,7 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -40,23 +40,26 @@ func defaultDataDir() string {
 
 func main() {
 	log := flightlog.InitLogs()
-	configFile := flag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
-	dataDir := flag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
-	numDevices := flag.Int("count", 1, "number of devices to simulate")
-	metricsAddr := flag.String("metrics", "localhost:9093", "address for the metrics endpoint")
-	stopAfter := flag.Duration("stop-after", 0, "stop the simulator after the specified duration")
+	configFile := pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
+	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
+	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
+	numDevices := pflag.Int("count", 1, "number of devices to simulate")
+	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
+	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
 
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+	pflag.Usage = func() {
+		fmt.Fprintf(pflag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
 		fmt.Println("This program starts a device simulator with the specified configuration. Below are the available flags:")
-		flag.PrintDefaults()
+		pflag.PrintDefaults()
 	}
-	flag.Parse()
+	pflag.Parse()
 
 	log.Infoln("command line flags:")
-	flag.CommandLine.VisitAll(func(flg *flag.Flag) {
+	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
 		log.Infof("  %s=%s", flg.Name, flg.Value)
 	})
+
+	formattedLables := formatLabels(labels)
 
 	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile)
 
@@ -92,7 +95,7 @@ func main() {
 			defer wg.Done()
 			// stagger the start of each agent
 			activeAgents.Inc()
-			go approveAgent(ctx, log, serviceClient, agentsFolders[i])
+			go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLables)
 			err := agents[i].Run(ctx)
 			// If agent failed to run we should log the error and exit but only in case the context is not done
 			if err != nil && ctx.Err() == nil {
@@ -198,7 +201,7 @@ func createAgents(log *logrus.Logger, numDevices int, agentConfigTemplate *agent
 	return agents, agentsFolders
 }
 
-func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string) {
+func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
 	err := wait.PollWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
 		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
 		bannerFileData, err := readBannerFile(agentDir)
@@ -215,7 +218,7 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 			enrollmentId,
 			v1alpha1.EnrollmentRequestApproval{
 				Approved: true,
-				Labels:   &map[string]string{"created_by": "device-simulator"},
+				Labels:   labels,
 			})
 		if err != nil {
 			log.Errorf("Error approving device %s enrollment: %v", enrollmentId, err)
@@ -261,4 +264,15 @@ func copyFile(from, to string) error {
 	defer w.Close()
 	_, err = io.Copy(w, r)
 	return err
+}
+
+func formatLabels(lableArgs *[]string) *map[string]string {
+	formattedLabels := map[string]string{}
+
+	if lableArgs != nil {
+		formattedLabels = util.LabelArrayToMap(*lableArgs)
+	}
+
+	formattedLabels["created_by"] = "device-simulator"
+	return &formattedLabels
 }
