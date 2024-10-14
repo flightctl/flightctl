@@ -29,8 +29,8 @@ func DefaultCSRConfigOptions() *CSRConfigOptions {
 func NewCmdCSRConfig() *cobra.Command {
 	o := DefaultCSRConfigOptions()
 	cmd := &cobra.Command{
-		Use:   "csr-generate",
-		Short: "Generate a CSR resource config .yaml based on a CSR file .csr",
+		Use:   "csr-generate FILENAME [flags] ",
+		Short: "Generate a CSR resource config .yaml based on a .csr file and optional additional parameters",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
