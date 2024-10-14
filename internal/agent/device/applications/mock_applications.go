@@ -196,18 +196,31 @@ func (m *MockApplication) EXPECT() *MockApplicationMockRecorder {
 	return m.recorder
 }
 
-// Containers mocks base method.
-func (m *MockApplication) Containers() map[string]*Container {
+// AddContainer mocks base method.
+func (m *MockApplication) AddContainer(container Container) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Containers")
-	ret0, _ := ret[0].(map[string]*Container)
-	return ret0
+	m.ctrl.Call(m, "AddContainer", container)
 }
 
-// Containers indicates an expected call of Containers.
-func (mr *MockApplicationMockRecorder) Containers() *gomock.Call {
+// AddContainer indicates an expected call of AddContainer.
+func (mr *MockApplicationMockRecorder) AddContainer(container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Containers", reflect.TypeOf((*MockApplication)(nil).Containers))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddContainer", reflect.TypeOf((*MockApplication)(nil).AddContainer), container)
+}
+
+// Container mocks base method.
+func (m *MockApplication) Container(name string) (*Container, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Container", name)
+	ret0, _ := ret[0].(*Container)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// Container indicates an expected call of Container.
+func (mr *MockApplicationMockRecorder) Container(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Container", reflect.TypeOf((*MockApplication)(nil).Container), name)
 }
 
 // EnvVars mocks base method.

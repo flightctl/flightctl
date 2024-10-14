@@ -16,13 +16,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-const (
-	//TODO: enum
-	podmanEventRunningName = "start"
-	podmanEventInitName    = "init"
-	podmanEventDieName     = "die"
-)
-
 // PodmanInspect represents the overall structure of podman inspect output
 type PodmanInspect struct {
 	Restarts int                   `json:"RestartCount"`
@@ -225,7 +218,9 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	return nil
 }
 
-// drainActions returns the current actions and clears the existing. this ensures actions can onl be executed once and on failure the remaining actions will not be executed.
+// drainActions returns a copy of the current actions and clears the existing. this
+// ensures actions can only be executed once and on failure the remaining
+// actions will not be executed.
 func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -265,8 +260,12 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.A
 				summary = v1alpha1.ApplicationsSummaryStatusHealthy
 			}
 		default:
-			summary = v1alpha1.ApplicationsSummaryStatusUnknown
+			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary))
 		}
+	}
+
+	if len(statuses) == 0 {
+		summary = v1alpha1.ApplicationsSummaryStatusUnknown
 	}
 
 	if len(errs) > 0 {
@@ -278,7 +277,7 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.A
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
 	defer func() {
-		m.log.Info("Podman monitor stopped")
+		m.log.Info("Podman application monitor stopped")
 		stdoutPipe.Close()
 	}()
 
@@ -287,16 +286,9 @@ func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadC
 		m.log.Debugf("Received podman event: %s", scanner.Text())
 		select {
 		case <-ctx.Done():
-			m.log.Debugf("Podman monitor stopped")
 			return
 		default:
-			// parse podman event
-			var event PodmanEvent
-			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-				m.log.Errorf("Failed to decode podman event: %v", err)
-				continue
-			}
-			m.updateAppStatus(ctx, &event)
+			m.handleEvent(ctx, scanner.Bytes())
 		}
 	}
 
@@ -305,9 +297,13 @@ func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadC
 	}
 }
 
-func (m *PodmanMonitor) updateAppStatus(ctx context.Context, event *PodmanEvent) {
-	m.log.Debugf("Updating application status for event: %v", event)
-	// extract the working directory from the event attributes which is the key for the map
+func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
+	var event PodmanEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		m.log.Errorf("Failed to decode podman event: %v", err)
+		return
+	}
+
 	appName, ok := event.Attributes["com.docker.compose.project"]
 	if !ok {
 		m.log.Debugf("Application name not found in event attributes: %v", event)
@@ -319,44 +315,44 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, event *PodmanEvent)
 		m.log.Debugf("Application not found: %s", appName)
 		return
 	}
+	m.updateAppStatus(ctx, app, &event)
+}
 
-	// get restart count from client best effort
+func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, event *PodmanEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.log.Debugf("Updating application status for event: %v", event)
 	resp, err := m.client.Inspect(ctx, event.ID)
 	if err != nil {
 		m.log.Errorf("Failed to inspect container %s: %v", event.ID, err)
 		return
 	}
 
-	// inspect output is best effort
 	var inspectData []PodmanInspect
 	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
 		m.log.Errorf("Failed to unmarshal podman inspect output: %v", err)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	containers := app.Containers()
-	container, ok := containers[event.Name]
-	if !ok {
-		c := &Container{
-			ID:     event.ID,
-			Image:  event.Image,
-			Name:   event.Name,
-			Status: event.Status,
-		}
-		if len(inspectData) > 0 {
-			c.Restarts = inspectData[0].Restarts
-		}
-		containers[event.Name] = c
 		return
 	}
 
-	if container.Status != event.Status {
-		container.Status = event.Status
+	var restarts int
+	if len(inspectData) > 0 {
+		restarts = inspectData[0].Restarts
 	}
 
-	if len(inspectData) > 0 && container.Restarts != inspectData[0].Restarts {
-		container.Restarts = inspectData[0].Restarts
+	container, exists := app.Container(event.Name)
+	if exists {
+		container.Status = ContainerStatusType(event.Status)
+		container.Restarts = restarts
+		return
 	}
+
+	// add new container
+	app.AddContainer(Container{
+		ID:       event.ID,
+		Image:    event.Image,
+		Name:     event.Name,
+		Status:   ContainerStatusType(event.Status),
+		Restarts: restarts,
+	})
 }

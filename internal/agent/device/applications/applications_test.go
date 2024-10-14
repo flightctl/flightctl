@@ -11,7 +11,7 @@ func TestApplicationStatus(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name                  string
-		containers            map[string]*Container
+		containers            []Container
 		expectedReady         string
 		expectedRestarts      int
 		expectedStatus        v1alpha1.ApplicationStatusType
@@ -27,9 +27,9 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app preparing to start with containers",
-			containers: map[string]*Container{
-				"container1": {
-					Status: podmanEventInitName,
+			containers: []Container{
+				{
+					Status: ContainerStatusInit,
 				},
 			},
 			expectedReady:         "0/1",
@@ -39,12 +39,14 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app starting",
-			containers: map[string]*Container{
-				"container1": {
-					Status: podmanEventInitName,
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusInit,
 				},
-				"container2": {
-					Status: podmanEventRunningName,
+				{
+					Name:   "container2",
+					Status: ContainerStatusRunning,
 				},
 			},
 			expectedReady:         "1/2",
@@ -54,12 +56,14 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app errored",
-			containers: map[string]*Container{
-				"container1": {
-					Status: podmanEventDieName,
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusDie,
 				},
-				"container2": {
-					Status: podmanEventDieName,
+				{
+					Name:   "container2",
+					Status: ContainerStatusDie,
 				},
 			},
 			expectedReady:         "0/2",
@@ -69,12 +73,14 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app running degraded",
-			containers: map[string]*Container{
-				"container1": {
-					Status: podmanEventDieName,
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusDie,
 				},
-				"container2": {
-					Status: podmanEventRunningName,
+				{
+					Name:   "container2",
+					Status: ContainerStatusRunning,
 				},
 			},
 			expectedReady:         "1/2",
@@ -84,12 +90,14 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app running healthy",
-			containers: map[string]*Container{
-				"container1": {
-					Status: podmanEventRunningName,
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusRunning,
 				},
-				"container2": {
-					Status: podmanEventRunningName,
+				{
+					Name:   "container2",
+					Status: ContainerStatusRunning,
 				},
 			},
 			expectedReady:         "2/2",
@@ -98,13 +106,15 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app running healthy with restarts",
-			containers: map[string]*Container{
-				"container1": {
-					Status:   podmanEventRunningName,
+			containers: []Container{
+				{
+					Name:     "container1",
+					Status:   ContainerStatusRunning,
 					Restarts: 1,
 				},
-				"container2": {
-					Status:   podmanEventRunningName,
+				{
+					Name:     "container2",
+					Status:   ContainerStatusRunning,
 					Restarts: 2,
 				},
 			},

@@ -20,11 +20,12 @@ import (
 func TestListenForEvents(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
-		name               string
-		apps               []Application
-		expectedContainers int
-		expectedStatus     v1alpha1.ApplicationStatusType
-		events             []PodmanEvent
+		name             string
+		apps             []Application
+		expectedReady    string
+		expectedRestarts int
+		expectedStatus   v1alpha1.ApplicationStatusType
+		events           []PodmanEvent
 	}{
 		{
 			name: "single app preparing to running",
@@ -36,8 +37,8 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEvent("app1", "app1-service-1", "init"),
 				mockPodmanEvent("app1", "app1-service-1", "start"),
 			},
-			expectedContainers: 1,
-			expectedStatus:     v1alpha1.ApplicationStatusRunning,
+			expectedReady:  "1/1",
+			expectedStatus: v1alpha1.ApplicationStatusRunning,
 		},
 		{
 			name: "single app preparing to error",
@@ -50,8 +51,8 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEvent("app1", "app1-service-1", "start"),
 				mockPodmanEvent("app1", "app1-service-1", "die"),
 			},
-			expectedContainers: 1,
-			expectedStatus:     v1alpha1.ApplicationStatusError,
+			expectedReady:  "0/1",
+			expectedStatus: v1alpha1.ApplicationStatusError,
 		},
 		{
 			name: "single app multiple containers one error one running",
@@ -67,8 +68,8 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEvent("app1", "app1-service-2", "start"),
 				mockPodmanEvent("app1", "app1-service-2", "die"),
 			},
-			expectedContainers: 2,
-			expectedStatus:     v1alpha1.ApplicationStatusRunning,
+			expectedReady:  "1/2",
+			expectedStatus: v1alpha1.ApplicationStatusRunning,
 		},
 		{
 			name: "multiple apps preparing to running",
@@ -84,8 +85,8 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEvent("app2", "app1-service-1", "init"),
 				mockPodmanEvent("app2", "app1-service-1", "start"),
 			},
-			expectedContainers: 1,
-			expectedStatus:     v1alpha1.ApplicationStatusRunning,
+			expectedReady:  "1/1",
+			expectedStatus: v1alpha1.ApplicationStatusRunning,
 		},
 	}
 	for _, tc := range testCases {
@@ -148,14 +149,8 @@ func TestListenForEvents(t *testing.T) {
 						return false
 					}
 					// ensure the app has the expected number of containers
-					if len(app.Containers()) != tc.expectedContainers {
-						t.Logf("app %s expected %d containers but got %d", testApp.Name(), tc.expectedContainers, len(app.Containers()))
-						return false
-					}
-
-					// ensure retry count
-					if status.Restarts != tc.expectedContainers*restartsPerContainer {
-						t.Logf("app %s expected %d restarts but got %d", testApp.Name(), tc.expectedContainers*restartsPerContainer, status.Restarts)
+					if status.Ready != tc.expectedReady {
+						t.Logf("app %s expected ready %s but got %s", testApp.Name(), tc.expectedReady, status.Ready)
 						return false
 					}
 

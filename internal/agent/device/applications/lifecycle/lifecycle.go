@@ -37,6 +37,7 @@ type Action struct {
 	Embedded bool
 }
 
+// ApplicationPath returns the path to the application on the device
 func (a *Action) ApplicationPath() (string, error) {
 	var typePath string
 	switch a.Handler {

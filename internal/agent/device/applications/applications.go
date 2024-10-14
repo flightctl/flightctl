@@ -28,6 +28,18 @@ const (
 	DefaultImageManifestDir = "/"
 )
 
+type ContainerStatusType string
+
+const (
+	ContainerStatusInit    ContainerStatusType = "init"
+	ContainerStatusRunning ContainerStatusType = "start"
+	ContainerStatusDie     ContainerStatusType = "die"
+)
+
+func (c ContainerStatusType) String() string {
+	return string(c)
+}
+
 type AppType string
 
 const (
@@ -54,21 +66,22 @@ type Application interface {
 	EnvVars() map[string]string
 	SetEnvVars(envVars map[string]string) bool
 	Path() (string, error)
+	Container(name string) (*Container, bool)
+	AddContainer(container Container)
 	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
-	Containers() map[string]*Container
 }
 
 type Container struct {
 	ID       string
 	Image    string
 	Name     string
-	Status   string
+	Status   ContainerStatusType
 	Restarts int
 }
 
 type application[T any] struct {
 	envVars    map[string]string
-	containers map[string]*Container
+	containers []Container
 	appType    AppType
 	provider   T
 	status     *v1alpha1.DeviceApplicationStatus
@@ -81,10 +94,9 @@ func NewApplication[T any](name string, provider T, appType AppType) *applicatio
 			Name:   name,
 			Status: v1alpha1.ApplicationStatusPreparing,
 		},
-		provider:   provider,
-		appType:    appType,
-		envVars:    make(map[string]string),
-		containers: make(map[string]*Container),
+		provider: provider,
+		appType:  appType,
+		envVars:  make(map[string]string),
 	}
 }
 
@@ -109,8 +121,17 @@ func (a *application[T]) SetEnvVars(envVars map[string]string) bool {
 	return true
 }
 
-func (a *application[T]) Containers() map[string]*Container {
-	return a.containers
+func (a *application[T]) Container(name string) (*Container, bool) {
+	for i := range a.containers {
+		if a.containers[i].Name == name {
+			return &a.containers[i], true
+		}
+	}
+	return nil, false
+}
+
+func (a *application[T]) AddContainer(container Container) {
+	a.containers = append(a.containers, container)
 }
 
 func (a *application[T]) Path() (string, error) {
@@ -136,10 +157,10 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.A
 	restarts := 0
 	for _, container := range a.containers {
 		restarts += container.Restarts
-		if container.Status == podmanEventRunningName {
+		if container.Status == ContainerStatusRunning {
 			healthy++
 		}
-		if container.Status == podmanEventInitName {
+		if container.Status == ContainerStatusInit {
 			initializing++
 		}
 	}
