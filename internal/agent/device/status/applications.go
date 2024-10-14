@@ -18,12 +18,13 @@ func newApplications(manager applications.Manager) *Applications {
 }
 
 func (a *Applications) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	applicationStatus, applicationSummary, err := a.manager.Status()
-
+	applicationsStatus, applicationSummary, err := a.manager.Status()
+	if err != nil {
+		return err
+	}
 
 	status.ApplicationsSummary.Status = applicationSummary
-	// TODO: update in place vs replace
-	status.Applications = applications
+	status.Applications = applicationsStatus
 	return nil
 }
 

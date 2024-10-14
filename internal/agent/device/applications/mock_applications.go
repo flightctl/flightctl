@@ -53,10 +53,10 @@ func (mr *MockMonitorMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockMonitor) Status() []v1alpha1.ApplicationStatus {
+func (m *MockMonitor) Status() []v1alpha1.DeviceApplicationStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
-	ret0, _ := ret[0].([]v1alpha1.ApplicationStatus)
+	ret0, _ := ret[0].([]v1alpha1.DeviceApplicationStatus)
 	return ret0
 }
 
@@ -144,12 +144,13 @@ func (mr *MockManagerMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status() ([]v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType) {
+func (m *MockManager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
-	ret0, _ := ret[0].([]v1alpha1.ApplicationStatus)
+	ret0, _ := ret[0].([]v1alpha1.DeviceApplicationStatus)
 	ret1, _ := ret[1].(v1alpha1.ApplicationsSummaryStatusType)
-	return ret0, ret1
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // Status indicates an expected call of Status.
@@ -267,12 +268,13 @@ func (mr *MockApplicationMockRecorder) SetEnvVars(envVars any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockApplication) Status() (*v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType) {
+func (m *MockApplication) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
-	ret0, _ := ret[0].(*v1alpha1.ApplicationStatus)
+	ret0, _ := ret[0].(*v1alpha1.DeviceApplicationStatus)
 	ret1, _ := ret[1].(v1alpha1.ApplicationsSummaryStatusType)
-	return ret0, ret1
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // Status indicates an expected call of Status.

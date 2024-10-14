@@ -141,7 +141,8 @@ func TestListenForEvents(t *testing.T) {
 						return false
 					}
 					// check app status
-					status, _ := app.Status()
+					status, _, err := app.Status()
+					require.NoError(err)
 					if status == nil {
 						t.Logf("app has no status: %s", testApp.Name())
 						return false

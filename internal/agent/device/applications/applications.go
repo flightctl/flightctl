@@ -36,7 +36,7 @@ const (
 
 type Monitor interface {
 	Run(ctx context.Context)
-	Status() []v1alpha1.ApplicationStatus
+	Status() []v1alpha1.DeviceApplicationStatus
 }
 
 type Manager interface {
@@ -45,7 +45,7 @@ type Manager interface {
 	Remove(app Application) error
 	Update(app Application) error
 	ExecuteActions(ctx context.Context) error
-	Status() ([]v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
+	Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
 }
 
 type Application interface {
@@ -54,7 +54,7 @@ type Application interface {
 	EnvVars() map[string]string
 	SetEnvVars(envVars map[string]string) bool
 	Path() (string, error)
-	Status() (*v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
+	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
 	Containers() map[string]*Container
 }
 
@@ -71,13 +71,13 @@ type application[T any] struct {
 	containers map[string]*Container
 	appType    AppType
 	provider   T
-	status     *v1alpha1.ApplicationStatus
+	status     *v1alpha1.DeviceApplicationStatus
 	embedded   bool
 }
 
 func NewApplication[T any](name string, provider T, appType AppType) *application[T] {
 	return &application[T]{
-		status: &v1alpha1.ApplicationStatus{
+		status: &v1alpha1.DeviceApplicationStatus{
 			Name:   name,
 			Status: v1alpha1.ApplicationStatusPreparing,
 		},
@@ -129,7 +129,7 @@ func (a *application[T]) Path() (string, error) {
 	return filepath.Join(typePath, a.Name()), nil
 }
 
-func (a *application[T]) Status() (*v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0

@@ -124,7 +124,8 @@ func TestApplicationStatus(t *testing.T) {
 			if len(tt.containers) > 0 {
 				application.containers = tt.containers
 			}
-			status, summary := application.Status()
+			status, summary, err := application.Status()
+			require.NoError(err)
 
 			require.Equal(status.Ready, tt.expectedReady)
 			require.Equal(status.Restarts, tt.expectedRestarts)

@@ -235,13 +235,13 @@ func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	return actions
 }
 
-func (m *PodmanMonitor) Status() ([]v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var errs []error
 	var summary v1alpha1.ApplicationsSummaryStatusType
-	statuses := make([]v1alpha1.ApplicationStatus, 0, len(m.apps))
+	statuses := make([]v1alpha1.DeviceApplicationStatus, 0, len(m.apps))
 	for _, app := range m.apps {
 		appStatus, appSummary, err := app.Status()
 		if err != nil {
@@ -269,7 +269,9 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.ApplicationStatus, v1alpha1.Applica
 		}
 	}
 
-	m.log.Debugf("Applications podman summary status: %s", summary)
+	if len(errs) > 0 {
+		return nil, summary, errors.Join(errs...)
+	}
 
 	return statuses, summary, nil
 }
