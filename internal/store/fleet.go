@@ -205,14 +205,14 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 	if options.withSummary {
 		statusCount, err := CountStatusList(ctx, BuildBaseListQuery(s.db.Model(&model.Device{}),
 			orgId, ListParams{Owners: []string{*util.SetResourceOwner(model.FleetKind, name)}}),
-			"status.applications.summary.status",
+			"status.applicationsSummary.status",
 			"status.summary.status",
 			"status.updated.status")
 		if err != nil {
 			return nil, ErrorFromGormError(err)
 		}
 
-		applicationStatus := statusCount.List("status.applications.summary.status")
+		applicationStatus := statusCount.List("status.applicationsSummary.status")
 		summary.ApplicationStatus = applicationStatus
 
 		summaryStatus := statusCount.List("status.summary.status")

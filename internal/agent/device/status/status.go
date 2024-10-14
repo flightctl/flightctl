@@ -84,7 +84,7 @@ func (m *StatusManager) Get(ctx context.Context) *v1alpha1.DeviceStatus {
 }
 
 func (m *StatusManager) reset() {
-	clear(m.device.Status.Applications.Data)
+	m.device.Status.Applications = m.device.Status.Applications[:0]
 }
 
 func (m *StatusManager) Collect(ctx context.Context) error {

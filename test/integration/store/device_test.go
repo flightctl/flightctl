@@ -207,7 +207,7 @@ var _ = Describe("DeviceStore create", func() {
 			for i := range allDevices.Items {
 				d := &allDevices.Items[i]
 				applicationStatus := fmt.Sprintf("application-%d", i)
-				d.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusType(applicationStatus)
+				d.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusType(applicationStatus)
 				expectedApplicationMap[applicationStatus] = expectedApplicationMap[applicationStatus] + 1
 				status := lo.Ternary(i%2 == 0, "status-1", "status-2")
 				expectedSummaryMap[status] = expectedSummaryMap[status] + 1

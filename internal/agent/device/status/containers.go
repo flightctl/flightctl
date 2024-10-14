@@ -98,7 +98,7 @@ func (c *Container) PodmanExport(ctx context.Context, status *v1alpha1.DeviceSta
 
 	// TODO: handle removed containers and use appropriate status
 	for _, c := range containers {
-		status.Applications.Data = append(status.Applications.Data, v1alpha1.ApplicationStatus{
+		status.Applications = append(status.Applications, v1alpha1.DeviceApplicationStatus{
 			Name:     c.Names[0],
 			Status:   podmanApplicationStatus(c),
 			Restarts: c.Restarts,
@@ -131,7 +131,7 @@ func (c *Container) CrioExport(ctx context.Context, status *v1alpha1.DeviceStatu
 	// TODO: handle removed containers and use appropriate status
 	for _, c := range containers.Containers {
 		name := c.Metadata.Name
-		status.Applications.Data = append(status.Applications.Data, v1alpha1.ApplicationStatus{
+		status.Applications = append(status.Applications, v1alpha1.DeviceApplicationStatus{
 			Name:   name,
 			Status: v1alpha1.ApplicationStatusUnknown,
 		})

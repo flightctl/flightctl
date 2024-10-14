@@ -51,7 +51,7 @@ var _ = Describe("containers controller", func() {
 			err := systemD.Export(context.TODO(), &deviceStatus)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(len(deviceStatus.Applications.Data)).To(Equal(2))
+			Expect(len(deviceStatus.Applications)).To(Equal(2))
 		})
 	})
 })
