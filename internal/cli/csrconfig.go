@@ -30,7 +30,7 @@ func NewCmdCSRConfig() *cobra.Command {
 	o := DefaultCSRConfigOptions()
 	cmd := &cobra.Command{
 		Use:   "csr-generate",
-		Short: "generate a CSR resource config .yaml based on a CSR file .csr",
+		Short: "Generate a CSR resource config .yaml based on a CSR file .csr",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -50,10 +50,10 @@ func NewCmdCSRConfig() *cobra.Command {
 
 func (o *CSRConfigOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
-	fs.StringVarP(&o.Output, "output", "o", "", "specify a filename in which to save the generated csr resource config")
-	fs.StringVarP(&o.Name, "name", "n", "mycsr", "specify a name for the csr")
-	fs.StringVarP(&o.ExpirationSeconds, "expiry", "e", "604800", "specify desired certificate expiration in seconds")
-	fs.BoolVarP(&o.Overwrite, "overwrite", "y", false, "setting this flag overwrites the specified output file without prompting the user")
+	fs.StringVarP(&o.Output, "output", "o", "", "Specify a filename in which to save the generated csr resource config")
+	fs.StringVarP(&o.Name, "name", "n", "mycsr", "Specify a name for the csr")
+	fs.StringVarP(&o.ExpirationSeconds, "expiry", "e", "604800", "Specify desired certificate expiration in seconds")
+	fs.BoolVarP(&o.Overwrite, "overwrite", "y", false, "Setting this flag overwrites the specified output file without prompting the user")
 }
 
 func (o *CSRConfigOptions) Complete(cmd *cobra.Command, args []string) error {
