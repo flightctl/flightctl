@@ -162,13 +162,19 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	if err != nil {
 		return err
 	}
+	deviceApps, err := f.getDeviceApps(device, templateVersion)
+	if err != nil {
+		return err
+	}
+
 	newDeviceSpec := api.DeviceSpec{
-		Config:     deviceConfig,
-		Containers: templateVersion.Status.Containers,
-		Os:         templateVersion.Status.Os,
-		Systemd:    templateVersion.Status.Systemd,
-		Resources:  templateVersion.Status.Resources,
-		Hooks:      templateVersion.Status.Hooks,
+		Config:       deviceConfig,
+		Containers:   templateVersion.Status.Containers,
+		Os:           templateVersion.Status.Os,
+		Systemd:      templateVersion.Status.Systemd,
+		Resources:    templateVersion.Status.Resources,
+		Hooks:        templateVersion.Status.Hooks,
+		Applications: deviceApps,
 	}
 
 	if currentVersion == *templateVersion.Metadata.Name && api.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
@@ -191,6 +197,46 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	return err
+}
+
+func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationSpec, error) {
+	if templateVersion.Status.Applications == nil {
+		return nil, nil
+	}
+
+	deviceApps := []api.ApplicationSpec{}
+	for _, app := range *templateVersion.Status.Applications {
+		appType, err := app.Type()
+		if err != nil {
+			return nil, fmt.Errorf("failed getting app type: %w", err)
+		}
+		switch appType {
+		case api.ImageApplicationProviderType:
+			newApp, err := f.replaceEnvVarValueParameters(device, app)
+			if err != nil {
+				return nil, err
+			}
+			deviceApps = append(deviceApps, *newApp)
+		default:
+			return nil, fmt.Errorf("unsupported application type: %s", appType)
+		}
+	}
+
+	return &deviceApps, nil
+}
+
+func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationSpec) (*api.ApplicationSpec, error) {
+	origEnvVars := *app.EnvVars
+	newEnvVars := make(map[string]string, len(origEnvVars))
+	for k, v := range origEnvVars {
+		newValue, warnings := ReplaceParameters([]byte(v), device.Metadata)
+		if len(warnings) > 0 {
+			f.log.Infof("failed replacing application parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
+		}
+		newEnvVars[k] = string(newValue)
+	}
+	app.EnvVars = &newEnvVars
+	return &app, nil
 }
 
 func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.DeviceSpec_Config_Item, error) {
