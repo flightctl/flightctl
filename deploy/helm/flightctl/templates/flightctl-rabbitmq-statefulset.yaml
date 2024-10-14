@@ -35,7 +35,7 @@ spec:
               value: "{{ .Values.rabbitmq.auth.password }}"
           volumeMounts:
             - name: rabbitmq-data
-              mountPath: /var/lib/rabbitmq
+              mountPath: /var/lib/rabbitmq/mnesia
   volumeClaimTemplates:
     - metadata:
         name: rabbitmq-data
