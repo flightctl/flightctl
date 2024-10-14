@@ -45,7 +45,7 @@ type Manager interface {
 	Remove(app Application) error
 	Update(app Application) error
 	ExecuteActions(ctx context.Context) error
-	Status() ([]v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType)
+	Status() ([]v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
 }
 
 type Application interface {
@@ -54,7 +54,7 @@ type Application interface {
 	EnvVars() map[string]string
 	SetEnvVars(envVars map[string]string) bool
 	Path() (string, error)
-	Status() (*v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType)
+	Status() (*v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
 	Containers() map[string]*Container
 }
 
@@ -129,7 +129,7 @@ func (a *application[T]) Path() (string, error) {
 	return filepath.Join(typePath, a.Name()), nil
 }
 
-func (a *application[T]) Status() (*v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType) {
+func (a *application[T]) Status() (*v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
@@ -170,7 +170,7 @@ func (a *application[T]) Status() (*v1alpha1.ApplicationStatus, v1alpha1.Applica
 		newStatus = v1alpha1.ApplicationStatusRunning
 		summary = v1alpha1.ApplicationsSummaryStatusHealthy
 	default:
-		panic(fmt.Sprintf("unexpected status: %d %d %d", total, healthy, initializing))
+		return nil, v1alpha1.ApplicationsSummaryStatusUnknown, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
 	}
 
 	if a.status.Status != newStatus {
@@ -183,7 +183,7 @@ func (a *application[T]) Status() (*v1alpha1.ApplicationStatus, v1alpha1.Applica
 		a.status.Restarts = restarts
 	}
 
-	return a.status, summary
+	return a.status, summary, nil
 }
 
 func isStarting(total, healthy, initializing int) bool {

@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/lthibault/jitterbug"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // Agent is responsible for managing the applications, configuration and status of the device.
@@ -40,7 +41,8 @@ type Agent struct {
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
 
-	log *log.PrefixLogger
+	backoff wait.Backoff
+	log     *log.PrefixLogger
 }
 
 // NewAgent creates a new device agent.
@@ -60,6 +62,7 @@ func NewAgent(
 	consoleController *console.ConsoleController,
 	bootcClient container.BootcClient,
 	podmanClient *client.Podman,
+	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{
@@ -78,6 +81,7 @@ func NewAgent(
 		consoleController:      consoleController,
 		bootcClient:            bootcClient,
 		podmanClient:           podmanClient,
+		backoff:                backoff,
 		log:                    log,
 	}
 }
@@ -212,14 +216,21 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 	}
 
 	for _, imageProvider := range imageProviders {
-		// TODO: retry pull
-		resp, err := a.podmanClient.Pull(ctx, imageProvider.Image)
+		providerImage := imageProvider.Image
+		err := wait.ExponentialBackoffWithContext(ctx, a.backoff, func() (bool, error) {
+			resp, err := a.podmanClient.Pull(ctx, providerImage)
+			if err != nil {
+				a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
+				return false, nil
+			}
+			a.log.Debugf("Pulled image %q: %s", providerImage, resp)
+			return true, nil
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("creating enrollment request: %w", err)
 		}
-		a.log.Debugf("Pulled image %q: %s", imageProvider.Image, resp)
 
-		addType, err := applications.TypeFromImage(ctx, a.podmanClient, imageProvider.Image)
+		addType, err := applications.TypeFromImage(ctx, a.podmanClient, providerImage)
 		if err != nil {
 			return err
 		}

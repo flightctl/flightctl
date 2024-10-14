@@ -235,14 +235,19 @@ func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	return actions
 }
 
-func (m *PodmanMonitor) Status() ([]v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType) {
+func (m *PodmanMonitor) Status() ([]v1alpha1.ApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	var errs []error
 	var summary v1alpha1.ApplicationsSummaryStatusType
 	statuses := make([]v1alpha1.ApplicationStatus, 0, len(m.apps))
 	for _, app := range m.apps {
-		appStatus, appSummary := app.Status()
+		appStatus, appSummary, err := app.Status()
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		statuses = append(statuses, *appStatus)
 
 		// phases can get worse but not better
@@ -266,7 +271,7 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.ApplicationStatus, v1alpha1.Applica
 
 	m.log.Debugf("Applications podman summary status: %s", summary)
 
-	return statuses, summary
+	return statuses, summary, nil
 }
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {

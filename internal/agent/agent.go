@@ -235,6 +235,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		consoleController,
 		bootcClient,
 		podmanClient,
+		backoff,
 		a.log,
 	)
 
