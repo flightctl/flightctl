@@ -3,7 +3,6 @@ package tasks
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
-	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -41,6 +39,9 @@ type DeviceRenderLogic struct {
 	store           store.Store
 	k8sClient       k8sclient.K8SClient
 	resourceRef     ResourceReference
+	ownerFleet      *string
+	deviceConfig    *[]api.ConfigProviderSpec
+	applications    *[]api.ApplicationSpec
 }
 
 func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) DeviceRenderLogic {
@@ -56,19 +57,31 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
-	var config *[]api.ConfigProviderSpec
 	if device.Spec != nil {
-		config = device.Spec.Config
+		t.deviceConfig = device.Spec.Config
+		t.applications = device.Spec.Applications
 	}
 
-	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, config, !util.IsEmptyString(device.Metadata.Owner), false)
+	if device.Metadata.Owner != nil {
+		_, owner, err := util.GetResourceOwner(device.Metadata.Owner)
+		if err != nil {
+			return fmt.Errorf("failed getting device owner %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
+		}
+		t.ownerFleet = &owner
+	}
+
+	ignitionConfig, referencedRepos, renderErr := t.renderConfig(ctx)
+	renderedConfig, err := json.Marshal(ignitionConfig)
+	if err != nil {
+		return fmt.Errorf("failed marshalling configuration: %w", err)
+	}
 
 	// Set the many-to-many relationship with the repos (we do this even if the render failed so that we will
 	// render the device again if the repository is updated, and then it might be fixed).
 	// This only applies to devices that don't belong to a fleet, because otherwise the fleet will be
 	// notified about changes to the repository.
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-		err = t.store.Device().OverwriteRepositoryRefs(ctx, t.resourceRef.OrgID, *device.Metadata.Name, repoNames...)
+		err = t.store.Device().OverwriteRepositoryRefs(ctx, t.resourceRef.OrgID, *device.Metadata.Name, referencedRepos...)
 		if err != nil {
 			return t.setStatus(ctx, fmt.Errorf("setting repository references: %w", err))
 		}
@@ -78,7 +91,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, renderErr)
 	}
 
-	renderedApplications, err := renderApplications(ctx, t.store, t.resourceRef.OrgID, device.Spec.Applications, !util.IsEmptyString(device.Metadata.Owner), false)
+	renderedApplications, err := t.renderApplications(ctx)
 	if err != nil {
 		return t.setStatus(ctx, err)
 	}
@@ -106,50 +119,21 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 	return renderErr
 }
 
-type renderConfigArgs struct {
-	orgId                uuid.UUID
-	store                store.Store
-	k8sClient            k8sclient.K8SClient
-	ignitionConfig       *config_latest_types.Config
-	repoNames            []string
-	validateOnly         bool
-	deviceBelongsToFleet bool
-}
-
-type renderApplicationArgs struct {
-	orgId                uuid.UUID
-	store                store.Store
-	applications         []api.RenderedApplicationSpec
-	validateOnly         bool
-	deviceBelongsToFleet bool
-}
-
-func renderApplications(ctx context.Context, store store.Store, orgId uuid.UUID, applications *[]api.ApplicationSpec, deviceBelongsToFleet bool, validateOnly bool) (renderedApplications []byte, err error) {
-	if applications == nil {
+func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, error) {
+	if t.applications == nil {
 		return nil, nil
 	}
 
-	args := renderApplicationArgs{
-		orgId:                orgId,
-		store:                store,
-		deviceBelongsToFleet: deviceBelongsToFleet,
-		validateOnly:         validateOnly,
-	}
-
 	var invalidApplications []string
+	var renderedApplications []api.RenderedApplicationSpec
 	var firstError error
 
-	for i := range *applications {
-		application := (*applications)[i]
-		var applicationName string
-		name, renderErr := renderApplication(ctx, &application, &args)
-		if errors.Is(renderErr, ErrUnknownApplicationType) {
-			applicationName = "<unknown>"
-		} else {
-			applicationName = name
-		}
+	for i := range *t.applications {
+		application := (*t.applications)[i]
+		name, renderedApplication, renderErr := renderApplication(ctx, &application)
+		applicationName := util.DefaultIfNil(name, "<unknown>")
 
-		if paramErr := validateParameters(&application, args.validateOnly, args.deviceBelongsToFleet); paramErr != nil {
+		if paramErr := validateNoParametersInConfig(&application, t.ownerFleet != nil); paramErr != nil {
 			// An error message regarding invalid parameters should take precedence
 			// because it may be the cause of the render error
 			renderErr = paramErr
@@ -160,6 +144,10 @@ func renderApplications(ctx context.Context, store store.Store, orgId uuid.UUID,
 			invalidApplications = append(invalidApplications, applicationName)
 			if firstError == nil {
 				firstError = renderErr
+			}
+		} else {
+			if renderedApplication != nil {
+				renderedApplications = append(renderedApplications, *renderedApplication)
 			}
 		}
 	}
@@ -174,59 +162,35 @@ func renderApplications(ctx context.Context, store store.Store, orgId uuid.UUID,
 		return nil, fmt.Errorf("%d invalid application%s: %s. %s: %v", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
 	}
 
-	renderedApplications, err = json.Marshal(&args.applications)
+	renderedApplicationBytes, err := json.Marshal(renderedApplications)
 	if err != nil {
 		return nil, fmt.Errorf("failed marshalling applications: %w", err)
 	}
 
-	return renderedApplications, nil
+	return renderedApplicationBytes, nil
 }
 
-func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.ConfigProviderSpec, deviceBelongsToFleet bool, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
-	args := renderConfigArgs{}
-	emptyIgnitionConfig := config_latest_types.Config{
+func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_types.Config, []string, error) {
+	ignitionConfig := &config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
 			Version: config_latest_types.MaxVersion.String(),
 		},
 	}
-	args.ignitionConfig = &emptyIgnitionConfig
-	args.validateOnly = validateOnly
-	args.orgId = orgId
-	args.store = store
-	args.k8sClient = k8sClient
-	args.deviceBelongsToFleet = deviceBelongsToFleet
 
-	err = renderConfigItems(ctx, config, &args)
-	if err != nil {
-		return nil, args.repoNames, err
-	}
-
-	if validateOnly {
-		return nil, args.repoNames, nil
-	}
-
-	renderedConfig, err = json.Marshal(args.ignitionConfig)
-	if err != nil {
-		return nil, args.repoNames, fmt.Errorf("failed marshalling configuration: %w", err)
-	}
-
-	return renderedConfig, args.repoNames, nil
-}
-
-func renderConfigItems(ctx context.Context, config *[]api.ConfigProviderSpec, args *renderConfigArgs) error {
-	if config == nil {
-		return nil
+	if t.deviceConfig == nil {
+		return ignitionConfig, nil, nil
 	}
 
 	invalidConfigs := []string{}
+	referencedRepos := []string{}
 	var firstError error
-	for i := range *config {
-		configItem := (*config)[i]
-		name, err := renderConfigItem(ctx, &configItem, args)
-		paramErr := validateParameters(&configItem, args.validateOnly, args.deviceBelongsToFleet)
+	for i := range *t.deviceConfig {
+		configItem := (*t.deviceConfig)[i]
+		name, repoName, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
+		paramErr := validateNoParametersInConfig(&configItem, t.ownerFleet != nil)
 
-		if err != nil && errors.Is(err, ErrUnknownConfigName) {
-			name = "<unknown>"
+		if repoName != nil {
+			referencedRepos = append(referencedRepos, *repoName)
 		}
 
 		// An error message regarding invalid parameters should take precedence
@@ -236,7 +200,7 @@ func renderConfigItems(ctx context.Context, config *[]api.ConfigProviderSpec, ar
 		}
 
 		if err != nil {
-			invalidConfigs = append(invalidConfigs, name)
+			invalidConfigs = append(invalidConfigs, util.DefaultIfNil(name, "<unknown>"))
 			if len(invalidConfigs) == 1 {
 				firstError = err
 			}
@@ -250,24 +214,20 @@ func renderConfigItems(ctx context.Context, config *[]api.ConfigProviderSpec, ar
 			configurationStr += "s"
 			errorStr = "First error"
 		}
-		return fmt.Errorf("%d invalid %s: %s. %s: %v", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
+		return nil, referencedRepos, fmt.Errorf("%d invalid %s: %s. %s: %v", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
 	}
 
-	return nil
+	return ignitionConfig, referencedRepos, nil
 }
 
 type RenderItem interface {
 	MarshalJSON() ([]byte, error)
 }
 
-func validateParameters(item RenderItem, validateOnly, deviceBelongsToFleet bool) error {
+func validateNoParametersInConfig(item RenderItem, deviceBelongsToFleet bool) error {
 	cfgJson, err := item.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("failed converting configuration to json: %w", err)
-	}
-	if validateOnly {
-		// Make sure all parameters are in the proper format
-		return ValidateParameterFormat(cfgJson)
 	}
 
 	// If we're rendering the device config and it still has parameters, something went wrong
@@ -282,134 +242,123 @@ func validateParameters(item RenderItem, validateOnly, deviceBelongsToFleet bool
 	return nil
 }
 
-func renderConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
+func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	configType, err := configItem.Type()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
+		return nil, nil, fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
 	}
 
 	switch configType {
 	case api.GitConfigProviderType:
-		return renderGitConfig(ctx, configItem, args)
+		return t.renderGitConfig(ctx, configItem, ignitionConfig)
 	case api.KubernetesSecretProviderType:
-		return renderK8sConfig(configItem, args)
+		return t.renderK8sConfig(configItem, ignitionConfig)
 	case api.InlineConfigProviderType:
-		return renderInlineConfig(configItem, args)
+		return t.renderInlineConfig(configItem, ignitionConfig)
 	case api.HttpConfigProviderType:
-		return renderHttpProviderConfig(ctx, configItem, args)
+		return t.renderHttpProviderConfig(ctx, configItem, ignitionConfig)
 	default:
-		return "", fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType)
+		return nil, nil, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType)
 	}
 }
 
-func renderApplication(_ context.Context, app *api.ApplicationSpec, args *renderApplicationArgs) (string, error) {
+func renderApplication(_ context.Context, app *api.ApplicationSpec) (*string, *api.RenderedApplicationSpec, error) {
 	appType, err := app.Type()
 	if err != nil {
-		return "", fmt.Errorf("failed getting application type: %w", err)
+		return nil, nil, fmt.Errorf("failed getting application type: %w", err)
 	}
 	switch appType {
 	case api.ImageApplicationProviderType:
-		return renderImageApplicationProvider(app, args)
+		return renderImageApplicationProvider(app)
 	default:
-		return "", fmt.Errorf("%w: unsupported application type %q", ErrUnknownApplicationType, appType)
+		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
 }
 
-func renderImageApplicationProvider(app *api.ApplicationSpec, args *renderApplicationArgs) (string, error) {
+func renderImageApplicationProvider(app *api.ApplicationSpec) (*string, *api.RenderedApplicationSpec, error) {
 	imageProvider, err := app.AsImageApplicationProvider()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
+		return nil, nil, fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
 	}
 
 	appName := util.FromPtr(app.Name)
-	if args.validateOnly {
-		return appName, nil
-	}
-
 	renderedApp := api.RenderedApplicationSpec{
 		Name:    app.Name,
 		EnvVars: app.EnvVars,
 	}
 	if err := renderedApp.FromImageApplicationProvider(imageProvider); err != nil {
-		return appName, fmt.Errorf("failed rendering application %s: %w", appName, err)
+		return &appName, nil, fmt.Errorf("failed rendering application %s: %w", appName, err)
 	}
 
-	args.applications = append(args.applications, renderedApp)
-	return appName, nil
+	return &appName, &renderedApp, nil
 }
 
-func renderGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
+func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
+		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	args.repoNames = append(args.repoNames, gitSpec.GitRef.Repository)
-	repo, err := args.store.Repository().GetInternal(ctx, args.orgId, gitSpec.GitRef.Repository)
+	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
 	if err != nil {
-		return gitSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", args.orgId, gitSpec.GitRef.Repository, err)
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
 	if repo.Spec == nil {
-		return gitSpec.Name, fmt.Errorf("empty Repository definition %s/%s: %w", args.orgId, gitSpec.GitRef.Repository, err)
-	}
-
-	if args.validateOnly {
-		return gitSpec.Name, nil
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
 	// TODO: Use local cache
 	mfs, _, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, nil)
 	if err != nil {
-		return gitSpec.Name, fmt.Errorf("failed cloning specified git repository %s/%s: %w", args.orgId, gitSpec.GitRef.Repository, err)
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
 	// Create an ignition from the git subtree and merge it into the rendered config
-	ignitionConfig, err := ConvertFileSystemToIgnition(mfs, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
+	ignition, err := ConvertFileSystemToIgnition(mfs, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
 	if err != nil {
-		return gitSpec.Name, fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
 	}
-	mergedConfig := config_latest.Merge(*args.ignitionConfig, *ignitionConfig)
-	args.ignitionConfig = &mergedConfig
+	mergedConfig := config_latest.Merge(**ignitionConfig, *ignition)
+	*ignitionConfig = &mergedConfig
 
-	return gitSpec.Name, nil
+	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
 }
 
-func renderK8sConfig(configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
+func (t *DeviceRenderLogic) renderK8sConfig(configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
+		return nil, nil, fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-	if args.k8sClient == nil {
-		return k8sSpec.Name, errors.New("kubernetes API is not available")
+	if t.k8sClient == nil {
+		return &k8sSpec.Name, nil, fmt.Errorf("kubernetes API is not available")
 	}
-	secret, err := args.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+	secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 	if err != nil {
-		return k8sSpec.Name, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		return &k8sSpec.Name, nil, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 	}
 	ignitionWrapper, err := ignition.NewWrapper()
 	if err != nil {
-		return k8sSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
+		return &k8sSpec.Name, nil, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
 	for name, contents := range secret.Data {
 		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644, false, nil, nil)
 	}
-	if !args.validateOnly {
-		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
-	}
-	return k8sSpec.Name, nil
+
+	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
+	return &k8sSpec.Name, nil, nil
 }
 
-func renderInlineConfig(configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
+func (t *DeviceRenderLogic) renderInlineConfig(configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec", ErrUnknownConfigName)
+		return nil, nil, fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
 	ignitionWrapper, err := ignition.NewWrapper()
 	if err != nil {
-		return inlineSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
+		return &inlineSpec.Name, nil, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
 	for _, file := range inlineSpec.Inline {
@@ -425,54 +374,45 @@ func renderInlineConfig(configItem *api.ConfigProviderSpec, args *renderConfigAr
 		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
 	}
 
-	if !args.validateOnly {
-		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
-	}
-
-	return inlineSpec.Name, nil
+	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
+	return &inlineSpec.Name, nil, nil
 }
 
-func renderHttpProviderConfig(ctx context.Context, configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
+func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	httpConfigProviderSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
+		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-	args.repoNames = append(args.repoNames, httpConfigProviderSpec.HttpRef.Repository)
-	repo, err := args.store.Repository().GetInternal(ctx, args.orgId, httpConfigProviderSpec.HttpRef.Repository)
+	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository)
 	if err != nil {
-		return httpConfigProviderSpec.Name, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", args.orgId, httpConfigProviderSpec.HttpRef.Repository, err)
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
 	}
 	if repo.Spec == nil {
-		return httpConfigProviderSpec.Name, fmt.Errorf("empty Repository definition %s/%s: %w", args.orgId, httpConfigProviderSpec.HttpRef.Repository, err)
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
 	}
 	repoURL, err := repo.Spec.Data.GetRepoURL()
 	if err != nil {
-		return "", err
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
 	}
 
 	// Append the suffix only if exists (as it's optional)
 	if httpConfigProviderSpec.HttpRef.Suffix != nil {
 		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
 	}
-	if args.validateOnly {
-		return httpConfigProviderSpec.Name, nil
-	}
-	repoSpec := repo.Spec.Data
-	body, err := sendHTTPrequest(repoSpec, repoURL)
+
+	body, err := sendHTTPrequest(repo.Spec.Data, repoURL)
 	if err != nil {
-		return "", fmt.Errorf("sending HTTP Request")
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("sending HTTP Request")
 	}
 
 	// Convert body to ignition config
 	ignitionWrapper, err := ignition.NewWrapper()
 	if err != nil {
-		return httpConfigProviderSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
 	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644, false, nil, nil)
-	if !args.validateOnly {
-		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
-	}
+	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
 
-	return httpConfigProviderSpec.Name, nil
+	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
 }
