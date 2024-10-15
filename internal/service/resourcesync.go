@@ -99,13 +99,14 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 	}
 
 	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListResourceSync200JSONResponse(*result), nil
+	}
+
+	switch {
+	case selector.IsSelectorError(err):
+		return server.ListResourceSync400JSONResponse{Message: err.Error()}, nil
 	default:
-		if s, ok := selector.IsSelectorError(err); ok {
-			return server.ListResourceSync400JSONResponse{Message: s.Error()}, nil
-		}
 		return nil, err
 	}
 }

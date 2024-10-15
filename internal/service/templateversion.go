@@ -73,13 +73,14 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	}
 
 	result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListTemplateVersions200JSONResponse(*result), nil
+	}
+
+	switch {
+	case selector.IsSelectorError(err):
+		return server.ListTemplateVersions400JSONResponse{Message: err.Error()}, nil
 	default:
-		if s, ok := selector.IsSelectorError(err); ok {
-			return server.ListTemplateVersions400JSONResponse{Message: s.Error()}, nil
-		}
 		return nil, err
 	}
 }
