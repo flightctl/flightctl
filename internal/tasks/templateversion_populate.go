@@ -10,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
@@ -29,14 +28,15 @@ func templateVersionPopulate(ctx context.Context, resourceRef *ResourceReference
 }
 
 type TemplateVersionPopulateLogic struct {
-	callbackManager CallbackManager
-	log             logrus.FieldLogger
-	store           store.Store
-	k8sClient       k8sclient.K8SClient
-	resourceRef     ResourceReference
-	templateVersion *api.TemplateVersion
-	fleet           *api.Fleet
-	frozenConfig    []api.TemplateVersionStatus_Config_Item
+	callbackManager    CallbackManager
+	log                logrus.FieldLogger
+	store              store.Store
+	k8sClient          k8sclient.K8SClient
+	resourceRef        ResourceReference
+	templateVersion    *api.TemplateVersion
+	fleet              *api.Fleet
+	frozenConfig       []api.TemplateVersionStatus_Config_Item
+	frozenApplications []api.ApplicationSpec
 }
 
 func NewTemplateVersionPopulateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) TemplateVersionPopulateLogic {
@@ -69,6 +69,19 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 			}
 		}
 	}
+
+	// freeze applications source
+	if t.fleet.Spec.Template.Spec.Applications != nil {
+		t.frozenApplications = []api.ApplicationSpec{}
+		for i := range *t.fleet.Spec.Template.Spec.Applications {
+			app := (*t.fleet.Spec.Template.Spec.Applications)[i]
+			err := t.handleApplication(app)
+			if err != nil {
+				return t.setStatus(ctx, err)
+			}
+		}
+	}
+
 	return t.setStatus(ctx, nil)
 }
 
@@ -115,6 +128,28 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 	default:
 		return fmt.Errorf("unsupported discriminator %s", disc)
 	}
+}
+
+func (t *TemplateVersionPopulateLogic) handleApplication(app api.ApplicationSpec) error {
+	providerType, err := app.Type()
+	if err != nil {
+		return fmt.Errorf("failed getting application type: %w", err)
+	}
+
+	switch providerType {
+	case api.ImageApplicationProviderType:
+		return t.handleImageApplicationProvider(app)
+	// Add other application providers here
+	default:
+		return fmt.Errorf("unsupported application provider type %s", providerType)
+	}
+}
+
+func (t *TemplateVersionPopulateLogic) handleImageApplicationProvider(app api.ApplicationSpec) error {
+	// Add the image-based application as is to maintain the frozen pattern,
+	// since the service won't handle image payloads directly.
+	t.frozenApplications = append(t.frozenApplications, app)
+	return nil
 }
 
 // Translate branch or tag into hash
@@ -173,25 +208,26 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 			return fmt.Errorf("parameters in field %s of secret reference are not currently supported", key)
 		}
 	}
+
 	secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 	if err != nil {
 		return fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 	}
-	ignitionWrapper, err := ignition.NewWrapper()
-	if err != nil {
-		return fmt.Errorf("failed to create ignition wrapper: %w", err)
-	}
+
+	files := []api.FileSpec{}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
 	for name, contents := range secret.Data {
-		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
+		file := api.FileSpec{
+			Path:    filepath.Join(append(splits, name)...),
+			Content: string(contents),
+			Mode:    util.IntToPtr(0o644),
+		}
+		files = append(files, file)
 	}
-	m, err := ignitionWrapper.AsMap()
-	if err != nil {
-		return fmt.Errorf("failed to convert ignition to ap: %w", err)
-	}
+
 	newConfig := api.TemplateVersionStatus_Config_Item{}
 	inlineSpec := api.InlineConfigProviderSpec{
-		Inline: m,
+		Inline: files,
 		Name:   k8sSpec.Name,
 	}
 	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
@@ -205,6 +241,16 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
 		return fmt.Errorf("failed getting config item as InlineConfigProviderSpec: %w", err)
+	}
+
+	for _, file := range inlineSpec.Inline {
+		if file.User != nil && ContainsParameter([]byte(*file.User)) {
+			return fmt.Errorf("parameters in user field of inline configuration are not supported")
+		}
+
+		if file.Group != nil && ContainsParameter([]byte(*file.Group)) {
+			return fmt.Errorf("parameters in group field of inline configuration are not supported")
+		}
 	}
 
 	// Just add the inline config as-is
@@ -247,6 +293,7 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.templateVersion.Status.Config = &t.frozenConfig
 		t.templateVersion.Status.Hooks = t.fleet.Spec.Template.Spec.Hooks
 		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
+		t.templateVersion.Status.Applications = &t.frozenApplications
 	}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)
 

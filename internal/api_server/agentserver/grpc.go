@@ -11,6 +11,7 @@ import (
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -20,9 +21,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
-
-const SessionIDKey = "session-id"
-const ClientNameKey = "client-name"
 
 type AgentGrpcServer struct {
 	pb.UnimplementedRouterServiceServer
@@ -82,16 +80,16 @@ func (s *AgentGrpcServer) Stream(stream pb.RouterService_StreamServer) error {
 		return status.Error(codes.InvalidArgument, "missing metadata")
 	}
 
-	sessionIds := md.Get(SessionIDKey)
+	sessionIds := md.Get(consts.GrpcSessionIDKey)
 	if len(sessionIds) != 1 {
-		return status.Error(codes.InvalidArgument, "missing "+SessionIDKey)
+		return status.Error(codes.InvalidArgument, "missing "+consts.GrpcSessionIDKey)
 	}
 	sessionId := sessionIds[0]
 
 	// this should eventually come from the TLS context
-	clientNames := md.Get(ClientNameKey)
+	clientNames := md.Get(consts.GrpcClientNameKey)
 	if len(clientNames) != 1 {
-		return status.Error(codes.InvalidArgument, "missing "+ClientNameKey)
+		return status.Error(codes.InvalidArgument, "missing "+consts.GrpcClientNameKey)
 	}
 	clientName := clientNames[0]
 

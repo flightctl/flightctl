@@ -15,10 +15,11 @@ const (
 )
 
 type Config struct {
-	Database *dbConfig    `json:"database,omitempty"`
-	Service  *svcConfig   `json:"service,omitempty"`
-	Queue    *queueConfig `json:"queue,omitempty"`
-	Auth     *authConfig  `json:"auth,omitempty"`
+	Database   *dbConfig         `json:"database,omitempty"`
+	Service    *svcConfig        `json:"service,omitempty"`
+	Queue      *queueConfig      `json:"queue,omitempty"`
+	Auth       *authConfig       `json:"auth,omitempty"`
+	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
 }
 
 type dbConfig struct {
@@ -59,6 +60,12 @@ type authConfig struct {
 	InsecureSkipTlsVerify bool   `json:"insecureSkipTlsVerify,omitempty"`
 }
 
+type prometheusConfig struct {
+	Address        string    `json:"address,omitempty"`
+	SloMax         float64   `json:"sloMax,omitempty"`
+	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
+}
+
 func ConfigDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName)
 }
@@ -97,6 +104,11 @@ func NewDefault() *Config {
 		},
 		Queue: &queueConfig{
 			AmqpURL: "amqp://localhost:5672",
+		},
+		Prometheus: &prometheusConfig{
+			Address:        ":15690",
+			SloMax:         4.0,
+			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
 		},
 	}
 	return c

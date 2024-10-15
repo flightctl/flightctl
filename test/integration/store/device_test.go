@@ -79,7 +79,7 @@ var _ = Describe("DeviceStore create", func() {
 				return
 			}
 			raceCalled = true
-			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}})
+			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -201,10 +201,14 @@ var _ = Describe("DeviceStore create", func() {
 			allDevices, err := devStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
-			expectedSummaryMap := make(map[string]int)
-			expectedUpdatedMap := make(map[string]int)
+			expectedApplicationMap := make(map[string]int64)
+			expectedSummaryMap := make(map[string]int64)
+			expectedUpdatedMap := make(map[string]int64)
 			for i := range allDevices.Items {
 				d := &allDevices.Items[i]
+				applicationStatus := fmt.Sprintf("application-%d", i)
+				d.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusType(applicationStatus)
+				expectedApplicationMap[applicationStatus] = expectedApplicationMap[applicationStatus] + 1
 				status := lo.Ternary(i%2 == 0, "status-1", "status-2")
 				expectedSummaryMap[status] = expectedSummaryMap[status] + 1
 				d.Status.Summary.Status = api.DeviceSummaryStatusType(status)
@@ -217,9 +221,17 @@ var _ = Describe("DeviceStore create", func() {
 			allDevices, err = devStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
-			Expect(lo.FromPtr(allDevices.Summary.SummaryStatus)).To(Equal(expectedSummaryMap))
-			Expect(lo.FromPtr(allDevices.Summary.UpdateStatus)).To(Equal(expectedUpdatedMap))
-			Expect(allDevices.Summary.Total).To(Equal(3))
+			Expect(allDevices.Summary.ApplicationStatus).To(Equal(expectedApplicationMap))
+			Expect(allDevices.Summary.SummaryStatus).To(Equal(expectedSummaryMap))
+			Expect(allDevices.Summary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(allDevices.Summary.Total).To(Equal(int64(3)))
+
+			allDevicesSummary, err := devStore.Summary(ctx, orgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(allDevicesSummary.ApplicationStatus).To(Equal(expectedApplicationMap))
+			Expect(allDevicesSummary.SummaryStatus).To(Equal(expectedSummaryMap))
+			Expect(allDevicesSummary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(allDevicesSummary.Total).To(Equal(int64(3)))
 		})
 
 		It("List with paging", func() {
@@ -369,6 +381,20 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 		})
 
+		It("CreateOrUpdateDevice update labels owned from API", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "owned-device", util.StrToPtr("ownerfleet"), nil, nil)
+			dev, err := devStore.Get(ctx, orgId, "owned-device")
+			Expect(err).ToNot(HaveOccurred())
+
+			newDev := testutil.ReturnTestDevice(orgId, "owned-device", util.StrToPtr("ownerfleet"), nil, &map[string]string{"newkey": "newval"})
+			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
+
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, callback)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(called).To(BeTrue())
+		})
+
 		It("UpdateDeviceStatus", func() {
 			// Random Condition to make sure Conditions do get stored
 			status := api.NewDeviceStatus()
@@ -491,7 +517,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).Should(MatchError(flterrors.ErrNoRenderedVersion))
 
 			// Set first rendered config
-			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the first config")
+			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the first config", "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -507,7 +533,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedConfig).To(BeNil())
 
 			// Set second rendered config
-			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the second config")
+			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the second config", "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion

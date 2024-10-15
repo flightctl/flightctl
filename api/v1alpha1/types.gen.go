@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/oapi-codegen/runtime"
@@ -97,6 +98,12 @@ const (
 	FileOperationUpdate FileOperation = "Update"
 )
 
+// Defines values for FileSpecContentEncoding.
+const (
+	Base64 FileSpecContentEncoding = "base64"
+	Plain  FileSpecContentEncoding = "plain"
+)
+
 // Defines values for HookActionSystemdUnitOperations.
 const (
 	SystemdDaemonReload HookActionSystemdUnitOperations = "DaemonReload"
@@ -136,6 +143,22 @@ const (
 	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
 )
 
+// ApplicationEnvVars defines model for ApplicationEnvVars.
+type ApplicationEnvVars struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+}
+
+// ApplicationSpec defines model for ApplicationSpec.
+type ApplicationSpec struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Name The name of the application
+	Name  *string `json:"name,omitempty"`
+	union json.RawMessage
+}
+
 // ApplicationStatus defines model for ApplicationStatus.
 type ApplicationStatus struct {
 	// Name Human readable name of the application.
@@ -169,6 +192,30 @@ type AuthConfig struct {
 
 	// AuthURL Auth URL
 	AuthURL string `json:"authURL"`
+}
+
+// Batch Batch is an element in batch sequence.
+type Batch struct {
+	Limit *Batch_Limit `json:"limit,omitempty"`
+
+	// Selector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
+	Selector *LabelSelector `json:"selector,omitempty"`
+
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+}
+
+// BatchLimit1 defines model for .
+type BatchLimit1 = int
+
+// Batch_Limit defines model for Batch.Limit.
+type Batch_Limit struct {
+	union json.RawMessage
+}
+
+// BatchSequence BatchSequence defines the list of batches to be executed in sequence.
+type BatchSequence struct {
+	Sequence *[]Batch `json:"sequence,omitempty"`
 }
 
 // CPUResourceMonitorSpec defines model for CPUResourceMonitorSpec.
@@ -269,7 +316,7 @@ type CustomResourceMonitorSpec struct {
 	AlertRules  []ResourceAlertRule `json:"alertRules"`
 	MonitorType string              `json:"monitorType"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
@@ -370,6 +417,9 @@ type DeviceOSSpec struct {
 type DeviceOSStatus struct {
 	// Image Version of the OS image.
 	Image string `json:"image"`
+
+	// ImageDigest The digest of the OS image (e.g. sha256:a0...)
+	ImageDigest string `json:"imageDigest"`
 }
 
 // DeviceRebootHookSpec defines model for DeviceRebootHookSpec.
@@ -392,6 +442,9 @@ type DeviceResourceStatusType string
 
 // DeviceSpec defines model for DeviceSpec.
 type DeviceSpec struct {
+	// Applications List of applications.
+	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+
 	// Config List of config resources.
 	Config     *[]DeviceSpec_Config_Item `json:"config,omitempty"`
 	Containers *struct {
@@ -476,14 +529,17 @@ type DeviceUpdatedStatusType string
 
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
+	// ApplicationStatus A breakdown of the devices in the fleet by "application" status.
+	ApplicationStatus map[string]int64 `json:"applicationStatus"`
+
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus *map[string]int `json:"summaryStatus,omitempty"`
+	SummaryStatus map[string]int64 `json:"summaryStatus"`
 
 	// Total The total number of devices in the fleet.
-	Total int `json:"total"`
+	Total int64 `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus *map[string]int `json:"updateStatus,omitempty"`
+	UpdateStatus map[string]int64 `json:"updateStatus"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
@@ -495,9 +551,30 @@ type DiskResourceMonitorSpec struct {
 	// Path The directory path to monitor for disk usage.
 	Path string `json:"path"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
+
+// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+type DisruptionAllowance struct {
+	// GroupBy List of label keys to perform grouping for the disruption allowance.
+	GroupBy *[]string `json:"groupBy,omitempty"`
+
+	// MaxUnavailable The minimum number of required available devices during rollout.
+	MaxUnavailable *int `json:"maxUnavailable,omitempty"`
+
+	// MinAvailable The maximum number of unavailable devices allowed during rollout.
+	MinAvailable *int `json:"minAvailable,omitempty"`
+}
+
+// Duration The maximum duration allowed for the action to complete.
+// The duration should be specified as a positive integer
+// followed by a time unit. Supported time units are:
+// - 's' for seconds
+// - 'm' for minutes
+// - 'h' for hours
+// - 'd' for days
+type Duration = string
 
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
@@ -604,6 +681,32 @@ type Error struct {
 // FileOperation The type of operation that was observed on the file.
 type FileOperation string
 
+// FileSpec defines model for FileSpec.
+type FileSpec struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *FileSpecContentEncoding `json:"contentEncoding,omitempty"`
+
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file’s permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as
+	// a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified,
+	// the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// Path The absolute path to the file on the device. Note that any existing file will be overwritten.
+	Path string `json:"path"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
+// FileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type FileSpecContentEncoding string
+
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -637,8 +740,16 @@ type FleetList struct {
 	Metadata ListMeta `json:"metadata"`
 }
 
+// FleetRolloutStatus defines model for FleetRolloutStatus.
+type FleetRolloutStatus struct {
+	CurrentBatch *int `json:"currentBatch,omitempty"`
+}
+
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
+	// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
+	RolloutPolicy *RolloutPolicy `json:"rolloutPolicy,omitempty"`
+
 	// Selector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
 	Selector *LabelSelector `json:"selector,omitempty"`
 	Template struct {
@@ -654,7 +765,8 @@ type FleetStatus struct {
 	Conditions []Condition `json:"conditions"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
-	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
+	DevicesSummary *DevicesSummary     `json:"devicesSummary,omitempty"`
+	Rollout        *FleetRolloutStatus `json:"rollout,omitempty"`
 }
 
 // GenericConfigSpec defines model for GenericConfigSpec.
@@ -827,11 +939,17 @@ type HttpRepoSpec struct {
 	Url string `json:"url"`
 }
 
+// ImageApplicationProvider defines model for ImageApplicationProvider.
+type ImageApplicationProvider struct {
+	// Image Reference to the container image for the application package
+	Image string `json:"image"`
+}
+
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
-	ConfigType string                 `json:"configType"`
-	Inline     map[string]interface{} `json:"inline"`
-	Name       string                 `json:"name"`
+	ConfigType string     `json:"configType"`
+	Inline     []FileSpec `json:"inline"`
+	Name       string     `json:"name"`
 }
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
@@ -900,11 +1018,23 @@ type PatchRequest = []struct {
 // PatchRequestOp The operation to perform.
 type PatchRequestOp string
 
+// Percentage Percentage is the string format representing percentage string.
+type Percentage = string
+
+// RenderedApplicationSpec defines model for RenderedApplicationSpec.
+type RenderedApplicationSpec struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+	Name    *string            `json:"name,omitempty"`
+	union   json.RawMessage
+}
+
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
-	Config     *string        `json:"config,omitempty"`
-	Console    *DeviceConsole `json:"console,omitempty"`
-	Containers *struct {
+	Applications *[]RenderedApplicationSpec `json:"applications,omitempty"`
+	Config       *string                    `json:"config,omitempty"`
+	Console      *DeviceConsole             `json:"console,omitempty"`
+	Containers   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
 	Hooks           *DeviceHooksSpec `json:"hooks,omitempty"`
@@ -968,7 +1098,7 @@ type ResourceAlertRule struct {
 	// Description A human-readable description of the alert.
 	Description string `json:"description"`
 
-	// Duration Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	// Duration Duration is the time over which the average usage is observed before alerting. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	Duration string `json:"duration"`
 
 	// Percentage The percentage of usage that triggers the alert.
@@ -990,7 +1120,7 @@ type ResourceMonitorSpec struct {
 	AlertRules  []ResourceAlertRule `json:"alertRules"`
 	MonitorType string              `json:"monitorType"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
@@ -1050,6 +1180,31 @@ type ResourceSyncStatus struct {
 
 	// ObservedGeneration The last generation that was synced
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+}
+
+// RolloutDeviceSelection defines model for RolloutDeviceSelection.
+type RolloutDeviceSelection struct {
+	Strategy string `json:"strategy"`
+	union    json.RawMessage
+}
+
+// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
+type RolloutPolicy struct {
+	// DefaultUpdateTimeout The maximum duration allowed for the action to complete.
+	// The duration should be specified as a positive integer
+	// followed by a time unit. Supported time units are:
+	// - 's' for seconds
+	// - 'm' for minutes
+	// - 'h' for hours
+	// - 'd' for days
+	DefaultUpdateTimeout *Duration               `json:"defaultUpdateTimeout,omitempty"`
+	DeviceSelection      *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
+
+	// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+	DisruptionAllowance *DisruptionAllowance `json:"disruptionAllowance,omitempty"`
+
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
 
 // SshConfig defines model for SshConfig.
@@ -1127,6 +1282,9 @@ type TemplateVersionSpec struct {
 
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
+	// Applications List of applications.
+	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
@@ -1184,6 +1342,9 @@ type ListDevicesParams struct {
 
 	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
@@ -1217,6 +1378,9 @@ type ListFleetsParams struct {
 
 	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// AddDevicesCount include the number of devices in each fleet
+	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
@@ -1326,6 +1490,152 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
+
+// AsImageApplicationProvider returns the union data inside the ApplicationSpec as a ImageApplicationProvider
+func (t ApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+	var body ImageApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProvider overwrites any union data inside the ApplicationSpec as the provided ImageApplicationProvider
+func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
+func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsPercentage returns the union data inside the Batch_Limit as a Percentage
+func (t Batch_Limit) AsPercentage() (Percentage, error) {
+	var body Percentage
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPercentage overwrites any union data inside the Batch_Limit as the provided Percentage
+func (t *Batch_Limit) FromPercentage(v Percentage) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePercentage performs a merge with any union data inside the Batch_Limit, using the provided Percentage
+func (t *Batch_Limit) MergePercentage(v Percentage) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsBatchLimit1 returns the union data inside the Batch_Limit as a BatchLimit1
+func (t Batch_Limit) AsBatchLimit1() (BatchLimit1, error) {
+	var body BatchLimit1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBatchLimit1 overwrites any union data inside the Batch_Limit as the provided BatchLimit1
+func (t *Batch_Limit) FromBatchLimit1(v BatchLimit1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBatchLimit1 performs a merge with any union data inside the Batch_Limit, using the provided BatchLimit1
+func (t *Batch_Limit) MergeBatchLimit1(v BatchLimit1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Batch_Limit) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Batch_Limit) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
@@ -1538,6 +1848,90 @@ func (t *HookAction) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsImageApplicationProvider returns the union data inside the RenderedApplicationSpec as a ImageApplicationProvider
+func (t RenderedApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+	var body ImageApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProvider overwrites any union data inside the RenderedApplicationSpec as the provided ImageApplicationProvider
+func (t *RenderedApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProvider performs a merge with any union data inside the RenderedApplicationSpec, using the provided ImageApplicationProvider
+func (t *RenderedApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RenderedApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *RenderedApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	return err
+}
+
 // AsGenericRepoSpec returns the union data inside the RepositorySpec as a GenericRepoSpec
 func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
 	var body GenericRepoSpec
@@ -1742,6 +2136,100 @@ func (t ResourceMonitor) MarshalJSON() ([]byte, error) {
 
 func (t *ResourceMonitor) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsBatchSequence returns the union data inside the RolloutDeviceSelection as a BatchSequence
+func (t RolloutDeviceSelection) AsBatchSequence() (BatchSequence, error) {
+	var body BatchSequence
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBatchSequence overwrites any union data inside the RolloutDeviceSelection as the provided BatchSequence
+func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
+	t.Strategy = "BatchSequence"
+
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBatchSequence performs a merge with any union data inside the RolloutDeviceSelection, using the provided BatchSequence
+func (t *RolloutDeviceSelection) MergeBatchSequence(v BatchSequence) error {
+	t.Strategy = "BatchSequence"
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RolloutDeviceSelection) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"strategy"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RolloutDeviceSelection) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "BatchSequence":
+		return t.AsBatchSequence()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["strategy"], err = json.Marshal(t.Strategy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'strategy': %w", err)
+	}
+
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["strategy"]; found {
+		err = json.Unmarshal(raw, &t.Strategy)
+		if err != nil {
+			return fmt.Errorf("error reading 'strategy': %w", err)
+		}
+	}
+
 	return err
 }
 

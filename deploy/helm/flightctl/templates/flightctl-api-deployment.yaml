@@ -1,4 +1,4 @@
-{{ if .Values.flightctl.api.enabled }}
+{{ if .Values.api.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,15 +20,15 @@ spec:
     spec:
       containers:
         - name: flightctl-api
-          image: {{ .Values.flightctl.api.image.image }}:{{ default .Chart.AppVersion .Values.flightctl.api.image.tag }}
-          imagePullPolicy: {{ .Values.flightctl.api.image.pullPolicy }}
+          image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
           env:
             - name: HOME
               value: "/root"
-            {{ if not .Values.flightctl.api.auth.enabled }}
+            {{- if eq .Values.global.auth.type "none" }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
-            {{ end }}
+            {{- end }}
           ports:
             - containerPort: 3443
               name: service-api
@@ -39,6 +39,13 @@ spec:
             - containerPort: 7444
               name: agent-grpc
               protocol: TCP
+            - containerPort: 15690
+              name: api-prom-target
+              protocol: TCP
+            - containerPort: 15691
+              name: db-prom-target
+              protocol: TCP
+
           volumeMounts:
             - mountPath: /root/.flightctl/
               name: flightctl-api-certs

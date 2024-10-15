@@ -35,6 +35,9 @@ type Device struct {
 	// The rendered ignition config, exposed in a separate endpoint.
 	RenderedConfig *string
 
+	// The rendered application provided by the service.
+	RenderedApplications *JSONField[*[]api.RenderedApplicationSpec] `gorm:"type:jsonb"`
+
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
 }
@@ -149,10 +152,13 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 	}
 
 	deviceList := make([]api.Device, len(dl))
-	summaryStatuses := make(map[string]int)
-	updateStatuses := make(map[string]int)
+	applicationStatuses := make(map[string]int64)
+	summaryStatuses := make(map[string]int64)
+	updateStatuses := make(map[string]int64)
 	for i, device := range dl {
 		deviceList[i] = device.ToApiResource()
+		applicationStatus := string(deviceList[i].Status.Applications.Summary.Status)
+		applicationStatuses[applicationStatus] = applicationStatuses[applicationStatus] + 1
 		summaryStatus := string(deviceList[i].Status.Summary.Status)
 		summaryStatuses[summaryStatus] = summaryStatuses[summaryStatus] + 1
 		updateStatus := string(deviceList[i].Status.Updated.Status)
@@ -164,9 +170,10 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
 		Summary: &api.DevicesSummary{
-			SummaryStatus: &summaryStatuses,
-			UpdateStatus:  &updateStatuses,
-			Total:         len(dl),
+			ApplicationStatus: applicationStatuses,
+			SummaryStatus:     summaryStatuses,
+			UpdateStatus:      updateStatuses,
+			Total:             int64(len(dl)),
 		},
 	}
 	if cont != nil {

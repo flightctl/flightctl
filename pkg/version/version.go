@@ -38,7 +38,10 @@ type Info struct {
 }
 
 func (info Info) String() string {
-	return fmt.Sprintf("%s-%s", info.BuildDate, info.GitVersion)
+	if info.GitTreeState != "clean" {
+		return fmt.Sprintf("%s-%s", info.GitVersion, info.GitTreeState)
+	}
+	return info.GitVersion
 }
 
 func Get() Info {

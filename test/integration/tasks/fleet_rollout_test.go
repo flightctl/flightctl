@@ -2,7 +2,7 @@ package tasks_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"testing"
 
@@ -159,10 +159,12 @@ var _ = Describe("FleetRollout", func() {
 					ConfigType: string(api.TemplateDiscriminatorInlineConfig),
 					Name:       "paramInlineConfig",
 				}
-				var inline map[string]interface{}
-				err := json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.{{ device.metadata.labels[version] }}\"}}"), &inline)
-				Expect(err).ToNot(HaveOccurred())
-				inlineConfig.Inline = inline
+				enc := api.Base64
+				inlineConfig.Inline = []api.FileSpec{
+					// Unencoded: My version is {{ device.metadata.labels[version] }}
+					{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},
+				}
+
 				httpConfig = &api.HttpConfigProviderSpec{
 					ConfigType: string(api.TemplateDiscriminatorHttpConfig),
 					Name:       "paramHttpConfig",
@@ -228,13 +230,9 @@ var _ = Describe("FleetRollout", func() {
 						case string(api.TemplateDiscriminatorInlineConfig):
 							inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
-							ig := inlineSpec.Inline["ignition"]
-							igMap, ok := ig.(map[string]interface{})
-							Expect(ok).To(BeTrue())
-							ver := igMap["version"]
-							verStr, ok := ver.(string)
-							Expect(ok).To(BeTrue())
-							Expect(verStr).To(Equal(fmt.Sprintf("3.4.%d", i)))
+							Expect(inlineSpec.Inline[0].Path).To(Equal("/etc/withparams"))
+							newContents := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("My version is %d", i)))
+							Expect(inlineSpec.Inline[0].Content).To(Equal(newContents))
 						case string(api.TemplateDiscriminatorHttpConfig):
 							httpSpec, err := configItem.AsHttpConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
@@ -299,13 +297,9 @@ var _ = Describe("FleetRollout", func() {
 					case string(api.TemplateDiscriminatorInlineConfig):
 						inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 						Expect(err).ToNot(HaveOccurred())
-						ig := inlineSpec.Inline["ignition"]
-						igMap, ok := ig.(map[string]interface{})
-						Expect(ok).To(BeTrue())
-						ver := igMap["version"]
-						verStr, ok := ver.(string)
-						Expect(ok).To(BeTrue())
-						Expect(verStr).To(Equal("3.4.2"))
+						Expect(inlineSpec.Inline[0].Path).To(Equal("/etc/withparams"))
+						newContents := base64.StdEncoding.EncodeToString([]byte("My version is 2"))
+						Expect(inlineSpec.Inline[0].Content).To(Equal(newContents))
 					default:
 						Expect("").To(Equal("unexpected discriminator"))
 					}

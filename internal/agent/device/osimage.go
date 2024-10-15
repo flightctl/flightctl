@@ -64,7 +64,11 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
-	if container.IsOsImageReconciled(host, desired) {
+	reconciled, err := container.IsOsImageReconciled(host, desired)
+	if err != nil {
+		return err
+	}
+	if reconciled {
 		c.log.Debugf("Host is reconciled to os image %s", desired.Os.Image)
 		return nil
 	}

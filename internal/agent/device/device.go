@@ -7,11 +7,13 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/lthibault/jitterbug"
@@ -24,10 +26,11 @@ type Agent struct {
 	statusManager      status.Manager
 	specManager        spec.Manager
 	hookManager        hook.Manager
-	configController   config.Controller
+	configController   *config.Controller
 	osImageController  *OSImageController
 	resourceController *resource.Controller
-	consoleController  *ConsoleController
+	consoleController  *console.ConsoleController
+	bootcClient        container.BootcClient
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
@@ -44,11 +47,12 @@ func NewAgent(
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
-	configController config.Controller,
+	configController *config.Controller,
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
-	consoleController *ConsoleController,
+	consoleController *console.ConsoleController,
 	log *log.PrefixLogger,
+	bootcClient container.BootcClient,
 ) *Agent {
 	return &Agent{
 		name:                name,
@@ -63,6 +67,7 @@ func NewAgent(
 		resourceController:  resourceController,
 		consoleController:   consoleController,
 		log:                 log,
+		bootcClient:         bootcClient,
 	}
 }
 
@@ -79,45 +84,66 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-fetchSpecTicker.C:
-			a.log.Debug("Fetching device spec")
-			deviceUpdated, err := a.syncDevice(ctx)
-			if err != nil {
-				infoMsg := fmt.Sprintf("Failed to sync device: %v", err)
-				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-					Status: v1alpha1.DeviceSummaryStatusDegraded,
-					Info:   util.StrToPtr(infoMsg),
-				}))
-				if updateErr != nil {
-					a.log.Errorf("Failed to update device status: %v", updateErr)
-				}
-				a.log.Error(infoMsg)
-				continue
-			}
-
-			if deviceUpdated {
-				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-					Status: v1alpha1.DeviceSummaryStatusOnline,
-					Info:   nil,
-				}))
-				if updateErr != nil {
-					a.log.Errorf("Updating device status: %v", updateErr)
-				}
-			}
+			a.fetchDeviceSpec(ctx)
 		case <-fetchStatusTicker.C:
-			a.log.Debug("Fetching device status")
-			if err := a.statusManager.Sync(ctx); err != nil {
-				msg := err.Error()
-				_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-					Status: v1alpha1.DeviceSummaryStatusDegraded,
-					Info:   &msg,
-				}))
-				if updateErr != nil {
-					a.log.Errorf("Updating device status: %v", updateErr)
-				}
-
-				a.log.Errorf("Syncing status: %v", err)
-			}
+			a.fetchDeviceStatus(ctx)
 		}
+	}
+}
+
+func (a *Agent) fetchDeviceSpec(ctx context.Context) {
+	startTime := time.Now()
+	a.log.Debug("Starting fetch device spec")
+	defer func() {
+		duration := time.Since(startTime)
+		a.log.Debugf("Completed fetch device spec in %v", duration)
+	}()
+
+	deviceUpdated, err := a.syncDevice(ctx)
+	if err != nil {
+		infoMsg := fmt.Sprintf("Failed to sync device: %v", err)
+		_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusDegraded,
+			Info:   util.StrToPtr(infoMsg),
+		}))
+		if updateErr != nil {
+			a.log.Errorf("Failed to update device status: %v", updateErr)
+		}
+		a.log.Error(infoMsg)
+		return
+	}
+
+	if deviceUpdated {
+		_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusOnline,
+			Info:   nil,
+		}))
+		if updateErr != nil {
+			a.log.Errorf("Updating device status: %v", updateErr)
+		}
+	}
+}
+
+func (a *Agent) fetchDeviceStatus(ctx context.Context) {
+	startTime := time.Now()
+	a.log.Debug("Starting fetch device status")
+	defer func() {
+		duration := time.Since(startTime)
+		a.log.Debugf("Completed fetch device status in %v", duration)
+	}()
+
+	if err := a.statusManager.Sync(ctx); err != nil {
+		msg := err.Error()
+		_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusDegraded,
+			Info:   &msg,
+		}))
+		if updateErr != nil {
+			a.log.Errorf("Updating device status: %v", updateErr)
+		}
+
+		a.log.Errorf("Syncing status: %v", err)
+		return
 	}
 }
 
@@ -198,8 +224,14 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	}
 
 	if desired.Os != nil {
+		bootcStatus, err := a.bootcClient.Status(ctx)
+		if err != nil {
+			return false, err
+		}
+
 		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: desired.Os.Image,
+			Image:       desired.Os.Image,
+			ImageDigest: bootcStatus.GetBootedImageDigest(),
 		}))
 	}
 
