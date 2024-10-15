@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -139,7 +140,7 @@ type ListParams struct {
 	Continue      *Continue
 	FleetName     *string
 	FieldSelector fields.Selector
-	SortBy        []SortField
+	SortBy        *SortField
 }
 
 type Continue struct {
@@ -150,14 +151,9 @@ type Continue struct {
 
 type SortOrder string
 
-const (
-	SortAsc  SortOrder = "ASC"
-	SortDesc SortOrder = "DESC"
-)
-
 type SortField struct {
 	FieldName selector.SelectorFieldName
-	Order     SortOrder
+	Order     v1alpha1.SortOrder
 }
 
 func ParseContinueString(contStr *string) (*Continue, error) {

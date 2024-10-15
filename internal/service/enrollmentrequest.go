@@ -122,12 +122,11 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		}
 	}
 
-	var sortFields []store.SortField
+	var sortField *store.SortField
 	if request.Params.SortBy != nil {
-		if sortFields, _ = validateSortField(*request.Params.SortBy); sortFields == nil {
-			return server.ListEnrollmentRequests400JSONResponse{
-				Message: fmt.Sprintf("sort field %q is incorrectly formatted. Expected format: fieldName:order", *request.Params.SortBy),
-			}, nil
+		sortField = &store.SortField{
+			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			Order:     *request.Params.SortOrder,
 		}
 	}
 
@@ -136,7 +135,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
-		SortBy:        sortFields,
+		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest

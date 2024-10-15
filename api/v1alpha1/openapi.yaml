@@ -80,10 +80,19 @@ paths:
             type: string
         - name: sortBy
           in: query
-          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          description: Specifies the field to sort by.
           required: false
           schema:
             type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -355,10 +364,19 @@ paths:
             format: int32
         - name: sortBy
           in: query
-          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          description: Specifies the field to sort by.
           required: false
           schema:
             type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -649,10 +667,19 @@ paths:
             type: boolean
         - name: sortBy
           in: query
-          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          description: Specifies the field to sort by.
           required: false
           schema:
             type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1128,10 +1155,19 @@ paths:
             format: int32
         - name: sortBy
           in: query
-          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          description: Specifies the field to sort by.
           required: false
           schema:
             type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1486,10 +1522,19 @@ paths:
             format: int32
         - name: sortBy
           in: query
-          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          description: Specifies the field to sort by.
           required: false
           schema:
             type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1876,10 +1921,19 @@ paths:
             type: boolean
         - name: sortBy
           in: query
-          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          description: Specifies the field to sort by.
           required: false
           schema:
             type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -2238,10 +2292,19 @@ paths:
             format: int32
         - name: sortBy
           in: query
-          description: Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+          description: Specifies the field to sort by.
           required: false
           schema:
             type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -2363,6 +2426,13 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+    SortOrder:
+      type: string
+      enum:
+        - 'Asc'
+        - 'Desc'
+      description: Specifies the sort order.
+      default: 'Asc'
     PatchRequest:
       type: array
       items:

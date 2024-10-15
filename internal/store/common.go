@@ -102,13 +102,15 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 		return nil, err
 	}
 
-	for _, sortField := range listParams.SortBy {
-		fields, err := resolver.ResolveNames(sortField.FieldName)
+	if listParams.SortBy != nil {
+		// Resolve name from the SortBy field, which might correspond to multiple fields.
+		fields, err := resolver.ResolveNames(listParams.SortBy.FieldName)
 		if err != nil {
 			return nil, err
 		}
 		for _, name := range fields {
-			query = query.Order(fmt.Sprintf("%s %s", createParamsFromKey(name), sortField.Order))
+			query = query.Order(fmt.Sprintf("%s %s", createParamsFromKey(name),
+				strings.ToLower(string(listParams.SortBy.Order))))
 		}
 	}
 
