@@ -1,5 +1,4 @@
-{{ if and (.Values.api.enabled) (not .Values.api.nodePorts.grpc) }}
-
+{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -12,11 +11,7 @@ metadata:
   name: flightctl-api-route-agent-grpc
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if .Values.api.hostNames.grpc }}
-  host: {{ .Values.api.hostNames.grpc }}
-  {{- else }}
   host: agent-grpc.{{ include "flightctl.getBaseDomain" . }}
-  {{- end }}
   port:
     targetPort: 7444
   tls:
@@ -27,5 +22,4 @@ spec:
     name: flightctl-api-agent-grpc
     weight: 100
   wildcardPolicy: None
-
 {{ end }}

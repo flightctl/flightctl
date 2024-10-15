@@ -24,7 +24,6 @@ spec:
         args:
         - start-dev
         - --http-port=8080
-        - --https-port=8443
         - --proxy=edge
         - --import-realm
         env:

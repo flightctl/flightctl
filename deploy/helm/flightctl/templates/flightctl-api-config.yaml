@@ -17,43 +17,23 @@ data:
         address: :3443
         agentEndpointAddress: :7443
         agentGrpcAddress: :7444
-        {{- if .Values.api.hostNames.api }}
-        baseUrl: https://{{ .Values.api.hostNames.api }}{{ if .Values.api.nodePorts.api }}:{{ .Values.api.nodePorts.api }}{{ end }}/
+        {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+        baseUrl: https://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
+        baseAgentEndpointUrl: https://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
+        baseAgentGrpcUrl: grpcs://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.grpc }}
         {{- else }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}{{ if .Values.api.nodePorts.api }}:{{ .Values.api.nodePorts.api }}{{ end }}/
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
+        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}
         {{- end }}
-        {{- if .Values.api.hostNames.agent }}
-        baseAgentEndpointUrl:  https://{{ .Values.api.hostNames.agent }}{{ if .Values.api.nodePorts.agent }}:{{ .Values.api.nodePorts.agent }}{{ end }}/
-        {{- else }}
-        baseAgentEndpointUrl:  https://agent-api.{{ include "flightctl.getBaseDomain" . }}{{ if .Values.api.nodePorts.agent }}:{{ .Values.api.nodePorts.agent }}{{ end }}/
-        {{- end }}
-        {{- if .Values.api.agentGrpcBaseURL }}
-        baseAgentGrpcUrl:  {{ .Values.api.agentGrpcBaseURL }}
-        {{- else }}
-        baseAgentGrpcUrl:  grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}{{ if .Values.api.nodePorts.grpc }}:{{ .Values.api.nodePorts.grpc }}{{ end }}
-        {{- end }}
-        {{- if .Values.api.baseUIUrl }}
-        baseUIUrl:  {{ .Values.api.baseUIUrl }}
-        {{- else if eq .Values.global.target "acm" }}
-        baseUIUrl:  https://console-openshift-console.{{ include "flightctl.getBaseDomain" (merge . (dict "noNs" "true")) }}/edge
-        {{- else  }}
-        baseUIUrl:  https://ui.{{ include "flightctl.getBaseDomain" . }}
-        {{- end }}
+        baseUIUrl: {{ include "flightctl.getUIUrl" . }}
         altNames:
-          {{- if .Values.api.hostNames.api }}
-          - {{ .Values.api.hostNames.api }}
-          {{- else }}
+          {{- if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
           - api.{{ include "flightctl.getBaseDomain" . }}
-          {{- end }}
-          {{- if .Values.api.hostNames.agent }}
-          - {{ .Values.api.hostNames.agent }}
-          {{- else }}
           - agent-api.{{ include "flightctl.getBaseDomain" . }}
-          {{- end }}
-          {{- if .Values.api.hostNames.grpc }}
-          - {{ .Values.api.hostNames.grpc }}
-          {{- else }}
           - agent-grpc.{{ include "flightctl.getBaseDomain" . }}
+          {{- else }}
+          - {{ include "flightctl.getBaseDomain" . }}
           {{- end }} 
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
@@ -73,6 +53,9 @@ data:
         {{- if .Values.global.auth.oidcAuthority }}
         oidcAuthority: {{ .Values.global.auth.oidcAuthority }}
         internalOidcAuthority: {{ .Values.global.auth.internalOidcAuthority }}
+        {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+        oidcAuthority: http://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.keycloak }}/realms/flightctl
+        internalOidcAuthority: http://keycloak:8080/realms/flightctl
         {{- else }}
         oidcAuthority: https://auth.{{ include "flightctl.getBaseDomain" . }}/realms/flightctl
         internalOidcAuthority: http://keycloak:8080/realms/flightctl
@@ -80,8 +63,10 @@ data:
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
     {{- end }}
     {{- end }}
+    {{- if .Values.prometheus.enabled }}
     prometheus:
         address: ":15690"
         sloMax: 4.0
         apiLatencyBins: [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1]
+    {{- end }}
 {{ end }}

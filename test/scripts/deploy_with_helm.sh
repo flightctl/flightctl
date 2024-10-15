@@ -103,7 +103,7 @@ fi
 helm dependency build ./deploy/helm/flightctl
 
 helm upgrade --install --namespace flightctl-external \
-                  --values ./deploy/helm/flightctl/values.kind.yaml \
+                  --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
                   ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
@@ -149,7 +149,7 @@ kind_load_image localhost/git-server:latest
 kind_load_image docker.io/library/registry:2
 
 # deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
-helm upgrade --install --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
+helm upgrade --install --values ./deploy/helm/e2e-extras/values.dev.yaml flightctl-e2e-extras \
                         ./deploy/helm/e2e-extras/ --kube-context kind-kind
 
 sudo tee /etc/containers/registries.conf.d/flightctl-e2e.conf <<EOF
