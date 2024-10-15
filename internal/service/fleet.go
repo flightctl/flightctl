@@ -104,13 +104,14 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 	}
 
 	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.WithDeviceCount(util.DefaultBoolIfNil(request.Params.AddDevicesCount, false)))
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListFleets200JSONResponse(*result), nil
+	}
+
+	switch {
+	case selector.IsSelectorError(err):
+		return server.ListFleets400JSONResponse{Message: err.Error()}, nil
 	default:
-		if s, ok := selector.IsSelectorError(err); ok {
-			return server.ListFleets400JSONResponse{Message: s.Error()}, nil
-		}
 		return nil, err
 	}
 }

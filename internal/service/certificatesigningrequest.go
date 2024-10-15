@@ -117,13 +117,14 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 	}
 
 	result, err := h.store.CertificateSigningRequest().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListCertificateSigningRequests200JSONResponse(*result), nil
+	}
+
+	switch {
+	case selector.IsSelectorError(err):
+		return server.ListCertificateSigningRequests400JSONResponse{Message: err.Error()}, nil
 	default:
-		if s, ok := selector.IsSelectorError(err); ok {
-			return server.ListCertificateSigningRequests400JSONResponse{Message: s.Error()}, nil
-		}
 		return nil, err
 	}
 }

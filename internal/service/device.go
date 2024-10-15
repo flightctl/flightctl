@@ -149,15 +149,16 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	}
 
 	result, err := h.store.Device().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListDevices200JSONResponse(*result), nil
-	case flterrors.ErrLimitParamOutOfBounds:
+	}
+
+	switch {
+	case errors.Is(err, flterrors.ErrLimitParamOutOfBounds):
+		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
+	case selector.IsSelectorError(err):
 		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	default:
-		if s, ok := selector.IsSelectorError(err); ok {
-			return server.ListDevices400JSONResponse{Message: s.Error()}, nil
-		}
 		return nil, err
 	}
 }
