@@ -178,6 +178,20 @@ func (mr *MockWriterMockRecorder) PathFor(filePath any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathFor", reflect.TypeOf((*MockWriter)(nil).PathFor), filePath)
 }
 
+// RemoveAll mocks base method.
+func (m *MockWriter) RemoveAll(path string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveAll", path)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveAll indicates an expected call of RemoveAll.
+func (mr *MockWriterMockRecorder) RemoveAll(path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveAll", reflect.TypeOf((*MockWriter)(nil).RemoveAll), path)
+}
+
 // RemoveFile mocks base method.
 func (m *MockWriter) RemoveFile(file string) error {
 	m.ctrl.T.Helper()
@@ -410,6 +424,20 @@ func (m *MockReadWriter) ReadFile(filePath string) ([]byte, error) {
 func (mr *MockReadWriterMockRecorder) ReadFile(filePath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockReadWriter)(nil).ReadFile), filePath)
+}
+
+// RemoveAll mocks base method.
+func (m *MockReadWriter) RemoveAll(path string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveAll", path)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveAll indicates an expected call of RemoveAll.
+func (mr *MockReadWriterMockRecorder) RemoveAll(path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveAll", reflect.TypeOf((*MockReadWriter)(nil).RemoveAll), path)
 }
 
 // RemoveFile mocks base method.

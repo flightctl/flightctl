@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -75,6 +76,9 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 	}
 
 	for _, app := range removed {
+		if err := c.removeImagePackage(app); err != nil {
+			return err
+		}
 		if err := c.manager.Remove(app); err != nil {
 			return err
 		}
@@ -100,9 +104,16 @@ func (c *Controller) ensureApps(ctx context.Context, currentApps *applications) 
 	return nil
 }
 
-func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProvider]) error {
-	containerImage := app.provider.Image
+func (c *Controller) removeImagePackage(app *application[*v1alpha1.ImageApplicationProvider]) error {
+	appPath, err := app.Path()
+	if err != nil {
+		return err
+	}
+	// remove the application directory for compose.
+	return c.writer.RemoveAll(appPath)
+}
 
+func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProvider]) error {
 	appPath, err := app.Path()
 	if err != nil {
 		return err
@@ -111,6 +122,7 @@ func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v
 	// TODO: consider using managed files or other mechanism to reduce disk I/O
 	// if the manifests are already present and as expected.
 
+	containerImage := app.provider.Image
 	// copy image manifests from container image to the application path
 	if err := CopyImageManifests(ctx, c.log, c.writer, c.podman, containerImage, appPath); err != nil {
 		return err
@@ -124,6 +136,7 @@ func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v
 			env.WriteString(fmt.Sprintf("%s=%s\n", k, v))
 		}
 		envPath := fmt.Sprintf("%s/.env", appPath)
+		c.log.Debugf("writing env vars to %s", envPath)
 		if err := c.writer.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {
 			return err
 		}
@@ -142,11 +155,11 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 		return &apps, nil
 	}
 	for _, appSpec := range *spec.Applications {
-		t, err := appSpec.Type()
+		providerType, err := appSpec.Type()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrFailedToParseAppType, err)
+			return nil, fmt.Errorf("%w: %w", ErrorUnsupportedAppProviderType, err)
 		}
-		switch t {
+		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
 			provider, err := appSpec.AsImageApplicationProvider()
 			if err != nil {
@@ -166,9 +179,10 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 				&provider,
 				appType,
 			)
+			application.SetEnvVars(util.FromPtr(appSpec.EnvVars))
 			apps.images = append(apps.images, application)
 		default:
-			return nil, fmt.Errorf("%w: %s", ErrorUnsupportedAppType, t)
+			return nil, fmt.Errorf("%w: %s", ErrorUnsupportedAppType, providerType)
 		}
 	}
 	return &apps, nil

@@ -76,6 +76,13 @@ func (w *writer) RemoveFile(file string) error {
 	return nil
 }
 
+func (w *writer) RemoveAll(path string) error {
+	if err := os.RemoveAll(filepath.Join(w.rootDir, path)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove path %q: %w", path, err)
+	}
+	return nil
+}
+
 func (w *writer) MkdirAll(path string, perm os.FileMode) error {
 	return os.MkdirAll(filepath.Join(w.rootDir, path), perm)
 }

@@ -340,8 +340,8 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 }
 
 func (a *Agent) afterUpdate(ctx context.Context) error {
-	a.log.Debug("Executing post actions")
-	defer a.log.Debug("Finished executing post actions")
+	a.log.Debug("Executing after update actions")
+	defer a.log.Debug("Finished executing after update actions")
 
 	// execute post actions for applications
 	if err := a.appManager.ExecuteActions(ctx); err != nil {

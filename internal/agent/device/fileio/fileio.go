@@ -26,6 +26,7 @@ type Writer interface {
 	PathFor(filePath string) string
 	WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error
 	RemoveFile(file string) error
+	RemoveAll(path string) error
 	MkdirAll(path string, perm fs.FileMode) error
 	CopyFile(src, dst string) error
 	CreateManagedFile(file ign3types.File) (ManagedFile, error)

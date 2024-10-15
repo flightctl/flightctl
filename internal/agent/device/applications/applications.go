@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	ErrNameRequired         = errors.New("application name is required")
-	ErrNotFound             = errors.New("application not found")
-	ErrorUnsupportedAppType = errors.New("unsupported application type")
-	ErrFailedToParseAppType = errors.New("failed to parse application type")
+	ErrNameRequired                 = errors.New("application name is required")
+	ErrNotFound                     = errors.New("application not found")
+	ErrorUnsupportedAppType         = errors.New("unsupported application type")
+	ErrorUnsupportedAppProviderType = errors.New("unsupported application provider type")
+	ErrFailedToParseAppType         = errors.New("failed to parse application type")
 )
 
 const (
@@ -269,11 +270,11 @@ func (a *applications) ImageBased() []*application[*v1alpha1.ImageApplicationPro
 func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
 	var providers []v1alpha1.ImageApplicationProvider
 	for _, appSpec := range *spec.Applications {
-		appProvider, err := appSpec.Type()
+		providerType, err := appSpec.Type()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrorUnsupportedAppProviderType, err)
 		}
-		if appProvider == v1alpha1.ImageApplicationProviderType {
+		if providerType == v1alpha1.ImageApplicationProviderType {
 			provider, err := appSpec.AsImageApplicationProvider()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
