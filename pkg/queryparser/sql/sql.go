@@ -243,7 +243,7 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 		},
 		"CAST": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NLIKE", "ANY", "NANY", "ALL", "NALL", "OVERLAPS", "NOVERLAPS", "CONTAINS", "NCONTAINS"),
+				"NLIKE", "ANY", "NANY", "ALL", "NALL", "OVERLAPS", "NOVERLAPS", "CONTAINS", "NCONTAINS", "ISNULL", "ISNOTNULL"),
 			Verifications: []verificationHandler{withKeyOrValueArg()},
 			handle:        sp.queryCast,
 		},
@@ -276,7 +276,7 @@ type parser struct {
 // and executes the corresponding SQL functions to generate the final query
 // string along with its parameters.
 func (sp *SQLParser) Parse(ctx context.Context, input any, params ...string) (string, []any, error) {
-	if input == "" {
+	if input == nil {
 		return "", nil, nil
 	}
 
@@ -558,22 +558,22 @@ func (sp *SQLParser) queryNotAny(args ...string) (*FunctionResult, error) {
 }
 
 func (sp *SQLParser) queryAll(args ...string) (*FunctionResult, error) {
-	if err := validateArgsCount(args, 2, 2); err != nil {
+	if err := validateArgsCount(args, 2); err != nil {
 		return nil, err
 	}
 
 	return &FunctionResult{
-		Query: fmt.Sprintf("%s = ALL(%s)", args[1], args[0]),
+		Query: fmt.Sprintf("ARRAY[%s] <@ %s", strings.Join(args[1:], ", "), args[0]),
 	}, nil
 }
 
 func (sp *SQLParser) queryNotAll(args ...string) (*FunctionResult, error) {
-	if err := validateArgsCount(args, 2, 2); err != nil {
+	if err := validateArgsCount(args, 2); err != nil {
 		return nil, err
 	}
 
 	return &FunctionResult{
-		Query: fmt.Sprintf("%s != ALL(%s)", args[1], args[0]),
+		Query: fmt.Sprintf("NOT (ARRAY[%s] <@ %s)", strings.Join(args[1:], ", "), args[0]),
 	}, nil
 }
 
