@@ -96,7 +96,6 @@ func (c *Controller) ensureApps(ctx context.Context, currentApps *applications) 
 		if err := c.ensureImagePackage(ctx, app); err != nil {
 			return err
 		}
-		c.log.Infof("Added application %s", app.Name())
 	}
 	return nil
 }

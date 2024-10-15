@@ -195,7 +195,7 @@ func (a *Agent) sync(ctx context.Context) error {
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
-		return err
+		return fmt.Errorf("before update applications check failed: %w", err)
 	}
 
 	return nil
@@ -236,7 +236,7 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 				return true, nil
 			})
 			if err != nil {
-				return fmt.Errorf("creating enrollment request: %w", err)
+				return fmt.Errorf("failed to pull image %q: %w", providerImage, err)
 			}
 		}
 
