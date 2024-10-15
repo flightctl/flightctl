@@ -49,12 +49,11 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		}
 	}
 
-	var sortFields []store.SortField
+	var sortField *store.SortField
 	if request.Params.SortBy != nil {
-		if sortFields, _ = validateSortField(*request.Params.SortBy); sortFields == nil {
-			return server.ListTemplateVersions400JSONResponse{
-				Message: fmt.Sprintf("sort field %q is incorrectly formatted. Expected format: fieldName:order", *request.Params.SortBy),
-			}, nil
+		sortField = &store.SortField{
+			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			Order:     *request.Params.SortOrder,
 		}
 	}
 
@@ -64,7 +63,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		Continue:      cont,
 		FleetName:     &request.Fleet,
 		FieldSelector: fieldSelector,
-		SortBy:        sortFields,
+		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
