@@ -65,18 +65,21 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 		if err := c.addImagePackage(ctx, app); err != nil {
 			return err
 		}
+		c.log.Infof("Added application %s", app.Name())
 	}
 
 	for _, app := range removed {
 		if err := c.manager.Remove(app); err != nil {
 			return err
 		}
+		c.log.Infof("Removed application %s", app.Name())
 	}
 
 	for _, app := range updated {
 		if err := c.manager.Update(app); err != nil {
 			return err
 		}
+		c.log.Infof("Updated application %s", app.Name())
 	}
 
 	return nil
@@ -99,11 +102,9 @@ func (c *Controller) addImagePackage(ctx context.Context, app *application[*v1al
 	envVars := app.EnvVars()
 	if len(envVars) > 0 {
 		var env strings.Builder
-
 		for k, v := range envVars {
 			env.WriteString(fmt.Sprintf("%s=%s\n", k, v))
 		}
-
 		envPath := fmt.Sprintf("%s/.env", appPath)
 		if err := c.writer.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {
 			return err

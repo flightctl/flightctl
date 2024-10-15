@@ -45,6 +45,12 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 	// compose file is not required.
 	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", action.Name)}
 
+	// get networks from the running containers for the app
+	networks, err := c.podman.ListNetworks(ctx, labels)
+	if err != nil {
+		return err
+	}
+
 	// stop containers
 	if err := c.podman.StopContainers(ctx, labels); err != nil {
 		return err
@@ -56,7 +62,7 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 	}
 
 	// remove networks
-	if err := c.podman.RemoveNetworks(ctx, labels); err != nil {
+	if err := c.podman.RemoveNetworks(ctx, networks...); err != nil {
 		return err
 	}
 
@@ -68,8 +74,13 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	if err != nil {
 		return err
 	}
-
 	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", action.Name)}
+
+	// get networks from the running containers for the app
+	networks, err := c.podman.ListNetworks(ctx, labels)
+	if err != nil {
+		return err
+	}
 
 	// stop containers
 	if err := c.podman.StopContainers(ctx, labels); err != nil {
@@ -85,7 +96,7 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	}
 
 	// remove networks
-	if err := c.podman.RemoveNetworks(ctx, labels); err != nil {
+	if err := c.podman.RemoveNetworks(ctx, networks...); err != nil {
 		return err
 	}
 

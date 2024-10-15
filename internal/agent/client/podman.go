@@ -185,17 +185,54 @@ func (p *Podman) RemoveVolumes(ctx context.Context, labels []string) error {
 	return nil
 }
 
-func (p *Podman) RemoveNetworks(ctx context.Context, labels []string) error {
+func (p *Podman) ListNetworks(ctx context.Context, labels []string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{"network", "rm"}
+	args := []string{
+		"ps",
+		"--format",
+		"{{.Networks}}",
+	}
 	for _, label := range labels {
 		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
 	}
-	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to remove networks %d: %s", exitCode, stderr)
+		return nil, fmt.Errorf("failed to list containers %d: %s", exitCode, stderr)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	networkSeen := make(map[string]struct{})
+	for _, line := range lines {
+		// handle multiple networks comma separated
+		networks := strings.Split(line, ",")
+		for _, network := range networks {
+			network = strings.TrimSpace(network)
+			if network != "" {
+				networkSeen[network] = struct{}{}
+			}
+		}
+	}
+
+	var networks []string
+	for network := range networkSeen {
+		networks = append(networks, network)
+	}
+	return networks, nil
+}
+
+func (p *Podman) RemoveNetworks(ctx context.Context, networks ...string) error {
+	for _, network := range networks {
+		nctx, cancel := context.WithTimeout(ctx, p.timeout)
+		args := []string{"network", "rm", network}
+		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
+		cancel()
+		if exitCode != 0 {
+			return fmt.Errorf("failed to remove networks %d: %s", exitCode, stderr)
+		}
+		p.log.Infof("Removed network %s", network)
 	}
 	return nil
 }
