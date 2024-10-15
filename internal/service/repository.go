@@ -90,13 +90,14 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 	}
 
 	result, err := h.store.Repository().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListRepositories200JSONResponse(*result), nil
+	}
+
+	switch {
+	case selector.IsSelectorError(err):
+		return server.ListRepositories400JSONResponse{Message: err.Error()}, nil
 	default:
-		if s, ok := selector.IsSelectorError(err); ok {
-			return server.ListRepositories400JSONResponse{Message: s.Error()}, nil
-		}
 		return nil, err
 	}
 }
