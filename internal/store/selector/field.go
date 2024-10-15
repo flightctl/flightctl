@@ -3,6 +3,7 @@ package selector
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/pkg/queryparser"
 	"github.com/flightctl/flightctl/pkg/queryparser/sql"
-	"gorm.io/gorm/schema"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/selection"
 )
@@ -19,17 +19,10 @@ import (
 type fieldSelector struct {
 	parser        queryparser.Parser
 	fieldResolver *selectorFieldResolver
-	operators     map[selection.Operator]string
 }
 
 func NewFieldSelector(dest any) (*fieldSelector, error) {
-	fs := &fieldSelector{
-		operators: map[selection.Operator]string{
-			selection.Equals:       "EQ",
-			selection.DoubleEquals: "EQ",
-			selection.NotEquals:    "NEQ",
-		},
-	}
+	fs := &fieldSelector{}
 
 	var err error
 	fs.fieldResolver, err = SelectorFieldResolver(dest)
@@ -79,7 +72,7 @@ func (fs *fieldSelector) Parse(ctx context.Context, selector fields.Selector) (s
 
 // Tokenize converts a selector string into a set of queryparser tokens.
 func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.TokenSet, error) {
-	if input == "" {
+	if input == nil {
 		return nil, nil
 	}
 
@@ -105,14 +98,19 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 
 		resolvedTokens := queryparser.NewTokenSet()
 		for _, resolvedField := range resolvedFields {
-			fieldToken, err := fs.createFieldToken(field, resolvedField)
+			fieldToken, err := fs.createFieldToken(resolvedField)
 			if err != nil {
 				return nil, err
 			}
 
-			valueToken, err := fs.createValueToken(resolvedField, value)
-			if err != nil {
-				return nil, err
+			var valueToken queryparser.TokenSet
+			if value != "" {
+				valueToken = queryparser.NewTokenSet()
+				vtokens, err := fs.createValueToken(resolvedField, value)
+				if err != nil {
+					return nil, err
+				}
+				valueToken = valueToken.Append(vtokens)
 			}
 
 			operatorToken, err := fs.createOperatorToken(operator, resolvedField, fieldToken, valueToken)
@@ -120,146 +118,211 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 				return nil, err
 			}
 
-			resolvedTokens.Append(operatorToken)
+			resolvedTokens = resolvedTokens.Append(operatorToken)
 		}
 
 		// If multiple fields are resolved, wrap them in an OR token
 		if len(resolvedFields) > 1 {
-			tokens.AddFunctionToken("OR", func(ts *queryparser.TokenSet) {
-				ts.Append(resolvedTokens)
+			tokens = tokens.AddFunctionToken("OR", func() queryparser.TokenSet {
+				return resolvedTokens
 			})
 		} else {
-			tokens.Append(resolvedTokens)
+			tokens = tokens.Append(resolvedTokens)
 		}
 	}
 
 	if len(requirements) > 1 {
-		andTokens := make(queryparser.TokenSet, 0, len(tokens)+2)
-		andTokens.AddFunctionToken("AND", func(ts *queryparser.TokenSet) {
-			ts.Append(&tokens)
+		tokens = queryparser.NewTokenSet(len(tokens)+2).AddFunctionToken("AND", func() queryparser.TokenSet {
+			return tokens
 		})
-		tokens = andTokens
 	}
 
 	return tokens, nil
 }
 
-type resolverFunc[T any] func(T) *queryparser.TokenSet
+type resolverFunc[T any] func(T) queryparser.TokenSet
 
-func (fs *fieldSelector) createFieldToken(field SelectorFieldName, schemaField *schema.Field) (*queryparser.TokenSet, error) {
-	return fs.resolveField(field, schemaField, func(f string) *queryparser.TokenSet {
-		return queryparser.NewTokenSet().AddFunctionToken("K", func(ts *queryparser.TokenSet) {
-			ts.AddValueToken(f)
+func (fs *fieldSelector) createFieldToken(selectorField *SelectorField) (queryparser.TokenSet, error) {
+	return fs.resolveField(selectorField, func(f string) queryparser.TokenSet {
+		return queryparser.NewTokenSet().AddFunctionToken("K", func() queryparser.TokenSet {
+			return queryparser.NewTokenSet().AddValueToken(f)
 		})
 	})
 }
 
-func (fs *fieldSelector) createValueToken(schemaField *schema.Field, value string) (*queryparser.TokenSet, error) {
-	return fs.resolveValue(schemaField, value, func(v any) *queryparser.TokenSet {
-		return queryparser.NewTokenSet().AddFunctionToken("V", func(ts *queryparser.TokenSet) {
-			ts.AddValueToken(v)
+func (fs *fieldSelector) createValueToken(selectorField *SelectorField, value string) (queryparser.TokenSet, error) {
+	return fs.resolveValue(selectorField, value, func(v any) queryparser.TokenSet {
+		return queryparser.NewTokenSet().AddFunctionToken("V", func() queryparser.TokenSet {
+			return queryparser.NewTokenSet().AddValueToken(v)
 		})
 	})
 }
 
-func (fs *fieldSelector) createOperatorToken(operator selection.Operator, schemaField *schema.Field, fieldToken, valueToken *queryparser.TokenSet) (*queryparser.TokenSet, error) {
-	return fs.resolveQuery(operator, schemaField, func(op string) *queryparser.TokenSet {
-		return queryparser.NewTokenSet().AddFunctionToken(op, func(ts *queryparser.TokenSet) {
-			ts.Append(fieldToken)
-			ts.Append(valueToken)
-		})
+func (fs *fieldSelector) createOperatorToken(operator selection.Operator, selectorField *SelectorField, fieldToken, valueToken queryparser.TokenSet) (queryparser.TokenSet, error) {
+	return fs.resolveQuery(operator, selectorField, func(op string) queryparser.TokenSet {
+		switch operator {
+		case selection.Exists, selection.DoesNotExist:
+			// Avoid using JSONB casting in default case
+			return queryparser.NewTokenSet().AddFunctionToken(op, func() queryparser.TokenSet {
+				return queryparser.NewTokenSet().Append(fieldToken, valueToken)
+			})
+		case selection.NotEquals, selection.NotIn:
+			return queryparser.NewTokenSet().AddFunctionToken("OR", func() queryparser.TokenSet {
+				return queryparser.NewTokenSet().AddFunctionToken("ISNULL", func() queryparser.TokenSet { return fieldToken }).
+					AddFunctionToken(op, func() queryparser.TokenSet {
+						if selectorField.DataType == "jsonb" && selectorField.Type != Jsonb {
+							return queryparser.NewTokenSet().AddFunctionToken("CAST", func() queryparser.TokenSet {
+								return queryparser.NewTokenSet().Append(fieldToken).AddValueToken(selectorField.Type.String())
+							}).Append(valueToken)
+						}
+						return queryparser.NewTokenSet().Append(fieldToken, valueToken)
+					})
+			})
+		default:
+			return queryparser.NewTokenSet().AddFunctionToken(op, func() queryparser.TokenSet {
+				if selectorField.DataType == "jsonb" && selectorField.Type != Jsonb {
+					return queryparser.NewTokenSet().AddFunctionToken("CAST", func() queryparser.TokenSet {
+						return queryparser.NewTokenSet().Append(fieldToken).AddValueToken(selectorField.Type.String())
+					}).Append(valueToken)
+				}
+				return queryparser.NewTokenSet().Append(fieldToken, valueToken)
+			})
+		}
 	})
 }
 
-func (fs *fieldSelector) resolveQuery(operator selection.Operator, schemaField *schema.Field, resolve resolverFunc[string]) (*queryparser.TokenSet, error) {
-	op, exists := fs.operators[operator]
+func (fs *fieldSelector) resolveQuery(operator selection.Operator, selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	op, exists := operatorsMap[operator]
 	if !exists {
 		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
 			fmt.Errorf("unknown operator %q", operator))
 	}
 
-	switch schemaField.DataType {
-	case "text[]":
-		return fs.applyTextArrayOperator(operator, resolve)
-	case "time":
+	switch selectorField.Type {
+	case Int, Float, SmallInt, BigInt:
+		return fs.applyNumbersOperator(operator, resolve)
+	case Bool:
+		return fs.applyBooleanOperator(operator, resolve)
+	case Time:
 		return fs.applyTimestampOperator(operator, resolve)
-	default:
+	case IntArray, SmallIntArray, BigIntArray, FloatArray, BoolArray, TimestampArray, TextArray:
+		return fs.applyArrayOperator(operator, resolve)
+	case String, Jsonb:
 		return resolve(op), nil
-	}
-}
-
-func (fs *fieldSelector) resolveField(field SelectorFieldName, schemaField *schema.Field, resolve resolverFunc[string]) (*queryparser.TokenSet, error) {
-	switch schemaField.DataType {
-	case "jsonb":
-		return resolve(string(field)), nil
-	default:
-		return resolve(schemaField.DBName), nil
-	}
-}
-
-func (fs *fieldSelector) resolveValue(schemaField *schema.Field, value string, resolve resolverFunc[any]) (*queryparser.TokenSet, error) {
-	switch schemaField.DataType {
-	case schema.Int:
-		v, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
-		}
-		return resolve(v), nil
-
-	case schema.Uint:
-		v, err := strconv.ParseUint(strings.TrimSpace(value), 10, 0)
-		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
-		}
-		return resolve(v), nil
-
-	case schema.Bool:
-		v, err := strconv.ParseBool(strings.TrimSpace(value))
-		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
-		}
-		return resolve(v), nil
-
-	case schema.Float:
-		v, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
-		}
-		return resolve(v), nil
-
-	case schema.Time:
-		v, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
-		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
-		}
-		return resolve(v), nil
-
-	default:
-		return resolve(value), nil
-	}
-}
-
-// applyTextArrayOperator applies the appropriate operator for text array fields.
-func (fs *fieldSelector) applyTextArrayOperator(operator selection.Operator, resolve resolverFunc[string]) (*queryparser.TokenSet, error) {
-	switch operator {
-	case selection.Equals, selection.DoubleEquals:
-		return resolve("CONTAINS"), nil
-	case selection.NotEquals:
-		return resolve("NCONTAINS"), nil
 	default:
 		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("operator %q is unsupported for the type text[]", operator))
+			fmt.Errorf("unsupported type %q for operator %q", selectorField.Type.String(), operator))
+	}
+}
+
+func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	return resolve(selectorField.DBName), nil
+}
+
+func (fs *fieldSelector) resolveValue(selectorField *SelectorField, value string, resolve resolverFunc[any]) (queryparser.TokenSet, error) {
+	switch selectorField.Type {
+	case Int, IntArray:
+		v, err := strconv.Atoi(value)
+		if err != nil {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+		}
+		return resolve(v), nil
+
+	case SmallInt, SmallIntArray:
+		v, err := strconv.ParseInt(value, 10, 16)
+		if err != nil {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+		}
+		if v < math.MinInt16 || v > math.MaxInt16 {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, fmt.Errorf("value out of range for int16: %d", v))
+		}
+		return resolve(int16(v)), nil
+
+	case BigInt, BigIntArray:
+		v, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+		}
+		return resolve(v), nil
+
+	case Float, FloatArray:
+		v, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+		}
+		return resolve(v), nil
+
+	case Bool, BoolArray:
+		v, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+		}
+		return resolve(v), nil
+
+	case Time, TimestampArray:
+		v, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+		}
+		return resolve(v), nil
+
+	case String, TextArray, Jsonb:
+		return resolve(value), nil
+
+	default:
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+			fmt.Errorf("unknown type"))
+	}
+}
+
+// applyArrayOperator applies the appropriate operator for array fields.
+func (fs *fieldSelector) applyArrayOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	switch operator {
+	case selection.In:
+		return resolve("OVERLAPS"), nil
+	case selection.NotIn:
+		return resolve("NOTOVERLAPS"), nil
+	case selection.Exists, selection.DoesNotExist:
+		return resolve(operatorsMap[operator]), nil
+	default:
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("operator %q is unsupported for type array", operator))
 	}
 }
 
 // applyTimestampOperator applies the appropriate operator for timestamp fields.
-func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, resolve resolverFunc[string]) (*queryparser.TokenSet, error) {
+func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals:
-		return resolve(fs.operators[operator]), nil
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan,
+		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
+		return resolve(operatorsMap[operator]), nil
 	default:
 		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("operator %q is unsupported for the type timestamp", operator))
+			fmt.Errorf("operator %q is unsupported for type timestamp", operator))
+	}
+}
+
+// applyNumbersOperator applies the appropriate operator for numbers fields.
+func (fs *fieldSelector) applyNumbersOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	switch operator {
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan,
+		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
+		return resolve(operatorsMap[operator]), nil
+	default:
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("operator %q is unsupported for type number", operator))
+	}
+}
+
+// applyBooleanOperator applies the appropriate operator for boolean fields.
+func (fs *fieldSelector) applyBooleanOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	switch operator {
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn,
+		selection.Exists, selection.DoesNotExist:
+		return resolve(operatorsMap[operator]), nil
+	default:
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("operator %q is unsupported for type boolean", operator))
 	}
 }
 
