@@ -11,6 +11,6 @@ spec:
     - name: "registry"
       port: 3222
       targetPort: 22
-      nodePort: {{ .Values.gitserver.nodePort }}
+      nodePort: {{ .Values.global.nodePorts.gitserver }}
   selector:
     flightctl.service: e2e-git-server
