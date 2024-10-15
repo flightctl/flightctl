@@ -235,11 +235,22 @@ func (e *SelectorError) Unwrap() error {
 	return e.OriginalError
 }
 
-// IsSelectorError checks if an error is of type SelectorError.
-func IsSelectorError(err error) (*SelectorError, bool) {
-	var selectorErr *SelectorError
-	if errors.As(err, &selectorErr) {
-		return selectorErr, true
+// AsSelectorError checks if an error is of type SelectorError and assigns it to target.
+func AsSelectorError(err error, target any) bool {
+	if target == nil {
+		return false
 	}
-	return nil, false
+	// Ensure target is a pointer to the correct type
+	switch t := target.(type) {
+	case **SelectorError:
+		return errors.As(err, t)
+	default:
+		return false
+	}
+}
+
+// IsSelectorError checks if an error is of type SelectorError.
+func IsSelectorError(err error) bool {
+	var selectorErr *SelectorError
+	return errors.As(err, &selectorErr)
 }

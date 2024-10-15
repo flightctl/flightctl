@@ -50,8 +50,8 @@ func (fs *fieldSelector) ParseFromString(ctx context.Context, input string) (str
 
 	q, args, err := fs.parser.Parse(ctx, selector)
 	if err != nil {
-		if se, ok := IsSelectorError(err); ok {
-			return "", nil, se
+		if ok := IsSelectorError(err); ok {
+			return "", nil, err
 		}
 		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed, err)
 	}
@@ -62,8 +62,8 @@ func (fs *fieldSelector) ParseFromString(ctx context.Context, input string) (str
 func (fs *fieldSelector) Parse(ctx context.Context, selector fields.Selector) (string, []any, error) {
 	q, args, err := fs.parser.Parse(ctx, selector)
 	if err != nil {
-		if se, ok := IsSelectorError(err); ok {
-			return "", nil, se
+		if ok := IsSelectorError(err); ok {
+			return "", nil, err
 		}
 		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed, err)
 	}
