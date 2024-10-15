@@ -43,6 +43,9 @@ data:
           - flightctl-api-agent-grpc.{{ .Release.Namespace }}.svc.cluster.local
     queue:
         amqpUrl: amqp://{{ .Values.rabbitmq.auth.username }}:{{ .Values.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:{{ .Values.rabbitmq.ports.amqp }}/
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
     {{- if not (eq .Values.global.auth.type "none")  }}
     {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:

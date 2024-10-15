@@ -71,6 +71,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	configStorage, err := tasks.NewConfigStorage(s.cfg.KV.Hostname, s.cfg.KV.Port)
+	if err != nil {
+		return err
+	}
 	callbackManager := tasks.NewCallbackManager(publisher, s.log)
 
 	s.log.Println("Initializing API server")
@@ -106,7 +110,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router.Use(middlewares...)
 
-	h := service.NewServiceHandler(s.store, callbackManager, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+	h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
@@ -119,6 +123,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+		configStorage.Close()
 		s.provider.Stop()
 		s.provider.Wait()
 	}()
