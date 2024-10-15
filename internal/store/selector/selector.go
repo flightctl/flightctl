@@ -3,6 +3,7 @@ package selector
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -11,11 +12,41 @@ import (
 )
 
 var (
-	cacheStore = &sync.Map{}
-)
+	cacheStore           = &sync.Map{}
+	schemaTypeResolution = map[gormschema.DataType]SelectorFieldType{
+		gormschema.Bool:   Bool,
+		gormschema.Int:    Int,
+		gormschema.Float:  Float,
+		gormschema.String: String,
+		gormschema.Time:   Time,
+		"boolean[]":       BoolArray,
+		"integer[]":       IntArray,
+		"smallint[]":      SmallIntArray,
+		"bigint[]":        BigIntArray,
+		"real[]":          FloatArray,
+		"text[]":          TextArray,
+		"timestamp[]":     TimestampArray,
+		"jsonb":           Jsonb,
+	}
 
-// SelectorFieldName represents the name of a field used in a selector.
-type SelectorFieldName string
+	castTypeResolution = map[string]SelectorFieldType{
+		"boolean":     Bool,
+		"integer":     Int,
+		"smallint":    SmallInt,
+		"bigInt":      BigInt,
+		"float":       Float,
+		"timestamp":   Time,
+		"boolean[]":   BoolArray,
+		"integer[]":   IntArray,
+		"smallint[]":  SmallIntArray,
+		"bigint[]":    BigIntArray,
+		"real[]":      FloatArray,
+		"text[]":      TextArray,
+		"timestamp[]": TimestampArray,
+		"text":        String,
+		"string":      String,
+	}
+)
 
 // FieldNameResolver defines an interface that allows for resolving more complex field name mappings.
 // This can be useful when certain fields map to other names or when dealing with complex schemas.
@@ -46,63 +77,114 @@ func SelectorFieldResolver(model any) (*selectorFieldResolver, error) {
 	return fr, nil
 }
 
-// ResolveNames returns a map of resolved field names to their database representations.
+// ResolveNames returns a slice of resolved field names to their database representations.
 // It maps selector fields to the database field names, handling JSONB data types accordingly.
-func (sr *selectorFieldResolver) ResolveNames(field SelectorFieldName) (map[SelectorFieldName]string, error) {
+func (sr *selectorFieldResolver) ResolveNames(field SelectorFieldName) ([]string, error) {
 	resolvedFields, err := sr.ResolveFields(field)
 	if err != nil {
 		return nil, err
 	}
 
-	fields := make(map[SelectorFieldName]string, len(resolvedFields))
-	for selectorField, schemaField := range resolvedFields {
-		switch schemaField.DataType {
-		case "jsonb":
-			fields[selectorField] = string(selectorField)
-		default:
-			fields[selectorField] = schemaField.DBName
-		}
+	fields := make([]string, 0, len(resolvedFields))
+	for _, selectorField := range resolvedFields {
+		fields = append(fields, selectorField.DBName)
 	}
 	return fields, nil
 }
 
 // ResolveFields resolves a selector field name to its corresponding GORM schema fields.
 // It also supports resolving JSONB fields and custom field resolutions if a fieldResolver is present.
-func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) (map[SelectorFieldName]*gormschema.Field, error) {
-	resolve := func(fn SelectorFieldName) *gormschema.Field {
+func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*SelectorField, error) {
+	resolve := func(fn SelectorFieldName) (*SelectorField, error) {
 		if resolvedField, exists := sr.schemaFields[fn]; exists {
-			return resolvedField
+			fieldType, ok := schemaTypeResolution[resolvedField.DataType]
+			if !ok {
+				return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", fn)
+			}
+
+			if fieldType.IsArray() {
+				fieldKind := resolvedField.StructField.Type.Kind()
+				if fieldKind != reflect.Array && fieldKind != reflect.Slice {
+					return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", fn, fieldKind.String())
+				}
+			}
+
+			return &SelectorField{
+				DBName:      resolvedField.DBName,
+				Type:        fieldType,
+				DataType:    resolvedField.DataType,
+				StructField: resolvedField.StructField,
+			}, nil
 		}
 
 		// Handle JSONB fields
-		fieldParts := strings.Split(string(fn), ".")
+		jsonbField := strings.TrimSpace(string(fn))
+		fieldParts := strings.Split(jsonbField, ".")
 		if len(fieldParts) > 1 {
-			baseField := fieldParts[0]
+			// Iterate through schema fields to find the matching JSONB field
 			for _, schemaField := range sr.schemaFields {
-				if schemaField.DataType == "jsonb" && schemaField.DBName == baseField {
-					return schemaField
+				if schemaField.DataType == "jsonb" && schemaField.DBName == fieldParts[0] {
+					// Check if there's a "::" in the JSONB field name
+					if strings.Contains(jsonbField, "::") {
+						parts := strings.Split(jsonbField, "::")
+						if len(parts) != 2 {
+							return nil, fmt.Errorf("invalid jsonb field format: %s", jsonbField)
+						}
+						fieldName := parts[0]
+						suffix := parts[1]
+
+						// Check if the suffix exists in the type resolutions map
+						if fieldType, ok := castTypeResolution[suffix]; ok {
+							return &SelectorField{
+								DBName:      fieldName,
+								Type:        fieldType,
+								DataType:    schemaField.DataType,
+								StructField: schemaField.StructField,
+							}, nil
+						} else {
+							return nil, fmt.Errorf("unknown or unsupported suffix in jsonb field: %s", suffix)
+						}
+					}
+
+					// Original logic if no "::" is present
+					return &SelectorField{
+						DBName:      string(fn),
+						Type:        Jsonb,
+						DataType:    schemaField.DataType,
+						StructField: schemaField.StructField,
+					}, nil
 				}
 			}
 		}
-		return nil
+		return nil, nil
 	}
 
-	resolvedField := resolve(field)
+	resolvedField, err := resolve(field)
+	if err != nil {
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
+			fmt.Errorf("failed to resolve field %q: %w", field, err))
+	}
+
 	if resolvedField != nil {
-		return map[SelectorFieldName]*gormschema.Field{field: resolvedField}, nil
+		return []*SelectorField{resolvedField}, nil
 	}
 
 	if sr.fieldResolver != nil {
 		refs := sr.fieldResolver.ResolveFieldName(field)
 		if len(refs) > 0 {
-			fields := make(map[SelectorFieldName]*gormschema.Field, len(refs))
+			fields := make([]*SelectorField, 0, len(refs))
 			for _, ref := range refs {
-				resolvedField := resolve(ref)
+				resolvedField, err := resolve(ref)
+				if err != nil {
+					return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
+						fmt.Errorf("failed to resolve field %q: %w", field, err))
+				}
+
 				if resolvedField == nil {
 					return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
 						fmt.Errorf("unable to resolve field name %q", ref))
 				}
-				fields[ref] = resolvedField
+				fields = append(fields, resolvedField)
 			}
 			return fields, nil
 		}
