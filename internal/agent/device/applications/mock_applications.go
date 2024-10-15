@@ -131,18 +131,6 @@ func (mr *MockManagerMockRecorder) Remove(app any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockManager)(nil).Remove), app)
 }
 
-// Run mocks base method.
-func (m *MockManager) Run(ctx context.Context) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Run", ctx)
-}
-
-// Run indicates an expected call of Run.
-func (mr *MockManagerMockRecorder) Run(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockManager)(nil).Run), ctx)
-}
-
 // Status mocks base method.
 func (m *MockManager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
 	m.ctrl.T.Helper()

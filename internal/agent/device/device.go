@@ -209,25 +209,35 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 	a.log.Debug("Pre-checking applications")
 	defer a.log.Debug("Finished pre-checking applications")
 
-	// pull image based application manifests
+	// ensure dependencies for image based application manifests
 	imageProviders, err := applications.ImageProvidersFromSpec(desired)
 	if err != nil {
 		return err
 	}
 
 	for _, imageProvider := range imageProviders {
+		if a.podmanClient.ImageExists(ctx, imageProvider.Image) {
+			a.log.Debugf("Image %q already exists", imageProvider.Image)
+			continue
+		}
+
 		providerImage := imageProvider.Image
-		err := wait.ExponentialBackoffWithContext(ctx, a.backoff, func() (bool, error) {
-			resp, err := a.podmanClient.Pull(ctx, providerImage)
+		// pull the image if it does not exist. it is possible that the image
+		// tag such as latest in which case it will be pulled later. but we
+		// don't want to require calling out the network on every sync.
+		if !a.podmanClient.ImageExists(ctx, imageProvider.Image) {
+			err := wait.ExponentialBackoffWithContext(ctx, a.backoff, func() (bool, error) {
+				resp, err := a.podmanClient.Pull(ctx, providerImage)
+				if err != nil {
+					a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
+					return false, nil
+				}
+				a.log.Debugf("Pulled image %q: %s", providerImage, resp)
+				return true, nil
+			})
 			if err != nil {
-				a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
-				return false, nil
+				return fmt.Errorf("creating enrollment request: %w", err)
 			}
-			a.log.Debugf("Pulled image %q: %s", providerImage, resp)
-			return true, nil
-		})
-		if err != nil {
-			return fmt.Errorf("creating enrollment request: %w", err)
 		}
 
 		addType, err := applications.TypeFromImage(ctx, a.podmanClient, providerImage)
@@ -247,7 +257,8 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
-	if spec.IsUpdating(current, desired) {
+	isUpdating := spec.IsUpdating(current, desired)
+	if isUpdating {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
@@ -282,7 +293,7 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 	// set status collector properties based on new desired spec
 	a.statusManager.SetProperties(desired)
 
-	if !spec.IsUpdating(current, desired) {
+	if !isUpdating {
 		return false, nil
 	}
 

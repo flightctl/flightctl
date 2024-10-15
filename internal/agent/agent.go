@@ -142,7 +142,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	hookManager := hook.NewManager(executer, a.log)
 
 	// create application manager
-	applicationManager := applications.NewManager(a.log, podmanClient)
+	applicationManager := applications.NewManager(a.log, executer, podmanClient)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -241,7 +241,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	go hookManager.Run(ctx)
 	go resourceManager.Run(ctx)
-	go applicationManager.Run(ctx)
 
 	return agent.Run(ctx)
 }

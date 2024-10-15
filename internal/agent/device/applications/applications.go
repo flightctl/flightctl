@@ -52,7 +52,6 @@ type Monitor interface {
 }
 
 type Manager interface {
-	Run(ctx context.Context)
 	Add(app Application) error
 	Remove(app Application) error
 	Update(app Application) error

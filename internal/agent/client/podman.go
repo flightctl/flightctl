@@ -63,8 +63,19 @@ func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
 	return out, nil
 }
 
-func (p *Podman) EventsCmd(ctx context.Context, events []string) *exec.Cmd {
-	args := []string{"events", "--format", "json"}
+func (p *Podman) ImageExists(ctx context.Context, image string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"image", "exists", image}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
+// EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
+// When the events are in sync with the current time a sync event is emitted.
+func (p *Podman) EventsSinceCmd(ctx context.Context, events []string, sinceTime string) *exec.Cmd {
+	args := []string{"events", "--format", "json", "--since", sinceTime}
 	for _, event := range events {
 		args = append(args, "--filter", fmt.Sprintf("event=%s", event))
 	}

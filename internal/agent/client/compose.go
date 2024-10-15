@@ -14,8 +14,10 @@ type Compose struct {
 	*Podman
 }
 
-// UpFromWorkDir runs `docker-compose up -d` or `podman-compose up -d` from the specified workDir.
-func (p *Compose) UpFromWorkDir(ctx context.Context, workDir string) error {
+// UpFromWorkDir runs `docker-compose up -d` or `podman-compose up -d` from the
+// given workDir. The third argument is a flag to prevent recreation of existing
+// containers.
+func (p *Compose) UpFromWorkDir(ctx context.Context, workDir string, noRecreate bool) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
@@ -24,6 +26,11 @@ func (p *Compose) UpFromWorkDir(ctx context.Context, workDir string) error {
 		"up",
 		"-d",
 	}
+
+	if noRecreate {
+		args = append(args, "--no-recreate")
+	}
+
 	_, stderr, exitCode := p.exec.ExecuteWithContextFromDir(ctx, workDir, podmanCmd, args)
 	if exitCode != 0 {
 		return fmt.Errorf("podman compose up failed with exit code %d: %s", exitCode, stderr)

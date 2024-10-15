@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -47,6 +48,11 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 		return err
 	}
 
+	// if this is the steady state, only ensure apps
+	if !spec.IsUpdating(current, desired) {
+		return c.ensureApps(ctx, currentApps)
+	}
+
 	// reconcile image based packages
 	if err := c.ensureImages(ctx, currentApps.ImageBased(), desiredApps.ImageBased()); err != nil {
 		return err
@@ -62,7 +68,7 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 	}
 
 	for _, app := range added {
-		if err := c.addImagePackage(ctx, app); err != nil {
+		if err := c.ensureImagePackage(ctx, app); err != nil {
 			return err
 		}
 		c.log.Infof("Added application %s", app.Name())
@@ -85,13 +91,26 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 	return nil
 }
 
-func (c *Controller) addImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProvider]) error {
+func (c *Controller) ensureApps(ctx context.Context, currentApps *applications) error {
+	for _, app := range currentApps.ImageBased() {
+		if err := c.ensureImagePackage(ctx, app); err != nil {
+			return err
+		}
+		c.log.Infof("Added application %s", app.Name())
+	}
+	return nil
+}
+
+func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProvider]) error {
 	containerImage := app.provider.Image
 
 	appPath, err := app.Path()
 	if err != nil {
 		return err
 	}
+
+	// TODO: consider using managed files or other mechanism to reduce disk I/O
+	// if the manifests are already present and as expected.
 
 	// copy image manifests from container image to the application path
 	if err := CopyImageManifests(ctx, c.log, c.writer, c.podman, containerImage, appPath); err != nil {
@@ -113,7 +132,7 @@ func (c *Controller) addImagePackage(ctx context.Context, app *application[*v1al
 
 	// TODO: handle selinux labels
 
-	// track the application
+	// track the application if it does not exist
 	return c.manager.Add(app)
 }
 

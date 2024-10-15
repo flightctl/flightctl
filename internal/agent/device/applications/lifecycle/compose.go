@@ -35,8 +35,8 @@ func (c *Compose) add(ctx context.Context, action *Action) error {
 
 	c.log.Infof("Starting application %s", action.Name)
 
-	// TODO: these should be run from workdir vs -f
-	return c.podman.Compose().UpFromWorkDir(ctx, appPath)
+	noRecreate := true
+	return c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate)
 }
 
 func (c *Compose) remove(ctx context.Context, action *Action) error {
@@ -101,7 +101,8 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	}
 
 	// change to work dir and run `docker compose up -d`
-	return c.podman.Compose().UpFromWorkDir(ctx, appPath)
+	noRecreate := true
+	return c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate)
 }
 
 func (c *Compose) Execute(ctx context.Context, action *Action) error {

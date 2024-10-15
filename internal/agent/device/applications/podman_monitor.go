@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -56,23 +57,26 @@ type PodmanEvent struct {
 }
 
 type PodmanMonitor struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	once     sync.Once
-	cancelFn context.CancelFunc
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	once        sync.Once
+	cancelFn    context.CancelFunc
+	initialized bool
 
 	apps    map[string]Application
 	actions []lifecycle.Action
 
 	compose lifecycle.ActionHandler
 	client  *client.Podman
+	boot    *client.Boot
 
 	log *log.PrefixLogger
 }
 
-func NewPodmanMonitor(log *log.PrefixLogger, podman *client.Podman) *PodmanMonitor {
+func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman) *PodmanMonitor {
 	return &PodmanMonitor{
 		client:  podman,
+		boot:    client.NewBoot(exec),
 		compose: lifecycle.NewCompose(log, podman),
 		apps:    make(map[string]Application),
 		log:     log,
@@ -82,7 +86,15 @@ func NewPodmanMonitor(log *log.PrefixLogger, podman *client.Podman) *PodmanMonit
 func (m *PodmanMonitor) Run(ctx context.Context) error {
 	m.log.Debugf("Starting podman monitor")
 	ctx, m.cancelFn = context.WithCancel(ctx)
-	m.cmd = m.client.EventsCmd(ctx, []string{"init", "start", "die"})
+
+	// get boot time
+	bootTime, err := m.boot.Time(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get boot time: %w", err)
+	}
+	m.log.Debugf("Boot time: %s", bootTime)
+
+	m.cmd = m.client.EventsSinceCmd(ctx, []string{"init", "start", "die", "sync"}, bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
 	if err != nil {
@@ -107,6 +119,9 @@ func (m *PodmanMonitor) Stop() {
 	})
 }
 
+// add ensures that and application is added to the monitor. if the application
+// is added for the first time an Add action is queued to be executed by the
+// lifecycle manager. so additional adds for the same app will be idempotent.
 func (m *PodmanMonitor) add(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -202,6 +217,18 @@ func (m *PodmanMonitor) get(name string) (Application, bool) {
 	return nil, false
 }
 
+func (m *PodmanMonitor) Initialize() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.initialized = true
+}
+
+func (m *PodmanMonitor) IsInitialized() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.initialized
+}
+
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	actions := m.drainActions()
 	for i := range actions {
@@ -213,6 +240,15 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 				return err
 			}
 		}
+	}
+
+	// if this is the first time we are executing actions we need to ensure
+	// the monitor is initialized before we return.
+	if !m.IsInitialized() {
+		if err := m.Run(ctx); err != nil {
+			return err
+		}
+		m.Initialize()
 	}
 
 	return nil
@@ -301,6 +337,12 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 	var event PodmanEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		m.log.Errorf("Failed to decode podman event: %v", err)
+		return
+	}
+
+	// sync event means we are now in sync with the current state of the containers
+	if event.Type == "sync" {
+		m.log.Debugf("Received bootSync event : %v", event)
 		return
 	}
 
