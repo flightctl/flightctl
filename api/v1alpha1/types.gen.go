@@ -1326,7 +1326,7 @@ type ListCertificateSigningRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1347,7 +1347,7 @@ type ListDevicesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
@@ -1383,7 +1383,7 @@ type ListEnrollmentRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1404,7 +1404,7 @@ type ListFleetsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1431,7 +1431,7 @@ type ListTemplateVersionsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1458,7 +1458,7 @@ type ListRepositoriesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1479,7 +1479,7 @@ type ListResourceSyncParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields. Defaults to everything.
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.

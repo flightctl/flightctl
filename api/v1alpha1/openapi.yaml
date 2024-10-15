@@ -57,7 +57,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: limit
@@ -346,7 +346,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: limit
@@ -630,7 +630,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: statusFilter
@@ -1137,7 +1137,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: limit
@@ -1504,7 +1504,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: limit
@@ -1891,7 +1891,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: limit
@@ -2274,7 +2274,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: limit
