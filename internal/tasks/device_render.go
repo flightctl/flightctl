@@ -18,8 +18,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, *resourceRef)
+func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, configStorage ConfigStorage, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, configStorage, *resourceRef)
 	if resourceRef.Op == DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -38,14 +38,15 @@ type DeviceRenderLogic struct {
 	log             logrus.FieldLogger
 	store           store.Store
 	k8sClient       k8sclient.K8SClient
+	configStorage   ConfigStorage
 	resourceRef     ResourceReference
 	ownerFleet      *string
 	deviceConfig    *[]api.ConfigProviderSpec
 	applications    *[]api.ApplicationSpec
 }
 
-func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) DeviceRenderLogic {
-	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
+func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, configStorage ConfigStorage, resourceRef ResourceReference) DeviceRenderLogic {
+	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, configStorage: configStorage, resourceRef: resourceRef}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
