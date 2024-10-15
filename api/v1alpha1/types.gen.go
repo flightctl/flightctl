@@ -135,6 +135,12 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for SortOrder.
+const (
+	Asc  SortOrder = "Asc"
+	Desc SortOrder = "Desc"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime
@@ -1185,6 +1191,9 @@ type RolloutPolicy struct {
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
 
+// SortOrder Specifies the sort order.
+type SortOrder string
+
 // SshConfig defines model for SshConfig.
 type SshConfig struct {
 	// PrivateKeyPassphrase The passphrase for sshPrivateKey
@@ -1295,8 +1304,11 @@ type ListCertificateSigningRequestsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	// SortBy Specifies the field to sort by.
 	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListDevicesParams defines parameters for ListDevices.
@@ -1322,8 +1334,11 @@ type ListDevicesParams struct {
 	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 
-	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	// SortBy Specifies the field to sort by.
 	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
@@ -1346,8 +1361,11 @@ type ListEnrollmentRequestsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	// SortBy Specifies the field to sort by.
 	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListFleetsParams defines parameters for ListFleets.
@@ -1370,8 +1388,11 @@ type ListFleetsParams struct {
 	// AddDevicesCount include the number of devices in each fleet
 	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
 
-	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	// SortBy Specifies the field to sort by.
 	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
@@ -1388,8 +1409,11 @@ type ListTemplateVersionsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	// SortBy Specifies the field to sort by.
 	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ReadFleetParams defines parameters for ReadFleet.
@@ -1412,8 +1436,11 @@ type ListRepositoriesParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	// SortBy Specifies the field to sort by.
 	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListResourceSyncParams defines parameters for ListResourceSync.
@@ -1433,8 +1460,11 @@ type ListResourceSyncParams struct {
 	// Repository The name of the repository to filter results by.
 	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
 
-	// SortBy Specifies the field(s) to sort by and the sort order (ascending or descending). The format is 'fieldName:asc' or 'fieldName:desc'. You can specify multiple sort fields by separating them with commas, e.g., 'field1:asc,field2:desc'.
+	// SortBy Specifies the field to sort by.
 	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
