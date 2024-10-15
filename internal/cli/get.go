@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -18,17 +19,17 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/thoas/go-funk"
 	"sigs.k8s.io/yaml"
 )
 
 const (
 	jsonFormat = "json"
 	yamlFormat = "yaml"
+	wideFormat = "wide"
 )
 
 var (
-	legalOutputTypes = []string{jsonFormat, yamlFormat}
+	legalOutputTypes = []string{jsonFormat, yamlFormat, wideFormat}
 )
 
 type GetOptions struct {
@@ -42,6 +43,8 @@ type GetOptions struct {
 	Continue      string
 	FleetName     string
 	Rendered      bool
+	Summary       bool
+	SummaryOnly   bool
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -90,6 +93,8 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
 	fs.StringVar(&o.FleetName, "fleetname", o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
 	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting devices).")
+	fs.BoolVarP(&o.Summary, "summary", "s", false, "Display summary information.")
+	fs.BoolVar(&o.SummaryOnly, "summary-only", false, "Display summary information only.")
 }
 
 func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -120,18 +125,36 @@ func (o *GetOptions) Validate(args []string) error {
 		if kind != DeviceKind && kind != FleetKind {
 			return fmt.Errorf("owner can only be specified when fetching devices and fleets")
 		}
-		if (kind == DeviceKind || kind == FleetKind) && len(name) > 0 {
+		if len(name) > 0 {
 			return fmt.Errorf("cannot specify owner together with a device or fleet name")
+		}
+	}
+	if o.Summary || o.SummaryOnly {
+		if kind != DeviceKind {
+			return fmt.Errorf("summary can only be specified when fetching devices")
+		}
+		if len(name) > 0 {
+			return fmt.Errorf("cannot specify summary when fetching a single resource")
+		}
+		if o.SummaryOnly {
+			if len(o.StatusFilter) > 0 || len(o.Continue) > 0 || o.Limit > 0 {
+				return fmt.Errorf("only the 'owner' and 'selector' flags are supported when 'summary-only' is specified")
+			}
 		}
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
 		return fmt.Errorf("fleetname must be specified when fetching templateversions")
 	}
-	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
-		return fmt.Errorf("rendered must only be specified when fetching a specific device")
+	if len(o.Output) > 0 && !slices.Contains(legalOutputTypes, o.Output) {
+		return fmt.Errorf("output format must be one of (%s)", strings.Join(legalOutputTypes, ", "))
 	}
-	if len(o.Output) > 0 && !funk.Contains(legalOutputTypes, o.Output) {
-		return fmt.Errorf("output format must be one of %s", strings.Join(legalOutputTypes, ", "))
+	if o.Rendered {
+		if kind != DeviceKind || len(name) == 0 {
+			return fmt.Errorf("rendered must only be specified when fetching a specific device")
+		}
+		if o.Output != jsonFormat && o.Output != yamlFormat {
+			return fmt.Errorf("rendered output must be one of (json, yaml)")
+		}
 	}
 	if o.Limit < 0 {
 		return fmt.Errorf("limit must be greater than 0")
@@ -163,6 +186,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 			StatusFilter:  util.SliceToPtrWithNilDefault(o.StatusFilter),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			SummaryOnly:   util.BoolToPtr(o.SummaryOnly),
 		}
 		response, err = c.ListDevicesWithResponse(ctx, &params)
 	case kind == EnrollmentRequestKind && len(name) > 0:
@@ -223,10 +247,10 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: 
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return processReponse(response, err, kind, name, o.Output)
+	return o.processReponse(response, err, kind, name)
 }
 
-func processReponse(response interface{}, err error, kind string, name string, output string) error {
+func (o *GetOptions) processReponse(response interface{}, err error, kind string, name string) error {
 	errorPrefix := fmt.Sprintf("reading %s/%s", kind, name)
 	if len(name) == 0 {
 		errorPrefix = fmt.Sprintf("listing %s", plural(kind))
@@ -241,7 +265,7 @@ func processReponse(response interface{}, err error, kind string, name string, o
 		return fmt.Errorf(errorPrefix+": %d", v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
 	}
 
-	switch output {
+	switch o.Output {
 	case jsonFormat:
 		marshalled, err := json.Marshal(v.FieldByName("JSON200").Interface())
 		if err != nil {
@@ -257,41 +281,51 @@ func processReponse(response interface{}, err error, kind string, name string, o
 		fmt.Printf("%s\n", string(marshalled))
 		return nil
 	default:
-		return printTable(response, kind, name)
+		return o.printTable(response, kind, name)
 	}
 }
 
-func printTable(response interface{}, kind string, name string) error {
+// nolint:gocyclo
+func (o *GetOptions) printTable(response interface{}, kind string, name string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 	switch {
 	case kind == DeviceKind && len(name) == 0:
-		printDevicesTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Items...)
+		if o.SummaryOnly {
+			o.printDevicesSummaryTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Summary)
+			break
+		}
+
+		o.printDevicesTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Items...)
+		if o.Summary {
+			o.printNewLine(w)
+			o.printDevicesSummaryTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Summary)
+		}
 	case kind == DeviceKind && len(name) > 0:
-		printDevicesTable(w, *(response.(*apiclient.ReadDeviceResponse).JSON200))
+		o.printDevicesTable(w, *(response.(*apiclient.ReadDeviceResponse).JSON200))
 	case kind == EnrollmentRequestKind && len(name) == 0:
-		printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
+		o.printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
 	case kind == EnrollmentRequestKind && len(name) > 0:
-		printEnrollmentRequestsTable(w, *(response.(*apiclient.ReadEnrollmentRequestResponse).JSON200))
+		o.printEnrollmentRequestsTable(w, *(response.(*apiclient.ReadEnrollmentRequestResponse).JSON200))
 	case kind == FleetKind && len(name) == 0:
-		printFleetsTable(w, response.(*apiclient.ListFleetsResponse).JSON200.Items...)
+		o.printFleetsTable(w, response.(*apiclient.ListFleetsResponse).JSON200.Items...)
 	case kind == FleetKind && len(name) > 0:
-		printFleetsTable(w, *(response.(*apiclient.ReadFleetResponse).JSON200))
+		o.printFleetsTable(w, *(response.(*apiclient.ReadFleetResponse).JSON200))
 	case kind == TemplateVersionKind && len(name) == 0:
-		printTemplateVersionsTable(w, response.(*apiclient.ListTemplateVersionsResponse).JSON200.Items...)
+		o.printTemplateVersionsTable(w, response.(*apiclient.ListTemplateVersionsResponse).JSON200.Items...)
 	case kind == TemplateVersionKind && len(name) > 0:
-		printTemplateVersionsTable(w, *(response.(*apiclient.ReadTemplateVersionResponse).JSON200))
+		o.printTemplateVersionsTable(w, *(response.(*apiclient.ReadTemplateVersionResponse).JSON200))
 	case kind == RepositoryKind && len(name) == 0:
-		printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse).JSON200.Items...)
+		o.printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse).JSON200.Items...)
 	case kind == RepositoryKind && len(name) > 0:
-		printRepositoriesTable(w, *(response.(*apiclient.ReadRepositoryResponse).JSON200))
+		o.printRepositoriesTable(w, *(response.(*apiclient.ReadRepositoryResponse).JSON200))
 	case kind == ResourceSyncKind && len(name) == 0:
-		printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse).JSON200.Items...)
+		o.printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse).JSON200.Items...)
 	case kind == ResourceSyncKind && len(name) > 0:
-		printResourceSyncsTable(w, *(response.(*apiclient.ReadResourceSyncResponse).JSON200))
+		o.printResourceSyncsTable(w, *(response.(*apiclient.ReadResourceSyncResponse).JSON200))
 	case kind == CertificateSigningRequestKind && len(name) == 0:
-		printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
+		o.printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
-		printCSRTable(w, *(response.(*apiclient.ReadCertificateSigningRequestResponse).JSON200))
+		o.printCSRTable(w, *(response.(*apiclient.ReadCertificateSigningRequestResponse).JSON200))
 	default:
 		return fmt.Errorf("unknown resource type %s", kind)
 	}
@@ -299,8 +333,36 @@ func printTable(response interface{}, kind string, name string) error {
 	return nil
 }
 
-func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
-	fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+// Helper function to print a new line
+func (o *GetOptions) printNewLine(w *tabwriter.Writer) {
+	fmt.Fprintln(w)
+}
+
+func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.DevicesSummary) {
+	fmt.Fprintln(w, "DEVICES")
+	fmt.Fprintf(w, "%s\n", fmt.Sprintf("%d", summary.Total))
+
+	fmt.Fprintln(w, "\nSTATUS TYPE\tSTATUS\tCOUNT")
+
+	for k, v := range summary.SummaryStatus {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", "SYSTEM", k, fmt.Sprintf("%d", v))
+	}
+
+	for k, v := range summary.UpdateStatus {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", "UPDATED", k, fmt.Sprintf("%d", v))
+	}
+
+	for k, v := range summary.ApplicationStatus {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", "APPLICATIONS", k, fmt.Sprintf("%d", v))
+	}
+}
+
+func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
+	if o.Output == wideFormat {
+		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
+	} else {
+		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+	}
 	for _, d := range devices {
 		lastSeen := "<never>"
 		if !d.Status.LastSeen.IsZero() {
@@ -310,7 +372,7 @@ func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 		if d.Metadata.Labels != nil {
 			alias = (*d.Metadata.Labels)["alias"]
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
 			*d.Metadata.Name,
 			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
@@ -319,10 +381,15 @@ func printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 			d.Status.Applications.Summary.Status,
 			lastSeen,
 		)
+		if o.Output == wideFormat {
+			fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
+		} else {
+			fmt.Fprintln(w)
+		}
 	}
 }
 
-func printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequest) {
+func (o *GetOptions) printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequest) {
 	fmt.Fprintln(w, "NAME\tAPPROVAL\tAPPROVER\tAPPROVED LABELS")
 	for _, e := range ers {
 		approval, approver, approvedLabels := "Pending", "<none>", ""
@@ -342,7 +409,7 @@ func printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequ
 	}
 }
 
-func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
+func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
 	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID\tDEVICES")
 	for i := range fleets {
 		f := fleets[i]
@@ -376,14 +443,14 @@ func printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
 	}
 }
 
-func printTemplateVersionsTable(w *tabwriter.Writer, tvs ...api.TemplateVersion) {
+func (o *GetOptions) printTemplateVersionsTable(w *tabwriter.Writer, tvs ...api.TemplateVersion) {
 	fmt.Fprintln(w, "FLEET\tNAME")
 	for _, tv := range tvs {
 		fmt.Fprintf(w, "%s\t%s\n", tv.Spec.Fleet, *tv.Metadata.Name)
 	}
 }
 
-func printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
+func (o *GetOptions) printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
 	fmt.Fprintln(w, "NAME\tTYPE\tREPOSITORY URL\tACCESSIBLE")
 	for _, r := range repos {
 		accessible := "Unknown"
@@ -406,7 +473,7 @@ func printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
 	}
 }
 
-func printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs ...api.ResourceSync) {
+func (o *GetOptions) printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs ...api.ResourceSync) {
 	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH\tREVISION\tACCESSIBLE\tSYNCED\tLAST SYNC")
 
 	for _, rs := range resourcesyncs {
@@ -434,7 +501,7 @@ func printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs ...api.ResourceS
 	}
 }
 
-func printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
+func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
 	fmt.Fprintln(w, "NAME\tAGE\tSIGNERNAME\tUSERNAME\tREQUESTEDDURATION\tCONDITION")
 
 	for _, csr := range csrs {

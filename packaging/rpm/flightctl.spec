@@ -47,9 +47,18 @@ install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot
 cp bin/flightctl-agent %{buildroot}/usr/bin
 cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
 cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
+bin/flightctl completion bash > flightctl-completion.bash
+install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions/flightctl-completion.bash
+bin/flightctl completion fish > flightctl-completion.fish
+install -Dpm 0644 flightctl-completion.fish -t %{buildroot}/%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
+bin/flightctl completion zsh > _flightctl-completion
+install -Dpm 0644 _flightctl-completion -t %{buildroot}/%{_datadir}/zsh/site-functions/_flightctl-completion
 
 %files
 /usr/bin/flightctl
+%{_datadir}/bash-completion/completions/flightctl-completion.bash
+%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
+%{_datadir}/zsh/site-functions/_flightctl-completion
 
 %files agent
 /usr/bin/flightctl-agent

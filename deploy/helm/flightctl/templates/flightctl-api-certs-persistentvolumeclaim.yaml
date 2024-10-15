@@ -1,11 +1,13 @@
-{{ if .Values.flightctl.api.enabled }}
+{{ if .Values.api.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   annotations:
     kubernetes.io/reclaimPolicy: Delete
+  {{ if .Values.global.appCode }}
   labels:
-    paas.redhat.com/appcode: {{ .Values.appCode }}
+    paas.redhat.com/appcode: {{ .Values.global.appCode }}
+  {{ end }}
   name: flightctl-api-certs
   namespace: {{ .Release.Namespace }}
 spec:

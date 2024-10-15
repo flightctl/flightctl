@@ -608,6 +608,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: summaryOnly
+          in: query
+          description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -1796,6 +1802,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: addDevicesCount
+          in: query
+          description: include the number of devices in each fleet
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: OK
@@ -2539,10 +2551,41 @@ components:
         - type: object
           properties:
             inline:
-              type: object
-              additionalProperties: true
+              type: array
+              items:
+                $ref: '#/components/schemas/FileSpec'
           required:
           - inline
+    FileSpec:
+      type: object
+      properties:
+        path:
+          type: string
+          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+        content:
+          type: string
+          description: The plain text (UTF-8) or base64-encoded content of the file.
+        contentEncoding:
+          type: string
+          description: How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+          enum:
+          - plain
+          - base64
+        mode:
+          type: integer
+          description: |
+            The file’s permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as
+            a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified,
+            the permission mode for files defaults to 0644.
+        user:
+          type: string
+          description: The file's owner, specified either as a name or numeric ID. Defaults to "root".
+        group:
+          type: string
+          description: The file's group, specified either as a name or numeric ID. Defaults to "root".
+      required:
+      - path
+      - content
     HttpConfigProviderSpec:
       allOf:
         - $ref: '#/components/schemas/GenericConfigSpec'
@@ -2569,6 +2612,44 @@ components:
               - filePath
           required:
           - httpRef
+    ApplicationSpec:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - type: object
+          properties:
+            name:
+              type: string
+              description: "The name of the application"
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
+            # extend application providers
+    ImageApplicationProvider:
+      type: object
+      properties:
+        image:
+          type: string
+          description: "Reference to the container image for the application package"
+      required:
+        - image
+    ApplicationEnvVars:
+      type: object
+      properties:
+        envVars:
+          type: object
+          description: "Environment variable key-value pairs, injected during runtime"
+          additionalProperties:
+            type: string
+    RenderedApplicationSpec:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - type: object
+          properties:
+            name:
+              type: string
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'
@@ -2592,8 +2673,8 @@ components:
           description: "Array of alert rules. Only one alert per severity is allowed."
         samplingInterval:
           type: string
-          pattern: '^[1-9]\d*[smhd]$'
-          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer."
+          pattern: '^[1-9]\d*[smh]$'
+          description: "Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours."
       required:
         - monitorType
         - alertRules
@@ -2632,8 +2713,8 @@ components:
           description: "Severity of the alert."
         duration:
           type: string
-          pattern: '^\d+[smhd]$'
-          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+          pattern: '^\d+[smh]$'
+          description: "Duration is the time over which the average usage is observed before alerting. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours."
         percentage:
           type: number
           description: 'The percentage of usage that triggers the alert.'
@@ -2964,10 +3045,14 @@ components:
       type: object
       required:
         - image
+        - imageDigest
       properties:
         image:
           type: string
           description: "Version of the OS image."
+        imageDigest:
+          type: string
+          description: "The digest of the OS image (e.g. sha256:a0...)"
     DeviceConfigStatus:
       type: object
       required:
@@ -3353,11 +3438,95 @@ components:
         - metadata
         - items
       description: FleetList is a list of Fleets.
+
+    DisruptionAllowance:
+      type: object
+      properties:
+        groupBy:
+          type: array
+          items:
+            type: string
+          description: List of label keys to perform grouping for the disruption allowance.
+        minAvailable:
+          type: integer
+          description: The maximum number of unavailable devices allowed during rollout.
+        maxUnavailable:
+          type: integer
+          description: The minimum number of required available devices during rollout.
+      description: DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+
+    Percentage:
+      type: string
+      format: '^(100|[1-9]?[0-9])%$'
+      description: Percentage is the string format representing percentage string.
+
+    Batch:
+      type: object
+      properties:
+        selector:
+          $ref: '#/components/schemas/LabelSelector'
+        successThreshold:
+          $ref: '#/components/schemas/Percentage'
+        limit:
+          oneOf:
+            - $ref: '#/components/schemas/Percentage'
+            - type: integer
+              minimum: 1
+      description: Batch is an element in batch sequence.
+    Duration:
+      type: string
+      pattern: '^[1-9]\d*[smhd]$'
+      description: |
+        The maximum duration allowed for the action to complete. 
+        The duration should be specified as a positive integer 
+        followed by a time unit. Supported time units are:
+        - 's' for seconds
+        - 'm' for minutes
+        - 'h' for hours
+        - 'd' for days
+
+    BatchSequence:
+      type: object
+      properties:
+        sequence:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Batch'
+      description: BatchSequence defines the list of batches to be executed in sequence.
+
+    RolloutDeviceSelection:
+      type: object
+      required:
+        - strategy
+      properties:
+        strategy:
+          type: string
+      oneOf:
+        - $ref: '#/components/schemas/BatchSequence'
+      discriminator:
+        propertyName: strategy
+
+    RolloutPolicy:
+      type: object
+      properties:
+        disruptionAllowance:
+          $ref: '#/components/schemas/DisruptionAllowance'
+        deviceSelection:
+          $ref: '#/components/schemas/RolloutDeviceSelection'
+        successThreshold:
+          $ref: '#/components/schemas/Percentage'
+        defaultUpdateTimeout:
+          $ref: '#/components/schemas/Duration'
+      description: RolloutPolicy is the rollout policy of the fleet.
+
     FleetSpec:
       type: object
       properties:
         selector:
           $ref: '#/components/schemas/LabelSelector'
+        rolloutPolicy:
+          $ref: '#/components/schemas/RolloutPolicy'
         template:
           type: object
           properties:
@@ -3386,6 +3555,10 @@ components:
                 type: string
         config:
           type: string
+        applications:
+          type: array
+          items:
+            $ref: '#/components/schemas/RenderedApplicationSpec'
         hooks:
           $ref: '#/components/schemas/DeviceHooksSpec'
         systemd:
@@ -3454,7 +3627,12 @@ components:
             discriminator:
               propertyName: configType
         hooks:
-          $ref: '#/components/schemas/DeviceHooksSpec' 
+          $ref: '#/components/schemas/DeviceHooksSpec'
+        applications:
+          type: array
+          description: List of applications.
+          items:
+            $ref: '#/components/schemas/ApplicationSpec'
         containers:
           type: object
           properties:
@@ -3477,9 +3655,16 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+    FleetRolloutStatus:
+      type: object
+      properties:
+        currentBatch:
+          type: integer
     FleetStatus:
       type: object
       properties:
+        rollout:
+          $ref: '#/components/schemas/FleetRolloutStatus'
         conditions:
           type: array
           description: 'Current state of the fleet.'
@@ -3495,19 +3680,34 @@ components:
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
       - total
+      - applicationStatus
+      - summaryStatus
+      - updateStatus
       properties:
         total:
           type: integer
+          format: int64
           description: The total number of devices in the fleet.
-        summaryStatus:
+        applicationStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
+            format: int64
+          description: A breakdown of the devices in the fleet by "application" status.
+        summaryStatus:
+          type: object
+          default: {}
+          additionalProperties:
+            type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "summary" status.
         updateStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object

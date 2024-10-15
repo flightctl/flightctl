@@ -1,4 +1,4 @@
-{{ if .Values.flightctl.api.enabled }}
+{{ if .Values.api.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,16 +7,16 @@ metadata:
   name: flightctl-api
   namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.flightctl.db.nodePort }}
+  {{- if .Values.api.nodePorts.api  }}
   type: NodePort
-  {{ end }}
+  {{- end }}
   ports:
     - name: "flightctl-api"
       port: 3443
       targetPort: 3443
-      {{ if .Values.flightctl.api.nodePort }}
-      nodePort: {{ .Values.flightctl.api.nodePort }}
-      {{ end }}
+      {{- if .Values.api.nodePorts.api }}
+      nodePort: {{ .Values.api.nodePorts.api }}
+      {{- end }}
   selector:
     flightctl.service: flightctl-api
 {{ end }}

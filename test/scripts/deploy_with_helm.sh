@@ -67,11 +67,6 @@ done
 
 RABBITMQ_ARG="--set flightctl.rabbitmq.image.image=${RABBITMQ_IMAGE} --set flightctl.rabbitmq.image.tag=${RABBITMQ_VERSION}"
 
-# if we have an existing deployment, try to upgrade it instead
-if helm list --kube-context kind-kind -A | grep flightctl > /dev/null; then
-  METHOD=upgrade
-fi
-
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
 kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || true
@@ -102,14 +97,15 @@ fi
 
 AUTH_ARGS=""
 if [ "$AUTH" ]; then
-  AUTH_ARGS="--set keycloak.enabled=true --set flightctl.api.auth.enabled=true"
+  AUTH_ARGS="--set global.auth.type=builtin --set global.auth.oidcAuthority=http://${IP}:8080/realms/flightctl"
 fi
 
-helm ${METHOD} --namespace flightctl-external \
+helm dependency build ./deploy/helm/flightctl
+
+helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.kind.yaml \
-                  --set global.flightctl.baseDomain=${IP}.nip.io \
-                  --set flightctl.api.auth.oidcAuthority=http://${IP}:8080/realms/flightctl \
-                   ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} flightctl \
+                  --set global.baseDomain=${IP}.nip.io \
+                  ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s
@@ -122,37 +118,30 @@ kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- psql -c 'A
 kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- createdb admin 2>/dev/null|| true
 
 
-if [ -z "$ONLY_DB" ]; then
+if [ "$ONLY_DB" ]; then
+  exit 0
+fi
 
-  if [ "$AUTH" ]; then
-    kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
-    kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
+if [ "$AUTH" ]; then
+  kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
+  kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
+fi
+
+kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
+
+LOGGED_IN=false
+# attempt to login, it could take some time for API to be stable
+for i in {1..60}; do
+  if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:3443; then
+    LOGGED_IN=true
+    break
   fi
+  sleep 5
+done
 
-  mkdir -p  ~/.flightctl/certs
-
-  # Extract .fligthctl files from the api pod, but we must wait for the server to be ready
-
-  kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s --context kind-kind
-
-  # we actually don't need to download the ca.key or server.key but apparently the flightctl
-  # client expects them to be present TODO: fix this in flightctl
-  API_POD=$(kubectl get pod -n flightctl-external -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" --context kind-kind | head -1 )
-
-  # wait for the server to write the client.yaml file
-  until kubectl exec -n flightctl-external "${API_POD}" --context kind-kind  -- cat /root/.flightctl/client.yaml > /dev/null 2>&1;
-  do
-    sleep 1;
-  done
-
-  # pull agent-usable details as well as client configuration file
-  for f in certs/{ca.crt,client-enrollment.crt,client-enrollment.key} client.yaml; do
-    # a kubectl cp would be more efficient, but tar is not available on the image, and we don't want
-    # to switch from ubi9-micro just for tar
-    kubectl exec -n flightctl-external "${API_POD}" --context kind-kind  -- cat /root/.flightctl/$f > ~/.flightctl/$f
-  done
-
-  chmod og-rwx ~/.flightctl/certs/*.key
+if [[ "${LOGGED_IN}" == "false" ]]; then
+  echo "Failed to login to the API"
+  exit 1
 fi
 
 # in github CI load docker-image does not seem to work for our images
@@ -160,7 +149,7 @@ kind_load_image localhost/git-server:latest
 kind_load_image docker.io/library/registry:2
 
 # deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
-helm ${METHOD} --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
+helm upgrade --install --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
                         ./deploy/helm/e2e-extras/ --kube-context kind-kind
 
 sudo tee /etc/containers/registries.conf.d/flightctl-e2e.conf <<EOF

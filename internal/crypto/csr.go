@@ -56,6 +56,8 @@ func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 
 // IssueRequestedClientCertificate issues a client certificate based on the provided
 // Certificate Signing Request (CSR) and the desired expiration time in seconds.
+// This currently processes both enrollment cert and management cert signing requests, which both are signed
+// by the FC service's internal CA instance named 'ca'.
 func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
 	now := time.Now()
 	template := &x509.Certificate{

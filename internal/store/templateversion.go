@@ -62,11 +62,11 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	templateVersion.Status = model.MakeJSONField(status)
 	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: resource.Spec.Fleet}}
 	if err = s.db.First(&fleet).Error; err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 
 	if err = s.db.Create(templateVersion).Error; err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 	callback(templateVersion)
 	return lo.ToPtr(templateVersion.ToApiResource()), err
@@ -76,6 +76,10 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	var templateVersions model.TemplateVersionList
 	var nextContinue *string
 	var numRemaining *int64
+
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
 
 	query := BuildBaseListQuery(s.db.Model(&templateVersions), orgId, listParams)
 	if listParams.Limit > 0 {
@@ -110,14 +114,14 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	}
 
 	apiTemplateVersionList := templateVersions.ToApiResource(nextContinue, numRemaining)
-	return &apiTemplateVersionList, flterrors.ErrorFromGormError(result.Error)
+	return &apiTemplateVersionList, ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
 	var templateVersion model.TemplateVersion
 	result := s.db.Model(&templateVersion).Where("org_id = ? AND fleet_name = ? AND valid = ?", orgId, fleet, true).Order("created_at DESC").First(&templateVersion)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiResource := templateVersion.ToApiResource()
 	return &apiResource, nil
@@ -134,7 +138,7 @@ func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, f
 	}
 
 	result := whereQuery.Delete(&condition)
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
@@ -145,7 +149,7 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 	}
 	result := s.db.First(&templateVersion)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiTemplateVersion := templateVersion.ToApiResource()
 	return &apiTemplateVersion, nil
@@ -161,7 +165,7 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil
 	}
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error {
@@ -188,7 +192,7 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 
 	result := s.db.Model(&templateVersion).Updates(updates)
 	if result.Error != nil {
-		return flterrors.ErrorFromGormError(result.Error)
+		return ErrorFromGormError(result.Error)
 	}
 
 	if valid != nil && *valid {

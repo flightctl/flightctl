@@ -854,6 +854,14 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// ------------- Optional query parameter "summaryOnly" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "summaryOnly", r.URL.Query(), &params.SummaryOnly)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "summaryOnly", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDevices(w, r, params)
 	}))
@@ -1408,6 +1416,14 @@ func (siw *ServerInterfaceWrapper) ListFleets(w http.ResponseWriter, r *http.Req
 	err = runtime.BindQueryParameter("form", true, false, "owner", r.URL.Query(), &params.Owner)
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "addDevicesCount" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "addDevicesCount", r.URL.Query(), &params.AddDevicesCount)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "addDevicesCount", Err: err})
 		return
 	}
 

@@ -4,7 +4,13 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
 
 permissions:
   contents: read
@@ -34,9 +40,6 @@ jobs:
       - name: Make the cmdline tool
         run: make build
 
-      - name: Login
-        run: bin/flightctl login $(cat ~/.flightctl/client.yaml | awk '/server:/ {print $2}') --certificate-authority ~/.flightctl/certs/ca.crt
-
       - name: Apply device
         run: bin/flightctl apply -f examples/device.yaml
 
@@ -53,4 +56,4 @@ jobs:
         run: bin/flightctl apply -f examples/resourcesync.yaml
 
       - name: Simulator run
-        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml -count 1 -stop-after 1m
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m

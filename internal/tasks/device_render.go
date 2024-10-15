@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"sigs.k8s.io/yaml"
 )
 
 func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
@@ -81,7 +80,12 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, renderErr)
 	}
 
-	err = t.store.Device().UpdateRendered(ctx, t.resourceRef.OrgID, t.resourceRef.Name, string(renderedConfig))
+	renderedApplications, err := renderApplications(ctx, t.store, t.resourceRef.OrgID, device.Spec.Applications, !util.IsEmptyString(device.Metadata.Owner), false)
+	if err != nil {
+		return t.setStatus(ctx, err)
+	}
+
+	err = t.store.Device().UpdateRendered(ctx, t.resourceRef.OrgID, t.resourceRef.Name, string(renderedConfig), string(renderedApplications))
 	return t.setStatus(ctx, err)
 }
 
@@ -112,6 +116,72 @@ type renderConfigArgs struct {
 	repoNames            []string
 	validateOnly         bool
 	deviceBelongsToFleet bool
+}
+
+type renderApplicationArgs struct {
+	orgId                uuid.UUID
+	store                store.Store
+	applications         []api.RenderedApplicationSpec
+	validateOnly         bool
+	deviceBelongsToFleet bool
+}
+
+func renderApplications(ctx context.Context, store store.Store, orgId uuid.UUID, applications *[]api.ApplicationSpec, deviceBelongsToFleet bool, validateOnly bool) (renderedApplications []byte, err error) {
+	if applications == nil {
+		return nil, nil
+	}
+
+	args := renderApplicationArgs{
+		orgId:                orgId,
+		store:                store,
+		deviceBelongsToFleet: deviceBelongsToFleet,
+		validateOnly:         validateOnly,
+	}
+
+	var invalidApplications []string
+	var firstError error
+
+	for i := range *applications {
+		application := (*applications)[i]
+		var applicationName string
+		name, renderErr := renderApplication(ctx, &application, &args)
+		if errors.Is(renderErr, ErrUnknownApplicationType) {
+			applicationName = "<unknown>"
+		} else {
+			applicationName = name
+		}
+
+		if paramErr := validateParameters(&application, args.validateOnly, args.deviceBelongsToFleet); paramErr != nil {
+			// An error message regarding invalid parameters should take precedence
+			// because it may be the cause of the render error
+			renderErr = paramErr
+		}
+
+		// Append invalid configs only if there's an error
+		if renderErr != nil {
+			invalidApplications = append(invalidApplications, applicationName)
+			if firstError == nil {
+				firstError = renderErr
+			}
+		}
+	}
+
+	if len(invalidApplications) > 0 {
+		pluralSuffix := ""
+		errorPrefix := "Error"
+		if len(invalidApplications) > 1 {
+			pluralSuffix = "s"
+			errorPrefix = "First error"
+		}
+		return nil, fmt.Errorf("%d invalid application%s: %s. %s: %v", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
+	}
+
+	renderedApplications, err = json.Marshal(&args.applications)
+	if err != nil {
+		return nil, fmt.Errorf("failed marshalling applications: %w", err)
+	}
+
+	return renderedApplications, nil
 }
 
 func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, deviceBelongsToFleet bool, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
@@ -155,7 +225,7 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 	for i := range *config {
 		configItem := (*config)[i]
 		name, err := renderConfigItem(ctx, &configItem, args)
-		paramErr := validateConfigParameters(&configItem, args)
+		paramErr := validateParameters(&configItem, args.validateOnly, args.deviceBelongsToFleet)
 
 		if err != nil && errors.Is(err, ErrUnknownConfigName) {
 			name = "<unknown>"
@@ -188,19 +258,23 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item
 	return nil
 }
 
-func validateConfigParameters(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) error {
-	cfgJson, err := configItem.MarshalJSON()
+type RenderItem interface {
+	MarshalJSON() ([]byte, error)
+}
+
+func validateParameters(item RenderItem, validateOnly, deviceBelongsToFleet bool) error {
+	cfgJson, err := item.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("failed converting configuration to json: %w", err)
 	}
-	if args.validateOnly {
+	if validateOnly {
 		// Make sure all parameters are in the proper format
 		return ValidateParameterFormat(cfgJson)
 	}
 
 	// If we're rendering the device config and it still has parameters, something went wrong
 	if ContainsParameter(cfgJson) {
-		if args.deviceBelongsToFleet {
+		if deviceBelongsToFleet {
 			return fmt.Errorf("configuration contains parameter, perhaps due to a missing device label")
 		} else {
 			return fmt.Errorf("configuration contains parameter, but parameters can only be used in fleet templates")
@@ -228,6 +302,41 @@ func renderConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Ite
 	default:
 		return "", fmt.Errorf("%w: unsupported discriminator: %s", ErrUnknownConfigName, disc)
 	}
+}
+
+func renderApplication(_ context.Context, app *api.ApplicationSpec, args *renderApplicationArgs) (string, error) {
+	appType, err := app.Type()
+	if err != nil {
+		return "", fmt.Errorf("failed getting application type: %w", err)
+	}
+	switch appType {
+	case api.ImageApplicationProviderType:
+		return renderImageApplicationProvider(app, args)
+	default:
+		return "", fmt.Errorf("%w: unsupported application type: %s", ErrUnknownApplicationType, appType)
+	}
+}
+
+func renderImageApplicationProvider(app *api.ApplicationSpec, args *renderApplicationArgs) (string, error) {
+	imageProvider, err := app.AsImageApplicationProvider()
+	if err != nil {
+		return "", fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
+	}
+
+	if args.validateOnly {
+		return *app.Name, nil
+	}
+
+	renderedApp := api.RenderedApplicationSpec{
+		Name:    app.Name,
+		EnvVars: app.EnvVars,
+	}
+	if err := renderedApp.FromImageApplicationProvider(imageProvider); err != nil {
+		return *app.Name, fmt.Errorf("failed rendering application %s: %w", *app.Name, err)
+	}
+
+	args.applications = append(args.applications, renderedApp)
+	return *app.Name, nil
 }
 
 func renderGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
@@ -285,7 +394,7 @@ func renderK8sConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigA
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
 	for name, contents := range secret.Data {
-		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644)
+		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644, false, nil, nil)
 	}
 	if !args.validateOnly {
 		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
@@ -299,36 +408,28 @@ func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConf
 		return "", fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	// Convert yaml to json
-	yamlBytes, err := yaml.Marshal(inlineSpec.Inline)
+	ignitionWrapper, err := ignition.NewWrapper()
 	if err != nil {
-		return inlineSpec.Name, fmt.Errorf("invalid yaml in inline config item %s: %w", inlineSpec.Name, err)
-	}
-	jsonBytes, err := yaml.YAMLToJSON(yamlBytes)
-	if err != nil {
-		return inlineSpec.Name, fmt.Errorf("failed converting yaml to json in inline config item %s: %w", inlineSpec.Name, err)
+		return inlineSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
-	// If we are validating and parameters are present, the ignition conversion will fail.
-	if args.validateOnly {
-		if !ContainsParameter(jsonBytes) {
-			_, _, err = config_latest.ParseCompatibleVersion(jsonBytes)
-			if err != nil {
-				return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
-			}
+	for _, file := range inlineSpec.Inline {
+		mode := 0o644
+		if file.Mode != nil {
+			mode = *file.Mode
 		}
-		return inlineSpec.Name, nil
+
+		isBase64 := false
+		if file.ContentEncoding != nil && *file.ContentEncoding == api.Base64 {
+			isBase64 = true
+		}
+		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
 	}
 
 	if !args.validateOnly {
-		// Merge the ignition into the rendered config
-		ignitionConfig, _, err := config_latest.ParseCompatibleVersion(jsonBytes)
-		if err != nil {
-			return inlineSpec.Name, fmt.Errorf("failed parsing inline config item %s: %w", inlineSpec.Name, err)
-		}
-		mergedConfig := config_latest.Merge(*args.ignitionConfig, ignitionConfig)
-		args.ignitionConfig = &mergedConfig
+		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
 	}
+
 	return inlineSpec.Name, nil
 }
 
@@ -397,7 +498,7 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Co
 		return httpConfigProviderSpec.Name, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
-	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644)
+	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644, false, nil, nil)
 	if !args.validateOnly {
 		args.ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(*args.ignitionConfig))
 	}

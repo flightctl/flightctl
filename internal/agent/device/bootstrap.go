@@ -11,8 +11,10 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -26,6 +28,7 @@ import (
 var (
 	ErrEnrollmentRequestFailed = fmt.Errorf("enrollment request failed")
 	ErrEnrollmentRequestDenied = fmt.Errorf("enrollment request denied")
+	ErrGettingBootcStatus      = fmt.Errorf("getting current bootc status")
 )
 
 // agent banner file
@@ -39,8 +42,9 @@ type Bootstrap struct {
 	enrollmentUIEndpoint string
 	specManager          spec.Manager
 	statusManager        status.Manager
-	configController     config.Controller
+	hookManager          hook.Manager
 	backoff              wait.Backoff
+	bootcClient          container.BootcClient
 
 	managementServiceConfig *client.Config
 	managementClient        client.Management
@@ -58,13 +62,14 @@ func NewBootstrap(
 	enrollmentCSR []byte,
 	specManager spec.Manager,
 	statusManager status.Manager,
-	configController config.Controller,
+	hookManager hook.Manager,
 	enrollmentClient client.Enrollment,
 	enrollmentUIEndpoint string,
 	managementServiceConfig *client.Config,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 	defaultLabels map[string]string,
+	bootcClient container.BootcClient,
 ) *Bootstrap {
 	return &Bootstrap{
 		deviceName:              deviceName,
@@ -73,13 +78,14 @@ func NewBootstrap(
 		enrollmentCSR:           enrollmentCSR,
 		specManager:             specManager,
 		statusManager:           statusManager,
-		configController:        configController,
+		hookManager:             hookManager,
 		enrollmentClient:        enrollmentClient,
 		enrollmentUIEndpoint:    enrollmentUIEndpoint,
 		managementServiceConfig: managementServiceConfig,
 		backoff:                 backoff,
 		log:                     log,
 		defaultLabels:           defaultLabels,
+		bootcClient:             bootcClient,
 	}
 }
 
@@ -162,10 +168,22 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 
 	currentSpec, err := b.specManager.Read(spec.Current)
 	if err != nil {
-		b.log.WithError(err).Warn("Failed to read current spec. It is expected in case this is the first run")
+		return err
+	}
+
+	if currentSpec.Config == nil {
 		return nil
 	}
-	b.configController.Initialize(ctx, currentSpec)
+
+	currentIgnition, err := config.ParseAndConvertConfigFromStr(*currentSpec.Config)
+	if err != nil {
+		return fmt.Errorf("parsing current ignition: %w", err)
+	}
+	b.log.Info("Executing after-reboot hooks")
+	for _, f := range currentIgnition.Storage.Files {
+		b.hookManager.OnAfterReboot(ctx, f.Path)
+	}
+
 	return nil
 }
 
@@ -201,9 +219,15 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 		return fmt.Errorf("writing current rendered spec: %w", err)
 	}
 
+	bootcStatus, err := b.bootcClient.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
+	}
+
 	updateFns := []status.UpdateStatusFn{
 		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image: desired.Os.Image,
+			Image:       desired.Os.Image,
+			ImageDigest: bootcStatus.GetBootedImageDigest(),
 		}),
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
 			RenderedVersion: desired.RenderedVersion,
@@ -405,10 +429,18 @@ func (b *Bootstrap) enrollmentRequest(ctx context.Context) error {
 		},
 	}
 
-	_, err = b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
+	err = wait.ExponentialBackoffWithContext(ctx, b.backoff, func() (bool, error) {
+		_, err = b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
+		if err != nil {
+			b.log.Warnf("failed to create enrollment request: %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create enrollment request: %w", err)
+		return fmt.Errorf("creating enrollment request: %w", err)
 	}
+
 	return nil
 }
 
