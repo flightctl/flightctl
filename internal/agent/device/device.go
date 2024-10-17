@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -17,25 +19,30 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/lthibault/jitterbug"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
-	name               string
-	deviceWriter       fileio.Writer
-	statusManager      status.Manager
-	specManager        spec.Manager
-	hookManager        hook.Manager
-	configController   *config.Controller
-	osImageController  *OSImageController
-	resourceController *resource.Controller
-	consoleController  *console.ConsoleController
-	bootcClient        container.BootcClient
+	name                   string
+	deviceWriter           fileio.Writer
+	statusManager          status.Manager
+	specManager            spec.Manager
+	hookManager            hook.Manager
+	appManager             applications.Manager
+	applicationsController *applications.Controller
+	configController       *config.Controller
+	osImageController      *OSImageController
+	resourceController     *resource.Controller
+	consoleController      *console.ConsoleController
+	bootcClient            container.BootcClient
+	podmanClient           *client.Podman
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
 
-	log *log.PrefixLogger
+	backoff wait.Backoff
+	log     *log.PrefixLogger
 }
 
 // NewAgent creates a new device agent.
@@ -44,30 +51,38 @@ func NewAgent(
 	deviceWriter fileio.Writer,
 	statusManager status.Manager,
 	specManager spec.Manager,
+	appManager applications.Manager,
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
+	applicationsController *applications.Controller,
 	configController *config.Controller,
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,
-	log *log.PrefixLogger,
 	bootcClient container.BootcClient,
+	podmanClient *client.Podman,
+	backoff wait.Backoff,
+	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{
-		name:                name,
-		deviceWriter:        deviceWriter,
-		statusManager:       statusManager,
-		specManager:         specManager,
-		hookManager:         hookManager,
-		fetchSpecInterval:   fetchSpecInterval,
-		fetchStatusInterval: fetchStatusInterval,
-		configController:    configController,
-		osImageController:   osImageController,
-		resourceController:  resourceController,
-		consoleController:   consoleController,
-		log:                 log,
-		bootcClient:         bootcClient,
+		name:                   name,
+		deviceWriter:           deviceWriter,
+		statusManager:          statusManager,
+		specManager:            specManager,
+		hookManager:            hookManager,
+		appManager:             appManager,
+		fetchSpecInterval:      fetchSpecInterval,
+		fetchStatusInterval:    fetchStatusInterval,
+		applicationsController: applicationsController,
+		configController:       configController,
+		osImageController:      osImageController,
+		resourceController:     resourceController,
+		consoleController:      consoleController,
+		bootcClient:            bootcClient,
+		podmanClient:           podmanClient,
+		backoff:                backoff,
+		log:                    log,
 	}
 }
 
@@ -99,8 +114,7 @@ func (a *Agent) fetchDeviceSpec(ctx context.Context) {
 		a.log.Debugf("Completed fetch device spec in %v", duration)
 	}()
 
-	deviceUpdated, err := a.syncDevice(ctx)
-	if err != nil {
+	if err := a.sync(ctx); err != nil {
 		infoMsg := fmt.Sprintf("Failed to sync device: %v", err)
 		_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 			Status: v1alpha1.DeviceSummaryStatusDegraded,
@@ -110,17 +124,6 @@ func (a *Agent) fetchDeviceSpec(ctx context.Context) {
 			a.log.Errorf("Failed to update device status: %v", updateErr)
 		}
 		a.log.Error(infoMsg)
-		return
-	}
-
-	if deviceUpdated {
-		_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-			Status: v1alpha1.DeviceSummaryStatusOnline,
-			Info:   nil,
-		}))
-		if updateErr != nil {
-			a.log.Errorf("Updating device status: %v", updateErr)
-		}
 	}
 }
 
@@ -141,34 +144,121 @@ func (a *Agent) fetchDeviceStatus(ctx context.Context) {
 		if updateErr != nil {
 			a.log.Errorf("Updating device status: %v", updateErr)
 		}
-
 		a.log.Errorf("Syncing status: %v", err)
-		return
 	}
 }
 
-func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
+func (a *Agent) sync(ctx context.Context) error {
 	// TODO: make state reads more efficient do we really need the complete
 	// current and desired specs in memory? could we cache the rendered versions?
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	desired, err := a.specManager.GetDesired(ctx, current.RenderedVersion)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if current.RenderedVersion == "" && desired.RenderedVersion == "" {
-		return false, nil
+		return nil
 	}
 
+	if err = a.beforeUpdate(ctx, current, desired); err != nil {
+		return err
+	}
+
+	deviceUpdated, err := a.syncDevice(ctx, current, desired)
+	if err != nil {
+		return err
+	}
+
+	if err = a.afterUpdate(ctx); err != nil {
+		// TODO: any error here should be an error status
+		return err
+	}
+
+	// if we observed a change in the device without error, update the device status to online
+	if deviceUpdated {
+		_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusOnline,
+			Info:   nil,
+		}))
+		if updateErr != nil {
+			a.log.Errorf("Updating device status: %v", updateErr)
+		}
+	}
+
+	return nil
+}
+
+func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
+		return fmt.Errorf("before update applications check failed: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alpha1.RenderedDeviceSpec) error {
+	if desired.Applications == nil {
+		a.log.Debug("No applications to pre-check")
+		return nil
+	}
+	a.log.Debug("Pre-checking applications")
+	defer a.log.Debug("Finished pre-checking applications")
+
+	// ensure dependencies for image based application manifests
+	imageProviders, err := applications.ImageProvidersFromSpec(desired)
+	if err != nil {
+		return err
+	}
+
+	for _, imageProvider := range imageProviders {
+		if a.podmanClient.ImageExists(ctx, imageProvider.Image) {
+			a.log.Debugf("Image %q already exists", imageProvider.Image)
+			continue
+		}
+
+		providerImage := imageProvider.Image
+		// pull the image if it does not exist. it is possible that the image
+		// tag such as latest in which case it will be pulled later. but we
+		// don't want to require calling out the network on every sync.
+		if !a.podmanClient.ImageExists(ctx, imageProvider.Image) {
+			err := wait.ExponentialBackoffWithContext(ctx, a.backoff, func() (bool, error) {
+				resp, err := a.podmanClient.Pull(ctx, providerImage)
+				if err != nil {
+					a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
+					return false, nil
+				}
+				a.log.Debugf("Pulled image %q: %s", providerImage, resp)
+				return true, nil
+			})
+			if err != nil {
+				return fmt.Errorf("failed to pull image %q: %w", providerImage, err)
+			}
+		}
+
+		addType, err := applications.TypeFromImage(ctx, a.podmanClient, providerImage)
+		if err != nil {
+			return err
+		}
+		if err := applications.EnsureDependenciesFromType(addType); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) (bool, error) {
 	if err := a.consoleController.Sync(ctx, desired); err != nil {
 		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
-	if spec.IsUpdating(current, desired) {
+	isUpdating := spec.IsUpdating(current, desired)
+	if isUpdating {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
@@ -178,6 +268,10 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
 		}
+	}
+
+	if err := a.applicationsController.Sync(ctx, current, desired); err != nil {
+		return false, err
 	}
 
 	if err := a.hookManager.Sync(current, desired); err != nil {
@@ -199,7 +293,7 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	// set status collector properties based on new desired spec
 	a.statusManager.SetProperties(desired)
 
-	if !spec.IsUpdating(current, desired) {
+	if !isUpdating {
 		return false, nil
 	}
 
@@ -243,4 +337,16 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	a.log.Infof("Synced device to renderedVersion: %s", desired.RenderedVersion)
 
 	return true, nil
+}
+
+func (a *Agent) afterUpdate(ctx context.Context) error {
+	a.log.Debug("Executing after update actions")
+	defer a.log.Debug("Finished executing after update actions")
+
+	// execute post actions for applications
+	if err := a.appManager.ExecuteActions(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }
