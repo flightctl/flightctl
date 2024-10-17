@@ -38,7 +38,7 @@ Welcome to the Flight Control user documentation.
   * [Defining Rollout Policies](managing-fleets.md#defining-rollout-policies)
   * [Managing Fleets Using GitOps](managing-fleets.md#managing-fleets-using-gitops)
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
-  * Auto-Registering Devices with MicroShift into ACM
+  * [Auto-Registering Devices with MicroShift into ACM](registering-microshift-devices-acm.md)
   * Adding Device Observability
 
 **Administrating Flight Control** - How to deploy and administrate a Flight Control service.
