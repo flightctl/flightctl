@@ -4,20 +4,24 @@ global:
     internalOidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8080/realms/flightctl
   internalNamespace: flightctl-internal
   storageClassName: standard
+  exposeServicesMethod: "nodePort"
+  nodePorts:
+    api: 3443
+    agent: 7443
+    grpc: 7444
+    db: 5432
+    keycloak: 8080
+    prometheus: 9090
+    gitserver: 3222
+    registry: 5000
 
 db:
-  nodePort: 5432 # this is also mapped in /test/scripts//kind_cluster.yaml as an extraPortMapping
   imagePullPolicy: IfNotPresent
 api:
   image:
     image:  localhost/flightctl-api
     tag: latest
     pullPolicy: IfNotPresent
-  nodePorts:
-    api: 3443 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
-    agent: 7443 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
-    grpc: 7444 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
-    prometheus: 9090 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
   baseUIUrl: "http://localhost:9000"
 worker:
   image:
@@ -30,19 +34,15 @@ periodic:
     pullPolicy: IfNotPresent
 rabbitmq:
   image:
-    image: docker.io/rabbitmq
+    image: quay.io/flightctl/docker-io-rabbitmq
     tag: 3.13-management
     pullPolicy: IfNotPresent
-  nodePort: 15672 # this is also mapped in /test/scripts/kind_cluster.yaml as an extraPortMapping
-
+prometheus:
+  enabled: true
 ui:
   enabled: false
 
 keycloak:
-  service:
-    nodePorts:
-      http: 8080
-      https: 8443
   realm:
     redirectUris:
       - /realms/flightctl/account/*

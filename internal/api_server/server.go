@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -90,14 +91,20 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	router := chi.NewRouter()
-	router.Use(
-		s.metrics.ApiServerMiddleware,
+
+	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	)
+	}
+
+	if s.metrics != nil {
+		middlewares = slices.Insert(middlewares, 0, s.metrics.ApiServerMiddleware)
+	}
+
+	router.Use(middlewares...)
 
 	h := service.NewServiceHandler(s.store, callbackManager, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)

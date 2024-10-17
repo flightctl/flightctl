@@ -164,3 +164,5 @@ WorkDir
 OverlappingSelectors
  - docs/user/building-images.md
 usr
+k8s
+KIND

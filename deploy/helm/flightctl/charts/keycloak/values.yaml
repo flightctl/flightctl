@@ -13,11 +13,6 @@ service:
   nodePorts:
     http: ""
     https: ""
-route:
-  hostname: ""
-  tls:
-    cert: ""
-    key: ""
 realm:
   redirectUris: ""
   webOrigins: ""

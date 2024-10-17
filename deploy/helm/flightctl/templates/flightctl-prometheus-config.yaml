@@ -1,3 +1,4 @@
+{{- if .Values.prometheus.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -18,3 +19,4 @@ data:
             action: keep
             regex: 1569[0-2]
         scheme: http
+{{- end }}

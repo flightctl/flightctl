@@ -49,6 +49,9 @@ type ApiMetrics struct {
 }
 
 func NewApiMetrics(cfg *config.Config) *ApiMetrics {
+	if cfg.Prometheus == nil {
+		return nil
+	}
 	return &ApiMetrics{
 		SloMax: cfg.Prometheus.SloMax,
 		ApiTraffic: prometheus.NewCounter(prometheus.CounterOpts{

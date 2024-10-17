@@ -20,19 +20,7 @@ nodes:
   - containerPort: 8080 # keycloak
     hostPort: 8080
     protocol: TCP
-  - containerPort: 5432 # postgresql DB
-    hostPort: 5432
+  - containerPort: 9000 # ui
+    hostPort: 9000
     protocol: TCP
-  - containerPort: 5000 # local registry for E2E testing
-    hostPort: 5000
-    protocol: TCP
-  - containerPort: 3222 # local git server for E2E testing
-    hostPort: 3222
-    protocol: TCP
-  - containerPort: 9090 # Prometheus server
-    hostPort: 9090
-    protocol: TCP
-  extraMounts:
-  - hostPath: ./bin/e2e-certs
-    containerPath: /tmp/e2e-certs
   
