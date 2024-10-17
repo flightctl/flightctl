@@ -2911,6 +2911,7 @@ components:
         - conditions
         - systemInfo
         - applications
+        - applicationsSummary
         - resources
         - integrity
         - config
@@ -2927,8 +2928,13 @@ components:
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
         applications:
-          $ref: "#/components/schemas/DeviceApplicationsStatus"
-          description: "Current status of the system applications."
+          type: array
+          description: "List of device application status."
+          items:
+            $ref: "#/components/schemas/DeviceApplicationStatus"
+        applicationsSummary:
+          $ref: "#/components/schemas/DeviceApplicationsSummaryStatus"
+          description: "Summary status of the device applications."
         resources:
           $ref: "#/components/schemas/DeviceResourceStatus"
           description: "Current status of the resources of the device."
@@ -2968,21 +2974,7 @@ components:
           type: string
           description: The Operating System reported by the device.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
-    DeviceApplicationsStatus:
-      type: object
-      required:
-        - data
-        - summary
-      properties:
-        data:
-          type: object
-          description: "Map of system application statuses."
-          additionalProperties:
-            $ref: "#/components/schemas/ApplicationStatus"
-        summary:
-          $ref: "#/components/schemas/ApplicationsSummaryStatus"
-          description: "Summary status of system applications."
-    ApplicationStatus:
+    DeviceApplicationStatus:
       type: object
       required:
         - name
@@ -3002,7 +2994,7 @@ components:
         status:
           $ref: "#/components/schemas/ApplicationStatusType"
           description: "Status of the application."
-    ApplicationsSummaryStatus:
+    DeviceApplicationsSummaryStatus:
       type: object
       required:
         - status

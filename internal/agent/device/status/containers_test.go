@@ -188,7 +188,7 @@ var _ = Describe("containers exporter", func() {
 			err := container.Export(context.TODO(), &deviceStatus)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(len(deviceStatus.Applications.Data)).To(Equal(2))
+			Expect(len(deviceStatus.Applications)).To(Equal(2))
 		})
 
 		It("list crio containers", func() {
@@ -199,7 +199,7 @@ var _ = Describe("containers exporter", func() {
 			err := container.Export(context.TODO(), &deviceStatus)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(len(deviceStatus.Applications.Data)).To(Equal(2))
+			Expect(len(deviceStatus.Applications)).To(Equal(2))
 		})
 
 		It("list both podman and crio containers", func() {
@@ -211,7 +211,7 @@ var _ = Describe("containers exporter", func() {
 			err := container.Export(context.TODO(), &deviceStatus)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(len(deviceStatus.Applications.Data)).To(Equal(4))
+			Expect(len(deviceStatus.Applications)).To(Equal(4))
 		})
 	})
 })
