@@ -378,7 +378,7 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
 			d.Status.Summary.Status,
 			d.Status.Updated.Status,
-			d.Status.Applications.Summary.Status,
+			d.Status.ApplicationsSummary.Status,
 			lastSeen,
 		)
 		if o.Output == wideFormat {

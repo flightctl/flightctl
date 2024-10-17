@@ -60,10 +60,10 @@ func (c *SystemD) Export(ctx context.Context, status *v1alpha1.DeviceStatus) err
 
 	// TODO: handle removed units and use appropriate status
 	for _, u := range units {
-		status.Applications.Data[u.Unit] = v1alpha1.ApplicationStatus{
+		status.Applications = append(status.Applications, v1alpha1.DeviceApplicationStatus{
 			Name:   u.Unit,
 			Status: v1alpha1.ApplicationStatusUnknown,
-		}
+		})
 	}
 
 	return nil

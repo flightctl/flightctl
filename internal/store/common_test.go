@@ -48,13 +48,13 @@ func TestCreateQueryFromFilterMap(t *testing.T) {
 		{
 			name: "nested fields multiple values",
 			fieldMap: map[string][]string{
-				"status.updated.status":              {"UpToDate", "OutOfDate"},
-				"status.applications.summary.status": {"Degraded"},
+				"status.updated.status":             {"UpToDate", "OutOfDate"},
+				"status.applicationsSummary.status": {"Degraded"},
 			},
 			expectedQuery: []string{
 				"status -> 'updated' ->> 'status' = ?",
 				"status -> 'updated' ->> 'status' = ?",
-				"status -> 'applications' -> 'summary' ->> 'status' = ?",
+				"status -> 'applicationsSummary' ->> 'status' = ?",
 			},
 			expectedArgs: []interface{}{"UpToDate", "OutOfDate", "Degraded"},
 		},

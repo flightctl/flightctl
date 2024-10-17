@@ -74,10 +74,8 @@ var _ = Describe("FleetStore create", func() {
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Status: &api.DeviceStatus{
-					Applications: api.DeviceApplicationsStatus{
-						Summary: api.ApplicationsSummaryStatus{
-							Status: api.ApplicationsSummaryStatusHealthy,
-						},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusHealthy,
 					},
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
@@ -90,24 +88,24 @@ var _ = Describe("FleetStore create", func() {
 			_, err := storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-2")
-			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusDegraded
+			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-3")
-			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusHealthy
+			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-4")
-			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusHealthy
+			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = util.StrToPtr("mydevice-5")
-			device.Status.Applications.Summary.Status = api.ApplicationsSummaryStatusError
+			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
 			device.Status.Summary.Status = api.DeviceSummaryStatusError
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
