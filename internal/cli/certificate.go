@@ -61,7 +61,7 @@ func NewCmdCertificate() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "certificate request [flags]",
 		// more subcommands may be added later
-		Short:     "request a new enrollment certificate for a device with 'certificate request'",
+		Short:     "Request a new enrollment certificate for a device with 'certificate request'",
 		Args:      cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: []string{"request"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -81,12 +81,12 @@ func NewCmdCertificate() *cobra.Command {
 
 func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
-	fs.StringVarP(&o.Name, "name", "n", "csr", "specify a name for the certificate signing request")
-	fs.StringVarP(&o.Expiration, "expiration", "x", "7d", "specify desired certificate expiration in days, example: 7d")
-	fs.StringVarP(&o.OutputFormat, "output-format", "o", "default", "specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file")
-	fs.StringVarP(&o.OutputDir, "output-dir", "d", "./", "specify desired output directory for key, cert, and ca files (defaults to current directory)")
-	fs.StringVarP(&o.SignerName, "cert-type", "t", "enrollment", "specify the type of certificate requested: 'enrollment' or 'ca' (default 'enrollment')")
-	fs.BoolVarP(&o.EncryptKey, "encrypt", "s", false, "option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime")
+	fs.StringVarP(&o.Name, "name", "n", "csr", "Specify a name for the certificate signing request")
+	fs.StringVarP(&o.Expiration, "expiration", "x", "7d", "Specify desired certificate expiration in days, example: 7d")
+	fs.StringVarP(&o.OutputFormat, "output-format", "o", "default", "Specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file")
+	fs.StringVarP(&o.OutputDir, "output-dir", "d", "./", "Specify desired output directory for key, cert, and ca files (defaults to current directory)")
+	fs.StringVarP(&o.SignerName, "cert-type", "t", "enrollment", "Specify the type of certificate requested: 'enrollment' or 'ca' (default 'enrollment')")
+	fs.BoolVarP(&o.EncryptKey, "encrypt", "s", false, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime")
 }
 
 func (o *CertificateOptions) Complete(cmd *cobra.Command, args []string) error {
