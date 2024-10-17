@@ -20,13 +20,6 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	// defaultDirectoryPermissions houses the default mode to use when no directory permissions are provided
-	defaultDirectoryPermissions os.FileMode = 0o755
-	// defaultFilePermissions houses the default mode to use when no file permissions are provided
-	DefaultFilePermissions os.FileMode = 0o644
-)
-
 // writer is responsible for writing files to the device
 type writer struct {
 	// rootDir is the root directory for the device writer useful for testing
@@ -73,7 +66,7 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 	// 	return err
 	// }
 
-	return writeFileAtomically(filepath.Join(w.rootDir, name), data, defaultDirectoryPermissions, perm, uid, gid)
+	return writeFileAtomically(filepath.Join(w.rootDir, name), data, DefaultDirectoryPermissions, perm, uid, gid)
 }
 
 func (w *writer) RemoveFile(file string) error {
@@ -81,6 +74,17 @@ func (w *writer) RemoveFile(file string) error {
 		return fmt.Errorf("failed to remove file %q: %w", file, err)
 	}
 	return nil
+}
+
+func (w *writer) RemoveAll(path string) error {
+	if err := os.RemoveAll(filepath.Join(w.rootDir, path)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove path %q: %w", path, err)
+	}
+	return nil
+}
+
+func (w *writer) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(filepath.Join(w.rootDir, path), perm)
 }
 
 func (w *writer) CopyFile(src, dst string) error {
@@ -94,13 +98,28 @@ func (w *writer) copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.Create(dst)
+	var dstTarget string
+	dstInfo, err := os.Stat(dst)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to stat destination: %w", err)
+		}
+		dstTarget = dst
+	} else {
+		if dstInfo.IsDir() {
+			// destination is a directory, append the source file's base name
+			dstTarget = filepath.Join(dst, filepath.Base(src))
+		}
+	}
+
+	dstFile, err := os.Create(dstTarget)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 	defer dstFile.Close()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
 		return fmt.Errorf("failed to copy file content: %w", err)
 	}
 
@@ -111,7 +130,7 @@ func (w *writer) copyFile(src, dst string) error {
 	}
 
 	// set file permissions
-	if err := os.Chmod(dst, srcFileInfo.Mode()); err != nil {
+	if err := os.Chmod(dstTarget, srcFileInfo.Mode()); err != nil {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
@@ -121,7 +140,7 @@ func (w *writer) copyFile(src, dst string) error {
 	}
 
 	// set file ownership
-	if err := os.Chown(dst, int(stat.Uid), int(stat.Gid)); err != nil {
+	if err := os.Chown(dstTarget, int(stat.Uid), int(stat.Gid)); err != nil {
 		return fmt.Errorf("failed to set UID and GID: %w", err)
 	}
 

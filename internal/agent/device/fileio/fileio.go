@@ -2,8 +2,16 @@ package fileio
 
 import (
 	"io/fs"
+	"os"
 
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+)
+
+const (
+	// DefaultDirectoryPermissions houses the default mode to use when no directory permissions are provided
+	DefaultDirectoryPermissions os.FileMode = 0o755
+	// defaultFilePermissions houses the default mode to use when no file permissions are provided
+	DefaultFilePermissions os.FileMode = 0o644
 )
 
 type ManagedFile interface {
@@ -18,6 +26,8 @@ type Writer interface {
 	PathFor(filePath string) string
 	WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error
 	RemoveFile(file string) error
+	RemoveAll(path string) error
+	MkdirAll(path string, perm fs.FileMode) error
 	CopyFile(src, dst string) error
 	CreateManagedFile(file ign3types.File) (ManagedFile, error)
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -15,15 +16,17 @@ import (
 func newExporters(
 	_ resource.Manager,
 	_ hook.Manager,
+	_ applications.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) []Exporter {
 	return []Exporter{
-		newSystemD(executer),
 		newContainer(executer),
+		newSystemD(executer),
 		newSystemInfo(executer),
 		newUnsupportedExporter(log, "resources"),
 		newUnsupportedExporter(log, "hooks"),
+		newUnsupportedExporter(log, "applications"),
 	}
 }
 
