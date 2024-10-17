@@ -65,7 +65,10 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams)
+	query, err := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -87,7 +90,10 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams)
+			countQuery, err := BuildBaseListQuery(s.db.Model(&enrollmentRequests), orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal

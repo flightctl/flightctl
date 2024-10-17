@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -55,13 +56,20 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
-func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) *gorm.DB {
+func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	var err error
 	query = query.Where("org_id = ?", orgId).Order("name")
 	invertLabels := false
 	if listParams.InvertLabels != nil && *listParams.InvertLabels {
 		invertLabels = true
 	}
 	query = LabelSelectionQuery(query, listParams.Labels, invertLabels)
+	if query, err = LabelMatchExpressionsQuery(query, listParams.LabelMatchExpressions); err != nil {
+		return nil, err
+	}
+	if query, err = AnnotationsMatchExpressionsQuery(query, listParams.AnnotationsMatchExpressions); err != nil {
+		return nil, err
+	}
 	query = FieldFilterSelectionQuery(query, listParams.Filter)
 
 	queryStr, args := createOrQuery("owner", listParams.Owners)
@@ -72,7 +80,7 @@ func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) 
 	if listParams.FleetName != nil {
 		query = query.Where("fleet_name = ?", *listParams.FleetName)
 	}
-	return query
+	return query, nil
 }
 
 func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
@@ -150,6 +158,74 @@ func GetNonNilFieldsFromResource(resource model.Resource) []string {
 	}
 
 	return ret
+}
+
+func matchExpressionQueryAndArgs(matchExpression api.MatchExpression, colName string) (string, []any) {
+	var params []string
+	var args []any
+
+	for _, val := range *matchExpression.Values {
+		params = append(params, "?")
+		args = append(args, matchExpression.Key+"="+val)
+	}
+
+	return fmt.Sprintf("%s && ARRAY[%s]", colName, strings.Join(params, ",")), args
+}
+
+func matchInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	whereStr, args := matchExpressionQueryAndArgs(matchExpression, colName)
+	return query.Where(whereStr, args...)
+}
+
+func matchNotInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	whereStr, args := matchExpressionQueryAndArgs(matchExpression, colName)
+	return query.Not(whereStr, args...)
+}
+
+func existsQuery(colName string) string {
+	return fmt.Sprintf("exists (select 1 from unnest(%s) as element where element like ?)", colName)
+}
+
+func matchExistsQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	return query.Where(existsQuery(colName), matchExpression.Key+"=%")
+}
+
+func matchDoesNotExistQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
+	return query.Not(existsQuery(colName), matchExpression.Key+"=%")
+}
+
+func matchExpressionQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) (*gorm.DB, error) {
+	switch matchExpression.Operator {
+	case api.In:
+		return matchInQuery(query, matchExpression, colName), nil
+	case api.NotIn:
+		return matchNotInQuery(query, matchExpression, colName), nil
+	case api.Exists:
+		return matchExistsQuery(query, matchExpression, colName), nil
+	case api.DoesNotExist:
+		return matchDoesNotExistQuery(query, matchExpression, colName), nil
+	default:
+		return nil, fmt.Errorf("unexpected operator %s", matchExpression.Operator)
+	}
+}
+
+func matchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions, colName string) (*gorm.DB, error) {
+	var err error
+	for _, me := range matchExpressions {
+		if query, err = matchExpressionQuery(query, me, colName); err != nil {
+			return nil, err
+		}
+	}
+	return query, nil
+
+}
+
+func LabelMatchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions) (*gorm.DB, error) {
+	return matchExpressionsQuery(query, matchExpressions, "labels")
+}
+
+func AnnotationsMatchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions) (*gorm.DB, error) {
+	return matchExpressionsQuery(query, matchExpressions, "annotations")
 }
 
 // LabelSelectionQuery applies a label-based selection query to the given GORM DB query.

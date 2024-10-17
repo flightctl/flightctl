@@ -106,7 +106,10 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 
 	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })
 	dbModel := s.db.Table("fleets").Select(fleetSelectStr(options.withDeviceCount))
-	query := BuildBaseListQuery(dbModel, orgId, listParams)
+	query, err := BuildBaseListQuery(dbModel, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -128,7 +131,10 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&model.Fleet{}), orgId, listParams)
+			countQuery, err := BuildBaseListQuery(s.db.Model(&model.Fleet{}), orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -203,8 +209,12 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		Total: fleet.DeviceCount,
 	}
 	if options.withSummary {
-		statusCount, err := CountStatusList(ctx, BuildBaseListQuery(s.db.Model(&model.Device{}),
-			orgId, ListParams{Owners: []string{*util.SetResourceOwner(model.FleetKind, name)}}),
+		query, err := BuildBaseListQuery(s.db.Model(&model.Device{}),
+			orgId, ListParams{Owners: []string{*util.SetResourceOwner(model.FleetKind, name)}})
+		if err != nil {
+			return nil, err
+		}
+		statusCount, err := CountStatusList(ctx, query,
 			"status.applications.summary.status",
 			"status.summary.status",
 			"status.updated.status")
