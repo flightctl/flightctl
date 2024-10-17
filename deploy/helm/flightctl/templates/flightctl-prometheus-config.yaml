@@ -13,4 +13,8 @@ data:
         kubernetes_sd_configs:
           - role: pod
 
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: 1569[0-2]
         scheme: http

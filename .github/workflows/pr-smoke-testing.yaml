@@ -40,9 +40,6 @@ jobs:
       - name: Make the cmdline tool
         run: make build
 
-      - name: Login
-        run: bin/flightctl login $(cat ~/.flightctl/client.yaml | awk '/server:/ {print $2}') --certificate-authority ~/.flightctl/certs/ca.crt
-
       - name: Apply device
         run: bin/flightctl apply -f examples/device.yaml
 

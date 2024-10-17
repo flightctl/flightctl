@@ -7,7 +7,7 @@ metadata:
   name: flightctl-api
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if .Values.db.nodePort }}
+  {{- if .Values.api.nodePorts.api  }}
   type: NodePort
   {{- end }}
   ports:

@@ -6,7 +6,7 @@ metadata:
   name: flightctl-prometheus
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if .Values.db.nodePort }}
+  {{- if .Values.api.nodePorts.prometheus }}
   type: NodePort
   {{- end }}
   ports:
