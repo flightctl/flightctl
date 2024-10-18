@@ -179,14 +179,14 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 	}
 
 	statusCount, err := CountStatusList(ctx, query,
-		"status.applications.summary.status",
+		"status.applicationsSummary.status",
 		"status.summary.status",
 		"status.updated.status")
 	if err != nil {
 		return nil, ErrorFromGormError(err)
 	}
 
-	applicationStatus := statusCount.List("status.applications.summary.status")
+	applicationStatus := statusCount.List("status.applicationsSummary.status")
 	summaryStatus := statusCount.List("status.summary.status")
 	updateStatus := statusCount.List("status.updated.status")
 	return &api.DevicesSummary{

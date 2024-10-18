@@ -67,9 +67,6 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	if resource.Status != nil {
 		status = *resource.Status
 	}
-	if status.Applications.Data == nil {
-		status.Applications.Data = make(map[string]api.ApplicationStatus)
-	}
 	if status.Conditions == nil {
 		status.Conditions = []api.Condition{}
 	}
@@ -157,7 +154,7 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 	updateStatuses := make(map[string]int64)
 	for i, device := range dl {
 		deviceList[i] = device.ToApiResource()
-		applicationStatus := string(deviceList[i].Status.Applications.Summary.Status)
+		applicationStatus := string(deviceList[i].Status.ApplicationsSummary.Status)
 		applicationStatuses[applicationStatus] = applicationStatuses[applicationStatus] + 1
 		summaryStatus := string(deviceList[i].Status.Summary.Status)
 		summaryStatuses[summaryStatus] = summaryStatuses[summaryStatus] + 1

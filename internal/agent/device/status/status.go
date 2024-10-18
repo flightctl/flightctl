@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -20,10 +21,11 @@ func NewManager(
 	deviceName string,
 	resourceManager resource.Manager,
 	hookManager hook.Manager,
+	applicationManager applications.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	exporters := newExporters(resourceManager, hookManager, executer, log)
+	exporters := newExporters(resourceManager, hookManager, applicationManager, executer, log)
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{
 		deviceName: deviceName,
@@ -84,7 +86,7 @@ func (m *StatusManager) Get(ctx context.Context) *v1alpha1.DeviceStatus {
 }
 
 func (m *StatusManager) reset() {
-	clear(m.device.Status.Applications.Data)
+	m.device.Status.Applications = m.device.Status.Applications[:0]
 }
 
 func (m *StatusManager) Collect(ctx context.Context) error {
@@ -110,6 +112,7 @@ func (m *StatusManager) Sync(ctx context.Context) error {
 		return err
 	}
 	if m.managementClient == nil {
+		m.log.Warn("management client not set")
 		return nil
 	}
 	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {

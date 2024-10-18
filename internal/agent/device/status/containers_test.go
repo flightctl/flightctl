@@ -2,7 +2,6 @@ package status
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -16,106 +15,6 @@ func TestController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Controller Suite")
 }
-
-const podmanListResult = `
-[
-  {
-    "AutoRemove": true,
-    "Command": [
-      "command"
-    ],
-    "CreatedAt": "40 minutes ago",
-    "CIDFile": "",
-    "Exited": false,
-    "ExitedAt": -62135596800,
-    "ExitCode": 0,
-    "Id": "id1",
-    "Image": "quay.io/image1:latest",
-    "ImageID": "b22b91a96569c182755b01c5ab342d7194f825984fa293cebfd1b1c8c383252b",
-    "IsInfra": false,
-    "Labels": {
-      "description": "A lovely description.",
-      "version": "1"
-    },
-    "Mounts": [
-      "/foo"
-    ],
-    "Names": [
-      "myfirstname",
-	  "myothername"
-    ],
-    "Namespaces": {
-
-    },
-    "Networks": [],
-    "Pid": 1136940,
-    "Pod": "",
-    "PodName": "",
-    "Ports": [
-      {
-        "host_ip": "127.0.0.1",
-        "container_port": 1234,
-        "host_port": 1234,
-        "range": 1,
-        "protocol": "tcp"
-      }
-    ],
-    "Restarts": 0,
-    "Size": null,
-    "StartedAt": 1706178662,
-    "State": "running",
-    "Status": "Up 40 minutes",
-    "Created": 1706178662
-  },
-  {
-    "AutoRemove": true,
-    "Command": [
-      "mycommand"
-    ],
-    "CreatedAt": "46 minutes ago",
-    "CIDFile": "",
-    "Exited": false,
-    "ExitedAt": -62135596800,
-    "ExitCode": 0,
-    "Id": "id2",
-    "Image": "quay.io/image2:latest",
-    "ImageID": "b22b91a96569c182755b01c5ab342d7194f825984fa293cebfd1b1c8c383252c",
-    "IsInfra": false,
-    "Labels": {
-      "description": "This describes it perfectly.",
-      "version": "2"
-    },
-    "Mounts": [
-      "/bar"
-    ],
-    "Names": [
-      "agreatname"
-    ],
-    "Namespaces": {
-
-    },
-    "Networks": [],
-    "Pid": 1136940,
-    "Pod": "",
-    "PodName": "",
-    "Ports": [
-      {
-        "host_ip": "127.0.0.1",
-        "container_port": 7443,
-        "host_port": 7443,
-        "range": 1,
-        "protocol": "tcp"
-      }
-    ],
-    "Restarts": 0,
-    "Size": null,
-    "StartedAt": 1706178662,
-    "State": "paused",
-    "Status": "Paused",
-    "Created": 1706178662
-  }
-]
-`
 
 const crioListResult = `
 {
@@ -179,39 +78,15 @@ var _ = Describe("containers exporter", func() {
 		container = newContainer(execMock)
 	})
 
-	Context("containers controller", func() {
-		It("list podman containers", func() {
-			container.matchPatterns = []string{"myfirstname", "agreatname"}
-			execMock.EXPECT().LookPath("crictl").Return("", fmt.Errorf("not found"))
-			execMock.EXPECT().LookPath("podman").Return("/usr/bin/podman", nil)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json", "--filter", "name=myfirstname", "--filter", "name=agreatname").Return(podmanListResult, "", 0)
-			err := container.Export(context.TODO(), &deviceStatus)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(len(deviceStatus.Applications.Data)).To(Equal(2))
-		})
-
+	Context("containers exporter", func() {
 		It("list crio containers", func() {
 			container.matchPatterns = []string{"alpine", "busybox"}
 			execMock.EXPECT().LookPath("crictl").Return("/usr/bin/crictl", nil)
-			execMock.EXPECT().LookPath("podman").Return("", fmt.Errorf("not found"))
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/crictl", "ps", "-a", "--output", "json", "--name", "alpine", "--name", "busybox").Return(crioListResult, "", 0)
 			err := container.Export(context.TODO(), &deviceStatus)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(len(deviceStatus.Applications.Data)).To(Equal(2))
-		})
-
-		It("list both podman and crio containers", func() {
-			container.matchPatterns = []string{"myfirstname", "alpine"}
-			execMock.EXPECT().LookPath("podman").Return("/usr/bin/podman", nil)
-			execMock.EXPECT().LookPath("crictl").Return("/usr/bin/crictl", nil)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/podman", "ps", "-a", "--format", "json", "--filter", "name=myfirstname", "--filter", "name=alpine").Return(podmanListResult, "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/crictl", "ps", "-a", "--output", "json", "--name", "myfirstname", "--name", "alpine").Return(crioListResult, "", 0)
-			err := container.Export(context.TODO(), &deviceStatus)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(len(deviceStatus.Applications.Data)).To(Equal(4))
+			Expect(len(deviceStatus.Applications)).To(Equal(2))
 		})
 	})
 })

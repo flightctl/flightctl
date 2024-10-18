@@ -159,28 +159,8 @@ type ApplicationSpec struct {
 	union json.RawMessage
 }
 
-// ApplicationStatus defines model for ApplicationStatus.
-type ApplicationStatus struct {
-	// Name Human readable name of the application.
-	Name string `json:"name"`
-
-	// Ready The number of containers which are ready in the application.
-	Ready string `json:"ready"`
-
-	// Restarts Number of restarts observed for the application.
-	Restarts int                   `json:"restarts"`
-	Status   ApplicationStatusType `json:"status"`
-}
-
 // ApplicationStatusType defines model for ApplicationStatusType.
 type ApplicationStatusType string
-
-// ApplicationsSummaryStatus defines model for ApplicationsSummaryStatus.
-type ApplicationsSummaryStatus struct {
-	// Info Human readable information detailing the last system application transition.
-	Info   *string                       `json:"info,omitempty"`
-	Status ApplicationsSummaryStatusType `json:"status"`
-}
 
 // ApplicationsSummaryStatusType defines model for ApplicationsSummaryStatusType.
 type ApplicationsSummaryStatusType string
@@ -336,11 +316,24 @@ type Device struct {
 	Status *DeviceStatus `json:"status,omitempty"`
 }
 
-// DeviceApplicationsStatus defines model for DeviceApplicationsStatus.
-type DeviceApplicationsStatus struct {
-	// Data Map of system application statuses.
-	Data    map[string]ApplicationStatus `json:"data"`
-	Summary ApplicationsSummaryStatus    `json:"summary"`
+// DeviceApplicationStatus defines model for DeviceApplicationStatus.
+type DeviceApplicationStatus struct {
+	// Name Human readable name of the application.
+	Name string `json:"name"`
+
+	// Ready The number of containers which are ready in the application.
+	Ready string `json:"ready"`
+
+	// Restarts Number of restarts observed for the application.
+	Restarts int                   `json:"restarts"`
+	Status   ApplicationStatusType `json:"status"`
+}
+
+// DeviceApplicationsSummaryStatus defines model for DeviceApplicationsSummaryStatus.
+type DeviceApplicationsSummaryStatus struct {
+	// Info Human readable information detailing the last system application transition.
+	Info   *string                       `json:"info,omitempty"`
+	Status ApplicationsSummaryStatusType `json:"status"`
 }
 
 // DeviceConfigStatus defines model for DeviceConfigStatus.
@@ -467,7 +460,9 @@ type DeviceSpec_Config_Item struct {
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 type DeviceStatus struct {
-	Applications DeviceApplicationsStatus `json:"applications"`
+	// Applications List of device application status.
+	Applications        []DeviceApplicationStatus       `json:"applications"`
+	ApplicationsSummary DeviceApplicationsSummaryStatus `json:"applicationsSummary"`
 
 	// Conditions Conditions represent the observations of a the current state of a device.
 	Conditions []Condition           `json:"conditions"`

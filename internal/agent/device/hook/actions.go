@@ -113,8 +113,10 @@ func (a *apiHookActionFactory) Create(exec executer.Executer, log *log.PrefixLog
 	return actionHook, err
 }
 
+//lint:ignore U1000 unused: evaluate if this is needed
 type builtinHookFactory func(ctx context.Context, path string, exec executer.Executer, log *log.PrefixLogger) error
 
+//lint:ignore U1000 unused: evaluate if this is needed
 type builtinActionHook func(ctx context.Context, path string) error
 
 func (b builtinActionHook) OnChange(ctx context.Context, path string) error {

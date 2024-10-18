@@ -2,7 +2,6 @@ package hook
 
 import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 )
 
 func marshalExecutable(run string, envVars *[]string, workDir string, timeout string) v1alpha1.HookAction {
@@ -26,15 +25,6 @@ func executableActionFactory(run string, envVars *[]string, workDir string, time
 func defaultAfterUpdateHooks() []HookDefinition {
 	return []HookDefinition{
 		{
-			name:        "podman compose up",
-			path:        "/var/run/flightctl/compose",
-			description: "Bring up a multi-container system based on the provided YAML podman-compose definition file",
-			ops:         []v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate, v1alpha1.FileOperationReboot},
-			actionHooks: []ActionHookFactory{
-				builtinHookFactory(client.PodmanComposeUp),
-			},
-		},
-		{
 			name:        "microshift manifest up",
 			path:        "/var/usr/klusterlet-manifests",
 			description: "Apply the provided microshift manifest",
@@ -49,15 +39,6 @@ func defaultAfterUpdateHooks() []HookDefinition {
 
 func defaultBeforeUpdateHooks() []HookDefinition {
 	return []HookDefinition{
-		{
-			name:        "podman compose down",
-			path:        "/var/run/flightctl/compose",
-			description: "Bring down a multi-container system based on the provided YAML podman-compose definition file",
-			ops:         []v1alpha1.FileOperation{v1alpha1.FileOperationUpdate, v1alpha1.FileOperationRemove},
-			actionHooks: []ActionHookFactory{
-				builtinHookFactory(client.PodmanComposeDown),
-			},
-		},
 		{
 			name:        "microshift manifest down",
 			path:        "/var/usr/klusterlet-manifests",
