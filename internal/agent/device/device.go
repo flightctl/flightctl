@@ -345,6 +345,7 @@ func (a *Agent) afterUpdate(ctx context.Context) error {
 
 	// execute post actions for applications
 	if err := a.appManager.ExecuteActions(ctx); err != nil {
+		a.log.Errorf("Error executing actions: %v", err)
 		return err
 	}
 

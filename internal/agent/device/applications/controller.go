@@ -68,16 +68,6 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 		return err
 	}
 
-	for _, app := range added {
-		if err := c.ensureImagePackage(ctx, app); err != nil {
-			return err
-		}
-		if err := c.manager.Add(app); err != nil {
-			return err
-		}
-		c.log.Infof("Added application %s", app.Name())
-	}
-
 	for _, app := range removed {
 		if err := c.removeImagePackage(app); err != nil {
 			return err
@@ -86,6 +76,16 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 			return err
 		}
 		c.log.Infof("Removed application %s", app.Name())
+	}
+
+	for _, app := range added {
+		if err := c.ensureImagePackage(ctx, app); err != nil {
+			return err
+		}
+		if err := c.manager.Add(app); err != nil {
+			return err
+		}
+		c.log.Infof("Added application %s", app.Name())
 	}
 
 	for _, app := range updated {

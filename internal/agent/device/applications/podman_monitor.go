@@ -297,6 +297,10 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.A
 			if summary != v1alpha1.ApplicationsSummaryStatusError && summary != v1alpha1.ApplicationsSummaryStatusDegraded {
 				summary = v1alpha1.ApplicationsSummaryStatusHealthy
 			}
+		case v1alpha1.ApplicationsSummaryStatusUnknown:
+			if summary != v1alpha1.ApplicationsSummaryStatusError && summary != v1alpha1.ApplicationsSummaryStatusDegraded {
+				summary = v1alpha1.ApplicationsSummaryStatusUnknown
+			}
 		default:
 			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary))
 		}
@@ -376,28 +380,22 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	}
 
 	m.log.Debugf("Updating application status for event: %v", event)
-	resp, err := m.client.Inspect(ctx, event.ID)
+
+	restarts, err := m.getContainerRestarts(ctx, event.ID)
 	if err != nil {
-		m.log.Errorf("Failed to inspect container %s: %v", event.ID, err)
-		return
+		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	var inspectData []PodmanInspect
-	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
-		m.log.Errorf("Failed to unmarshal podman inspect output: %v", err)
-		return
-	}
-
-	var restarts int
-	if len(inspectData) > 0 {
-		restarts = inspectData[0].Restarts
-	}
+	// init ok
 
 	container, exists := app.Container(event.Name)
 	if exists {
 		// update existing container
 		container.Status = status
-		container.Restarts = restarts
+		// restarts can only increase
+		if restarts > container.Restarts {
+			container.Restarts = restarts
+		}
 		return
 	}
 
@@ -409,4 +407,23 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 		Status:   status,
 		Restarts: restarts,
 	})
+}
+
+func (m *PodmanMonitor) getContainerRestarts(ctx context.Context, containerID string) (int, error) {
+	resp, err := m.client.Inspect(ctx, containerID)
+	if err != nil {
+		return 0, err
+	}
+
+	var inspectData []PodmanInspect
+	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
+		return 0, fmt.Errorf("unmarshal podman inspect output: %v", err)
+	}
+
+	var restarts int
+	if len(inspectData) > 0 {
+		restarts = inspectData[0].Restarts
+	}
+
+	return restarts, nil
 }

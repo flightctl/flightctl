@@ -42,6 +42,15 @@ func (c ContainerStatusType) String() string {
 	return string(c)
 }
 
+func (c ContainerStatusType) Vaild() bool {
+	switch c {
+	case ContainerStatusInit, ContainerStatusRunning, ContainerStatusDie, ContainerStatusRemove:
+		return true
+	default:
+		return false
+	}
+}
+
 type AppType string
 
 const (
