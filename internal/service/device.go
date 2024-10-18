@@ -267,6 +267,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
 	}
 
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return server.PatchDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
 		return server.PatchDevice400JSONResponse{Message: "metadata.name is immutable"}, nil
 	}
