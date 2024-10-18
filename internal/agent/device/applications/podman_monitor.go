@@ -94,7 +94,9 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	}
 	m.log.Debugf("Boot time: %s", bootTime)
 
-	m.cmd = m.client.EventsSinceCmd(ctx, []string{"init", "start", "die", "sync"}, bootTime)
+	// list of podman events to listen for
+	events := []string{"init", "start", "die", "sync", "remove"}
+	m.cmd = m.client.EventsSinceCmd(ctx, events, bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
 	if err != nil {
@@ -364,6 +366,15 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	status := ContainerStatusType(event.Status)
+	if status == ContainerStatusRemove {
+		// remove existing container
+		if removed := app.RemoveContainer(event.Name); removed {
+			m.log.Debugf("Removed container: %s", event.Name)
+		}
+		return
+	}
+
 	m.log.Debugf("Updating application status for event: %v", event)
 	resp, err := m.client.Inspect(ctx, event.ID)
 	if err != nil {
@@ -384,7 +395,8 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 
 	container, exists := app.Container(event.Name)
 	if exists {
-		container.Status = ContainerStatusType(event.Status)
+		// update existing container
+		container.Status = status
 		container.Restarts = restarts
 		return
 	}
@@ -394,7 +406,7 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 		ID:       event.ID,
 		Image:    event.Image,
 		Name:     event.Name,
-		Status:   ContainerStatusType(event.Status),
+		Status:   status,
 		Restarts: restarts,
 	})
 }
