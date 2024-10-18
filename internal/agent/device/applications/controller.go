@@ -68,13 +68,6 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 		return err
 	}
 
-	for _, app := range added {
-		if err := c.ensureImagePackage(ctx, app); err != nil {
-			return err
-		}
-		c.log.Infof("Added application %s", app.Name())
-	}
-
 	for _, app := range removed {
 		if err := c.removeImagePackage(app); err != nil {
 			return err
@@ -85,7 +78,23 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 		c.log.Infof("Removed application %s", app.Name())
 	}
 
+	for _, app := range added {
+		if err := c.ensureImagePackage(ctx, app); err != nil {
+			return err
+		}
+		if err := c.manager.Add(app); err != nil {
+			return err
+		}
+		c.log.Infof("Added application %s", app.Name())
+	}
+
 	for _, app := range updated {
+		if err := c.removeImagePackage(app); err != nil {
+			return err
+		}
+		if err := c.ensureImagePackage(ctx, app); err != nil {
+			return err
+		}
 		if err := c.manager.Update(app); err != nil {
 			return err
 		}
@@ -98,6 +107,9 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 func (c *Controller) ensureApps(ctx context.Context, currentApps *applications) error {
 	for _, app := range currentApps.ImageBased() {
 		if err := c.ensureImagePackage(ctx, app); err != nil {
+			return err
+		}
+		if err := c.manager.Add(app); err != nil {
 			return err
 		}
 	}
@@ -143,9 +155,7 @@ func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v
 	}
 
 	// TODO: handle selinux labels
-
-	// track the application if it does not exist
-	return c.manager.Add(app)
+	return nil
 }
 
 // parseApps parses applications from a rendered device spec.
@@ -224,7 +234,7 @@ func diffApps[T any](
 		if currentApp, exists := currentApps[name]; !exists {
 			added = append(added, desiredApp)
 		} else {
-			if !cmp(currentApp, desiredApp) {
+			if !isEqual(currentApp, desiredApp) {
 				changed = append(changed, desiredApp)
 			}
 		}
@@ -233,8 +243,8 @@ func diffApps[T any](
 	return added, removed, changed, nil
 }
 
-// cmp compares two applications and returns true if they are equal.
-func cmp[T any](a, b *application[T]) bool {
+// isEqual compares two applications and returns true if they are equal.
+func isEqual[T any](a, b *application[T]) bool {
 	if a.appType != b.appType {
 		return false
 	}

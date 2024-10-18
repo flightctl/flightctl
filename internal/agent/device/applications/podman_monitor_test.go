@@ -25,34 +25,37 @@ func TestListenForEvents(t *testing.T) {
 		expectedReady    string
 		expectedRestarts int
 		expectedStatus   v1alpha1.ApplicationStatusType
+		expectedSummary  v1alpha1.ApplicationsSummaryStatusType
 		events           []PodmanEvent
 	}{
 		{
-			name: "single app preparing to running",
+			name: "single app start",
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []PodmanEvent{
-				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "start"),
 			},
-			expectedReady:  "1/1",
-			expectedStatus: v1alpha1.ApplicationStatusRunning,
+			expectedReady:   "1/1",
+			expectedStatus:  v1alpha1.ApplicationStatusRunning,
+			expectedSummary: v1alpha1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "single app preparing to error",
+			name: "single app start then die",
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []PodmanEvent{
-				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "start"),
 				mockPodmanEvent("app1", "app1-service-1", "die"),
 			},
-			expectedReady:  "0/1",
-			expectedStatus: v1alpha1.ApplicationStatusError,
+			expectedReady:   "0/1",
+			expectedStatus:  v1alpha1.ApplicationStatusError,
+			expectedSummary: v1alpha1.ApplicationsSummaryStatusError,
 		},
 		{
 			name: "single app multiple containers one error one running",
@@ -60,16 +63,17 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []PodmanEvent{
-				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "start"),
-				mockPodmanEvent("app1", "app1-service-2", "create"),
 				mockPodmanEvent("app1", "app1-service-2", "init"),
+				mockPodmanEvent("app1", "app1-service-2", "create"),
 				mockPodmanEvent("app1", "app1-service-2", "start"),
 				mockPodmanEvent("app1", "app1-service-2", "die"),
 			},
-			expectedReady:  "1/2",
-			expectedStatus: v1alpha1.ApplicationStatusRunning,
+			expectedReady:   "1/2",
+			expectedStatus:  v1alpha1.ApplicationStatusRunning,
+			expectedSummary: v1alpha1.ApplicationsSummaryStatusDegraded,
 		},
 		{
 			name: "multiple apps preparing to running",
@@ -78,15 +82,53 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication("app2", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []PodmanEvent{
-				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
 				mockPodmanEvent("app1", "app1-service-1", "start"),
-				mockPodmanEvent("app2", "app1-service-1", "create"),
 				mockPodmanEvent("app2", "app1-service-1", "init"),
+				mockPodmanEvent("app2", "app1-service-1", "create"),
 				mockPodmanEvent("app2", "app1-service-1", "start"),
 			},
-			expectedReady:  "1/1",
-			expectedStatus: v1alpha1.ApplicationStatusRunning,
+			expectedReady:   "1/1",
+			expectedStatus:  v1alpha1.ApplicationStatusRunning,
+			expectedSummary: v1alpha1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app start then removed",
+			apps: []Application{
+				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+			},
+			events: []PodmanEvent{
+				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
+				mockPodmanEvent("app1", "app1-service-1", "start"),
+				mockPodmanEvent("app1", "app1-service-1", "remove"),
+			},
+			expectedReady:   "0/0",
+			expectedStatus:  v1alpha1.ApplicationStatusUnknown,
+			expectedSummary: v1alpha1.ApplicationsSummaryStatusUnknown,
+		},
+		{
+			name: "app upgrade different service/container counts",
+			apps: []Application{
+				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+			},
+			events: []PodmanEvent{
+				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
+				mockPodmanEvent("app1", "app1-service-1", "start"),
+				mockPodmanEvent("app1", "app1-service-1", "remove"),
+				mockPodmanEvent("app1", "app1-service-2", "init"),
+				mockPodmanEvent("app1", "app1-service-2", "create"),
+				mockPodmanEvent("app1", "app1-service-2", "start"),
+				mockPodmanEvent("app1", "app1-service-2", "remove"),
+				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
+				mockPodmanEvent("app1", "app1-service-1", "start"),
+			},
+			expectedReady:   "1/1",
+			expectedStatus:  v1alpha1.ApplicationStatusRunning,
+			expectedSummary: v1alpha1.ApplicationsSummaryStatusHealthy,
 		},
 	}
 	for _, tc := range testCases {
@@ -116,10 +158,18 @@ func TestListenForEvents(t *testing.T) {
 			reader, writer := io.Pipe()
 			defer reader.Close()
 
-			if len(tc.apps) > 0 {
-				execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
-			}
 			go podmanMonitor.listenForEvents(context.Background(), reader)
+
+			inspectCount := 0
+			for i := range tc.events {
+				event := tc.events[i]
+				if event.Status != "remove" {
+					inspectCount++
+				}
+			}
+
+			// inspect is called except where the event is a remove in which case we can't inspect a removed container
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(inspectCount)
 
 			// simulate events being written to the pipe
 			go func() {
@@ -142,10 +192,14 @@ func TestListenForEvents(t *testing.T) {
 						return false
 					}
 					// check app status
-					status, _, err := app.Status()
+					status, summary, err := app.Status()
 					require.NoError(err)
 					if status == nil {
 						t.Logf("app has no status: %s", testApp.Name())
+						return false
+					}
+					if tc.expectedSummary != summary {
+						t.Logf("app %s expected summary %s but got %s", testApp.Name(), tc.expectedSummary, summary)
 						return false
 					}
 					// ensure the app has the expected number of containers

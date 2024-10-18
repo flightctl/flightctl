@@ -237,6 +237,9 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return server.PatchFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
 		return server.PatchFleet400JSONResponse{Message: "metadata.name is immutable"}, nil
 	}

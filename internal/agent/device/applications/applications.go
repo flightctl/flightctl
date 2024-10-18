@@ -35,10 +35,20 @@ const (
 	ContainerStatusInit    ContainerStatusType = "init"
 	ContainerStatusRunning ContainerStatusType = "start"
 	ContainerStatusDie     ContainerStatusType = "die"
+	ContainerStatusRemove  ContainerStatusType = "remove"
 )
 
 func (c ContainerStatusType) String() string {
 	return string(c)
+}
+
+func (c ContainerStatusType) Vaild() bool {
+	switch c {
+	case ContainerStatusInit, ContainerStatusRunning, ContainerStatusDie, ContainerStatusRemove:
+		return true
+	default:
+		return false
+	}
 }
 
 type AppType string
@@ -68,6 +78,7 @@ type Application interface {
 	Path() (string, error)
 	Container(name string) (*Container, bool)
 	AddContainer(container Container)
+	RemoveContainer(name string) bool
 	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
 }
 
@@ -148,6 +159,16 @@ func (a *application[T]) Path() (string, error) {
 	}
 
 	return filepath.Join(typePath, a.Name()), nil
+}
+
+func (a *application[T]) RemoveContainer(name string) bool {
+	for i := range a.containers {
+		if a.containers[i].Name == name {
+			a.containers = append(a.containers[:i], a.containers[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
