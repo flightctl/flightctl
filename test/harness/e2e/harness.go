@@ -213,7 +213,7 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 		if err := cmd.Wait(); err != nil {
 			logrus.Errorf("error waiting for interactive process: %v", err)
 		} else {
-			logrus.Info("interactive process exited succesfully")
+			logrus.Info("interactive process exited successfully")
 		}
 	}()
 	return stdin, stdout, nil

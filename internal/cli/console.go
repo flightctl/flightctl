@@ -186,7 +186,7 @@ func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient
 			stdout.Close()
 			_ = stream.CloseSend()
 			// we need to allow some time for gRPC to complete
-			// the send close before reset console will exit proccess.
+			// the send close before reset console will exit process.
 			time.Sleep(1 * time.Second)
 			resetConsole()
 		}()
