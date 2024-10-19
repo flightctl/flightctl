@@ -4,6 +4,7 @@ go 1.21
 
 require (
 	github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2
+	github.com/ccoveille/go-safecast v1.1.0
 	github.com/coreos/ignition/v2 v2.19.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/evanphx/json-patch v5.9.0+incompatible

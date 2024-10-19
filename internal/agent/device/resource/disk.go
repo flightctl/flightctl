@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -174,11 +175,16 @@ func getDirUsage(dir string) (*DiskUsage, error) {
 		return nil, err
 	}
 
+	bsize, err := safecast.ToUint64(stat.Bsize)
+	if err != nil {
+		return nil, err
+	}
+
 	return &DiskUsage{
 		Inodes: stat.Files,
-		Total:  stat.Blocks * uint64(stat.Bsize),
-		Free:   stat.Bavail * uint64(stat.Bsize),
-		Used:   (stat.Blocks - stat.Bfree) * uint64(stat.Bsize),
+		Total:  stat.Blocks * bsize,
+		Free:   stat.Bavail * bsize,
+		Used:   (stat.Blocks - stat.Bfree) * bsize,
 	}, nil
 }
 
