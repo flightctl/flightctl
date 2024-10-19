@@ -74,19 +74,18 @@ var _ = Describe("TVPopulate", func() {
 	When("a template has a valid inline config with no params", func() {
 		It("copies the config as is", func() {
 			inlineConfig := &api.InlineConfigProviderSpec{
-				ConfigType: string(api.TemplateDiscriminatorInlineConfig),
-				Name:       "inlineConfig",
+				Name: "inlineConfig",
 			}
 			base64 := api.Base64
 			inlineConfig.Inline = []api.FileSpec{
 				{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
 				{Path: "/etc/notencoded", Content: "Hello world, what's up?"},
 			}
-			inlineItem := api.DeviceSpec_Config_Item{}
+			inlineItem := api.ConfigProviderSpec{}
 			err := inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{inlineItem}
+			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{inlineItem}
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, fleetCallback)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -113,8 +112,7 @@ var _ = Describe("TVPopulate", func() {
 	When("a template has a valid inline config with params", func() {
 		It("copies the config as is", func() {
 			inlineConfig := &api.InlineConfigProviderSpec{
-				ConfigType: string(api.TemplateDiscriminatorInlineConfig),
-				Name:       "inlineConfig",
+				Name: "inlineConfig",
 			}
 			base64 := api.Base64
 			inlineConfig.Inline = []api.FileSpec{
@@ -123,11 +121,11 @@ var _ = Describe("TVPopulate", func() {
 				{Path: "/etc/urlencoded", Content: "I have a parameter {{ device.metadata.labels[key] }}"},
 			}
 
-			inlineItem := api.DeviceSpec_Config_Item{}
+			inlineItem := api.ConfigProviderSpec{}
 			err := inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{inlineItem}
+			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{inlineItem}
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, fleetCallback)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -154,18 +152,17 @@ var _ = Describe("TVPopulate", func() {
 	When("a template has a valid HTTP config with params", func() {
 		It("copies the config as is", func() {
 			httpConfig := &api.HttpConfigProviderSpec{
-				ConfigType: string(api.TemplateDiscriminatorHttpConfig),
-				Name:       "httpConfig",
+				Name: "httpConfig",
 			}
 			httpConfig.HttpRef.Repository = "repo"
 			httpConfig.HttpRef.FilePath = "filepath-{{ device.metadata.name }}"
 			httpConfig.HttpRef.Suffix = util.StrToPtr("suffix")
 
-			httpItem := api.DeviceSpec_Config_Item{}
+			httpItem := api.ConfigProviderSpec{}
 			err := httpItem.FromHttpConfigProviderSpec(*httpConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{httpItem}
+			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{httpItem}
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, fleetCallback)
 			Expect(err).ToNot(HaveOccurred())
 

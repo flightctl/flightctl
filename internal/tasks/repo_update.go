@@ -101,14 +101,14 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 	return nil
 }
 
-func (t *RepositoryUpdateLogic) doesConfigReferenceAnyRepo(configItems []api.DeviceSpec_Config_Item) (bool, error) {
+func (t *RepositoryUpdateLogic) doesConfigReferenceAnyRepo(configItems []api.ConfigProviderSpec) (bool, error) {
 	for _, configItem := range configItems {
-		disc, err := configItem.Discriminator()
+		configType, err := configItem.Type()
 		if err != nil {
-			return false, fmt.Errorf("failed getting discriminator: %w", err)
+			return false, fmt.Errorf("failed getting config type: %w", err)
 		}
 
-		if disc != string(api.TemplateDiscriminatorGitConfig) {
+		if configType != api.GitConfigProviderType {
 			continue
 		}
 

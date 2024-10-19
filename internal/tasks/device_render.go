@@ -58,7 +58,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
-	var config *[]api.DeviceSpec_Config_Item
+	var config *[]api.ConfigProviderSpec
 	if device.Spec != nil {
 		config = device.Spec.Config
 	}
@@ -184,7 +184,7 @@ func renderApplications(ctx context.Context, store store.Store, orgId uuid.UUID,
 	return renderedApplications, nil
 }
 
-func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceSpec_Config_Item, deviceBelongsToFleet bool, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
+func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.ConfigProviderSpec, deviceBelongsToFleet bool, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
 	args := renderConfigArgs{}
 	emptyIgnitionConfig := config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
@@ -215,7 +215,7 @@ func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sCl
 	return renderedConfig, args.repoNames, nil
 }
 
-func renderConfigItems(ctx context.Context, config *[]api.DeviceSpec_Config_Item, args *renderConfigArgs) error {
+func renderConfigItems(ctx context.Context, config *[]api.ConfigProviderSpec, args *renderConfigArgs) error {
 	if config == nil {
 		return nil
 	}
@@ -284,23 +284,23 @@ func validateParameters(item RenderItem, validateOnly, deviceBelongsToFleet bool
 	return nil
 }
 
-func renderConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
-	disc, err := configItem.Discriminator()
+func renderConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
+	configType, err := configItem.Type()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting discriminator: %w", ErrUnknownConfigName, err)
+		return "", fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
 	}
 
-	switch disc {
-	case string(api.TemplateDiscriminatorGitConfig):
+	switch configType {
+	case api.GitConfigProviderType:
 		return renderGitConfig(ctx, configItem, args)
-	case string(api.TemplateDiscriminatorKubernetesSec):
+	case api.KubernetesSecretProviderType:
 		return renderK8sConfig(configItem, args)
-	case string(api.TemplateDiscriminatorInlineConfig):
+	case api.InlineConfigProviderType:
 		return renderInlineConfig(configItem, args)
-	case string(api.TemplateDiscriminatorHttpConfig):
+	case api.HttpConfigProviderType:
 		return renderHttpProviderConfig(ctx, configItem, args)
 	default:
-		return "", fmt.Errorf("%w: unsupported discriminator: %s", ErrUnknownConfigName, disc)
+		return "", fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType)
 	}
 }
 
@@ -313,7 +313,7 @@ func renderApplication(_ context.Context, app *api.ApplicationSpec, args *render
 	case api.ImageApplicationProviderType:
 		return renderImageApplicationProvider(app, args)
 	default:
-		return "", fmt.Errorf("%w: unsupported application type: %s", ErrUnknownApplicationType, appType)
+		return "", fmt.Errorf("%w: unsupported application type %q", ErrUnknownApplicationType, appType)
 	}
 }
 
@@ -339,7 +339,7 @@ func renderImageApplicationProvider(app *api.ApplicationSpec, args *renderApplic
 	return *app.Name, nil
 }
 
-func renderGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
+func renderGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return "", fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
@@ -376,7 +376,7 @@ func renderGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item
 	return gitSpec.Name, nil
 }
 
-func renderK8sConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
+func renderK8sConfig(configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return "", fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
@@ -402,10 +402,10 @@ func renderK8sConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigA
 	return k8sSpec.Name, nil
 }
 
-func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
+func renderInlineConfig(configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
-		return "", fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
+		return "", fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec", ErrUnknownConfigName)
 	}
 
 	ignitionWrapper, err := ignition.NewWrapper()
@@ -433,7 +433,7 @@ func renderInlineConfig(configItem *api.DeviceSpec_Config_Item, args *renderConf
 	return inlineSpec.Name, nil
 }
 
-func renderHttpProviderConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item, args *renderConfigArgs) (string, error) {
+func renderHttpProviderConfig(ctx context.Context, configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
 	httpConfigProviderSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
 		return "", fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
