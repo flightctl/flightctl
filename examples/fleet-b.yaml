@@ -15,20 +15,17 @@ spec:
         image: quay.io/redhat/rhde:9.2
       config:
         - name: base
-          configType: GitConfigProviderSpec
           gitRef:
             repository: default-repo
             targetRevision: main
             path: /production
             mountPath: /etc/microshift/manifests
         - name: acm-secrets
-          configType: KubernetesSecretProviderSpec
           secretRef:
             name: device-name
             namespace: devices
             mountPath: /etc/microshift/manifests
         - name: motd-update
-          configType: InlineConfigProviderSpec
           inline:
             - path: "/etc/motd"
               content: "This system is managed by flightctl."
