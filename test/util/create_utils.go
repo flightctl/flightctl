@@ -17,35 +17,32 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	deviceStatus.Os.Image = "quay.io/flightctl/test-osimage:latest"
 
 	gitConfig := &api.GitConfigProviderSpec{
-		ConfigType: string(api.TemplateDiscriminatorGitConfig),
-		Name:       "paramGitConfig",
+		Name: "paramGitConfig",
 	}
 	gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
 	gitConfig.GitRef.Repository = "repo"
 	gitConfig.GitRef.TargetRevision = "rev"
-	gitItem := api.DeviceSpec_Config_Item{}
+	gitItem := api.ConfigProviderSpec{}
 	_ = gitItem.FromGitConfigProviderSpec(*gitConfig)
 
 	inlineConfig := &api.InlineConfigProviderSpec{
-		ConfigType: string(api.TemplateDiscriminatorInlineConfig),
-		Name:       "paramInlineConfig",
+		Name: "paramInlineConfig",
 	}
 	enc := api.Base64
 	inlineConfig.Inline = []api.FileSpec{
 		// Unencoded: My version is {{ device.metadata.labels[version] }}
 		{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},
 	}
-	inlineItem := api.DeviceSpec_Config_Item{}
+	inlineItem := api.ConfigProviderSpec{}
 	_ = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 
 	httpConfig := &api.HttpConfigProviderSpec{
-		ConfigType: string(api.TemplateDiscriminatorHttpConfig),
-		Name:       "paramHttpConfig",
+		Name: "paramHttpConfig",
 	}
 	httpConfig.HttpRef.Repository = "http-repo"
 	httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
 	httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
-	httpItem := api.DeviceSpec_Config_Item{}
+	httpItem := api.ConfigProviderSpec{}
 	_ = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 
 	resource := api.Device{
@@ -58,7 +55,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 			Os: &api.DeviceOSSpec{
 				Image: "os",
 			},
-			Config: &[]api.DeviceSpec_Config_Item{gitItem, inlineItem, httpItem},
+			Config: &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
 		},
 		Status: &deviceStatus,
 	}
