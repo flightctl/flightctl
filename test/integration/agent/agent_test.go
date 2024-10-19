@@ -144,7 +144,7 @@ var _ = Describe("Device Agent behavior", func() {
 				for key, value := range secrets {
 					value := value
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
-					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644)) // nolint: gosec
+					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644))
 				}
 			})
 		})

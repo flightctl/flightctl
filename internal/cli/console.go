@@ -78,7 +78,7 @@ func (o *ConsoleOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
+func (o *ConsoleOptions) Run(ctx context.Context, args []string) error {
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("parsing config file: %w", err)

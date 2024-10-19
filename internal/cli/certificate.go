@@ -416,7 +416,7 @@ func getPassword() ([]byte, error) {
 	}
 
 	fmt.Fprint(os.Stderr, "Enter password for data encryption: ")
-	// nolint:unconvert
+	//nolint:unconvert
 	pw1, err := term.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return nil, err
@@ -424,7 +424,7 @@ func getPassword() ([]byte, error) {
 	fmt.Fprintln(os.Stderr)
 
 	fmt.Fprint(os.Stderr, "Enter password for data encryption again: ")
-	// nolint:unconvert
+	//nolint:unconvert
 	confirmpw, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Fprintln(os.Stderr)
 	if err != nil {
