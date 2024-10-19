@@ -2487,75 +2487,75 @@ components:
       required:
         - gRPCEndpoint
         - sessionID
-    GenericConfigSpec:
+    ConfigProviderSpec:
+      oneOf:
+        - $ref: "#/components/schemas/GitConfigProviderSpec"
+        - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
+        - $ref: "#/components/schemas/InlineConfigProviderSpec"
+        - $ref: "#/components/schemas/HttpConfigProviderSpec"
+    GitConfigProviderSpec:
       type: object
       properties:
-        configType:
-          type: string
         name:
           type: string
-      discriminator:
-        propertyName: configType
+          description: "The name of the config provider"
+        gitRef:
+          type: object
+          properties:
+            repository:
+              type: string
+              description: |
+                The name of the repository resource to use as the sync source
+            targetRevision:
+              type: string
+            path:
+              type: string
+            mountPath:
+              description: Path to config in device
+              type: string
+              default: "/"
+          required:
+            - repository
+            - targetRevision
+            - path
       required:
-        - configType
-        - name
-    GitConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            gitRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                targetRevision:
-                  type: string
-                path:
-                  type: string
-                mountPath:
-                  description: Path to config in device
-                  type: string
-                  default: "/"
-              required:
-                - repository
-                - targetRevision
-                - path
-          required:
-          - gitRef
+      - name
+      - gitRef
     KubernetesSecretProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the config provider"
+        secretRef:
+          type: object
           properties:
-            secretRef:
-              type: object
-              properties:
-                name:
-                  type: string
-                namespace:
-                  type: string
-                mountPath:
-                  type: string
-              required:
-                - name
-                - namespace
-                - mountPath
+            name:
+              type: string
+            namespace:
+              type: string
+            mountPath:
+              type: string
           required:
-          - secretRef
+            - name
+            - namespace
+            - mountPath
+      required:
+      - name
+      - secretRef
     InlineConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            inline:
-              type: array
-              items:
-                $ref: '#/components/schemas/FileSpec'
-          required:
-          - inline
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the config provider"
+        inline:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileSpec'
+      required:
+      - name
+      - inline
     FileSpec:
       type: object
       properties:
@@ -2587,31 +2587,33 @@ components:
       - path
       - content
     HttpConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the config provider"
+        httpRef:
+          type: object
           properties:
-            httpRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                suffix:
-                  type: string
-                  description: |
-                    Part of the URL that comes after the base URL. It can include query parameters such as:
-                    /path/to/endpoint?query=param
-                filePath:
-                  type: string
-                  description: |
-                    The path of the file where the response is stored in the filesystem of the device.
-              required:
-              - repository
-              - filePath
+            repository:
+              type: string
+              description: |
+                The name of the repository resource to use as the sync source
+            suffix:
+              type: string
+              description: |
+                Part of the URL that comes after the base URL. It can include query parameters such as:
+                /path/to/endpoint?query=param
+            filePath:
+              type: string
+              description: |
+                The path of the file where the response is stored in the filesystem of the device.
           required:
-          - httpRef
+          - repository
+          - filePath
+      required:
+      - name
+      - httpRef
     ApplicationSpec:
       type: object
       allOf:
@@ -3601,16 +3603,9 @@ components:
           $ref: '#/components/schemas/DeviceOSSpec'
         config:
           type: array
-          description: List of config resources.
+          description: List of config providers.
           items:
-            type: object
-            oneOf:
-              - $ref: "#/components/schemas/GitConfigProviderSpec"
-              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
-              - $ref: "#/components/schemas/InlineConfigProviderSpec"
-              - $ref: "#/components/schemas/HttpConfigProviderSpec"
-            discriminator:
-              propertyName: configType
+            $ref: '#/components/schemas/ConfigProviderSpec'
         hooks:
           $ref: '#/components/schemas/DeviceHooksSpec'
         applications:
@@ -3912,18 +3907,6 @@ components:
       - 'ConditionStatusTrue'
       - 'ConditionStatusFalse'
       - 'ConditionStatusUnknown'
-    TemplateDiscriminators:
-      type: string
-      enum:
-      - 'GitConfigProviderSpec'
-      - 'KubernetesSecretProviderSpec'
-      - 'InlineConfigProviderSpec'
-      - 'HttpConfigProviderSpec'
-      x-enum-varnames:
-      - 'TemplateDiscriminatorGitConfig'
-      - 'TemplateDiscriminatorKubernetesSec'
-      - 'TemplateDiscriminatorInlineConfig'
-      - 'TemplateDiscriminatorHttpConfig'
     CertificateSigningRequest:
       type: object
       properties:
