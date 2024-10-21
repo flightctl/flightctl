@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -141,8 +142,9 @@ var _ = Describe("Device Agent behavior", func() {
 				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This text is encoded."), util.IntToPtr(0o1775))
 
 				for key, value := range secrets {
+					value := value
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
-					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644)) // nolint: gosec
+					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644))
 				}
 			})
 		})
@@ -242,7 +244,9 @@ func waitForFile(path, devName, testDirPath string, contents *string, mode *int)
 	Expect(fileInfo.IsDir()).To(Equal(false))
 
 	if mode != nil {
-		Expect(fileInfo.Mode().Perm()).To(Equal(os.FileMode(*mode).Perm()))
+		filemode, err := safecast.ToUint32(*mode)
+		Expect(err).To(BeNil())
+		Expect(fileInfo.Mode().Perm()).To(Equal(os.FileMode(filemode).Perm()))
 		fmt.Printf("FILE: %s, MODE: %d\n", path, *mode)
 		fmt.Printf("MODE1: %d\n", *mode&0o1000)
 		fmt.Printf("MODE2: %d\n", *mode&0o2000)

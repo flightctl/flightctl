@@ -162,7 +162,7 @@ func (o *GetOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *GetOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
+func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:gocyclo
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -285,7 +285,7 @@ func (o *GetOptions) processReponse(response interface{}, err error, kind string
 	}
 }
 
-// nolint:gocyclo
+//nolint:gocyclo
 func (o *GetOptions) printTable(response interface{}, kind string, name string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
 	switch {

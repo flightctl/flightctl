@@ -875,7 +875,7 @@ func TestGetDesired(t *testing.T) {
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
 
-		// Api is returning a renderd version that is different from the read desired spec
+		// API is returning a rendered version that is different from the read desired spec
 		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "5"}
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
 

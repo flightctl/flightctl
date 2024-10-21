@@ -78,7 +78,7 @@ func (o *ConsoleOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
+func (o *ConsoleOptions) Run(ctx context.Context, args []string) error {
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("parsing config file: %w", err)
@@ -186,7 +186,7 @@ func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient
 			stdout.Close()
 			_ = stream.CloseSend()
 			// we need to allow some time for gRPC to complete
-			// the send close before reset console will exit proccess.
+			// the send close before reset console will exit process.
 			time.Sleep(1 * time.Second)
 			resetConsole()
 		}()
