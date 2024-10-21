@@ -2,7 +2,6 @@ package applications
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -12,16 +11,9 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-)
-
-var (
-	ErrNameRequired                 = errors.New("application name is required")
-	ErrNotFound                     = errors.New("application not found")
-	ErrorUnsupportedAppType         = errors.New("unsupported application type")
-	ErrorUnsupportedAppProviderType = errors.New("unsupported application provider type")
-	ErrFailedToParseAppType         = errors.New("failed to parse application type")
 )
 
 const (
@@ -82,6 +74,9 @@ type Application interface {
 	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
 }
 
+// EmbeddedProvider is a provider for embedded applications.
+type EmbeddedProvider struct{}
+
 type Container struct {
 	ID       string
 	Image    string
@@ -100,7 +95,7 @@ type application[T any] struct {
 }
 
 func NewApplication[T any](name string, provider T, appType AppType) *application[T] {
-	return &application[T]{
+	a := &application[T]{
 		status: &v1alpha1.DeviceApplicationStatus{
 			Name:   name,
 			Status: v1alpha1.ApplicationStatusPreparing,
@@ -109,6 +104,10 @@ func NewApplication[T any](name string, provider T, appType AppType) *applicatio
 		appType:  appType,
 		envVars:  make(map[string]string),
 	}
+	if _, ok := any(provider).(EmbeddedProvider); ok {
+		a.embedded = true
+	}
+	return a
 }
 
 func (a *application[T]) Name() string {
@@ -155,7 +154,7 @@ func (a *application[T]) Path() (string, error) {
 		}
 		typePath = lifecycle.ComposeAppPath
 	default:
-		return "", fmt.Errorf("%w: %s", ErrorUnsupportedAppType, a.Type())
+		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, a.Type())
 	}
 
 	return filepath.Join(typePath, a.Name()), nil
@@ -274,7 +273,7 @@ func (a AppType) ActionHandler() (lifecycle.ActionHandlerType, error) {
 	case AppCompose:
 		return lifecycle.ActionHandlerCompose, nil
 	default:
-		return "", fmt.Errorf("%w: %s", ErrorUnsupportedAppType, a)
+		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, a)
 	}
 }
 
@@ -291,11 +290,11 @@ func (a *applications) ImageBased() []*application[*v1alpha1.ImageApplicationPro
 func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
 	var providers []v1alpha1.ImageApplicationProvider
 	for _, appSpec := range *spec.Applications {
-		providerType, err := appSpec.Type()
+		appProvider, err := appSpec.Type()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrorUnsupportedAppProviderType, err)
+			return nil, err
 		}
-		if providerType == v1alpha1.ImageApplicationProviderType {
+		if appProvider == v1alpha1.ImageApplicationProviderType {
 			provider, err := appSpec.AsImageApplicationProvider()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
@@ -324,7 +323,7 @@ func EnsureDependenciesFromType(appType AppType) error {
 	case AppCompose:
 		deps = []string{"docker-compose", "podman-compose"}
 	default:
-		return fmt.Errorf("%w: %s", ErrorUnsupportedAppType, appType)
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 
 	for _, dep := range deps {
@@ -333,7 +332,7 @@ func EnsureDependenciesFromType(appType AppType) error {
 		}
 	}
 
-	return fmt.Errorf("application dependencies not found: %v", deps)
+	return fmt.Errorf("%w: %v", errors.ErrAppDependency, deps)
 }
 
 func CopyImageManifests(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman, image, destPath string) (err error) {

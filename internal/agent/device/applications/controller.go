@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/util"
@@ -167,7 +168,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 	for _, appSpec := range *spec.Applications {
 		providerType, err := appSpec.Type()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrorUnsupportedAppProviderType, err)
+			return nil, fmt.Errorf("%w: %w", errors.ErrUnsupportedAppProvider, err)
 		}
 		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
@@ -182,7 +183,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 
 			appType, err := TypeFromImage(ctx, podman, provider.Image)
 			if err != nil {
-				return nil, fmt.Errorf("%w from image: %w", ErrFailedToParseAppType, err)
+				return nil, fmt.Errorf("%w from image: %w", errors.ErrParseAppType, err)
 			}
 			application := NewApplication(
 				name,
@@ -192,7 +193,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 			application.SetEnvVars(util.FromPtr(appSpec.EnvVars))
 			apps.images = append(apps.images, application)
 		default:
-			return nil, fmt.Errorf("%w: %s", ErrorUnsupportedAppType, providerType)
+			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, providerType)
 		}
 	}
 	return &apps, nil
@@ -211,7 +212,7 @@ func diffApps[T any](
 	desiredApps := make(map[string]*application[T])
 	for _, app := range desired {
 		if len(app.Name()) == 0 {
-			return nil, nil, nil, ErrNameRequired
+			return nil, nil, nil, errors.ErrAppNameRequired
 		}
 		desiredApps[app.Name()] = app
 	}
@@ -219,7 +220,7 @@ func diffApps[T any](
 	currentApps := make(map[string]*application[T])
 	for _, app := range current {
 		if len(app.Name()) == 0 {
-			return nil, nil, nil, ErrNameRequired
+			return nil, nil, nil, errors.ErrAppNameRequired
 		}
 		currentApps[app.Name()] = app
 	}
