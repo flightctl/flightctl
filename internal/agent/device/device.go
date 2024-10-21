@@ -135,6 +135,13 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 }
 
 func (a *Agent) fetchDeviceSpec(ctx context.Context, fn func(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error) {
+	startTime := time.Now()
+	a.log.Debug("Starting fetch of device spec")
+	defer func() {
+		duration := time.Since(startTime)
+		a.log.Debugf("Completed fetch device spec in %v", duration)
+	}()
+
 	if err := a.enqueue(ctx); err != nil {
 		a.log.Errorf("Failed to enqueue job: %v", err)
 		return
@@ -164,13 +171,6 @@ func (a *Agent) fetchDeviceSpec(ctx context.Context, fn func(ctx context.Context
 }
 
 func (a *Agent) fetchDeviceSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	startTime := time.Now()
-	a.log.Debug("Starting fetch device spec")
-	defer func() {
-		duration := time.Since(startTime)
-		a.log.Debugf("Completed fetch device spec in %v", duration)
-	}()
-
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
 		return err
@@ -278,7 +278,7 @@ func (a *Agent) fetchDeviceStatus(ctx context.Context) {
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
-		return fmt.Errorf("before update applications: %w", err)
+		return fmt.Errorf("applications: %w", err)
 	}
 
 	return nil
@@ -341,23 +341,23 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 	}
 
 	if err := a.applicationsController.Sync(ctx, current, desired); err != nil {
-		return err
+		return fmt.Errorf("applications: %w", err)
 	}
 
 	if err := a.hookManager.Sync(current, desired); err != nil {
-		return err
+		return fmt.Errorf("hooks: %w", err)
 	}
 
 	if err := a.configController.Sync(ctx, current, desired); err != nil {
-		return err
+		return fmt.Errorf("config: %w", err)
 	}
 
 	if err := a.resourceController.Sync(ctx, desired); err != nil {
-		return err
+		return fmt.Errorf("resources: %w", err)
 	}
 
 	if err := a.osImageController.Sync(ctx, desired); err != nil {
-		return err
+		return fmt.Errorf("os image: %w", err)
 	}
 
 	// set status collector properties based on new desired spec
