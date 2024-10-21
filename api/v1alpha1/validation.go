@@ -40,7 +40,7 @@ func (r Device) Validate() []error {
 			for _, resource := range *r.Spec.Resources {
 				allErrs = append(allErrs, resource.Validate()...)
 			}
-		}	
+		}
 		if r.Spec.Systemd != nil {
 			for i, matchPattern := range *r.Spec.Systemd.MatchPatterns {
 				matchPattern := matchPattern

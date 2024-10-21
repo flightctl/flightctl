@@ -28,7 +28,6 @@ func BenchmarkAggregateDeviceStatus(b *testing.B) {
 	hookManagerMock := hook.NewMockManager(ctrl)
 	applicationsManagerMock := applications.NewMockManager(ctrl)
 	execMock.EXPECT().LookPath("crictl").Return("/usr/bin/crictl", nil).AnyTimes()
-	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/crictl", "ps", "-a", "--output", "json").Return(crioListResult, "", 0).AnyTimes()
 	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "crio.service").Return(systemdUnitListResult, "", 0).AnyTimes()
 
 	manager := NewManager("test", resourceManagerMock, hookManagerMock, applicationsManagerMock, execMock, log)

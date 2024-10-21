@@ -169,7 +169,6 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 
 	newDeviceSpec := api.DeviceSpec{
 		Config:       deviceConfig,
-		Containers:   templateVersion.Status.Containers,
 		Os:           templateVersion.Status.Os,
 		Systemd:      templateVersion.Status.Systemd,
 		Resources:    templateVersion.Status.Resources,
