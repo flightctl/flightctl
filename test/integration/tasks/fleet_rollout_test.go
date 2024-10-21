@@ -148,16 +148,14 @@ var _ = Describe("FleetRollout", func() {
 
 			BeforeEach(func() {
 				gitConfig = &api.GitConfigProviderSpec{
-					ConfigType: string(api.TemplateDiscriminatorGitConfig),
-					Name:       "paramGitConfig",
+					Name: "paramGitConfig",
 				}
 				gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
 				gitConfig.GitRef.Repository = "repo"
 				gitConfig.GitRef.TargetRevision = "rev"
 
 				inlineConfig = &api.InlineConfigProviderSpec{
-					ConfigType: string(api.TemplateDiscriminatorInlineConfig),
-					Name:       "paramInlineConfig",
+					Name: "paramInlineConfig",
 				}
 				enc := api.Base64
 				inlineConfig.Inline = []api.FileSpec{
@@ -166,8 +164,7 @@ var _ = Describe("FleetRollout", func() {
 				}
 
 				httpConfig = &api.HttpConfigProviderSpec{
-					ConfigType: string(api.TemplateDiscriminatorHttpConfig),
-					Name:       "paramHttpConfig",
+					Name: "paramHttpConfig",
 				}
 				httpConfig.HttpRef.Repository = "http-repo"
 				httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
@@ -183,16 +180,16 @@ var _ = Describe("FleetRollout", func() {
 				// Update the TV with git and inline configs, both with parameters
 				tv, err := storeInst.TemplateVersion().Get(ctx, orgId, fleetName, "1.0")
 				Expect(err).ToNot(HaveOccurred())
-				gitItem := api.TemplateVersionStatus_Config_Item{}
+				gitItem := api.ConfigProviderSpec{}
 				err = gitItem.FromGitConfigProviderSpec(*gitConfig)
 				Expect(err).ToNot(HaveOccurred())
-				inlineItem := api.TemplateVersionStatus_Config_Item{}
+				inlineItem := api.ConfigProviderSpec{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 				Expect(err).ToNot(HaveOccurred())
-				httpItem := api.TemplateVersionStatus_Config_Item{}
+				httpItem := api.ConfigProviderSpec{}
 				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem, httpItem}
+				tv.Status.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
 				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
 				Expect(err).ToNot(HaveOccurred())
@@ -220,20 +217,20 @@ var _ = Describe("FleetRollout", func() {
 					Expect(dev.Spec.Config).ToNot(BeNil())
 					Expect(*dev.Spec.Config).To(HaveLen(3))
 					for _, configItem := range *dev.Spec.Config {
-						disc, err := configItem.Discriminator()
+						disc, err := configItem.Type()
 						Expect(err).ToNot(HaveOccurred())
 						switch disc {
-						case string(api.TemplateDiscriminatorGitConfig):
+						case api.GitConfigProviderType:
 							gitSpec, err := configItem.AsGitConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
 							Expect(gitSpec.GitRef.Path).To(Equal(fmt.Sprintf("path-value-%d", i)))
-						case string(api.TemplateDiscriminatorInlineConfig):
+						case api.InlineConfigProviderType:
 							inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
 							Expect(inlineSpec.Inline[0].Path).To(Equal("/etc/withparams"))
 							newContents := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("My version is %d", i)))
 							Expect(inlineSpec.Inline[0].Content).To(Equal(newContents))
-						case string(api.TemplateDiscriminatorHttpConfig):
+						case api.HttpConfigProviderType:
 							httpSpec, err := configItem.AsHttpConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
 							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("http-path-value-%d", i)))
@@ -254,16 +251,16 @@ var _ = Describe("FleetRollout", func() {
 				// Update the TV with git and inline configs, both with parameters
 				tv, err := storeInst.TemplateVersion().Get(ctx, orgId, fleetName, "1.0")
 				Expect(err).ToNot(HaveOccurred())
-				gitItem := api.TemplateVersionStatus_Config_Item{}
+				gitItem := api.ConfigProviderSpec{}
 				err = gitItem.FromGitConfigProviderSpec(*gitConfig)
 				Expect(err).ToNot(HaveOccurred())
-				inlineItem := api.TemplateVersionStatus_Config_Item{}
+				inlineItem := api.ConfigProviderSpec{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 				Expect(err).ToNot(HaveOccurred())
-				httpItem := api.TemplateVersionStatus_Config_Item{}
+				httpItem := api.ConfigProviderSpec{}
 				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem}
+				tv.Status.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
 				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
 				Expect(err).ToNot(HaveOccurred())
@@ -287,14 +284,14 @@ var _ = Describe("FleetRollout", func() {
 				Expect(dev.Spec.Config).ToNot(BeNil())
 				Expect(*dev.Spec.Config).To(HaveLen(2))
 				for _, configItem := range *dev.Spec.Config {
-					disc, err := configItem.Discriminator()
+					disc, err := configItem.Type()
 					Expect(err).ToNot(HaveOccurred())
 					switch disc {
-					case string(api.TemplateDiscriminatorGitConfig):
+					case api.GitConfigProviderType:
 						gitSpec, err := configItem.AsGitConfigProviderSpec()
 						Expect(err).ToNot(HaveOccurred())
 						Expect(gitSpec.GitRef.Path).To(Equal("path-some-value"))
-					case string(api.TemplateDiscriminatorInlineConfig):
+					case api.InlineConfigProviderType:
 						inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 						Expect(err).ToNot(HaveOccurred())
 						Expect(inlineSpec.Inline[0].Path).To(Equal("/etc/withparams"))

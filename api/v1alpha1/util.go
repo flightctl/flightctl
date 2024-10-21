@@ -16,6 +16,15 @@ const (
 	ExecutableActionType HookActionType = "executable"
 )
 
+type ConfigProviderType string
+
+const (
+	GitConfigProviderType        ConfigProviderType = "gitRef"
+	HttpConfigProviderType       ConfigProviderType = "httpRef"
+	InlineConfigProviderType     ConfigProviderType = "inline"
+	KubernetesSecretProviderType ConfigProviderType = "secretRef"
+)
+
 type ApplicationProviderType string
 
 const (
@@ -38,6 +47,28 @@ func (t HookAction) Type() (HookActionType, error) {
 	}
 
 	return "", fmt.Errorf("unable to determine action type: %+v", data)
+}
+
+// Type returns the type of the config provider.
+func (c ConfigProviderSpec) Type() (ConfigProviderType, error) {
+	var data map[ConfigProviderType]interface{}
+	if err := json.Unmarshal(c.union, &data); err != nil {
+		return "", err
+	}
+
+	types := []ConfigProviderType{
+		GitConfigProviderType,
+		HttpConfigProviderType,
+		InlineConfigProviderType,
+		KubernetesSecretProviderType,
+	}
+	for _, t := range types {
+		if _, exists := data[t]; exists {
+			return t, nil
+		}
+	}
+
+	return "", fmt.Errorf("unable to determine config provider type: %+v", data)
 }
 
 // Type returns the type of the application provider.
@@ -63,17 +94,64 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
 }
 
-func configsAreEqual(c1, c2 *[]DeviceSpec_Config_Item) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 DeviceSpec_Config_Item, item2 DeviceSpec_Config_Item) bool {
-		value1, err := item1.ValueByDiscriminator()
+func configsAreEqual(c1, c2 *[]ConfigProviderSpec) bool {
+	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ConfigProviderSpec, item2 ConfigProviderSpec) bool {
+		type1, err := item1.Type()
 		if err != nil {
 			return false
 		}
-		value2, err := item2.ValueByDiscriminator()
+		type2, err := item2.Type()
 		if err != nil {
 			return false
 		}
-		return reflect.DeepEqual(value1, value2)
+		if type1 != type2 {
+			return false
+		}
+
+		switch type1 {
+		case GitConfigProviderType:
+			c1, err := item1.AsGitConfigProviderSpec()
+			if err != nil {
+				return false
+			}
+			c2, err := item2.AsGitConfigProviderSpec()
+			if err != nil {
+				return false
+			}
+			return reflect.DeepEqual(c1, c2)
+		case HttpConfigProviderType:
+			c1, err := item1.AsHttpConfigProviderSpec()
+			if err != nil {
+				return false
+			}
+			c2, err := item2.AsHttpConfigProviderSpec()
+			if err != nil {
+				return false
+			}
+			return reflect.DeepEqual(c1, c2)
+		case InlineConfigProviderType:
+			c1, err := item1.AsInlineConfigProviderSpec()
+			if err != nil {
+				return false
+			}
+			c2, err := item2.AsInlineConfigProviderSpec()
+			if err != nil {
+				return false
+			}
+			return reflect.DeepEqual(c1, c2)
+		case KubernetesSecretProviderType:
+			c1, err := item1.AsKubernetesSecretProviderSpec()
+			if err != nil {
+				return false
+			}
+			c2, err := item2.AsKubernetesSecretProviderSpec()
+			if err != nil {
+				return false
+			}
+			return reflect.DeepEqual(c1, c2)
+		default:
+			return false
+		}
 	})
 }
 
@@ -87,10 +165,10 @@ func applicationsAreEqual(c1, c2 *[]ApplicationSpec) bool {
 		if err != nil {
 			return false
 		}
-
 		if type1 != type2 {
 			return false
 		}
+
 		switch type1 {
 		case ImageApplicationProviderType:
 			imageSpec1, err := item1.AsImageApplicationProvider()
