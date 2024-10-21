@@ -41,33 +41,10 @@ func NewQueue(log *log.PrefixLogger, maxRetries, maxSize int) *Queue {
 	}
 }
 
-func (q *Queue) Add2(item *Item) {
-	version := item.Version
-	if _, ok := q.failedVersions[version]; ok {
-		q.log.Debugf("Skipping add for failed version: %v\n", version)
-		return
-	}
-
-	if _, exists := q.items[version]; exists {
-		q.log.Debugf("Version %v is already in the queue. Skipping add.\n", version)
-		return
-	}
-
-	q.items[version] = item
-	heap.Push(&q.heap, item)
-
-	if q.heap.Len() > q.maxSize {
-		// Remove the item with the lowest version
-		removedItem := heap.Pop(&q.heap).(*Item)
-		delete(q.items, removedItem.Version)
-		q.log.Debugf("Queue exceeded max size, removed lowest version: %v\n", removedItem.Version)
-	}
-}
-
 func (q *Queue) Add(item *Item) {
 	version := item.Version
 	if _, ok := q.failedVersions[version]; ok {
-		q.log.Debugf("Skipping add for failed version: %v\n", version)
+		q.log.Debugf("Skipping adding to queue for failed template version: %v\n", version)
 		return
 	}
 
@@ -80,7 +57,7 @@ func (q *Queue) Add(item *Item) {
 	heap.Push(&q.heap, item)
 
 	if len(q.items) > q.maxSize {
-		// Remove the item with the lowest version
+		// remove the lowest version
 		removedItem := heap.Pop(&q.heap).(*Item)
 		delete(q.items, removedItem.Version)
 		q.log.Debugf("Queue exceeded max size, removed version: %v\n", removedItem.Version)
@@ -131,7 +108,7 @@ func (q *Queue) Requeue(version int64) {
 	if len(q.items) > q.maxSize {
 		removed := heap.Pop(&q.heap).(*Item)
 		q.log.Debugf("Queue exceeded max size removed version: %v", removed.Version)
-		delete(q.items, removed.Version) // Forget the removed item from the items map
+		delete(q.items, removed.Version)
 	}
 }
 

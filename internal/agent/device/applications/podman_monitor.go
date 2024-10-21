@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -13,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -185,7 +185,7 @@ func (m *PodmanMonitor) update(app Application) error {
 	appName := app.Name()
 	existingApp, ok := m.apps[appName]
 	if !ok {
-		return ErrNotFound
+		return errors.ErrAppNotFound
 	}
 
 	if updated := existingApp.SetEnvVars(app.EnvVars()); updated {

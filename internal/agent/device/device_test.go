@@ -60,7 +60,8 @@ func TestFetchDeviceSpecNoRetry(t *testing.T) {
 	agent.fetchDeviceSpec(ctx, testSyncNoRetry)
 	require.True(agent.queue.IsVersionFailed(desiredSpecVersion))
 	require.Zero(agent.queue.Len())
-	agent.enqueue(ctx)
+	err := agent.enqueue(ctx)
+	require.NoError(err)
 	require.True(agent.queue.IsVersionFailed(desiredSpecVersion))
 	require.Zero(agent.queue.Len())
 }
