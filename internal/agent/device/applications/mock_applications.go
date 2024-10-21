@@ -254,6 +254,20 @@ func (mr *MockApplicationMockRecorder) Path() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Path", reflect.TypeOf((*MockApplication)(nil).Path))
 }
 
+// RemoveContainer mocks base method.
+func (m *MockApplication) RemoveContainer(name string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveContainer", name)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// RemoveContainer indicates an expected call of RemoveContainer.
+func (mr *MockApplicationMockRecorder) RemoveContainer(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveContainer", reflect.TypeOf((*MockApplication)(nil).RemoveContainer), name)
+}
+
 // SetEnvVars mocks base method.
 func (m *MockApplication) SetEnvVars(envVars map[string]string) bool {
 	m.ctrl.T.Helper()
