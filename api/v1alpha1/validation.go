@@ -34,9 +34,7 @@ func (r Device) Validate() []error {
 			}
 		}
 		if r.Spec.Applications != nil {
-			for _, app := range *r.Spec.Applications {
-				allErrs = append(allErrs, app.Validate()...)
-			}
+			allErrs = append(allErrs, validateApplications(*r.Spec.Applications)...)
 		}
 		if r.Spec.Resources != nil {
 			for _, resource := range *r.Spec.Resources {
@@ -56,33 +54,6 @@ func (r Device) Validate() []error {
 			}
 		}
 	}
-	return allErrs
-}
-
-func (a ApplicationSpec) Validate() []error {
-	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
-
-	// validate the application provider type
-	t, err := a.Type()
-	if err != nil {
-		allErrs = append(allErrs, err)
-		return allErrs
-	}
-
-	switch t {
-	case ImageApplicationProviderType:
-		provider, err := a.AsImageApplicationProvider()
-		if err != nil {
-			allErrs = append(allErrs, err)
-		}
-		allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
-	default:
-		// if we hit this case, it means that the type should be added to the switch statement above
-		allErrs = append(allErrs, fmt.Errorf("unknown application provider type: %s", t))
-	}
-
 	return allErrs
 }
 
@@ -249,9 +220,7 @@ func (r Fleet) Validate() []error {
 	}
 
 	if r.Spec.Template.Spec.Applications != nil {
-		for _, app := range *r.Spec.Template.Spec.Applications {
-			allErrs = append(allErrs, app.Validate()...)
-		}
+		allErrs = append(allErrs, validateApplications(*r.Spec.Template.Spec.Applications)...)
 	}
 
 	if r.Spec.Template.Spec.Resources != nil {
@@ -370,4 +339,95 @@ func validateSshConfig(config *SshConfig) []error {
 	}
 
 	return errs
+}
+
+func (a ApplicationSpec) Validate() []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
+	return allErrs
+}
+
+func validateApplications(apps []ApplicationSpec) []error {
+	allErrs := []error{}
+	seenName := make(map[string]struct{})
+	for _, app := range apps {
+		providerType, err := validateAppProviderType(app)
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		appName, err := getAppName(app, providerType)
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+
+		// ensure uniqueness of application name
+		if _, exists := seenName[appName]; exists {
+			allErrs = append(allErrs, fmt.Errorf("duplicate application name: %s", appName))
+		} else {
+			seenName[appName] = struct{}{}
+		}
+
+		allErrs = append(allErrs, validateAppProvider(app, providerType)...)
+		allErrs = append(allErrs, app.Validate()...)
+	}
+	return allErrs
+}
+
+func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) []error {
+	var errs []error
+	switch appType {
+	case ImageApplicationProviderType:
+		provider, err := app.AsImageApplicationProvider()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid image application provider: %w", err))
+			return errs
+		}
+
+		if provider.Image == "" && app.Name == nil {
+			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
+		} else if app.Name != nil {
+			errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
+		}
+	default:
+		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
+	}
+
+	return errs
+}
+
+func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, error) {
+	providerType, err := app.Type()
+	if err != nil {
+		return "", fmt.Errorf("application type error: %w", err)
+	}
+
+	switch providerType {
+	case ImageApplicationProviderType:
+		return providerType, nil
+	default:
+		return "", fmt.Errorf("unknown application provider type: %s", providerType)
+	}
+}
+
+func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, error) {
+	switch appType {
+	case ImageApplicationProviderType:
+		provider, err := app.AsImageApplicationProvider()
+		if err != nil {
+			return "", fmt.Errorf("invalid image application provider: %w", err)
+		}
+
+		// default name to provider image if not provided
+		if app.Name == nil {
+			if provider.Image == "" {
+				return "", fmt.Errorf("provider image cannot be empty when application name is not provided")
+			}
+			return provider.Image, nil
+		}
+
+		return *app.Name, nil
+	default:
+		return "", fmt.Errorf("unsupported application provider type: %s", appType)
+	}
 }
