@@ -15,6 +15,8 @@ runs:
   steps:
       - name: Setup Go
         uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
 
       - name: Enable KVM group perms
         shell: bash
@@ -36,7 +38,7 @@ runs:
         run: |
           echo "::group::Installing general dependencies"
           sudo apt-get update -y # fix broken repo cache
-          sudo apt install -y make golang-1.20 python3-pip libvirt-dev protobuf-compiler
+          sudo apt install -y make python3-pip libvirt-dev protobuf-compiler
           go install gotest.tools/gotestsum@latest
           go get -u github.com/proglottis/gpgme
           go install go.uber.org/mock/mockgen@v0.4.0

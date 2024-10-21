@@ -178,7 +178,7 @@ clean: clean-agent-vm clean-e2e-agent-images
 tools: $(GOBIN)/golangci-lint
 
 $(GOBIN)/golangci-lint:
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.54.0
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.61.0
 
 .PHONY: lint-docs
 lint-docs:

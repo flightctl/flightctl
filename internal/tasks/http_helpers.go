@@ -55,7 +55,7 @@ func buildHttpRepoRequestAuth(repoHttpSpec api.HttpRepoSpec, req *http.Request) 
 		tlsConfig.RootCAs = rootCAs
 	}
 	if repoHttpSpec.HttpConfig.SkipServerVerification != nil {
-		tlsConfig.InsecureSkipVerify = *repoHttpSpec.HttpConfig.SkipServerVerification //nolint:gosec
+		tlsConfig.InsecureSkipVerify = *repoHttpSpec.HttpConfig.SkipServerVerification
 	}
 
 	return req, tlsConfig, nil
