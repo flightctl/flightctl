@@ -26,8 +26,9 @@ import (
 
 // TODO: expose via config
 const (
-	defaultMaxRetries    = 10
-	defaultRetryDuration = 1 * time.Minute
+	// defaultMaxRetries is the default number of retries for a spec item set to 0 for infinite retries.
+	defaultSpecRequeueMaxRetries = 0
+	defaultSpecQueueSize         = 1
 )
 
 // Agent is responsible for managing the applications, configuration and status of the device.
@@ -76,6 +77,7 @@ func NewAgent(
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
+	queue := spec.NewQueue(log, defaultSpecRequeueMaxRetries, defaultSpecQueueSize)
 	return &Agent{
 		name:                   name,
 		deviceWriter:           deviceWriter,
@@ -93,7 +95,7 @@ func NewAgent(
 		bootcClient:            bootcClient,
 		podmanClient:           podmanClient,
 		backoff:                backoff,
-		queue:                  spec.NewQueue(log, defaultMaxRetries, 1),
+		queue:                  queue,
 		log:                    log,
 	}
 }
@@ -153,7 +155,7 @@ func (a *Agent) fetchDeviceSpec(ctx context.Context, fn func(ctx context.Context
 		return
 	}
 
-	desiredSpec := item.Spec
+	desiredSpec := item.Spec()
 	if err := fn(ctx, desiredSpec); err != nil {
 		a.handleSyncError(ctx, desiredSpec, err)
 		return
@@ -167,7 +169,7 @@ func (a *Agent) fetchDeviceSpec(ctx context.Context, fn func(ctx context.Context
 		a.log.Errorf("Updating device status: %v", updateErr)
 	}
 
-	a.queue.Forget(item.Version)
+	a.queue.Forget(item.Version())
 }
 
 func (a *Agent) fetchDeviceSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
@@ -387,6 +389,7 @@ func (a *Agent) enqueue(ctx context.Context) error {
 
 	version := stringToInt64(desired.RenderedVersion)
 	item := spec.NewItem(desired, version)
+
 	a.queue.Add(item)
 	return nil
 }

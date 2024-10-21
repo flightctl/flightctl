@@ -24,9 +24,9 @@ func TestQueue(t *testing.T) {
 			maxRetries: 3,
 			maxSize:    10,
 			items: []*Item{
-				{Version: 3, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
+				{version: 3, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 2, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
 			},
 			expectOrder:    []string{"1", "2", "3"},
 			expectQueueLen: 0,
@@ -36,9 +36,9 @@ func TestQueue(t *testing.T) {
 			maxRetries: 3,
 			maxSize:    2,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
-				{Version: 3, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 2, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
+				{version: 3, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
 			},
 			expectOrder:    []string{"2", "3"},
 			expectQueueLen: 0,
@@ -48,7 +48,7 @@ func TestQueue(t *testing.T) {
 			maxRetries: 2,
 			maxSize:    10,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 			},
 			requeues:       []int64{1, 1, 1},
 			expectOrder:    []string{}, // remove item after maxRetries
@@ -59,7 +59,7 @@ func TestQueue(t *testing.T) {
 			maxRetries: 3,
 			maxSize:    10,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 			},
 			requeues:       []int64{1, 1},
 			expectOrder:    []string{"1"},
@@ -70,7 +70,7 @@ func TestQueue(t *testing.T) {
 			maxRetries: 3,
 			maxSize:    10,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 			},
 			requeues:       []int64{1, 1},
 			expectOrder:    []string{"1"},
@@ -81,8 +81,8 @@ func TestQueue(t *testing.T) {
 			maxRetries: 3,
 			maxSize:    10,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 2, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
 			},
 			requeues:       []int64{1, 2},
 			expectOrder:    []string{"1", "2"},
@@ -93,9 +93,9 @@ func TestQueue(t *testing.T) {
 			maxRetries: 2,
 			maxSize:    2,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
-				{Version: 3, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 2, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
+				{version: 3, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
 			},
 			requeues:       []int64{1, 1, 1, 2, 2, 2},
 			expectOrder:    []string{"3"},
@@ -106,7 +106,7 @@ func TestQueue(t *testing.T) {
 			maxRetries: 5,
 			maxSize:    10,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{version: 1, spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 			},
 			requeues:       []int64{1, 1},
 			expectOrder:    []string{"1"},
@@ -134,7 +134,7 @@ func TestQueue(t *testing.T) {
 			for _, expectedVersion := range tt.expectOrder {
 				item, ok := q.Get()
 				require.True(ok)
-				require.Equal(expectedVersion, item.Spec.RenderedVersion)
+				require.Equal(expectedVersion, item.Spec().RenderedVersion)
 			}
 
 			// cleanup
