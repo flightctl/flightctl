@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ccoveille/go-safecast"
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
 )
 
@@ -102,9 +103,14 @@ func (m *managedFile) Write() error {
 
 	mode := DefaultFilePermissions
 	if m.Mode != nil {
+		filemode, err := safecast.ToUint32(*m.Mode)
+		if err != nil {
+			return err
+		}
+
 		// Go stores setuid/setgid/sticky differently, so we
 		// strip them off and then add them back
-		mode = os.FileMode(*m.Mode).Perm()
+		mode = os.FileMode(filemode).Perm()
 		if *m.Mode&0o1000 != 0 {
 			mode = mode | os.ModeSticky
 		}

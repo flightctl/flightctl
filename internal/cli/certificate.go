@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
@@ -32,7 +33,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const secondsInDay = 86400
+const secondsInDay int = 24 * 60 * 60
 const agentPath = "certs/"
 
 type CertificateOptions struct {
@@ -208,7 +209,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	}
 	if err != nil {
-		return fmt.Errorf("creating output as %s: %w:", o.OutputFormat, err)
+		return fmt.Errorf("creating output as %s: %w", o.OutputFormat, err)
 	}
 
 	return nil
@@ -219,7 +220,10 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 	if err != nil {
 		return nil, err
 	}
-	expirationSeconds := int32(days * secondsInDay)
+	expirationSeconds, err := safecast.ToInt32(days * secondsInDay)
+	if err != nil {
+		return nil, err
+	}
 
 	// the CN is going to be a FC-generated UUID, populated at signing time
 	template := &x509.CertificateRequest{
@@ -412,7 +416,7 @@ func getPassword() ([]byte, error) {
 	}
 
 	fmt.Fprint(os.Stderr, "Enter password for data encryption: ")
-	// nolint:unconvert
+	//nolint:unconvert
 	pw1, err := term.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return nil, err
@@ -420,7 +424,7 @@ func getPassword() ([]byte, error) {
 	fmt.Fprintln(os.Stderr)
 
 	fmt.Fprint(os.Stderr, "Enter password for data encryption again: ")
-	// nolint:unconvert
+	//nolint:unconvert
 	confirmpw, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Fprintln(os.Stderr)
 	if err != nil {
