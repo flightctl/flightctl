@@ -8,6 +8,7 @@ import (
 	"github.com/coreos/ignition/v2/config/util"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -40,13 +41,13 @@ func TestParseApps(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: "invalid",
 			},
-			wantErr: ErrFailedToParseAppType,
+			wantErr: errors.ErrParseAppType,
 		},
 		{
 			name:    "missing app type",
 			apps:    []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels:  map[string]string{},
-			wantErr: ErrFailedToParseAppType,
+			wantErr: errors.ErrParseAppType,
 		},
 		{
 			name: "missing app name populated by provider image",

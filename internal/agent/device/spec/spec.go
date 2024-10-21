@@ -364,7 +364,7 @@ func (s *SpecManager) exists(specType Type) (bool, error) {
 	}
 	exists, err := s.deviceReadWriter.FileExists(filePath)
 	if err != nil {
-		return false, fmt.Errorf("%w: %s: %w:", ErrCheckingFileExists, specType, err)
+		return false, fmt.Errorf("%w: %s: %w", ErrCheckingFileExists, specType, err)
 	}
 	return exists, nil
 }
