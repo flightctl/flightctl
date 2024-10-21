@@ -2,7 +2,6 @@ package spec
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,28 +11,12 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/util/wait"
-)
-
-var (
-	ErrMissingRenderedSpec  = fmt.Errorf("missing rendered spec")
-	ErrReadingRenderedSpec  = fmt.Errorf("reading rendered spec")
-	ErrWritingRenderedSpec  = fmt.Errorf("writing rendered spec")
-	ErrCheckingFileExists   = fmt.Errorf("checking if file exists")
-	ErrUnmarshalSpec        = fmt.Errorf("unmarshalling spec")
-	ErrCopySpec             = fmt.Errorf("copying spec")
-	ErrGettingBootcStatus   = fmt.Errorf("getting current bootc status")
-	ErrInvalidSpecType      = fmt.Errorf("invalid spec type")
-	ErrParseRenderedVersion = fmt.Errorf("failed to convert version to integer")
-
-	// Errors related to fetching the rendered device spec
-	ErrNoContent         = fmt.Errorf("no content")
-	ErrNilResponse       = fmt.Errorf("received nil response for rendered device spec")
-	ErrGettingDeviceSpec = fmt.Errorf("getting device spec")
 )
 
 type Type string
@@ -205,7 +188,7 @@ func (s *SpecManager) PrepareRollback(ctx context.Context) error {
 	if current.Os == nil || current.Os.Image == "" {
 		bootcStatus, err := s.bootcClient.Status(ctx)
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
+			return fmt.Errorf("%w: %w", errors.ErrGettingBootcStatus, err)
 		}
 		currentOSImage = bootcStatus.GetBootedImage()
 	} else {
@@ -230,7 +213,7 @@ func (s *SpecManager) Rollback() error {
 	// this will reconcile the device with the desired "rollback" state
 	err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath)
 	if err != nil {
-		return fmt.Errorf("%w: copy %q to %q", ErrCopySpec, s.currentPath, s.desiredPath)
+		return fmt.Errorf("%w: copy %q to %q", errors.ErrCopySpec, s.currentPath, s.desiredPath)
 	}
 	return nil
 }
@@ -277,7 +260,7 @@ func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion str
 
 	if err != nil {
 		// no content means there is no new rendered version
-		if errors.Is(err, ErrNoContent) {
+		if errors.Is(err, errors.ErrNoContent) {
 			s.log.Debug("No content from management API, falling back to the desired spec on disk")
 			// TODO: can we avoid resync or is this necessary?
 			return desired, nil
@@ -328,7 +311,7 @@ func (s *SpecManager) IsOSUpdate() (bool, error) {
 func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
 	bootc, err := s.bootcClient.Status(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
+		return "", false, fmt.Errorf("%w: %w", errors.ErrGettingBootcStatus, err)
 	}
 	bootedOSImage := bootc.GetBootedImage()
 
@@ -364,7 +347,7 @@ func (s *SpecManager) exists(specType Type) (bool, error) {
 	}
 	exists, err := s.deviceReadWriter.FileExists(filePath)
 	if err != nil {
-		return false, fmt.Errorf("%w: %s: %w:", ErrCheckingFileExists, specType, err)
+		return false, fmt.Errorf("%w: %s: %w", errors.ErrCheckingFileExists, specType, err)
 	}
 	return exists, nil
 }
@@ -398,7 +381,7 @@ func (s *SpecManager) pathFromType(specType Type) (string, error) {
 	case Rollback:
 		filePath = s.rollbackPath
 	default:
-		return "", fmt.Errorf("%w: %s", ErrInvalidSpecType, specType)
+		return "", fmt.Errorf("%w: %s", errors.ErrInvalidSpecType, specType)
 	}
 	return filePath, nil
 }
@@ -415,18 +398,18 @@ func (m *SpecManager) getRenderedFromManagementAPIWithRetry(
 
 	resp, statusCode, err := m.managementClient.GetRenderedDeviceSpec(ctx, m.deviceName, params)
 	if err != nil {
-		return false, fmt.Errorf("%w: %w", ErrGettingDeviceSpec, err)
+		return false, fmt.Errorf("%w: %w", errors.ErrGettingDeviceSpec, err)
 	}
 	if statusCode == http.StatusNoContent || statusCode == http.StatusConflict {
 		// TODO: this is a bit of a hack
-		return true, ErrNoContent
+		return true, errors.ErrNoContent
 	}
 
 	if resp != nil {
 		*rendered = *resp
 		return true, nil
 	}
-	return false, ErrNilResponse
+	return false, errors.ErrNilResponse
 }
 
 func readRenderedSpecFromFile(
@@ -438,14 +421,14 @@ func readRenderedSpecFromFile(
 	if err != nil {
 		if os.IsNotExist(err) {
 			// if the file does not exist, this means it has been removed/corrupted
-			return nil, fmt.Errorf("%w: reading %q: %w", ErrMissingRenderedSpec, filePath, err)
+			return nil, fmt.Errorf("%w: reading %q: %w", errors.ErrMissingRenderedSpec, filePath, err)
 		}
-		return nil, fmt.Errorf("%w: reading %q: %w", ErrReadingRenderedSpec, filePath, err)
+		return nil, fmt.Errorf("%w: reading %q: %w", errors.ErrReadingRenderedSpec, filePath, err)
 	}
 
 	// read bytes from file
 	if err := json.Unmarshal(renderedBytes, &current); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnmarshalSpec, err)
+		return nil, fmt.Errorf("%w: %w", errors.ErrUnmarshalSpec, err)
 	}
 
 	return &current, nil
@@ -457,7 +440,7 @@ func writeRenderedToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDevice
 		return err
 	}
 	if err := writer.WriteFile(filePath, renderedBytes, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("%w: writing to %q: %w", ErrWritingRenderedSpec, filePath, err)
+		return fmt.Errorf("%w: writing to %q: %w", errors.ErrWritingRenderedSpec, filePath, err)
 	}
 	return nil
 }
@@ -473,7 +456,7 @@ func getNextRenderedVersion(renderedVersion string) (string, error) {
 	}
 	version, err := strconv.Atoi(renderedVersion)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrParseRenderedVersion, err)
+		return "", fmt.Errorf("%w: %v", errors.ErrParseRenderedVersion, err)
 	}
 
 	nextVersion := version + 1

@@ -3,13 +3,13 @@ package spec
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -142,7 +142,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 		err := s.Initialize()
 
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("error writing desired file", func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("error writing rollback file", func(t *testing.T) {
@@ -164,7 +164,7 @@ func TestInitialize(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
 		err := s.Initialize()
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("successful initialization", func(t *testing.T) {
@@ -191,14 +191,14 @@ func TestEnsure(t *testing.T) {
 	t.Run("error checking if file exists", func(t *testing.T) {
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, fileErr)
 		err := s.Ensure()
-		require.ErrorIs(err, ErrCheckingFileExists)
+		require.ErrorIs(err, errors.ErrCheckingFileExists)
 	})
 
 	t.Run("error writing file when it does not exist", func(t *testing.T) {
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
 		err := s.Ensure()
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("files are written when they don't exist", func(t *testing.T) {
@@ -234,7 +234,7 @@ func TestRead(t *testing.T) {
 	t.Run("ensure proper error handling on read failure", func(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("read gone wrong"))
 		_, err := s.Read(Current)
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("reads a device spec", func(t *testing.T) {
@@ -261,14 +261,14 @@ func Test_readRenderedSpecFromFile(t *testing.T) {
 		mockReader.EXPECT().ReadFile(filePath).Return(nil, os.ErrNotExist)
 
 		_, err := readRenderedSpecFromFile(mockReader, filePath)
-		require.ErrorIs(err, ErrMissingRenderedSpec)
+		require.ErrorIs(err, errors.ErrMissingRenderedSpec)
 	})
 
 	t.Run("error reading file when it does exist", func(t *testing.T) {
 		mockReader.EXPECT().ReadFile(filePath).Return(nil, errors.New("cannot read"))
 
 		_, err := readRenderedSpecFromFile(mockReader, filePath)
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("error when the file is not a valid spec", func(t *testing.T) {
@@ -276,7 +276,7 @@ func Test_readRenderedSpecFromFile(t *testing.T) {
 		mockReader.EXPECT().ReadFile(filePath).Return(invalidSpec, nil)
 
 		_, err := readRenderedSpecFromFile(mockReader, filePath)
-		require.ErrorIs(err, ErrUnmarshalSpec)
+		require.ErrorIs(err, errors.ErrUnmarshalSpec)
 	})
 
 	t.Run("returns the read spec", func(t *testing.T) {
@@ -308,7 +308,7 @@ func Test_writeRenderedToFile(t *testing.T) {
 		mockWriter.EXPECT().WriteFile(filePath, marshaled, fileio.DefaultFilePermissions).Return(writeErr)
 
 		err = writeRenderedToFile(mockWriter, spec, filePath)
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("writes a rendered spec", func(t *testing.T) {
@@ -346,7 +346,7 @@ func TestUpgrade(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
 
 		err := s.Upgrade()
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("error writing desired spec to current", func(t *testing.T) {
@@ -356,7 +356,7 @@ func TestUpgrade(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(specErr)
 
 		err = s.Upgrade()
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("error writing the rollback spec", func(t *testing.T) {
@@ -367,7 +367,7 @@ func TestUpgrade(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(specErr)
 
 		err = s.Upgrade()
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("clears out the rollback spec", func(t *testing.T) {
@@ -407,7 +407,7 @@ func TestIsOSUpdate(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(nil, specErr)
 
 		_, err := s.IsOSUpdate()
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("error reading desired spec", func(t *testing.T) {
@@ -415,7 +415,7 @@ func TestIsOSUpdate(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
 
 		_, err := s.IsOSUpdate()
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("both specs are empty", func(t *testing.T) {
@@ -488,7 +488,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 		mockBootcClient.EXPECT().Status(ctx).Return(nil, bootcErr)
 
 		_, _, err := s.CheckOsReconciliation(ctx)
-		require.ErrorIs(err, ErrGettingBootcStatus)
+		require.ErrorIs(err, errors.ErrGettingBootcStatus)
 	})
 
 	t.Run("error reading desired spec", func(t *testing.T) {
@@ -499,7 +499,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(emptySpec, readErr)
 
 		_, _, err = s.CheckOsReconciliation(ctx)
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("desired os is not set in the spec", func(t *testing.T) {
@@ -582,7 +582,7 @@ func TestPrepareRollback(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(emptySpec, specErr)
 
 		err = s.PrepareRollback(ctx)
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("error writing rollback spec", func(t *testing.T) {
@@ -595,7 +595,7 @@ func TestPrepareRollback(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(rollbackPath, gomock.Any(), gomock.Any()).Return(specErr)
 
 		err = s.PrepareRollback(ctx)
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("writes the os image from the current spec when it is defined", func(t *testing.T) {
@@ -660,10 +660,10 @@ func TestPrepareRollback(t *testing.T) {
 		require.NoError(err)
 
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(marshaledCurrentSpec, nil)
-		mockBootcClient.EXPECT().Status(ctx).Return(nil, ErrGettingBootcStatus)
+		mockBootcClient.EXPECT().Status(ctx).Return(nil, errors.ErrGettingBootcStatus)
 
 		err = s.PrepareRollback(ctx)
-		require.ErrorIs(err, ErrGettingBootcStatus)
+		require.ErrorIs(err, errors.ErrGettingBootcStatus)
 	})
 }
 
@@ -687,7 +687,7 @@ func TestRollback(t *testing.T) {
 		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(copyErr)
 
 		err := s.Rollback()
-		require.ErrorIs(err, ErrCopySpec)
+		require.ErrorIs(err, errors.ErrCopySpec)
 	})
 
 	t.Run("copies the current spec to the desired spec", func(t *testing.T) {
@@ -773,7 +773,7 @@ func TestGetDesired(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
 
 		_, err := s.GetDesired(ctx, "1")
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("error reading rollback spec", func(t *testing.T) {
@@ -783,7 +783,7 @@ func TestGetDesired(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, specErr)
 
 		_, err = s.GetDesired(ctx, "1")
-		require.ErrorIs(err, ErrReadingRenderedSpec)
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
 
 	t.Run("error when get management api call fails", func(t *testing.T) {
@@ -801,7 +801,7 @@ func TestGetDesired(t *testing.T) {
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
 
 		_, err = s.GetDesired(ctx, renderedVersion)
-		require.ErrorIs(err, ErrGettingDeviceSpec)
+		require.ErrorIs(err, errors.ErrGettingDeviceSpec)
 	})
 
 	t.Run("desired spec is returned when management api returns no content", func(t *testing.T) {
@@ -883,7 +883,7 @@ func TestGetDesired(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
 
 		_, err = s.GetDesired(ctx, "1")
-		require.ErrorIs(err, ErrWritingRenderedSpec)
+		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 }
 
@@ -907,28 +907,28 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusInternalServerError, requestErr)
 
 		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
-		require.ErrorIs(err, ErrGettingDeviceSpec)
+		require.ErrorIs(err, errors.ErrGettingDeviceSpec)
 	})
 
 	t.Run("response status code has no content", func(t *testing.T) {
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusNoContent, nil)
 
 		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
-		require.ErrorIs(err, ErrNoContent)
+		require.ErrorIs(err, errors.ErrNoContent)
 	})
 
 	t.Run("response status code has conflict", func(t *testing.T) {
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusConflict, nil)
 
 		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
-		require.ErrorIs(err, ErrNoContent)
+		require.ErrorIs(err, errors.ErrNoContent)
 	})
 
 	t.Run("response is nil", func(t *testing.T) {
 		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(nil, http.StatusOK, nil)
 
 		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.RenderedDeviceSpec{})
-		require.ErrorIs(err, ErrNilResponse)
+		require.ErrorIs(err, errors.ErrNilResponse)
 	})
 
 	t.Run("makes a request with empty params if no rendered version is passed", func(tt *testing.T) {
@@ -990,7 +990,7 @@ func Test_pathFromType(t *testing.T) {
 		{
 			name:          "invalid spec type",
 			specType:      "rainbow",
-			expectedError: ErrInvalidSpecType,
+			expectedError: errors.ErrInvalidSpecType,
 		},
 	}
 
@@ -1030,7 +1030,7 @@ func Test_getNextRenderedVersion(t *testing.T) {
 		{
 			name:            "errors when the rendered version cannot be parsed",
 			renderedVersion: "not-a-number",
-			expectedError:   ErrParseRenderedVersion,
+			expectedError:   errors.ErrParseRenderedVersion,
 		},
 	}
 
@@ -1109,7 +1109,7 @@ func Test_getRenderedVersion(t *testing.T) {
 			currentRenderedVersion:  "one",
 			desiredRenderedVersion:  "one",
 			rollbackRenderedVersion: "one",
-			expectedError:           ErrParseRenderedVersion,
+			expectedError:           errors.ErrParseRenderedVersion,
 		},
 	}
 
