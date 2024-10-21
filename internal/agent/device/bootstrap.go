@@ -213,31 +213,7 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 		return b.checkRollback(ctx, bootedOS, desired.Os.Image)
 	}
 
-	b.log.Infof("Host is booted to the desired os image %s: upgrading current spec", desired.Os.Image)
-	// image is reconciled upgrade was a success update the current spec to the desired spec if nessisary
-	if err := b.specManager.Upgrade(); err != nil {
-		return fmt.Errorf("writing current rendered spec: %w", err)
-	}
-
-	bootcStatus, err := b.bootcClient.Status(ctx)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
-	}
-
-	updateFns := []status.UpdateStatusFn{
-		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image:       desired.Os.Image,
-			ImageDigest: bootcStatus.GetBootedImageDigest(),
-		}),
-		status.SetConfig(v1alpha1.DeviceConfigStatus{
-			RenderedVersion: desired.RenderedVersion,
-		}),
-	}
-
-	_, updateErr := b.statusManager.Update(ctx, updateFns...)
-	if updateErr != nil {
-		b.log.Warnf("Failed setting status: %v", updateErr)
-	}
+	b.log.Infof("Booted to desired OS image: %s", desired.Os.Image)
 	return nil
 }
 
