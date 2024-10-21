@@ -3538,13 +3538,6 @@ components:
           type: string
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
-        containers:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
         config:
           type: string
         applications:
