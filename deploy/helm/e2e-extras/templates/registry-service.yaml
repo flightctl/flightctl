@@ -11,6 +11,8 @@ spec:
     - name: "registry"
       port: 5000
       targetPort: 5000
+      {{ if .Values.registry.nodePort }}
       nodePort: {{ .Values.registry.nodePort }}
+      {{ end }}
   selector:
     flightctl.service: e2e-container-registry
