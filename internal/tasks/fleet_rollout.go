@@ -238,27 +238,34 @@ func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app
 	return &app, nil
 }
 
-func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.DeviceSpec_Config_Item, error) {
+func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ConfigProviderSpec, error) {
 	if templateVersion.Status.Config == nil {
 		return nil, nil
 	}
 
-	deviceConfig := []api.DeviceSpec_Config_Item{}
+	deviceConfig := []api.ConfigProviderSpec{}
 	for _, configItem := range *templateVersion.Status.Config {
-		var newConfigItem *api.DeviceSpec_Config_Item
+		var newConfigItem *api.ConfigProviderSpec
 		var err error
 
 		// We need to decode the inline spec contents before replacing parameters
-		discriminator, err := configItem.Discriminator()
+		configType, err := configItem.Type()
 		if err != nil {
-			return nil, fmt.Errorf("failed getting discriminator: %w", err)
-		}
-		if discriminator == string(api.TemplateDiscriminatorInlineConfig) {
-			newConfigItem, err = f.replaceInlineSpecParameters(device, configItem)
-		} else {
-			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
+			return nil, fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
 		}
 
+		switch configType {
+		case api.GitConfigProviderType:
+			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
+		case api.KubernetesSecretProviderType:
+			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
+		case api.InlineConfigProviderType:
+			newConfigItem, err = f.replaceInlineSpecParameters(device, configItem)
+		case api.HttpConfigProviderType:
+			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
+		default:
+			err = fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -269,7 +276,7 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 	return &deviceConfig, nil
 }
 
-func (f FleetRolloutsLogic) replaceInlineSpecParameters(device *api.Device, configItem api.TemplateVersionStatus_Config_Item) (*api.DeviceSpec_Config_Item, error) {
+func (f FleetRolloutsLogic) replaceInlineSpecParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert config to inline config: %w", err)
@@ -300,7 +307,7 @@ func (f FleetRolloutsLogic) replaceInlineSpecParameters(device *api.Device, conf
 		}
 	}
 
-	newConfigItem := api.DeviceSpec_Config_Item{}
+	newConfigItem := api.ConfigProviderSpec{}
 	err = newConfigItem.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
 		return nil, fmt.Errorf("failed converting inline config: %w", err)
@@ -309,7 +316,7 @@ func (f FleetRolloutsLogic) replaceInlineSpecParameters(device *api.Device, conf
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) replaceGenericConfigParameters(device *api.Device, configItem api.TemplateVersionStatus_Config_Item) (*api.DeviceSpec_Config_Item, error) {
+func (f FleetRolloutsLogic) replaceGenericConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, error) {
 	cfgJson, err := configItem.MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("failed converting configuration to json: %w", err)
@@ -320,7 +327,7 @@ func (f FleetRolloutsLogic) replaceGenericConfigParameters(device *api.Device, c
 		f.log.Infof("failed replacing parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
 	}
 
-	var newConfigItem api.DeviceSpec_Config_Item
+	var newConfigItem api.ConfigProviderSpec
 	err = newConfigItem.UnmarshalJSON(cfgJsonReplaced)
 	if err != nil {
 		return nil, fmt.Errorf("failed converting configuration from json: %w", err)

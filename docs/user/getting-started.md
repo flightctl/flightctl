@@ -47,7 +47,30 @@ NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 
 ## Deploying the Flight Control Service
 
-### Standalone flightctl with built-in Keycloak
+### Standalone Flight Control on k8s/KIND
+
+Start your k8s/KIND cluster. For KIND cluster you can use [example config](../../deploy/kind.yaml).
+
+```console
+$ kind create cluster --config kind.yaml
+
+[...]
+```
+
+Install a released version of the Flight Control Service into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --set global.baseDomain=${YOUR_IP}.nip.io \
+    --set global.exposeServicesMethod=nodePort
+
+```
+
+### Flight Control on OpenShift
+
+#### Standalone Flight Control with built-in Keycloak
 
 Install a released version of the Flight Control Service into the cluster by running:
 
@@ -66,7 +89,7 @@ $ kubectl get pods -n flightctl
 [...]
 ```
 
-### Standalone flightctl with external OIDC
+#### Standalone Flight Control with external OIDC
 
 Create a values.yaml file with the following content
 
@@ -75,7 +98,7 @@ global:
   auth:
     type: oidc
     oidcAuthority: https://oidc/realms/your_realm 
-    internalOidcAuthority: https://internal.oidc/realms/your_realm 
+    internalOidcAuthority: https://internal.oidc/realms/your_realm
 
 ```
 
@@ -97,15 +120,7 @@ $ kubectl get pods -n flightctl
 [...]
 ```
 
-### flightctl in ACM
-
-Create a values.yaml file with the following content
-
-```yaml
-global:
-  target: acm
-
-```
+#### Flight Control in ACM
 
 Install a released version of the Flight Control Service into the cluster by running:
 
@@ -113,7 +128,7 @@ Install a released version of the Flight Control Service into the cluster by run
 $ helm upgrade --install --version=<version-to-install> \
     --namespace flightctl --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl \
-    --values values.yaml
+    --set global.target=acm
 
 ```
 
