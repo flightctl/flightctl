@@ -249,11 +249,11 @@ func (m *ApiMetrics) RegisterWith(reg *prometheus.Registry) {
 }
 
 func (m *ApiMetrics) AgentServerMiddleware(next http.Handler) http.Handler {
-	return m.ServerMiddleware(next, false)
+	return m.ServerMiddleware(next, true)
 }
 
 func (m *ApiMetrics) ApiServerMiddleware(next http.Handler) http.Handler {
-	return m.ServerMiddleware(next, true)
+	return m.ServerMiddleware(next, false)
 }
 
 func (m *ApiMetrics) ServerMiddleware(next http.Handler, agentServer bool) http.Handler {
