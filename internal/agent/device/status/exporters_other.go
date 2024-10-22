@@ -21,7 +21,6 @@ func newExporters(
 	log *log.PrefixLogger,
 ) []Exporter {
 	return []Exporter{
-		newContainer(executer),
 		newSystemD(executer),
 		newSystemInfo(executer),
 		newUnsupportedExporter(log, "resources"),

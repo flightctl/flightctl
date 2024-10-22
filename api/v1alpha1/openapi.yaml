@@ -3538,13 +3538,6 @@ components:
           type: string
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
-        containers:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
         config:
           type: string
         applications:
@@ -3625,14 +3618,6 @@ components:
           description: List of applications.
           items:
             $ref: '#/components/schemas/ApplicationSpec'
-        containers:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
-                pattern: '^[a-z][a-z0-9-_.]*$'
         systemd:
           type: object
           properties:
