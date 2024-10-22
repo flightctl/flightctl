@@ -143,11 +143,6 @@ func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
 		return false
 	}
 
-	// Check Containers
-	if !reflect.DeepEqual(d1.Containers, d2.Containers) {
-		return false
-	}
-
 	// Check Systemd
 	if !reflect.DeepEqual(d1.Systemd, d2.Systemd) {
 		return false

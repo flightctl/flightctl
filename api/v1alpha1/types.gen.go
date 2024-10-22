@@ -439,12 +439,9 @@ type DeviceSpec struct {
 	Applications *[]ApplicationSpec `json:"applications,omitempty"`
 
 	// Config List of config resources.
-	Config     *[]DeviceSpec_Config_Item `json:"config,omitempty"`
-	Containers *struct {
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"containers,omitempty"`
-	Hooks *DeviceHooksSpec `json:"hooks,omitempty"`
-	Os    *DeviceOSSpec    `json:"os,omitempty"`
+	Config *[]DeviceSpec_Config_Item `json:"config,omitempty"`
+	Hooks  *DeviceHooksSpec          `json:"hooks,omitempty"`
+	Os     *DeviceOSSpec             `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -1026,15 +1023,12 @@ type RenderedApplicationSpec struct {
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
-	Applications *[]RenderedApplicationSpec `json:"applications,omitempty"`
-	Config       *string                    `json:"config,omitempty"`
-	Console      *DeviceConsole             `json:"console,omitempty"`
-	Containers   *struct {
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"containers,omitempty"`
-	Hooks           *DeviceHooksSpec `json:"hooks,omitempty"`
-	Os              *DeviceOSSpec    `json:"os,omitempty"`
-	RenderedVersion string           `json:"renderedVersion"`
+	Applications    *[]RenderedApplicationSpec `json:"applications,omitempty"`
+	Config          *string                    `json:"config,omitempty"`
+	Console         *DeviceConsole             `json:"console,omitempty"`
+	Hooks           *DeviceHooksSpec           `json:"hooks,omitempty"`
+	Os              *DeviceOSSpec              `json:"os,omitempty"`
+	RenderedVersion string                     `json:"renderedVersion"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -1284,12 +1278,9 @@ type TemplateVersionStatus struct {
 	Conditions []Condition `json:"conditions"`
 
 	// Config List of config resources.
-	Config     *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
-	Containers *struct {
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"containers,omitempty"`
-	Hooks *DeviceHooksSpec `json:"hooks,omitempty"`
-	Os    *DeviceOSSpec    `json:"os,omitempty"`
+	Config *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
+	Hooks  *DeviceHooksSpec                     `json:"hooks,omitempty"`
+	Os     *DeviceOSSpec                        `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
