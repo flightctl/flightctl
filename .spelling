@@ -139,6 +139,7 @@ global.flightctl.baseDomain
 ui.flightctl.MY.DOMAIN
 openShiftApiUrl
 PVs
+k8s
  - docs/user/managing-devices.md
 afterRebooting
 afterUpdating

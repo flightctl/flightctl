@@ -91,7 +91,6 @@ func main() {
 	}
 	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
 
-	// TODO: Make API instrumentation optional
 	metrics := instrumentation.NewApiMetrics(cfg)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
@@ -129,13 +128,15 @@ func main() {
 		cancel()
 	}()
 
-	go func() {
-		metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics)
-		if err := metricsServer.Run(ctx); err != nil {
-			log.Fatalf("Error running server: %s", err)
-		}
-		cancel()
-	}()
+	if cfg.Prometheus != nil {
+		go func() {
+			metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics)
+			if err := metricsServer.Run(ctx); err != nil {
+				log.Fatalf("Error running server: %s", err)
+			}
+			cancel()
+		}()
+	}
 
 	<-ctx.Done()
 }

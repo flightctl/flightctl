@@ -4,6 +4,6 @@ dependencies:
   version: 0.0.1
 - name: flightctl-ui
   repository: oci://quay.io/flightctl/charts
-  version: 0.2.2-19-g8eadecf
-digest: sha256:44d4f219f80ed54a17894ad6d8d7711f848173c48fe341cc2f0f7f953e7f8538
-generated: "2024-10-07T11:34:02.468409195+02:00"
+  version: 0.2.2-37-g6ab00b7
+digest: sha256:4a08bbb83d66075856d9425f011b95c29a1fb7537a4b8f6aa670fe1daa5b6ea7
+generated: "2024-10-17T13:16:26.275993098+02:00"

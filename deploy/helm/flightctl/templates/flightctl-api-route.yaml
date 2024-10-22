@@ -1,4 +1,4 @@
-{{ if and (.Values.api.enabled) (not .Values.api.nodePorts.api) }}
+{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -11,11 +11,7 @@ metadata:
   name: flightctl-api-route
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if .Values.api.hostNames.api }}
-  host: {{ .Values.api.hostNames.api }}
-  {{- else }}
   host: api.{{ include "flightctl.getBaseDomain" . }}
-  {{- end }}
   port:
     targetPort: 3443
   tls:
