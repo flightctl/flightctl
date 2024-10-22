@@ -9,4 +9,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: default
-    namespace: flightctl-external
+    namespace: {{ .Values.prometheus.namespace }}

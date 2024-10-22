@@ -67,7 +67,6 @@ api:
     api: ""
     agent: ""
     grpc: ""
-    prometheus: ""
   hostNames:
     api: ""
     agent: ""
