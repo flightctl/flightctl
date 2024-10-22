@@ -21,7 +21,6 @@ func newExporters(
 ) []Exporter {
 	return []Exporter{
 		newApplications(applicationManager),
-		newContainer(executer),
 		newSystemD(executer),
 		newSystemInfo(executer),
 		newResources(log, resourceManager),
