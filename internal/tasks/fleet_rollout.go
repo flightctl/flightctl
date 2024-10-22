@@ -171,7 +171,6 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		Os:           templateVersion.Status.Os,
 		Systemd:      templateVersion.Status.Systemd,
 		Resources:    templateVersion.Status.Resources,
-		Hooks:        templateVersion.Status.Hooks,
 		Applications: deviceApps,
 	}
 
