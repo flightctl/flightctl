@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -55,9 +56,19 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
-func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) *gorm.DB {
-	query = query.Where("org_id = ?", orgId).Order("name")
-	invertLabels := false
+type listQuery struct {
+	dest any
+}
+
+func ListQuery(model any) *listQuery {
+	return &listQuery{dest: model}
+}
+
+func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	query := db.Model(lq.dest)
+	query = query.Where("org_id = ?", orgId)
+
+	var invertLabels bool
 	if listParams.InvertLabels != nil && *listParams.InvertLabels {
 		invertLabels = true
 	}
@@ -72,7 +83,38 @@ func BuildBaseListQuery(query *gorm.DB, orgId uuid.UUID, listParams ListParams) 
 	if listParams.FleetName != nil {
 		query = query.Where("fleet_name = ?", *listParams.FleetName)
 	}
-	return query
+
+	if listParams.FieldSelector != nil {
+		fs, err := selector.NewFieldSelector(lq.dest)
+		if err != nil {
+			return nil, err
+		}
+
+		q, p, err := fs.Parse(ctx, listParams.FieldSelector)
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where(q, p...)
+	}
+
+	resolver, err := selector.SelectorFieldResolver(lq.dest)
+	if err != nil {
+		return nil, err
+	}
+
+	if listParams.SortBy != nil {
+		// Resolve name from the SortBy field, which might correspond to multiple fields.
+		fields, err := resolver.ResolveNames(listParams.SortBy.FieldName)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range fields {
+			query = query.Order(fmt.Sprintf("%s %s", createParamsFromKey(name),
+				strings.ToLower(string(listParams.SortBy.Order))))
+		}
+	}
+
+	return query, nil
 }
 
 func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
