@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 )
 
 var (
@@ -49,12 +50,16 @@ var (
 	ErrAuthenticationFailed = errors.New("authentication failed")
 )
 
+// TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
 func IsRetryable(err error) bool {
 	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		// timeout errors are retryable
+	case IsTimeoutError(err):
 		return true
 	case errors.Is(err, ErrRetryable):
+		return true
+	case errors.Is(err, ErrNoContent):
+		// no content is a retryable error it means the server does not have a
+		// new template version
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
@@ -62,7 +67,7 @@ func IsRetryable(err error) bool {
 		return false
 	default:
 		// this will need to be updated as we identify more errors that are not
-		// retryable but for now we will retry and mark degraded
+		// retryable but for now we will retry and mark degraded.
 		return true
 	}
 }
@@ -77,4 +82,17 @@ func New(msg string) error {
 
 func Join(errs ...error) error {
 	return errors.Join(errs...)
+}
+
+func IsTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	return false
 }

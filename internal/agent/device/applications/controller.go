@@ -51,7 +51,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 	}
 
 	// if this is the steady state, only ensure apps
-	if !spec.IsUpdating(current, desired) {
+	if !spec.IsUpgrading(current, desired) {
 		return c.ensureApps(ctx, currentApps)
 	}
 

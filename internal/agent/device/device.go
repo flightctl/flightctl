@@ -3,7 +3,6 @@ package device
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -24,13 +23,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-// TODO: expose via config
-const (
-	// defaultMaxRetries is the default number of retries for a spec item set to 0 for infinite retries.
-	defaultSpecRequeueMaxRetries = 0
-	defaultSpecQueueSize         = 1
-)
-
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	name                   string
@@ -49,9 +41,6 @@ type Agent struct {
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
-
-	queue                  *spec.Queue
-	currentRenderedVersion string
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -77,7 +66,6 @@ func NewAgent(
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
-	queue := spec.NewQueue(log, defaultSpecRequeueMaxRetries, defaultSpecQueueSize)
 	return &Agent{
 		name:                   name,
 		deviceWriter:           deviceWriter,
@@ -95,42 +83,25 @@ func NewAgent(
 		bootcClient:            bootcClient,
 		podmanClient:           podmanClient,
 		backoff:                backoff,
-		queue:                  queue,
 		log:                    log,
 	}
 }
 
-func (a *Agent) initialize() error {
-	desired, err := a.specManager.Read(spec.Desired)
-	if err != nil {
-		a.log.Errorf("Failed to read desired spec: %v", err)
-		return err
-	}
-
-	a.queue.Add(spec.NewItem(desired, stringToInt64(desired.RenderedVersion)))
-	return nil
-}
-
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	fetchSpecTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer fetchSpecTicker.Stop()
-	fetchStatusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer fetchStatusTicker.Stop()
-
-	// initialize the agent
-	if err := a.initialize(); err != nil {
-		return err
-	}
+	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
+	defer specTicker.Stop()
+	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
+	defer statusTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-fetchSpecTicker.C:
-			a.fetchDeviceSpec(ctx, a.fetchDeviceSpecFn)
-		case <-fetchStatusTicker.C:
-			a.fetchDeviceStatus(ctx)
+		case <-specTicker.C:
+			a.syncSpec(ctx, a.syncSpecFn)
+		case <-statusTicker.C:
+			a.pushStatus(ctx)
 		}
 	}
 }
@@ -152,28 +123,26 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 	return nil
 }
 
-func (a *Agent) fetchDeviceSpec(ctx context.Context, fn func(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error) {
+func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error) {
 	startTime := time.Now()
-	a.log.Debug("Starting fetch of device spec")
+	a.log.Debug("Starting sync of device spec")
 	defer func() {
 		duration := time.Since(startTime)
-		a.log.Debugf("Completed fetch device spec in %v", duration)
+		a.log.Debugf("Completed sync of device spec in %v", duration)
 	}()
 
-	if err := a.enqueue(ctx); err != nil {
-		a.log.Errorf("Failed to enqueue job: %v", err)
+	desired, requeue, err := a.specManager.GetDesired(ctx)
+	if err != nil {
+		a.log.Errorf("Failed to get desired spec: %v", err)
+		return
+	}
+	if requeue {
+		a.log.Debug("Requeueing spec")
 		return
 	}
 
-	item, ok := a.queue.Get()
-	if !ok {
-		a.log.Debug("No spec to process, retrying later")
-		return
-	}
-
-	desiredSpec := item.Spec()
-	if err := fn(ctx, desiredSpec); err != nil {
-		a.handleSyncError(ctx, desiredSpec, err)
+	if err := syncFn(ctx, desired); err != nil {
+		a.handleSyncError(ctx, desired, err)
 		return
 	}
 
@@ -184,11 +153,9 @@ func (a *Agent) fetchDeviceSpec(ctx context.Context, fn func(ctx context.Context
 	if updateErr != nil {
 		a.log.Errorf("Updating device status: %v", updateErr)
 	}
-
-	a.queue.Forget(item.Version())
 }
 
-func (a *Agent) fetchDeviceSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
 		return err
@@ -198,18 +165,12 @@ func (a *Agent) fetchDeviceSpecFn(ctx context.Context, desired *v1alpha1.Rendere
 		return nil
 	}
 
-	// reset current rendered version
-	if a.currentRenderedVersion == "" {
-		a.currentRenderedVersion = current.RenderedVersion
-	}
-
-	isUpdating := spec.IsUpdating(current, desired)
-	if isUpdating {
+	if spec.IsUpgrading(current, desired) {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  "Update",
-			Message: fmt.Sprintf("The device is updating to renderedVersion: %s", desired.RenderedVersion),
+			Message: fmt.Sprintf("The device is upgrading to renderedVersion: %s", desired.RenderedVersion),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
@@ -220,16 +181,8 @@ func (a *Agent) fetchDeviceSpecFn(ctx context.Context, desired *v1alpha1.Rendere
 		return err
 	}
 
-	if isUpdating {
-		if err := a.specManager.Upgrade(); err != nil {
-			return err
-		}
-		a.log.Infof("Synced device to renderedVersion: %s", desired.RenderedVersion)
-	}
-
-	// track the new current
-	if a.currentRenderedVersion != desired.RenderedVersion {
-		a.currentRenderedVersion = desired.RenderedVersion
+	if err := a.specManager.Upgrade(); err != nil {
+		return err
 	}
 
 	return a.upgradeStatus(ctx, desired)
@@ -272,12 +225,12 @@ func (a *Agent) upgradeStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 	return nil
 }
 
-func (a *Agent) fetchDeviceStatus(ctx context.Context) {
+func (a *Agent) pushStatus(ctx context.Context) {
 	startTime := time.Now()
 	a.log.Debug("Started collecting device status")
 	defer func() {
 		duration := time.Since(startTime)
-		a.log.Debugf("Completed pushing device status to service in: %v", duration)
+		a.log.Debugf("Completed pushing device status in: %v", duration)
 	}()
 
 	if err := a.statusManager.Sync(ctx); err != nil {
@@ -306,8 +259,8 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 		a.log.Debug("No applications to pre-check")
 		return nil
 	}
-	a.log.Debug("Pre-checking applications")
-	defer a.log.Debug("Finished pre-checking applications")
+	a.log.Debug("Pre-checking applications dependencies")
+	defer a.log.Debug("Finished pre-checking application dependencies")
 
 	// ensure dependencies for image based application manifests
 	imageProviders, err := applications.ImageProvidersFromSpec(desired)
@@ -396,33 +349,17 @@ func (a *Agent) afterUpdate(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) enqueue(ctx context.Context) error {
-	// if updating don't call the spec manager use desired from disk
-	desired, err := a.specManager.GetDesired(ctx, a.currentRenderedVersion)
-	if err != nil {
-		return err
-	}
-
-	version := stringToInt64(desired.RenderedVersion)
-	item := spec.NewItem(desired, version)
-
-	a.queue.Add(item)
-	return nil
-}
-
-func (a *Agent) handleSyncError(ctx context.Context, desiredSpec *v1alpha1.RenderedDeviceSpec, syncErr error) {
-	version := stringToInt64(desiredSpec.RenderedVersion)
+func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec, syncErr error) {
+	version := desired.RenderedVersion
 	statusUpdate := v1alpha1.DeviceSummaryStatus{}
 
 	if !errors.IsRetryable(syncErr) {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
-		a.queue.SetVersionFailed(version)
-		a.queue.Forget(version)
+		a.specManager.SetUpgradeFailed()
 	} else {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
-		a.queue.Requeue(version)
 	}
 
 	if _, err := a.statusManager.Update(ctx, status.SetDeviceSummary(statusUpdate)); err != nil {
@@ -430,18 +367,4 @@ func (a *Agent) handleSyncError(ctx context.Context, desiredSpec *v1alpha1.Rende
 	}
 
 	a.log.Error(*statusUpdate.Info)
-}
-
-func stringToInt64(s string) int64 {
-	if s == "" {
-		return 0
-	}
-	i, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0
-	}
-	if i < 0 {
-		return 0
-	}
-	return i
 }

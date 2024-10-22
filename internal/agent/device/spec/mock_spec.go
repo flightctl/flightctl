@@ -72,18 +72,19 @@ func (mr *MockManagerMockRecorder) Ensure() *gomock.Call {
 }
 
 // GetDesired mocks base method.
-func (m *MockManager) GetDesired(ctx context.Context, renderedVersion string) (*v1alpha1.RenderedDeviceSpec, error) {
+func (m *MockManager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDesired", ctx, renderedVersion)
+	ret := m.ctrl.Call(m, "GetDesired", ctx)
 	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // GetDesired indicates an expected call of GetDesired.
-func (mr *MockManagerMockRecorder) GetDesired(ctx, renderedVersion any) *gomock.Call {
+func (mr *MockManagerMockRecorder) GetDesired(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDesired", reflect.TypeOf((*MockManager)(nil).GetDesired), ctx, renderedVersion)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDesired", reflect.TypeOf((*MockManager)(nil).GetDesired), ctx)
 }
 
 // Initialize mocks base method.
@@ -128,6 +129,20 @@ func (m *MockManager) IsRollingBack(ctx context.Context) (bool, error) {
 func (mr *MockManagerMockRecorder) IsRollingBack(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRollingBack", reflect.TypeOf((*MockManager)(nil).IsRollingBack), ctx)
+}
+
+// IsUpgrading mocks base method.
+func (m *MockManager) IsUpgrading() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsUpgrading")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsUpgrading indicates an expected call of IsUpgrading.
+func (mr *MockManagerMockRecorder) IsUpgrading() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsUpgrading", reflect.TypeOf((*MockManager)(nil).IsUpgrading))
 }
 
 // PrepareRollback mocks base method.
@@ -183,6 +198,18 @@ func (m *MockManager) SetClient(arg0 client.Management) {
 func (mr *MockManagerMockRecorder) SetClient(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClient", reflect.TypeOf((*MockManager)(nil).SetClient), arg0)
+}
+
+// SetUpgradeFailed mocks base method.
+func (m *MockManager) SetUpgradeFailed() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetUpgradeFailed")
+}
+
+// SetUpgradeFailed indicates an expected call of SetUpgradeFailed.
+func (mr *MockManagerMockRecorder) SetUpgradeFailed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed))
 }
 
 // Upgrade mocks base method.
