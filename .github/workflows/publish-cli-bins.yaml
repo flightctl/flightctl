@@ -16,7 +16,7 @@ on:
 
 jobs:
   build:
-    strategy: 
+    strategy:
       matrix:
         os: [linux, darwin]
         arch: [amd64, arm64]
@@ -31,7 +31,7 @@ jobs:
         env:
           GOARCH: ${{ matrix.arch }}
           GOOS: ${{ matrix.os }}
-        run: |       
+        run: |
           make build-cli
           SHA=$(sha256sum bin | awk '{ print $1 }')
           echo $SHA > ${{ env.NAME }}-sha256.txt
@@ -43,13 +43,13 @@ jobs:
         with:
           name: ${{ env.NAME }}.tar.gz
           path: ${{ env.NAME }}.tar.gz
-      
+
       - name: "Save binary"
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.NAME }}
           path: ${{ env.NAME }}
-    
+
       - name: "Save checksum"
         uses: actions/upload-artifact@v4
         with:
@@ -59,15 +59,15 @@ jobs:
   verify:
     strategy:
       matrix:
-        env: 
+        env:
           - runner: ubuntu-latest
             build: linux-amd64
           - runner: macos-latest
             build: darwin-arm64
     runs-on: ${{ matrix.env.runner }}
     needs: [build]
-    
-    steps: 
+
+    steps:
       - name: "Load binary"
         uses: actions/download-artifact@v4
         with:
@@ -102,8 +102,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OLD_RELEASE=$(gh release list | awk '/^latest\s/ { print $1 }')
-          if [ $OLD_RELEASE ]; then
+          OLD_RELEASE=$(gh release list --json 'tagName' --jq 'any(.[]; .tagName == "latest")')
+          if [ $OLD_RELEASE == 'true' ]; then
             # if there is a release already we only update the binaries
             # otherwise a new release will trigger an rpm build from packit
             gh release upload latest --clobber release/*
