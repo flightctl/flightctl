@@ -49,6 +49,9 @@ type ApiMetrics struct {
 }
 
 func NewApiMetrics(cfg *config.Config) *ApiMetrics {
+	if cfg.Prometheus == nil {
+		return nil
+	}
 	return &ApiMetrics{
 		SloMax: cfg.Prometheus.SloMax,
 		ApiTraffic: prometheus.NewCounter(prometheus.CounterOpts{
@@ -249,11 +252,11 @@ func (m *ApiMetrics) RegisterWith(reg *prometheus.Registry) {
 }
 
 func (m *ApiMetrics) AgentServerMiddleware(next http.Handler) http.Handler {
-	return m.ServerMiddleware(next, false)
+	return m.ServerMiddleware(next, true)
 }
 
 func (m *ApiMetrics) ApiServerMiddleware(next http.Handler) http.Handler {
-	return m.ServerMiddleware(next, true)
+	return m.ServerMiddleware(next, false)
 }
 
 func (m *ApiMetrics) ServerMiddleware(next http.Handler, agentServer bool) http.Handler {
