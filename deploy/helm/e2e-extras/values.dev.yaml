@@ -1,9 +1,11 @@
+global:
+  nodePorts:
+    registry: 5000
+    gitserver: 3222
 registry:
   image: docker.io/library/registry:2
-  nodePort: 5000
   namespace: flightctl-e2e
   certsPath: /tmp/e2e-certs/
 gitserver:
   image: localhost/git-server:latest
-  nodePort: 3222
   namespace: flightctl-e2e

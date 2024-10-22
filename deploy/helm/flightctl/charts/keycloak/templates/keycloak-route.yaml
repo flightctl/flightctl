@@ -1,5 +1,5 @@
 {{ if and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin") }}
-{{- if not .Values.service.nodePorts.http -}}
+{{- if eq .Values.global.exposeServicesMethod "route" }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -8,30 +8,20 @@ metadata:
   name: keycloak
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if include "flightctl.getBaseDomain" . }}
   host: auth.{{ include "flightctl.getBaseDomain" . }}
-  {{- else }}
-  host: {{ .Values.route.hostname }}
-  {{- end }}
   port:
     targetPort: 8080
   tls:
     termination: edge
-    {{- if .Values.route.tls.cert }}
-    certificate: {{ .Values.route.tls.cert | quote }}
-    {{- else if (.Values.global.baseDomainTls).cert }}
+    insecureEdgeTerminationPolicy: None
+    {{- if (.Values.global.baseDomainTls).cert }}
     certificate: {{ .Values.global.baseDomainTls.cert | quote }}
-    {{- end }}
-    {{- if .Values.route.tls.key }}
-    key: {{ .Values.route.tls.key | quote }}
-    {{- else if (.Values.global.baseDomainTls).key }}
     key: {{ .Values.global.baseDomainTls.key | quote }}
     {{- end }}
-    insecureEdgeTerminationPolicy: None
   to:
     kind: Service
     name: keycloak
     weight: 100
   wildcardPolicy: None
-{{- end -}}
+{{- end }}
 {{ end }}
