@@ -288,7 +288,6 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.log.Errorf("failed syncing template to template version: %v", validationErr)
 	} else {
 		t.templateVersion.Status.Os = t.fleet.Spec.Template.Spec.Os
-		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
 		t.templateVersion.Status.Hooks = t.fleet.Spec.Template.Spec.Hooks
