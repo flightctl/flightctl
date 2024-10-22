@@ -67,6 +67,10 @@ type SpecManager struct {
 	managementClient client.Management
 	bootcClient      container.BootcClient
 
+	// cached rendered versions
+	currentRenderedVersion string
+	desiredRenderedVersion string
+
 	log     *log.PrefixLogger
 	backoff wait.Backoff
 }
@@ -121,6 +125,18 @@ func (s *SpecManager) Ensure() error {
 				return err
 			}
 		}
+
+		current, err := s.Read(Current)
+		if err != nil {
+			return fmt.Errorf("ensuring cache: %w", err)
+		}
+		desired, err := s.Read(Desired)
+		if err != nil {
+			return fmt.Errorf("ensuring cache: %w", err)
+		}
+
+		s.currentRenderedVersion = current.RenderedVersion
+		s.desiredRenderedVersion = desired.RenderedVersion
 	}
 	return nil
 }
@@ -215,6 +231,14 @@ func (s *SpecManager) Rollback() error {
 	if err != nil {
 		return fmt.Errorf("%w: copy %q to %q", errors.ErrCopySpec, s.currentPath, s.desiredPath)
 	}
+
+	// update cached rendered versions
+	desired, err := s.Read(Desired)
+    if err != nil {
+        return err
+    }
+
+    s.desiredRenderedVersion = desired.RenderedVersion
 	return nil
 }
 
@@ -227,6 +251,16 @@ func (s *SpecManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) 
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", specType, err)
 	}
+
+	// since we already have the version in memory update cached version.
+    if specType == Current || specType == Desired {
+        if specType == Current {
+            s.currentRenderedVersion = spec.RenderedVersion
+        } else {
+            s.desiredRenderedVersion = spec.RenderedVersion
+        }
+    }
+
 	return spec, nil
 }
 
@@ -260,7 +294,7 @@ func (s *SpecManager) GetDesired(ctx context.Context, currentRenderedVersion str
 
 	if err != nil {
 		// no content means there is no new rendered version
-		if errors.Is(err, errors.ErrNoContent) {
+		if errors.Is(err, errors.ErrNoContent) || errors.IsTimeoutError(err) {
 			s.log.Debug("No content from management API, falling back to the desired spec on disk")
 			// TODO: can we avoid resync or is this necessary?
 			return desired, nil
@@ -327,6 +361,15 @@ func (s *SpecManager) CheckOsReconciliation(ctx context.Context) (string, bool, 
 	return bootedOSImage, desired.Os.Image == bootc.GetBootedImage(), nil
 }
 
+func (s *SpecManager) GetCurrentRenderedVersion() string {
+	return s.currentRenderedVersion
+}
+
+// GetDesiredRenderedVersion returns the cached desired RenderedVersion.
+func (s *SpecManager) GetDesiredRenderedVersion() string {
+	return s.desiredRenderedVersion
+}
+
 func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
@@ -337,6 +380,16 @@ func (s *SpecManager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) er
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", specType, err)
 	}
+
+	// since we already have the version in memory update cached version.
+	if specType == Current || specType == Desired {
+        if specType == Current {
+            s.currentRenderedVersion = spec.RenderedVersion
+        } else {
+            s.desiredRenderedVersion = spec.RenderedVersion
+        }
+    }
+
 	return nil
 }
 
@@ -400,16 +453,24 @@ func (m *SpecManager) getRenderedFromManagementAPIWithRetry(
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", errors.ErrGettingDeviceSpec, err)
 	}
-	if statusCode == http.StatusNoContent || statusCode == http.StatusConflict {
-		// TODO: this is a bit of a hack
-		return true, errors.ErrNoContent
-	}
 
-	if resp != nil {
+	switch statusCode {
+	case http.StatusOK:
+		if resp == nil {
+			// 200 OK but response is nil
+			return false, errors.ErrNilResponse
+		}
 		*rendered = *resp
 		return true, nil
+
+	case http.StatusNoContent, http.StatusConflict:
+		// instead of treating it as an error indicate that no new content is available
+		return true, errors.ErrNoContent
+
+	default:
+		// unexpected status codes
+		return false, fmt.Errorf("%w: unexpected status code %d", errors.ErrGettingDeviceSpec, statusCode)
 	}
-	return false, errors.ErrNilResponse
 }
 
 func readRenderedSpecFromFile(
