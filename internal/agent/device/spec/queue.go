@@ -2,16 +2,19 @@ package spec
 
 import (
 	"container/heap"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-type Queue struct {
+var _ PriorityQueue = (*queue)(nil)
+
+type queue struct {
 	heap           ItemHeap
 	items          map[int64]*Item
-	requeueTracker map[int64]*requeueVersion
+	requeueStatus  map[int64]*requeueVersion
 	failedVersions map[int64]struct{}
 	// maxRetries is the number of times a template version can be requeued before being removed.
 	// A value of 0 means infinite retries.
@@ -34,12 +37,12 @@ func newQueue(
 	maxSize,
 	requeueThreshold int,
 	requeueThresholdDelayDuration time.Duration,
-) *Queue {
-	return &Queue{
+) *queue {
+	return &queue{
 		heap:                          make(ItemHeap, 0),
 		items:                         make(map[int64]*Item),
 		failedVersions:                make(map[int64]struct{}),
-		requeueTracker:                make(map[int64]*requeueVersion),
+		requeueStatus:                 make(map[int64]*requeueVersion),
 		maxRetries:                    maxRetries,
 		maxSize:                       maxSize,
 		requeueThreshold:              requeueThreshold,
@@ -51,123 +54,162 @@ func newQueue(
 type requeueVersion struct {
 	count         int
 	nextAvailable time.Time
-	retries       int
+	tries         int
 }
 
-// Add adds an item to the queue. If the item is already in the queue, it will be skipped.
-func (q *Queue) Add(item *Item) {
-	version := item.Version()
-	if _, ok := q.failedVersions[version]; ok {
-		q.log.Debugf("Skipping adding to queue for failed template version: %d", version)
-		return
+func (q *queue) Add(item *Item) error {
+	version := item.Version
+	if _, failed := q.failedVersions[version]; failed {
+		q.log.Debugf("Skipping adding failed template version: %d", version)
+		return nil
 	}
 
-	if requeue, exists := q.requeueTracker[version]; exists {
-		q.log.Debugf("Template version is already in the queue: %d", version)
+	if item.Spec == nil {
+		return fmt.Errorf("item spec is nil")
+	}
 
-		// if requeueThreshold is set, enforce a delay before requeuing only if the queue has no items
+	// prune requeue status
+	q.pruneRequeueStatus()
+
+	// handle requeue status logic
+	if requeue, exists := q.requeueStatus[version]; exists {
+		q.log.Debugf("Template version already in queue: %d", version)
+
+		// if the queue is empty and a requeue threshold is set, enforce requeue delay
 		if q.requeueThreshold > 0 && q.heap.Len() == 0 {
 			requeue.count++
-
-			// If requeueThreshold is set, enforce a delay before requeuing
 			if requeue.count >= q.requeueThreshold && requeue.nextAvailable.IsZero() {
 				requeue.nextAvailable = time.Now().Add(q.requeueThresholdDelayDuration)
-				q.log.Debugf("Threshold exceeded for version %d. Next available in %s", version, q.requeueThresholdDelayDuration.String())
+				q.log.Debugf("Requeue hreshold exceeded for version %d. Next available in %s", version, q.requeueThresholdDelayDuration.String())
 			}
+		} else if q.maxRetries > 0 && requeue.tries >= q.maxRetries {
+			q.log.Debugf("Max retries exceeded for version %d", version)
+			q.SetVersionFailed(item.Spec.RenderedVersion)
+			return nil
 		}
-		// return
 	} else {
+		// initialize requeue tracking
 		q.log.Debugf("Adding template version to the queue: %d", version)
-		q.requeueTracker[version] = &requeueVersion{}
+		q.requeueStatus[version] = &requeueVersion{}
 	}
 
-	if q.maxSize > 0 && len(q.items) >= q.maxSize {
-		// remove the lowest version
-		removed := heap.Pop(&q.heap).(*Item)
-		delete(q.items, removed.Version())
-		q.log.Debugf("Queue exceeded max size removed version: %d", removed.Version())
+	if q.enforceMaxSize() {
+		q.log.Debugf("Skipping adding template version due to queue size limit: %d", version)
+		return nil
 	}
 
 	q.items[version] = item
 	heap.Push(&q.heap, item)
-
 	q.log.Debugf("Heap size: %d", q.heap.Len())
+
+	return nil
 }
 
-// Get returns the next item in the queue. Returns false if the queue is empty.
-func (q *Queue) Get() (*v1alpha1.RenderedDeviceSpec, bool) {
+func (q *queue) Remove(version string) {
+	q.remove(version)
+}
+
+func (q *queue) Next() (*Item, bool) {
 	if q.heap.Len() == 0 {
 		return nil, false
 	}
 	item := heap.Pop(&q.heap).(*Item)
 	now := time.Now()
 
-	requeue, exists := q.requeueTracker[item.Version()]
-	// check if item is available
-	if exists && !requeue.nextAvailable.IsZero() {
-		if now.Before(requeue.nextAvailable) {
-			// not yet available push it back and skip
-			heap.Push(&q.heap, item)
-			q.log.Debugf("Template version is not ready: %d", item.Version())
-			return nil, false
-		}
-		// reset delay
-		requeue.nextAvailable = time.Time{}
-		q.log.Debugf("Template version is now available for retrieval: %d", item.Version())
+	requeue, exists := q.requeueStatus[item.Version]
+	if exists && now.Before(requeue.nextAvailable) {
+		// not yet available push it back and skip
+		heap.Push(&q.heap, item)
+		q.log.Debugf("Template version is not ready: %d", item.Version)
+		return nil, false
 	}
 
-	delete(q.items, item.Version())
-	q.log.Debugf("Retrieved template version from the queue: %d", item.Version())
+	if exists {
+		// reset delay
+		requeue.nextAvailable = time.Time{}
+		q.log.Debugf("Template version is now available for retrieval: %d", item.Version)
+	}
 
-	if item.spec != nil {
-		return item.spec, true
+	delete(q.items, item.Version)
+	if item.Spec != nil {
+		q.log.Debugf("Retrieved template version from the queue: %d", item.Version)
+		requeue.tries++
+		return item, true
 	}
 
 	return nil, false
 }
 
-// Requeue requeues an item in the queue. If the item is not in the queue, it
-// will be skipped.  If the maxRetries is exceeded, the item will be removed
-// from the queue. If the queue is full, the lowest version will be removed.
-func (q *Queue) Requeue(version string) {
-	v := stringToInt64(version)
-	item, ok := q.items[v]
-	if !ok {
-		q.log.Debugf("Template version not found in queue skipping requeue: %s", version)
-		return
-	}
+func (q *queue) Size() int {
+	return len(q.items)
+}
 
-	if requeue, exists := q.requeueTracker[v]; exists {
-		// remove if max retries are exceeded
-		if q.maxRetries > 0 && requeue.retries >= q.maxRetries {
-			q.log.Debugf("Max retries reached for template version: %s", version)
-			q.SetVersionFailed(version)
-			return
-		}
-		requeue.retries++
-	}
+// IsEmpty returns true if the queue is empty.
+func (q *queue) IsEmpty() bool {
+	return q.Size() == 0
+}
 
-	// clean up the heap to reduce duplicates
-	for i, heapItem := range q.heap {
-		if heapItem.Version() == v {
-			q.log.Debugf("Removing template version from heap before requeue: %s", version)
-			heap.Remove(&q.heap, i)
-			break
-		}
-	}
+func (q *queue) Clear() {
+	q.items = make(map[int64]*Item)
+	q.heap = make(ItemHeap, 0)
+	q.failedVersions = make(map[int64]struct{})
+	q.requeueStatus = make(map[int64]*requeueVersion)
+}
 
-	heap.Push(&q.heap, item)
+func (q *queue) IsVersionFailed(version string) bool {
+	_, ok := q.failedVersions[stringToInt64(version)]
+	return ok
+}
 
-	// ensure maxSize of the queue
-	if len(q.items) > q.maxSize {
+func (q *queue) SetVersionFailed(version string) {
+	q.log.Debugf("Setting version %v as failed", version)
+	q.failedVersions[stringToInt64(version)] = struct{}{}
+	delete(q.requeueStatus, stringToInt64(version))
+	q.remove(version)
+}
+
+// enforceMaxSize returns true amd removes the lowest version from the queue if
+// the maxSize is exceeded and the version has been tried at least once.
+func (q *queue) enforceMaxSize() bool {
+	if q.maxSize > 0 && q.heap.Len() > 0 && len(q.items) >= q.maxSize {
 		removed := heap.Pop(&q.heap).(*Item)
-		q.log.Debugf("Queue exceeded max size removed template version: %v", removed.Version())
-		delete(q.items, removed.Version())
+		q.log.Debugf("Attempting to remove version: %d due to max size constraint", removed.Version)
+		if r, exists := q.requeueStatus[removed.Version]; exists {
+			if r.tries == 0 {
+				// push back the removed item
+				heap.Push(&q.heap, removed)
+				return true
+			}
+
+			delete(q.items, removed.Version)
+			q.log.Debugf("Queue exceeded max size, removed version: %d", removed.Version)
+		}
+	}
+	return false
+}
+
+func (q *queue) pruneRequeueStatus() {
+	// give some buffer to the requeue status
+	maxRequeueSize := 5 * q.maxSize
+	if len(q.requeueStatus) > maxRequeueSize {
+		var minVersion int64
+		var initialized bool
+
+		for version := range q.requeueStatus {
+			if !initialized || version < minVersion {
+				minVersion = version
+				initialized = true
+			}
+		}
+		if initialized {
+			delete(q.requeueStatus, minVersion)
+			q.log.Debugf("Evicted lowest template version: %d", minVersion)
+		}
 	}
 }
 
-// Forget removes an item from the queue. If the item is not in the queue, it will be skipped.
-func (q *Queue) forget(version string) {
+// removes an item from the queue. If the item is not in the queue, it will be skipped.
+func (q *queue) remove(version string) {
 	v := stringToInt64(version)
 	if _, ok := q.items[v]; ok {
 		q.log.Debugf("Forgetting template version %v", v)
@@ -176,7 +218,7 @@ func (q *Queue) forget(version string) {
 
 	// ensure heap removal
 	for i, heapItem := range q.heap {
-		if heapItem.Version() == v {
+		if heapItem.Version == v {
 			q.log.Debugf("Removing template version from heap: %d", v)
 			heap.Remove(&q.heap, i)
 			break
@@ -184,51 +226,17 @@ func (q *Queue) forget(version string) {
 	}
 }
 
-// Len returns the number of items in the queue.
-func (q *Queue) Len() int {
-	return len(q.items)
-}
-
-// IsEmpty returns true if the queue is empty.
-func (q *Queue) IsEmpty() bool {
-	return q.Len() == 0
-}
-
-// SetVersionFailed marks a version as failed. Failed versions will not be requeued.
-func (q *Queue) SetVersionFailed(version string) {
-	q.log.Debugf("Setting version %v as failed", version)
-	q.failedVersions[stringToInt64(version)] = struct{}{}
-	delete(q.requeueTracker, stringToInt64(version))
-	q.forget(version)
-}
-
-// IsVersionFailed returns true if a template version is marked as failed.
-func (q *Queue) IsVersionFailed(version string) bool {
-	_, ok := q.failedVersions[stringToInt64(version)]
-	return ok
-}
-
 type Item struct {
-	version int64
-	spec    *v1alpha1.RenderedDeviceSpec
+	Version int64
+	Spec    *v1alpha1.RenderedDeviceSpec
 }
 
 // newItem creates a new queue item.
 func newItem(data *v1alpha1.RenderedDeviceSpec) *Item {
 	return &Item{
-		spec:    data,
-		version: stringToInt64(data.RenderedVersion),
+		Spec:    data,
+		Version: stringToInt64(data.RenderedVersion),
 	}
-}
-
-// Version returns the template version of the item.
-func (i *Item) Version() int64 {
-	return i.version
-}
-
-// Spec returns the rendered device spec of the item.
-func (i *Item) Spec() *v1alpha1.RenderedDeviceSpec {
-	return i.spec
 }
 
 // ItemHeap is a priority queue that orders items by version.
@@ -239,7 +247,7 @@ func (h ItemHeap) Len() int {
 }
 
 func (h ItemHeap) Less(i, j int) bool {
-	return h[i].Version() < h[j].Version()
+	return h[i].Version < h[j].Version
 }
 
 func (h ItemHeap) Swap(i, j int) {

@@ -26,7 +26,7 @@ func TestBootstrapCheckRollback(t *testing.T) {
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 	mockBootcClient := container.NewMockBootcClient(ctrl)
 
-	s := &SpecManager{
+	s := &manager{
 		log:              log.NewPrefixLogger("test"),
 		deviceReadWriter: mockReadWriter,
 		bootcClient:      mockBootcClient,
@@ -98,32 +98,6 @@ func TestBootstrapCheckRollback(t *testing.T) {
 
 }
 
-func TestNewManager(t *testing.T) {
-	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockBootcClient := container.NewMockBootcClient(ctrl)
-	logger := log.NewPrefixLogger("test")
-	backoff := wait.Backoff{}
-
-	t.Run("constructs file paths for the spec files", func(t *testing.T) {
-		manager := NewManager(
-			"device-name",
-			"test/directory/structure/",
-			mockReadWriter,
-			mockBootcClient,
-			backoff,
-			logger,
-		)
-
-		require.Equal("test/directory/structure/current.json", manager.currentPath)
-		require.Equal("test/directory/structure/desired.json", manager.desiredPath)
-		require.Equal("test/directory/structure/rollback.json", manager.rollbackPath)
-	})
-}
-
 func TestInitialize(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
@@ -131,7 +105,7 @@ func TestInitialize(t *testing.T) {
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
-	s := &SpecManager{
+	s := &manager{
 		deviceReadWriter: mockReadWriter,
 	}
 
@@ -180,10 +154,12 @@ func TestEnsure(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockPriorityQueue := NewMockPriorityQueue(ctrl)
 
-	s := &SpecManager{
+	s := &manager{
 		log:              log.NewPrefixLogger("test"),
 		deviceReadWriter: mockReadWriter,
+		queue:            mockPriorityQueue,
 	}
 
 	fileErr := errors.New("invalid file")
@@ -207,6 +183,8 @@ func TestEnsure(t *testing.T) {
 		// Third file does not exist, so then expect a write
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(1).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).Return(nil)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
+		mockPriorityQueue.EXPECT().Add(gomock.Any()).Return(nil).Times(1)
 		err := s.Ensure()
 		require.NoError(err)
 	})
@@ -214,6 +192,8 @@ func TestEnsure(t *testing.T) {
 	t.Run("no files are written when they all exist", func(t *testing.T) {
 		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(3).Return(true, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
+		mockPriorityQueue.EXPECT().Add(gomock.Any()).Return(nil).Times(1)
 		err := s.Ensure()
 		require.NoError(err)
 	})
@@ -226,7 +206,7 @@ func TestRead(t *testing.T) {
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
-	s := &SpecManager{
+	s := &manager{
 		log:              log.NewPrefixLogger("test"),
 		deviceReadWriter: mockReadWriter,
 	}
@@ -321,65 +301,92 @@ func Test_writeRenderedToFile(t *testing.T) {
 
 func TestUpgrade(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-
 	desiredPath := "test/desired.json"
 	currentPath := "test/current.json"
 	rollbackPath := "test/rollback/json"
-	s := &SpecManager{
-		log:              log.NewPrefixLogger("test"),
-		deviceReadWriter: mockReadWriter,
-		desiredPath:      desiredPath,
-		currentPath:      currentPath,
-		rollbackPath:     rollbackPath,
-	}
-
 	specErr := errors.New("error with spec")
-
 	emptySpec, err := createEmptyTestSpec()
 	require.NoError(err)
 
-	t.Run("error reading desired spec", func(t *testing.T) {
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
+	testCases := []struct {
+		name          string
+		setupMocks    func(mockReadWriter *fileio.MockReadWriter, mockPriorityQueue *MockPriorityQueue)
+		expectedError error
+	}{
+		{
+			name: "error reading desired spec",
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+				mrw.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
+			},
+			expectedError: errors.ErrReadingRenderedSpec,
+		},
+		{
+			name: "error writing desired spec to current",
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+				desiredSpec, err := createTestSpec("flightctl-device:v2")
+				require.NoError(err)
+				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+				mrw.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(specErr)
+			},
+			expectedError: errors.ErrWritingRenderedSpec,
+		},
+		{
+			name: "error writing the rollback spec",
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+				desiredSpec, err := createTestSpec("flightctl-device:v2")
+				require.NoError(err)
+				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+				mrw.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
+				mrw.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(specErr)
+			},
+			expectedError: errors.ErrWritingRenderedSpec,
+		},
+		{
+			name: "clears out the rollback spec",
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+				desiredSpec, err := createTestSpec("flightctl-device:v2")
+				require.NoError(err)
+				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+				mrw.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
+				mrw.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(nil)
+				mpq.EXPECT().Remove(gomock.Any())
+			},
+			expectedError: nil,
+		},
+	}
 
-		err := s.Upgrade()
-		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
-	})
+	for _, tc := range testCases {
+		tc := tc // Capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	t.Run("error writing desired spec to current", func(t *testing.T) {
-		desiredSpec, err := createTestSpec("flightctl-device:v2")
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
-		mockReadWriter.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(specErr)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockPriorityQueue := NewMockPriorityQueue(ctrl)
 
-		err = s.Upgrade()
-		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
-	})
+			s := &manager{
+				log:              log.NewPrefixLogger("test"),
+				deviceReadWriter: mockReadWriter,
+				desiredPath:      desiredPath,
+				currentPath:      currentPath,
+				rollbackPath:     rollbackPath,
+				queue:            mockPriorityQueue,
+			}
 
-	t.Run("error writing the rollback spec", func(t *testing.T) {
-		desiredSpec, err := createTestSpec("flightctl-device:v2")
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
-		mockReadWriter.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
-		mockReadWriter.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(specErr)
+			s.currentRenderedVersion = "1"
+			s.desiredRenderedVersion = "2"
 
-		err = s.Upgrade()
-		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
-	})
+			tc.setupMocks(mockReadWriter, mockPriorityQueue)
 
-	t.Run("clears out the rollback spec", func(t *testing.T) {
-		desiredSpec, err := createTestSpec("flightctl-device:v2")
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
-		mockReadWriter.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
-		mockReadWriter.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(nil)
+			err := s.Upgrade()
 
-		err = s.Upgrade()
-		require.NoError(err)
-	})
+			if tc.expectedError != nil {
+				require.ErrorIs(err, tc.expectedError)
+				return
+			}
+			require.NoError(err)
+		})
+	}
 }
 
 func TestIsOSUpdate(t *testing.T) {
@@ -391,7 +398,7 @@ func TestIsOSUpdate(t *testing.T) {
 
 	desiredPath := "test/desired.json"
 	currentPath := "test/current.json"
-	s := &SpecManager{
+	s := &manager{
 		log:              log.NewPrefixLogger("test"),
 		deviceReadWriter: mockReadWriter,
 		desiredPath:      desiredPath,
@@ -470,7 +477,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 	mockBootcClient := container.NewMockBootcClient(ctrl)
 
 	desiredPath := "test/desired.json"
-	s := &SpecManager{
+	s := &manager{
 		log:              log.NewPrefixLogger("test"),
 		deviceReadWriter: mockReadWriter,
 		bootcClient:      mockBootcClient,
@@ -563,7 +570,7 @@ func TestPrepareRollback(t *testing.T) {
 
 	currentPath := "test/current.json"
 	rollbackPath := "test/rollback.json"
-	s := &SpecManager{
+	s := &manager{
 		deviceReadWriter: mockReadWriter,
 		bootcClient:      mockBootcClient,
 		currentPath:      currentPath,
@@ -673,11 +680,13 @@ func TestRollback(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockPriorityQueue := NewMockPriorityQueue(ctrl)
 
 	currentPath := "test/current.json"
 	desiredPath := "test/desired.json"
-	s := &SpecManager{
+	s := &manager{
 		deviceReadWriter: mockReadWriter,
+		queue:            mockPriorityQueue,
 		currentPath:      currentPath,
 		desiredPath:      desiredPath,
 	}
@@ -685,14 +694,19 @@ func TestRollback(t *testing.T) {
 	t.Run("error when copy fails", func(t *testing.T) {
 		copyErr := errors.New("failure to copy file")
 		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(copyErr)
+		mockPriorityQueue.EXPECT().SetVersionFailed(gomock.Any())
 
 		err := s.Rollback()
 		require.ErrorIs(err, errors.ErrCopySpec)
 	})
 
 	t.Run("copies the current spec to the desired spec", func(t *testing.T) {
+		currentSpec, err := createTestSpec("flightctl-device:v1")
+		require.NoError(err)
 		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(nil)
-		err := s.Rollback()
+		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(currentSpec, nil)
+		mockPriorityQueue.EXPECT().SetVersionFailed(gomock.Any())
+		err = s.Rollback()
 		require.NoError(err)
 	})
 }
@@ -705,7 +719,7 @@ func TestSetClient(t *testing.T) {
 	mockClient := client.NewMockManagement(ctrl)
 
 	t.Run("sets the client", func(t *testing.T) {
-		s := &SpecManager{}
+		s := &manager{}
 		s.SetClient(mockClient)
 		require.Equal(mockClient, s.managementClient)
 	})
@@ -744,121 +758,144 @@ func TestGetDesired(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockClient := client.NewMockManagement(ctrl)
-	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	desiredPath := "test/desired.json"
 	rollbackPath := "test/rollback.json"
 	deviceName := "test-device"
-	backoff := wait.Backoff{
-		Steps: 1,
-	}
-	s := &SpecManager{
-		backoff:          backoff,
-		log:              log.NewPrefixLogger("test"),
-		deviceName:       deviceName,
-		deviceReadWriter: mockReadWriter,
-		desiredPath:      desiredPath,
-		rollbackPath:     rollbackPath,
-		managementClient: mockClient,
-	}
-
 	image := "flightctl-device:v2"
 	specErr := errors.New("problem with spec")
 
-	t.Run("error reading desired spec", func(t *testing.T) {
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
+	// Define the test cases
+	testCases := []struct {
+		name          string
+		setupMocks    func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement)
+		expectedSpec  *v1alpha1.RenderedDeviceSpec
+		expectedError error
+	}{
+		{
+			name: "error reading desired spec",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+				mrw.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
+				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
+				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
+			},
+			expectedSpec:  nil,
+			expectedError: errors.ErrReadingRenderedSpec,
+		},
+		{
+			name: "error when get management api call fails",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+				renderedDesiredSpec := createRenderedTestSpec(image)
+				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+				require.NoError(err)
 
-		_, _, err := s.GetDesired(ctx)
-		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
-	})
+				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
+				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
+			},
+			expectedSpec:  nil,
+			expectedError: errors.ErrGettingDeviceSpec,
+		},
+		{
+			name: "desired spec is returned when management api returns no content",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+				renderedDesiredSpec := createRenderedTestSpec(image)
+				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+				require.NoError(err)
 
-	t.Run("error reading rollback spec", func(t *testing.T) {
-		desiredSpec, err := createTestSpec(image)
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
-		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, specErr)
+				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().Add(gomock.Any()).Return(nil)
+				mpq.EXPECT().Next().Return(&Item{Version: 2, Spec: renderedDesiredSpec}, true)
 
-		_, _, err = s.GetDesired(ctx)
-		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
-	})
+				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
+			},
+			expectedSpec:  createRenderedTestSpec(image),
+			expectedError: nil,
+		},
+		{
+			name: "spec from the api response has the same RenderedVersion as desired",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+				renderedDesiredSpec := createRenderedTestSpec(image)
+				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+				require.NoError(err)
 
-	t.Run("error when get management api call fails", func(t *testing.T) {
-		renderedDesiredSpec := createRenderedTestSpec(image)
-		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().Add(gomock.Any()).Return(nil)
+				mpq.EXPECT().Next().Return(&Item{Version: 1, Spec: renderedDesiredSpec}, true)
+				mrw.EXPECT().WriteFile(desiredPath, marshaledDesiredSpec, gomock.Any()).Return(nil)
 
-		rollbackSpec, err := createEmptyTestSpec()
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
+				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(renderedDesiredSpec, 200, nil)
+			},
+			expectedSpec:  createRenderedTestSpec(image),
+			expectedError: nil,
+		},
+		{
+			name: "error when writing the desired spec fails",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+				renderedDesiredSpec := createRenderedTestSpec(image)
+				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().Add(gomock.Any()).Return(nil)
+				mpq.EXPECT().Next().Return(&Item{Version: 1, Spec: renderedDesiredSpec}, true)
 
-		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
+				// API is returning a rendered version that is different from the read desired spec
+				apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "5"}
+				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
 
-		_, _, err = s.GetDesired(ctx)
-		require.ErrorIs(err, errors.ErrGettingDeviceSpec)
-	})
+				// The difference results in a write call for the desired spec
+				mrw.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
+			},
+			expectedSpec:  nil,
+			expectedError: errors.ErrWritingRenderedSpec,
+		},
+	}
 
-	t.Run("desired spec is returned when management api returns no content", func(t *testing.T) {
-		renderedDesiredSpec := createRenderedTestSpec(image)
-		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl.Finish()
+			ctrl := gomock.NewController(t)
+			mockClient := client.NewMockManagement(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockPriorityQueue := NewMockPriorityQueue(ctrl)
 
-		rollbackSpec, err := createEmptyTestSpec()
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
+			backoff := wait.Backoff{
+				Steps: 1,
+			}
 
-		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
+			s := &manager{
+				backoff:          backoff,
+				log:              log.NewPrefixLogger("test"),
+				deviceName:       deviceName,
+				deviceReadWriter: mockReadWriter,
+				desiredPath:      desiredPath,
+				rollbackPath:     rollbackPath,
+				managementClient: mockClient,
+				queue:            mockPriorityQueue,
+			}
 
-		specResult, _, err := s.GetDesired(ctx)
-		require.NoError(err)
-		require.Equal(renderedDesiredSpec, specResult)
-	})
+			s.currentRenderedVersion = "1"
+			s.desiredRenderedVersion = "2"
 
-	t.Run("spec from the api response has the same RenderedVersion as desired", func(t *testing.T) {
-		renderedVersion := "1"
+			tc.setupMocks(
+				mockPriorityQueue,
+				mockReadWriter,
+				mockClient,
+			)
 
-		renderedDesiredSpec := createRenderedTestSpec(image)
-		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
-
-		rollbackSpec, err := createEmptyTestSpec()
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
-
-		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: renderedVersion}
-		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
-
-		specResult, _, err := s.GetDesired(ctx)
-		require.NoError(err)
-		require.Equal(apiResponse, specResult)
-	})
-
-	t.Run("error when writing the desired spec fails", func(t *testing.T) {
-		renderedDesiredSpec := createRenderedTestSpec(image)
-		marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
-
-		rollbackSpec, err := createEmptyTestSpec()
-		require.NoError(err)
-		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(rollbackSpec, nil)
-
-		// API is returning a rendered version that is different from the read desired spec
-		apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "5"}
-		mockClient.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
-
-		// The difference results in a write call for the desired spec
-		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
-
-		_, _, err = s.GetDesired(ctx)
-		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
-	})
+			specResult, _, err := s.GetDesired(ctx)
+			if tc.expectedError != nil {
+				require.ErrorIs(err, tc.expectedError)
+				require.Nil(specResult)
+				return
+			}
+			require.NoError(err)
+			require.NotNil(specResult)
+			require.Equal(tc.expectedSpec, specResult)
+		})
+	}
 }
 
 func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
@@ -871,7 +908,7 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 
 	deviceName := "test-device"
 	mockClient := client.NewMockManagement(ctrl)
-	s := &SpecManager{
+	s := &manager{
 		deviceName:       deviceName,
 		managementClient: mockClient,
 	}
@@ -934,7 +971,7 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 func Test_pathFromType(t *testing.T) {
 	require := require.New(t)
 
-	s := &SpecManager{
+	s := &manager{
 		currentPath:  "test/current.json",
 		desiredPath:  "test/desired.json",
 		rollbackPath: "test/rollback.json",
@@ -983,121 +1020,62 @@ func Test_pathFromType(t *testing.T) {
 	}
 }
 
-func Test_getNextRenderedVersion(t *testing.T) {
-	require := require.New(t)
-	testCases := []struct {
-		name                string
-		renderedVersion     string
-		nextRenderedVersion string
-		expectedError       error
-	}{
-		{
-			name:                "empty rendered version returns an empty string",
-			renderedVersion:     "",
-			nextRenderedVersion: "",
-		},
-		{
-			name:                "increments the rendered version",
-			renderedVersion:     "1",
-			nextRenderedVersion: "2",
-		},
-		{
-			name:            "errors when the rendered version cannot be parsed",
-			renderedVersion: "not-a-number",
-			expectedError:   errors.ErrParseRenderedVersion,
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			nextVersion, err := getNextRenderedVersion(testCase.renderedVersion)
-
-			if testCase.expectedError != nil {
-				require.ErrorIs(err, testCase.expectedError)
-				return
-			}
-
-			require.NoError(err)
-			require.Equal(testCase.nextRenderedVersion, nextVersion)
-		})
-	}
-}
-
 func Test_getRenderedVersion(t *testing.T) {
 	require := require.New(t)
-
-	s := &SpecManager{
-		log: log.NewPrefixLogger("test"),
-	}
-
 	testCases := []struct {
 		name                    string
 		currentRenderedVersion  string
 		desiredRenderedVersion  string
-		rollbackRenderedVersion string
-		expectedReturnValue     string
-		expectedError           error
+		desiredIsFailed         bool
+		expectedRenderedVersion string
 	}{
 		{
-			name:                   "no current rendered version returns an empty string",
-			currentRenderedVersion: "",
-			expectedReturnValue:    "",
+			name:                    "no current rendered version returns an empty string",
+			currentRenderedVersion:  "",
+			expectedRenderedVersion: "",
 		},
 		{
-			name:                    "all versions are equal",
-			currentRenderedVersion:  "1",
-			desiredRenderedVersion:  "1",
-			rollbackRenderedVersion: "1",
-			expectedReturnValue:     "2",
-		},
-		{
-			name:                    "current not equal to rollback",
-			currentRenderedVersion:  "1",
-			desiredRenderedVersion:  "1",
-			rollbackRenderedVersion: "3",
-			expectedReturnValue:     "1",
-		},
-		{
-			name:                    "desired not equal to rollback",
-			currentRenderedVersion:  "1",
-			desiredRenderedVersion:  "3",
-			rollbackRenderedVersion: "1",
-			expectedReturnValue:     "1",
-		},
-		{
-			name:                    "current not equal to desired or rollback",
-			currentRenderedVersion:  "3",
-			desiredRenderedVersion:  "1",
-			rollbackRenderedVersion: "1",
-			expectedReturnValue:     "3",
-		},
-		{
-			name:                    "all versions are different",
+			name:                    "desired is failed",
 			currentRenderedVersion:  "1",
 			desiredRenderedVersion:  "2",
-			rollbackRenderedVersion: "3",
-			expectedReturnValue:     "1",
+			desiredIsFailed:         true,
+			expectedRenderedVersion: "2",
 		},
 		{
-			name:                    "invalid versions",
-			currentRenderedVersion:  "one",
-			desiredRenderedVersion:  "one",
-			rollbackRenderedVersion: "one",
-			expectedError:           errors.ErrParseRenderedVersion,
+			name:                    "reconciled",
+			currentRenderedVersion:  "1",
+			desiredRenderedVersion:  "1",
+			expectedRenderedVersion: "1",
+		},
+		{
+			name:                    "current and desired skew",
+			currentRenderedVersion:  "1",
+			desiredRenderedVersion:  "3",
+			desiredIsFailed:         true,
+			expectedRenderedVersion: "3",
 		},
 	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			renderedVersion, err := s.getRenderedVersion()
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockPriorityQueue := NewMockPriorityQueue(ctrl)
 
-			if testCase.expectedError != nil {
-				require.ErrorIs(err, testCase.expectedError)
-				return
+			s := &manager{
+				log:   log.NewPrefixLogger("test"),
+				queue: mockPriorityQueue,
 			}
 
-			require.NoError(err)
-			require.Equal(testCase.expectedReturnValue, renderedVersion)
+			s.currentRenderedVersion = tt.currentRenderedVersion
+			s.desiredRenderedVersion = tt.desiredRenderedVersion
+
+			var isFailed bool
+			if tt.desiredIsFailed {
+				isFailed = true
+			}
+			mockPriorityQueue.EXPECT().IsVersionFailed(gomock.Any()).Return(isFailed)
+			renderedVersion := s.getRenderedVersion()
+			require.Equal(tt.expectedRenderedVersion, renderedVersion)
 		})
 	}
 }
