@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"crypto/rand"
 	"path/filepath"
 	"testing"
 
@@ -120,7 +121,43 @@ var _ = Describe("cli operation", func() {
 
 	})
 
+	Context("certificate generation per user", func() {
+		It("should have worked, and we can have a certificate", func() {
+			out, err := harness.CLI("certificate", "request", "-n", randString(5))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("certificate is ready"))
+		})
+	})
+
+	Context("list devices", func() {
+		It("Should let you list devices", func() {
+			out, err := harness.CLI("get", "devices")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Fleet/default"))
+		})
+	})
+
+	Context("list fleets", func() {
+		It("Should let you list fleets", func() {
+			out, err := harness.CLI("get", "fleets")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("e2e-test-fleet"))
+		})
+	})
 })
+
+func randString(n int) string {
+	const alphanum = "abcdefghijklmnopqrstuvwxyz"
+	var bytes = make([]byte, n)
+	if _, err := rand.Read(bytes); err != nil {
+		Expect(err).ToNot(HaveOccurred())
+		return ""
+	}
+	for i, b := range bytes {
+		bytes[i] = alphanum[b%byte(len(alphanum))]
+	}
+	return string(bytes)
+}
 
 const completeFleetYaml = `
 apiVersion: v1alpha1
