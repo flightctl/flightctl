@@ -1,11 +1,10 @@
-{{- if .Values.prometheus.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-prometheus
   name: flightctl-prometheus
-  namespace: {{ .Release.Namespace }}
+  namespace:  {{ .Values.prometheus.namespace }}
 spec:
   replicas: 1
   selector:
@@ -20,7 +19,7 @@ spec:
     spec:
       containers:
         - name: flightctl-prometheus
-          image: quay.io/prometheus/prometheus:v2.54.0
+          image: {{ .Values.prometheus.image }}
           ports:
             - containerPort: 9090
               name: service-api
@@ -34,4 +33,3 @@ spec:
         - name: flightctl-prometheus-config
           configMap:
             name: flightctl-prometheus-config
-{{- end }}
