@@ -30,21 +30,13 @@ var (
 	}
 
 	castTypeResolution = map[string]SelectorFieldType{
-		"boolean":     Bool,
-		"integer":     Int,
-		"smallint":    SmallInt,
-		"bigInt":      BigInt,
-		"float":       Float,
-		"timestamp":   Time,
-		"boolean[]":   BoolArray,
-		"integer[]":   IntArray,
-		"smallint[]":  SmallIntArray,
-		"bigint[]":    BigIntArray,
-		"real[]":      FloatArray,
-		"text[]":      TextArray,
-		"timestamp[]": TimestampArray,
-		"text":        String,
-		"string":      String,
+		"boolean":   Bool,
+		"integer":   Int,
+		"smallint":  SmallInt,
+		"bigInt":    BigInt,
+		"float":     Float,
+		"timestamp": Time,
+		"string":    String,
 	}
 )
 
@@ -148,7 +140,7 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 
 					// Original logic if no "::" is present
 					return &SelectorField{
-						DBName:      string(fn),
+						DBName:      jsonbField,
 						Type:        Jsonb,
 						DataType:    schemaField.DataType,
 						StructField: schemaField.StructField,

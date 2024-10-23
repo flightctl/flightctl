@@ -28,7 +28,7 @@ type Model struct {
 
 func (m *Model) ResolveFieldName(field SelectorFieldName) []SelectorFieldName {
 	if strings.EqualFold("manualfield", string(field)) {
-		return []SelectorFieldName{"field6", "field16"}
+		return []SelectorFieldName{"field6", "field16.val::string"}
 	}
 	return nil
 }
@@ -103,21 +103,25 @@ func TestOperations(t *testing.T) {
 		"field7!=2024-10-14T22:47:31+03:00": "OR(ISNULL(K(field7)),NOTEQ(K(field7),V(2024-10-14T22:47:31+03:00)))", //NotEquals
 
 		// JSONB
-		"field16=text":              "EQ(K(field16),V(text))",                           //Equals
-		"field16.some.key.val=text": "EQ(K(field16.some.key.val),V(text))",              //Equals
-		"field16==text":             "EQ(K(field16),V(text))",                           //DoubleEquals
-		"field16!=text":             "OR(ISNULL(K(field16)),NOTEQ(K(field16),V(text)))", //NotEquals
+		"field16=\"text\"":              "EQ(K(field16),V(\"text\"))",                             //Equals
+		"field16={\"some\":\"text\"}":   "EQ(K(field16),V({\"some\":\"text\"}))",                  //Equals
+		"field16.some.key.val=\"text\"": "EQ(K(field16 -> 'some' -> 'key' -> 'val'),V(\"text\"))", //Equals
+		"field16==\"text\"":             "EQ(K(field16),V(\"text\"))",                             //DoubleEquals
+		"field16!=\"text\"":             "OR(ISNULL(K(field16)),NOTEQ(K(field16),V(\"text\")))",   //NotEquals
 
 		// JSONB casting
-		"field16.test::boolean=true":  "EQ(CAST(K(field16.test), boolean),V(true))",                                //Equals
-		"field16.test::boolean==true": "EQ(CAST(K(field16.test), boolean),V(true))",                                //DoubleEquals
-		"field16.test::boolean!=true": "OR(ISNULL(K(field16.test)),NOTEQ(CAST(K(field16.test), boolean),V(true)))", //NotEquals
+		"field16.test::boolean=true":  "EQ(CAST(K(field16 ->> 'test'), boolean),V(true))",                                      //Equals
+		"field16.test::boolean==true": "EQ(CAST(K(field16 ->> 'test'), boolean),V(true))",                                      //DoubleEquals
+		"field16.test::boolean!=true": "OR(ISNULL(K(field16 ->> 'test')),NOTEQ(CAST(K(field16 ->> 'test'), boolean),V(true)))", //NotEquals
+		"field16.test::string=text":   "EQ(K(field16 ->> 'test'),V(text))",                                                     //Equals
+		"field16.test::string==text":  "EQ(K(field16 ->> 'test'),V(text))",                                                     //DoubleEquals
+		"field16.test::string!=text":  "OR(ISNULL(K(field16 ->> 'test')),NOTEQ(K(field16 ->> 'test'),V(text)))",                //NotEquals
 
 		// Multiple requirements
 		"field6!=text1,field6!=text2": "AND(OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text1))), OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text2))))", // NotEquals
 
 		// Manual resolved fields
-		"manualfield=test": "OR(EQ(K(field6),V(test)),EQ(K(field16),V(test)))",
+		"manualfield=test": "OR(EQ(K(field6),V(test)),EQ(K(field16 ->> 'val'),V(test)))",
 	}
 
 	testBadOperations := []string{
