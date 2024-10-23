@@ -35,7 +35,7 @@ type TemplateVersionPopulateLogic struct {
 	resourceRef        ResourceReference
 	templateVersion    *api.TemplateVersion
 	fleet              *api.Fleet
-	frozenConfig       []api.TemplateVersionStatus_Config_Item
+	frozenConfig       []api.ConfigProviderSpec
 	frozenApplications []api.ApplicationSpec
 }
 
@@ -59,7 +59,7 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 
 	// freeze the config source
 	if t.fleet.Spec.Template.Spec.Config != nil {
-		t.frozenConfig = []api.TemplateVersionStatus_Config_Item{}
+		t.frozenConfig = []api.ConfigProviderSpec{}
 
 		for i := range *t.fleet.Spec.Template.Spec.Config {
 			configItem := (*t.fleet.Spec.Template.Spec.Config)[i]
@@ -110,23 +110,23 @@ func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Co
 	return nil
 }
 
-func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, configItem *api.DeviceSpec_Config_Item) error {
-	disc, err := configItem.Discriminator()
+func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec) error {
+	configType, err := configItem.Type()
 	if err != nil {
-		return fmt.Errorf("failed getting discriminator: %w", err)
+		return fmt.Errorf("failed getting config type: %w", err)
 	}
 
-	switch disc {
-	case string(api.TemplateDiscriminatorGitConfig):
+	switch configType {
+	case api.GitConfigProviderType:
 		return t.handleGitConfig(ctx, configItem)
-	case string(api.TemplateDiscriminatorKubernetesSec):
+	case api.KubernetesSecretProviderType:
 		return t.handleK8sConfig(configItem)
-	case string(api.TemplateDiscriminatorInlineConfig):
+	case api.InlineConfigProviderType:
 		return t.handleInlineConfig(configItem)
-	case string(api.TemplateDiscriminatorHttpConfig):
+	case api.HttpConfigProviderType:
 		return t.handleHttpConfig(configItem)
 	default:
-		return fmt.Errorf("unsupported discriminator %s", disc)
+		return fmt.Errorf("unsupported config type %q", configType)
 	}
 }
 
@@ -153,7 +153,7 @@ func (t *TemplateVersionPopulateLogic) handleImageApplicationProvider(app api.Ap
 }
 
 // Translate branch or tag into hash
-func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, configItem *api.DeviceSpec_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec) error {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
@@ -180,7 +180,7 @@ func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, conf
 
 	// Add this git hash into the frozen config
 	gitSpec.GitRef.TargetRevision = hash
-	newConfig := &api.TemplateVersionStatus_Config_Item{}
+	newConfig := &api.ConfigProviderSpec{}
 	err = newConfig.FromGitConfigProviderSpec(gitSpec)
 	if err != nil {
 		return fmt.Errorf("failed creating git config from item %s: %w", gitSpec.Name, err)
@@ -190,7 +190,7 @@ func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, conf
 	return nil
 }
 
-func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpec_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.ConfigProviderSpec) error {
 	if t.k8sClient == nil {
 		return errors.New("k8s client is not available: skipping handling kubernetes secret configuration")
 	}
@@ -225,7 +225,7 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 		files = append(files, file)
 	}
 
-	newConfig := api.TemplateVersionStatus_Config_Item{}
+	newConfig := api.ConfigProviderSpec{}
 	inlineSpec := api.InlineConfigProviderSpec{
 		Inline: files,
 		Name:   k8sSpec.Name,
@@ -237,10 +237,10 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceSpe
 	return nil
 }
 
-func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.DeviceSpec_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.ConfigProviderSpec) error {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
-		return fmt.Errorf("failed getting config item as InlineConfigProviderSpec: %w", err)
+		return fmt.Errorf("failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName)
 	}
 
 	for _, file := range inlineSpec.Inline {
@@ -254,7 +254,7 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	}
 
 	// Just add the inline config as-is
-	newConfig := &api.TemplateVersionStatus_Config_Item{}
+	newConfig := &api.ConfigProviderSpec{}
 	err = newConfig.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
 		return fmt.Errorf("failed creating inline config from item %s: %w", inlineSpec.Name, err)
@@ -264,7 +264,7 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	return nil
 }
 
-func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceSpec_Config_Item) error {
+func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.ConfigProviderSpec) error {
 	httpSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
 		return fmt.Errorf("failed getting config item as HttpConfigProviderSpec: %w", err)
@@ -272,7 +272,7 @@ func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceSp
 
 	// Just add the HTTP config as-is
 	// TODO(MGMT-18498): Freeze the config
-	newConfig := &api.TemplateVersionStatus_Config_Item{}
+	newConfig := &api.ConfigProviderSpec{}
 	err = newConfig.FromHttpConfigProviderSpec(httpSpec)
 	if err != nil {
 		return fmt.Errorf("failed creating HTTP config from item %s: %w", httpSpec.Name, err)
@@ -288,7 +288,6 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 		t.log.Errorf("failed syncing template to template version: %v", validationErr)
 	} else {
 		t.templateVersion.Status.Os = t.fleet.Spec.Template.Spec.Os
-		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config = &t.frozenConfig
 		t.templateVersion.Status.Hooks = t.fleet.Spec.Template.Spec.Hooks
