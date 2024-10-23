@@ -2,6 +2,7 @@ package selector
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"regexp"
@@ -98,6 +99,11 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 
 		resolvedTokens := queryparser.NewTokenSet()
 		for _, resolvedField := range resolvedFields {
+			if resolvedField.IsJSONBCast() && resolvedField.Type.IsArray() {
+				return nil, fmt.Errorf("cannot cast JSONB to an array of type %q; array casting from JSONB is unsupported",
+					resolvedField.Type.String())
+			}
+
 			fieldToken, err := fs.createFieldToken(resolvedField)
 			if err != nil {
 				return nil, err
@@ -170,7 +176,7 @@ func (fs *fieldSelector) createOperatorToken(operator selection.Operator, select
 			return queryparser.NewTokenSet().AddFunctionToken("OR", func() queryparser.TokenSet {
 				return queryparser.NewTokenSet().AddFunctionToken("ISNULL", func() queryparser.TokenSet { return fieldToken }).
 					AddFunctionToken(op, func() queryparser.TokenSet {
-						if selectorField.DataType == "jsonb" && selectorField.Type != Jsonb {
+						if selectorField.IsJSONBCast() && selectorField.Type != String {
 							return queryparser.NewTokenSet().AddFunctionToken("CAST", func() queryparser.TokenSet {
 								return queryparser.NewTokenSet().Append(fieldToken).AddValueToken(selectorField.Type.String())
 							}).Append(valueToken)
@@ -180,7 +186,7 @@ func (fs *fieldSelector) createOperatorToken(operator selection.Operator, select
 			})
 		default:
 			return queryparser.NewTokenSet().AddFunctionToken(op, func() queryparser.TokenSet {
-				if selectorField.DataType == "jsonb" && selectorField.Type != Jsonb {
+				if selectorField.IsJSONBCast() && selectorField.Type != String {
 					return queryparser.NewTokenSet().AddFunctionToken("CAST", func() queryparser.TokenSet {
 						return queryparser.NewTokenSet().Append(fieldToken).AddValueToken(selectorField.Type.String())
 					}).Append(valueToken)
@@ -191,31 +197,38 @@ func (fs *fieldSelector) createOperatorToken(operator selection.Operator, select
 	})
 }
 
-func (fs *fieldSelector) resolveQuery(operator selection.Operator, selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
-	op, exists := operatorsMap[operator]
-	if !exists {
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("unknown operator %q", operator))
-	}
-
-	switch selectorField.Type {
-	case Int, Float, SmallInt, BigInt:
-		return fs.applyNumbersOperator(operator, resolve)
-	case Bool:
-		return fs.applyBooleanOperator(operator, resolve)
-	case Time:
-		return fs.applyTimestampOperator(operator, resolve)
-	case IntArray, SmallIntArray, BigIntArray, FloatArray, BoolArray, TimestampArray, TextArray:
-		return fs.applyArrayOperator(operator, resolve)
-	case String, Jsonb:
-		return resolve(op), nil
-	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("unsupported type %q for operator %q", selectorField.Type.String(), operator))
-	}
-}
+var fieldRegex = regexp.MustCompile(`^[a-zA-Z0-9._]+$`)
 
 func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	if !fieldRegex.MatchString(selectorField.DBName) {
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput,
+			fmt.Errorf("invalid field name: %s", selectorField.DBName))
+	}
+
+	if selectorField.DataType == "jsonb" {
+		var params strings.Builder
+
+		parts := strings.Split(selectorField.DBName, ".")
+		params.WriteString(parts[0])
+
+		if len(parts) > 1 {
+			for i, part := range parts[1:] {
+				// If it's the last part and the field should be cast to text, use '->>'
+				// This happens when the DataType is 'jsonb' but the expected Type is not Jsonb,
+				// indicating that the field will use casting and we need to handle the field as plain text.
+				if i == len(parts[1:])-1 && selectorField.IsJSONBCast() {
+					params.WriteString(" ->> '")
+				} else {
+					// Otherwise, use '->' to traverse the JSONB structure.
+					params.WriteString(" -> '")
+				}
+				params.WriteString(part)
+				params.WriteString("'")
+			}
+		}
+		return resolve(params.String()), nil
+	}
+
 	return resolve(selectorField.DBName), nil
 }
 
@@ -266,12 +279,44 @@ func (fs *fieldSelector) resolveValue(selectorField *SelectorField, value string
 		}
 		return resolve(v), nil
 
-	case String, TextArray, Jsonb:
+	case String, TextArray:
+		return resolve(value), nil
+
+	case Jsonb:
+		if !json.Valid([]byte(value)) {
+			return nil, fmt.Errorf("failed to parse JSON value %q", value)
+		}
 		return resolve(value), nil
 
 	default:
 		return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 			fmt.Errorf("unknown type"))
+	}
+}
+
+func (fs *fieldSelector) resolveQuery(operator selection.Operator, selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	_, exists := operatorsMap[operator]
+	if !exists {
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("unknown operator %q", operator))
+	}
+
+	switch selectorField.Type {
+	case Int, Float, SmallInt, BigInt:
+		return fs.applyNumbersOperator(operator, resolve)
+	case Bool:
+		return fs.applyBooleanOperator(operator, resolve)
+	case Time:
+		return fs.applyTimestampOperator(operator, resolve)
+	case IntArray, SmallIntArray, BigIntArray, FloatArray, BoolArray, TimestampArray, TextArray:
+		return fs.applyArrayOperator(operator, resolve)
+	case Jsonb:
+		return fs.applyJsonbOperator(operator, resolve)
+	case String:
+		return fs.applyStringOperator(operator, selectorField, resolve)
+	default:
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("unsupported type %q for operator %q", selectorField.Type.String(), operator))
 	}
 }
 
@@ -326,41 +371,41 @@ func (fs *fieldSelector) applyBooleanOperator(operator selection.Operator, resol
 	}
 }
 
-var fieldRegex = regexp.MustCompile(`^[a-zA-Z0-9._]+$`)
+// applyJsonbOperator applies the appropriate operator for JSONB fields.
+func (fs *fieldSelector) applyJsonbOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	switch operator {
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn,
+		selection.Exists, selection.DoesNotExist:
+		return resolve(operatorsMap[operator]), nil
+	default:
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+			fmt.Errorf("operator %q is unsupported for type JSONB", operator))
+	}
+}
 
+// applyStringOperator applies the appropriate operator for text fields.
+func (fs *fieldSelector) applyStringOperator(operator selection.Operator, selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	switch operator {
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn,
+		selection.Exists, selection.DoesNotExist:
+		return resolve(operatorsMap[operator]), nil
+	default:
+		if selectorField.IsJSONBCast() {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
+				fmt.Errorf("operator %q is unsupported for type JSONB", operator))
+		}
+		return nil, fmt.Errorf("operator %q is unsupported for type string", operator)
+	}
+}
+
+// This function was overridden to pass the column name verification of the infrastructure.
+// It is safe since we have already performed all the checks before calling this function.
 func (fs *fieldSelector) queryField(args ...string) (*sql.FunctionResult, error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("expected one argument")
 	}
 
-	field := strings.TrimSpace(args[0])
-	if !fieldRegex.MatchString(field) {
-		return nil, fmt.Errorf("the field name contains invalid characters")
-	}
-
 	return &sql.FunctionResult{
-		Query: createParamsFromKey(field),
+		Query: args[0],
 	}, nil
-}
-
-// createParamsFromKey constructs a SQL query parameter string from a dot-separated key.
-// Intermediate parts are prefixed with the -> operator for JSONB, and the last part is prefixed with the ->> operator for JSONB fetching text.
-func createParamsFromKey(key string) string {
-	parts := strings.Split(key, ".")
-	if len(parts) == 0 {
-		return ""
-	}
-
-	var params strings.Builder
-	for i, part := range parts {
-		if i == 0 {
-			params.WriteString(part)
-		} else if i == len(parts)-1 {
-			params.WriteString(fmt.Sprintf(" ->> '%s'", part))
-		} else {
-			params.WriteString(fmt.Sprintf(" -> '%s'", part))
-		}
-	}
-
-	return params.String()
 }

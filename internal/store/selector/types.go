@@ -42,13 +42,6 @@ type SelectorFieldName string
 
 type SelectorFieldType int
 
-type SelectorField struct {
-	DBName      string
-	Type        SelectorFieldType
-	DataType    gormschema.DataType
-	StructField reflect.StructField
-}
-
 func (t SelectorFieldType) IsArray() bool {
 	switch t {
 	case BoolArray, IntArray, SmallIntArray, BigIntArray, FloatArray, TextArray, TimestampArray:
@@ -93,4 +86,16 @@ func (t SelectorFieldType) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+type SelectorField struct {
+	DBName      string
+	Type        SelectorFieldType
+	DataType    gormschema.DataType
+	StructField reflect.StructField
+}
+
+// IsJSONBCast returns true if the field's data type is 'jsonb' in the database and the expected type is not Jsonb.
+func (sf *SelectorField) IsJSONBCast() bool {
+	return sf.DataType == "jsonb" && sf.Type != Jsonb
 }
