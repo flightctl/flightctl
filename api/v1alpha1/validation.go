@@ -25,12 +25,7 @@ func (r Device) Validate() []error {
 		}
 		if r.Spec.Config != nil {
 			for _, config := range *r.Spec.Config {
-				value, err := config.ValueByDiscriminator()
-				if err != nil {
-					allErrs = append(allErrs, fmt.Errorf("invalid configType: %s", err))
-				} else {
-					allErrs = append(allErrs, value.(Validator).Validate()...)
-				}
+				allErrs = append(allErrs, config.Validate()...)
 			}
 		}
 		if r.Spec.Applications != nil {
@@ -41,12 +36,6 @@ func (r Device) Validate() []error {
 				allErrs = append(allErrs, resource.Validate()...)
 			}
 		}
-		if r.Spec.Containers != nil {
-			for i, matchPattern := range *r.Spec.Containers.MatchPatterns {
-				matchPattern := matchPattern
-				allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.containers.matchPatterns[%d]", i), 1, 256, nil, "")...)
-			}
-		}
 		if r.Spec.Systemd != nil {
 			for i, matchPattern := range *r.Spec.Systemd.MatchPatterns {
 				matchPattern := matchPattern
@@ -54,6 +43,53 @@ func (r Device) Validate() []error {
 			}
 		}
 	}
+	return allErrs
+}
+
+func (c ConfigProviderSpec) Validate() []error {
+	allErrs := []error{}
+
+	// validate the config provider type
+	t, err := c.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case GitConfigProviderType:
+		provider, err := c.AsGitConfigProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			break
+		}
+		allErrs = append(allErrs, provider.Validate()...)
+	case HttpConfigProviderType:
+		provider, err := c.AsHttpConfigProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			break
+		}
+		allErrs = append(allErrs, provider.Validate()...)
+	case InlineConfigProviderType:
+		provider, err := c.AsInlineConfigProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			break
+		}
+		allErrs = append(allErrs, provider.Validate()...)
+	case KubernetesSecretProviderType:
+		provider, err := c.AsKubernetesSecretProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			break
+		}
+		allErrs = append(allErrs, provider.Validate()...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
+	}
+
 	return allErrs
 }
 
@@ -231,12 +267,7 @@ func (r Fleet) Validate() []error {
 
 	if r.Spec.Template.Spec.Config != nil {
 		for _, config := range *r.Spec.Template.Spec.Config {
-			value, err := config.ValueByDiscriminator()
-			if err != nil {
-				allErrs = append(allErrs, fmt.Errorf("invalid configType: %s", err))
-			} else {
-				allErrs = append(allErrs, value.(Validator).Validate()...)
-			}
+			allErrs = append(allErrs, config.Validate()...)
 		}
 	}
 

@@ -20,6 +20,9 @@
 ## @param global.internalNamespace Namespace where internal components are deployed
 ## @param global.clusterLevelSecretAccess Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
+## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
+## @param global.nodePorts Node port numbers for FCTL services
+
 
 global:
   target: "standalone" # standalone, acm
@@ -40,6 +43,13 @@ global:
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
+  exposeServicesMethod: "route" # route, nodePort
+  nodePorts:
+    api: 3443
+    agent: 7443
+    grpc: 7444
+    ui: 9000
+    keycloak: 8080
 
 
 ## @section Compoment specific parameters
@@ -56,21 +66,12 @@ db:
   masterUser: admin
   user: demouser
   userPassword: demopass
-  nodePort: ""
 api:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-api
     pullPolicy: Always
     tag: ""
-  nodePorts:  # used for local development
-    api: ""
-    agent: ""
-    grpc: ""
-  hostNames:
-    api: ""
-    agent: ""
-    grpc: ""
   agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
   baseUIUrl: "" # ui.flightctl.example.com
 worker:

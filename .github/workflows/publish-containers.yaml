@@ -7,9 +7,6 @@ on:
       - main
     tags:
       - '*'
-    paths-ignore:
-      - 'README.md'
-      - 'docs/**'
 
 env:
   QUAY_ORG: quay.io/flightctl
