@@ -1,13 +1,13 @@
-{{- if .Values.prometheus.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-prometheus-config
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Values.prometheus.namespace }}
 data:
   prometheus.yml: |-
     global:
       scrape_interval: 15s
+
     scrape_configs:
       - job_name: "flightctl-services"
 
@@ -19,4 +19,8 @@ data:
             action: keep
             regex: 1569[0-2]
         scheme: http
-{{- end }}
+
+      - job_name: "node-exporter"
+        static_configs:
+          - targets: ['localhost:9100']
+        scheme: http
