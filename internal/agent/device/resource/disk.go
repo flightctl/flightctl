@@ -121,7 +121,7 @@ func (m *DiskMonitor) getPath() string {
 
 func (m *DiskMonitor) sync(ctx context.Context, usage *DiskUsage) {
 	if !m.hasAlertRules() {
-		m.log.Debug("Skipping disk usage sync as there are no alert rules")
+		m.log.Debug("Skipping disk usage sync: no alert rules")
 		return
 	}
 

@@ -198,8 +198,8 @@ func TestListenForEvents(t *testing.T) {
 						t.Logf("app has no status: %s", testApp.Name())
 						return false
 					}
-					if tc.expectedSummary != summary {
-						t.Logf("app %s expected summary %s but got %s", testApp.Name(), tc.expectedSummary, summary)
+					if tc.expectedSummary != summary.Status {
+						t.Logf("app %s expected summary %s but got %s", testApp.Name(), tc.expectedSummary, summary.Status)
 						return false
 					}
 					// ensure the app has the expected number of containers

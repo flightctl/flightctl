@@ -4,15 +4,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -185,7 +187,7 @@ func (m *PodmanMonitor) update(app Application) error {
 	appName := app.Name()
 	existingApp, ok := m.apps[appName]
 	if !ok {
-		return ErrNotFound
+		return errors.ErrAppNotFound
 	}
 
 	if updated := existingApp.SetEnvVars(app.EnvVars()); updated {
@@ -268,13 +270,14 @@ func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	return actions
 }
 
-func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var errs []error
-	var summary v1alpha1.ApplicationsSummaryStatusType
+	var summary v1alpha1.DeviceApplicationsSummaryStatus
 	statuses := make([]v1alpha1.DeviceApplicationStatus, 0, len(m.apps))
+	var unstarted []string
 	for _, app := range m.apps {
 		appStatus, appSummary, err := app.Status()
 		if err != nil {
@@ -284,30 +287,35 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.A
 		statuses = append(statuses, *appStatus)
 
 		// phases can get worse but not better
-		switch appSummary {
+		switch appSummary.Status {
 		case v1alpha1.ApplicationsSummaryStatusError:
-			summary = v1alpha1.ApplicationsSummaryStatusError
+			summary.Status = v1alpha1.ApplicationsSummaryStatusError
+			summary.Info = nil
 		case v1alpha1.ApplicationsSummaryStatusDegraded:
 			// ensure we don't override Error status with Degraded
-			if summary != v1alpha1.ApplicationsSummaryStatusError {
-				summary = v1alpha1.ApplicationsSummaryStatusDegraded
+			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
+				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+				summary.Info = nil
 			}
 		case v1alpha1.ApplicationsSummaryStatusHealthy:
 			// ensure we don't override Error or Degraded status with Healthy
-			if summary != v1alpha1.ApplicationsSummaryStatusError && summary != v1alpha1.ApplicationsSummaryStatusDegraded {
-				summary = v1alpha1.ApplicationsSummaryStatusHealthy
+			if summary.Status != v1alpha1.ApplicationsSummaryStatusError && summary.Status != v1alpha1.ApplicationsSummaryStatusDegraded {
+				summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+				summary.Info = nil
 			}
 		case v1alpha1.ApplicationsSummaryStatusUnknown:
-			if summary != v1alpha1.ApplicationsSummaryStatusError && summary != v1alpha1.ApplicationsSummaryStatusDegraded {
-				summary = v1alpha1.ApplicationsSummaryStatusUnknown
+			unstarted = append(unstarted, app.Name())
+			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
+				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+				summary.Info = util.StrToPtr("Not started: " + strings.Join(unstarted, ", "))
 			}
 		default:
-			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary))
+			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary.Status))
 		}
 	}
 
 	if len(statuses) == 0 {
-		summary = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
 	}
 
 	if len(errs) > 0 {

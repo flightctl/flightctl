@@ -175,7 +175,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		backoff,
 		a.log,
 		a.config.DefaultLabels,
-		bootcClient,
 	)
 
 	// bootstrap

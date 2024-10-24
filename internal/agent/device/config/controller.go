@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 
+	cerrors "github.com/coreos/ignition/v2/config/shared/errors"
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -40,7 +41,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 	defer c.log.Debug("Finished syncing device configuration")
 
 	if desired.Config != nil {
-		c.log.Debug("syncing config data")
+		c.log.Debug("Syncing config data")
 		return c.ensureConfigData(ctx, util.FromPtr(current.Config), util.FromPtr(desired.Config))
 	} else {
 		// the desired config is nil, so we should remove any files that are present in the current config
@@ -78,11 +79,15 @@ func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string
 func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredData string) error {
 	currentIgnition, err := ParseAndConvertConfigFromStr(currentData)
 	if err != nil {
-		c.log.Warnf("failed to parse current ignition: %+v", err)
+		if errors.Is(err, cerrors.ErrEmpty) {
+			c.log.Debugf("Current config is empty")
+		} else {
+			c.log.Warnf("Failed to parse current ignition: %+v", err)
+		}
 	}
 	desiredIgnition, err := ParseAndConvertConfigFromStr(desiredData)
 	if err != nil {
-		c.log.Warnf("failed to parse desired config: %+v", err)
+		c.log.Warnf("Failed to parse desired config: %+v", err)
 		return err
 	}
 
@@ -143,7 +148,7 @@ func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.
 			c.hookManager.OnBeforeUpdate(ctx, file.Path)
 		}
 		if err := managedFile.Write(); err != nil {
-			c.log.Warnf("failed to write file %s: %v", file.Path, err)
+			c.log.Warnf("Failed to write file %s: %v", file.Path, err)
 			// in order to create clearer error in status in case we fail in temp file creation
 			// we don't want to return temp filename but rather change the error message to return given file path
 			var err2 *fs.PathError

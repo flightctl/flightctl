@@ -140,7 +140,7 @@ func TestApplicationStatus(t *testing.T) {
 			require.Equal(status.Ready, tt.expectedReady)
 			require.Equal(status.Restarts, tt.expectedRestarts)
 			require.Equal(status.Status, tt.expectedStatus)
-			require.Equal(summary, tt.expectedSummaryStatus)
+			require.Equal(summary.Status, tt.expectedSummaryStatus)
 		})
 	}
 

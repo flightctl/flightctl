@@ -56,8 +56,8 @@ func NewManager(
 }
 
 func (m *ResourceManager) Run(ctx context.Context) {
-	m.log.Infof("Starting resource manager...")
-	defer m.log.Infof("Resource manager stopped")
+	m.log.Debug("Starting resource manager")
+	defer m.log.Debug("Resource manager stopped")
 
 	go m.diskMonitor.Run(ctx)
 	go m.cpuMonitor.Run(ctx)
@@ -97,7 +97,7 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 		errs = append(errs, err)
 	}
 	if updated {
-		m.log.Infof("Reset CPU monitor alerts")
+		m.log.Debug("Reset CPU monitor alerts")
 	}
 
 	// disk
@@ -110,7 +110,7 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 		errs = append(errs, err)
 	}
 	if updated {
-		m.log.Infof("Reset disk monitor alerts")
+		m.log.Debug("Reset disk monitor alerts")
 	}
 
 	// memory
@@ -123,7 +123,7 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 		errs = append(errs, err)
 	}
 	if updated {
-		m.log.Infof("Reset memory monitor alerts")
+		m.log.Debug("Reset memory monitor alerts")
 	}
 
 	if len(errs) > 0 {

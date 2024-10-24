@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -29,7 +30,7 @@ func (m *manager) Add(app Application) error {
 	case AppCompose:
 		return m.podmanMonitor.add(app)
 	default:
-		return fmt.Errorf("%w: %s", ErrorUnsupportedAppType, appType)
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 }
 
@@ -40,7 +41,7 @@ func (m *manager) Remove(app Application) error {
 	case AppCompose:
 		return m.podmanMonitor.remove(app)
 	default:
-		return fmt.Errorf("%w: %s", ErrorUnsupportedAppType, appType)
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 }
 
@@ -51,7 +52,7 @@ func (m *manager) Update(app Application) error {
 	case AppCompose:
 		return m.podmanMonitor.update(app)
 	default:
-		return fmt.Errorf("%w: %s", ErrorUnsupportedAppType, appType)
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 }
 
@@ -65,6 +66,6 @@ func (m *manager) ExecuteActions(ctx context.Context) error {
 	return nil
 }
 
-func (m *manager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (m *manager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	return m.podmanMonitor.Status()
 }

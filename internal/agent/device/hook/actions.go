@@ -12,6 +12,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -19,6 +20,9 @@ import (
 
 const (
 	DefaultHookActionTimeout = 10 * time.Second
+	// FilePathKey is a placeholder which will be replaced with the file path
+	FilePathKey = "FilePath"
+	noValueKey  = "<no value>"
 )
 
 type HookDefinition struct {
@@ -108,7 +112,7 @@ func (a *apiHookActionFactory) Create(exec executer.Executer, log *log.PrefixLog
 	case v1alpha1.SystemdActionType:
 		actionHook, err = a.createSystemdActionHook(exec, log)
 	default:
-		return nil, fmt.Errorf("%w: %s", ErrActionTypeNotFound, hookActionType)
+		return nil, fmt.Errorf("%w: %s", errors.ErrActionTypeNotFound, hookActionType)
 	}
 	return actionHook, err
 }
@@ -287,7 +291,7 @@ func replaceTokens(args string, tokens map[string]string) (string, error) {
 	if err != nil {
 		// unfortunately we can not use errors.As here, as we are working with basic error types.
 		if strings.Contains(err.Error(), "function") && strings.Contains(err.Error(), "not defined") {
-			return "", fmt.Errorf("%w, %w", ErrInvalidTokenFormat, err)
+			return "", fmt.Errorf("%w, %w", errors.ErrInvalidTokenFormat, err)
 		}
 		return "", err
 	}
@@ -300,7 +304,7 @@ func replaceTokens(args string, tokens map[string]string) (string, error) {
 	}
 	output := buf.String()
 	if strings.Contains(output, noValueKey) {
-		return "", ErrTokenNotSupported
+		return "", errors.ErrTokenNotSupported
 	}
 
 	return output, nil

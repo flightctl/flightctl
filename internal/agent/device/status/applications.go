@@ -23,7 +23,8 @@ func (a *Applications) Export(ctx context.Context, status *v1alpha1.DeviceStatus
 		return err
 	}
 
-	status.ApplicationsSummary.Status = applicationSummary
+	status.ApplicationsSummary.Status = applicationSummary.Status
+	status.ApplicationsSummary.Info = applicationSummary.Info
 	status.Applications = applicationsStatus
 	return nil
 }

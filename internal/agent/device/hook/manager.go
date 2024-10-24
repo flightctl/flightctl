@@ -2,7 +2,6 @@ package hook
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -10,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -122,7 +122,7 @@ func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpe
 				case v1alpha1.FileOperationReboot:
 					rebootMap[path] = append(rebootMap[path], actionHook)
 				default:
-					return nil, nil, nil, nil, ErrUnsupportedFilesystemOperation
+					return nil, nil, nil, nil, errors.ErrUnsupportedFilesystemOperation
 				}
 			}
 		}
