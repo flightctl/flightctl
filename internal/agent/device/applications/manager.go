@@ -66,6 +66,6 @@ func (m *manager) ExecuteActions(ctx context.Context) error {
 	return nil
 }
 
-func (m *manager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (m *manager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	return m.podmanMonitor.Status()
 }

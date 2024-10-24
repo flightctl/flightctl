@@ -59,7 +59,7 @@ type Manager interface {
 	Remove(app Application) error
 	Update(app Application) error
 	ExecuteActions(ctx context.Context) error
-	Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
+	Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 }
 
 type Application interface {
@@ -71,7 +71,7 @@ type Application interface {
 	Container(name string) (*Container, bool)
 	AddContainer(container Container)
 	RemoveContainer(name string) bool
-	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error)
+	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 }
 
 // EmbeddedProvider is a provider for embedded applications.
@@ -170,7 +170,7 @@ func (a *application[T]) RemoveContainer(name string) bool {
 	return false
 }
 
-func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
@@ -186,7 +186,7 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.A
 	}
 
 	total := len(a.containers)
-	var summary v1alpha1.ApplicationsSummaryStatusType
+	var summary v1alpha1.DeviceApplicationsSummaryStatus
 	readyStatus := strconv.Itoa(healthy) + "/" + strconv.Itoa(total)
 
 	var newStatus v1alpha1.ApplicationStatusType
@@ -194,24 +194,25 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.A
 	switch {
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusUnknown
-		summary = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
 	case isStarting(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusStarting
-		summary = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusPreparing
-		summary = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusRunning
-		summary = v1alpha1.ApplicationsSummaryStatusDegraded
+		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
 	case isErrored(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusError
-		summary = v1alpha1.ApplicationsSummaryStatusError
+		summary.Status = v1alpha1.ApplicationsSummaryStatusError
 	case isRunningHealthy(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusRunning
-		summary = v1alpha1.ApplicationsSummaryStatusHealthy
+		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
 	default:
-		return nil, v1alpha1.ApplicationsSummaryStatusUnknown, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
+		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
 	}
 
 	if a.status.Status != newStatus {
