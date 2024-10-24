@@ -77,6 +77,7 @@ func main() {
 	log.Infoln("creating agents")
 	agents, agentsFolders := createAgents(log, *numDevices, agentConfigTemplate)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
