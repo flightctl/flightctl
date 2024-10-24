@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 
@@ -76,9 +75,10 @@ func main() {
 	}
 
 	log.Infoln("creating agents")
-	agents, agentsFolders := createAgents(log, *numDevices, agentConfigTemplate)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	agents, agentsFolders := createAgents(log, *numDevices, agentConfigTemplate)
+
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -89,42 +89,40 @@ func main() {
 	}()
 
 	log.Infoln("running agents")
-	wg := new(sync.WaitGroup)
-	wg.Add(*numDevices)
 	for i := 0; i < *numDevices; i++ {
+		// stagger the start of each agent
 		time.Sleep(time.Duration(rand.Float64() * float64(agentConfigTemplate.StatusUpdateInterval))) //nolint:gosec
-		go func(i int) {
-			defer wg.Done()
-			// stagger the start of each agent
-			activeAgents.Inc()
-
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
-			go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLables)
-			err := agents[i].Run(ctx)
-			if err != nil {
-				// agent timeout waiting for enrollment approval
-				if errors.Is(err, wait.ErrWaitTimeout) {
-					log.Errorf("%s: agent timed out: %v", agents[i].GetLogPrefix(), err)
-				} else if ctx.Err() != nil {
-					// normal teardown
-					log.Infof("%s: agent stopped due to context cancellation.", agents[i].GetLogPrefix())
-				} else {
-					log.Fatalf("%s: %v", agents[i].GetLogPrefix(), err)
-				}
-			}
-			activeAgents.Dec()
-		}(i)
+		agent := agents[i]
+		go startAgent(ctx, agent, log, i)
+		go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLables)
 	}
-	if *stopAfter > 0 {
-		go func() {
-			<-time.After(*stopAfter)
+	if stopAfter != nil && *stopAfter > 0 {
+		time.AfterFunc(*stopAfter, func() {
 			log.Infoln("stopping simulator after duration")
 			cancel()
-		}()
+		})
 	}
-	wg.Wait()
+
+	<-ctx.Done()
+	log.Infoln("Simulator stopped.")
+}
+
+func startAgent(ctx context.Context, agent *agent.Agent, log *logrus.Logger, agentInstance int) {
+	activeAgents.Inc()
+	prefix := agent.GetLogPrefix()
+	err := agent.Run(ctx)
+	if err != nil {
+		// agent timeout waiting for enrollment approval
+		if errors.Is(err, wait.ErrWaitTimeout) {
+			log.Errorf("%s: agent timed out: %v", prefix, err)
+		} else if ctx.Err() != nil {
+			// normal teardown
+			log.Infof("%s: agent stopped due to context cancellation.", prefix)
+		} else {
+			log.Fatalf("%s: %v", prefix, err)
+		}
+	}
+	activeAgents.Dec()
 }
 
 func createAgentConfigTemplate(dataDir string, configFile string) *agent.Config {
