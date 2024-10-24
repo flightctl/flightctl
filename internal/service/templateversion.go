@@ -77,9 +77,11 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		return server.ListTemplateVersions200JSONResponse(*result), nil
 	}
 
+	var se *selector.SelectorError
+
 	switch {
-	case selector.IsSelectorError(err):
-		return server.ListTemplateVersions400JSONResponse{Message: err.Error()}, nil
+	case selector.AsSelectorError(err, &se):
+		return server.ListTemplateVersions400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/samber/lo"
 	gormschema "gorm.io/gorm/schema"
 )
 
@@ -40,10 +41,17 @@ var (
 	}
 )
 
-// FieldNameResolver defines an interface that allows for resolving more complex field name mappings.
-// This can be useful when certain fields map to other names or when dealing with complex schemas.
+// FieldNameResolver defines an interface for resolving custom field name mappings.
+// This is useful for advanced cases where certain fields map to other names
+// or when dealing with complex schemas that require custom resolution logic.
 type FieldNameResolver interface {
-	ResolveFieldName(field SelectorFieldName) []SelectorFieldName
+	// ResolveCustomSelector resolves a custom selector name to a slice of selector names
+	// that correspond to actual fields in the model. This allows for mapping of selectors
+	// to their respective fields, enabling more dynamic queries.
+	ResolveCustomSelector(selector SelectorFieldName) []SelectorFieldName
+
+	// ListCustomSelectors returns a list of custom selectors that can be resolved by the implementing model.
+	ListCustomSelectors() []SelectorFieldName
 }
 
 // selectorFieldResolver is a struct that provides the ability to resolve selector fields to
@@ -69,8 +77,8 @@ func SelectorFieldResolver(model any) (*selectorFieldResolver, error) {
 	return fr, nil
 }
 
-// ResolveNames returns a slice of resolved field names to their database representations.
-// It maps selector fields to the database field names, handling JSONB data types accordingly.
+// ResolveNames maps a selector field name to its corresponding database field names.
+// See ResolveFields for more details on the resolution process.
 func (sr *selectorFieldResolver) ResolveNames(field SelectorFieldName) ([]string, error) {
 	resolvedFields, err := sr.ResolveFields(field)
 	if err != nil {
@@ -84,8 +92,9 @@ func (sr *selectorFieldResolver) ResolveNames(field SelectorFieldName) ([]string
 	return fields, nil
 }
 
-// ResolveFields resolves a selector field name to its corresponding GORM schema fields.
-// It also supports resolving JSONB fields and custom field resolutions if a fieldResolver is present.
+// ResolveFields resolves a selector field name to its corresponding schema field(s).
+// It supports resolving JSONB fields and custom field resolutions if a fieldResolver is present.
+// It returns a slice of resolved SelectorField or an error if the field cannot be resolved.
 func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*SelectorField, error) {
 	resolve := func(fn SelectorFieldName) (*SelectorField, error) {
 		if resolvedField, exists := sr.schemaFields[fn]; exists {
@@ -120,7 +129,7 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 					if strings.Contains(jsonbField, "::") {
 						parts := strings.Split(jsonbField, "::")
 						if len(parts) != 2 {
-							return nil, fmt.Errorf("invalid jsonb field format: %s", jsonbField)
+							return nil, fmt.Errorf("invalid field format: %s", jsonbField)
 						}
 						fieldName := parts[0]
 						suffix := parts[1]
@@ -134,7 +143,9 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 								StructField: schemaField.StructField,
 							}, nil
 						} else {
-							return nil, fmt.Errorf("unknown or unsupported suffix in jsonb field: %s", suffix)
+							return nil, fmt.Errorf("unknown or unsupported suffix %q for field %q. Expect: %v",
+								suffix, schemaField.DBName, lo.MapToSlice(castTypeResolution,
+									func(k string, v SelectorFieldType) string { return k }))
 						}
 					}
 
@@ -153,8 +164,7 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 
 	resolvedField, err := resolve(field)
 	if err != nil {
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
-			fmt.Errorf("failed to resolve field %q: %w", field, err))
+		return nil, sr.newUnsupportedFieldError(field, err)
 	}
 
 	if resolvedField != nil {
@@ -162,19 +172,17 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 	}
 
 	if sr.fieldResolver != nil {
-		refs := sr.fieldResolver.ResolveFieldName(field)
+		refs := sr.fieldResolver.ResolveCustomSelector(field)
 		if len(refs) > 0 {
 			fields := make([]*SelectorField, 0, len(refs))
 			for _, ref := range refs {
 				resolvedField, err := resolve(ref)
 				if err != nil {
-					return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
-						fmt.Errorf("failed to resolve field %q: %w", field, err))
+					return nil, sr.newUnsupportedFieldError(ref, err)
 				}
 
 				if resolvedField == nil {
-					return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
-						fmt.Errorf("unable to resolve field name %q", ref))
+					return nil, sr.newUnsupportedFieldError(ref, nil)
 				}
 				fields = append(fields, resolvedField)
 			}
@@ -182,8 +190,59 @@ func (sr *selectorFieldResolver) ResolveFields(field SelectorFieldName) ([]*Sele
 		}
 	}
 
-	return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
-		fmt.Errorf("unable to resolve field name %q", field))
+	return nil, sr.newUnsupportedFieldError(field, nil)
+}
+
+// ListFields returns a list of all schema fields managed by the selectorFieldResolver.
+// If there are no fields, it returns nil.
+func (sr *selectorFieldResolver) ListFields() []*gormschema.Field {
+	if len(sr.schemaFields) == 0 {
+		return nil
+	}
+
+	fields := make([]*gormschema.Field, 0, len(sr.schemaFields))
+	for _, field := range sr.schemaFields {
+		fields = append(fields, field)
+	}
+
+	return fields
+}
+
+// ListSelectors returns a list of all selector field names managed by the selectorFieldResolver.
+// If there are no selector fields, it returns nil.
+func (sr *selectorFieldResolver) ListSelectors() []SelectorFieldName {
+	if len(sr.schemaFields) == 0 {
+		return nil
+	}
+
+	selectors := make([]SelectorFieldName, 0, len(sr.schemaFields))
+	for selector := range sr.schemaFields {
+		selectors = append(selectors, selector)
+	}
+
+	return selectors
+}
+
+// newUnsupportedFieldError creates a new SelectorError indicating an unsupported field,
+// and includes a list of all supported selector fields only if no prior error is provided.
+func (sr *selectorFieldResolver) newUnsupportedFieldError(field SelectorFieldName, err error) error {
+	if err == nil {
+		supportedFields := sr.ListSelectors()
+
+		if sr.fieldResolver != nil {
+			supportedFields = append(supportedFields, sr.fieldResolver.ListCustomSelectors()...)
+		}
+
+		if len(supportedFields) == 0 {
+			supportedFields = []SelectorFieldName{}
+		}
+
+		return NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
+			fmt.Errorf("unable to resolve field name %q. Supported fields are: %v", field, supportedFields))
+	}
+
+	return NewSelectorError(flterrors.ErrFieldSelectorUnknownField,
+		fmt.Errorf("unable to resolve field name %q: %w", field, err))
 }
 
 // ResolveFieldsFromSchema parses the schema of the given model and extracts the fields annotated with

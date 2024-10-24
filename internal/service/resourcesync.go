@@ -103,9 +103,11 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		return server.ListResourceSync200JSONResponse(*result), nil
 	}
 
+	var se *selector.SelectorError
+
 	switch {
-	case selector.IsSelectorError(err):
-		return server.ListResourceSync400JSONResponse{Message: err.Error()}, nil
+	case selector.AsSelectorError(err, &se):
+		return server.ListResourceSync400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}

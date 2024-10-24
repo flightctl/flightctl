@@ -149,9 +149,11 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		return server.ListEnrollmentRequests200JSONResponse(*result), nil
 	}
 
+	var se *selector.SelectorError
+
 	switch {
-	case selector.IsSelectorError(err):
-		return server.ListEnrollmentRequests400JSONResponse{Message: err.Error()}, nil
+	case selector.AsSelectorError(err, &se):
+		return server.ListEnrollmentRequests400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}

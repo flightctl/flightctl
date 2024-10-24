@@ -106,7 +106,8 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 
 			fieldToken, err := fs.createFieldToken(resolvedField)
 			if err != nil {
-				return nil, err
+				return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+					fmt.Errorf("failed to parse field %q: %w", field, err))
 			}
 
 			var valueToken queryparser.TokenSet
@@ -114,14 +115,16 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 				valueToken = queryparser.NewTokenSet()
 				vtokens, err := fs.createValueToken(resolvedField, value)
 				if err != nil {
-					return nil, err
+					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+						fmt.Errorf("failed to parse value for field %q: %w", field, err))
 				}
 				valueToken = valueToken.Append(vtokens)
 			}
 
 			operatorToken, err := fs.createOperatorToken(operator, resolvedField, fieldToken, valueToken)
 			if err != nil {
-				return nil, err
+				return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+					fmt.Errorf("failed to resolve operation for field %q: %w", field, err))
 			}
 
 			resolvedTokens = resolvedTokens.Append(operatorToken)
@@ -197,12 +200,15 @@ func (fs *fieldSelector) createOperatorToken(operator selection.Operator, select
 	})
 }
 
-var fieldRegex = regexp.MustCompile(`^[a-zA-Z0-9._]+$`)
+var fieldRegex = regexp.MustCompile(`^[A-Za-z0-9][-A-Za-z0-9_.]*[A-Za-z0-9]$`)
 
 func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	if !fieldRegex.MatchString(selectorField.DBName) {
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput,
-			fmt.Errorf("invalid field name: %s", selectorField.DBName))
+		return nil, fmt.Errorf(
+			"field must consist of alphanumeric characters, '-', '_', or '.', "+
+				"and must start and end with an alphanumeric character (e.g., 'MyField', 'my.field', or '123-abc'); "+
+				"regex used for validation is '%s'",
+			fieldRegex.String())
 	}
 
 	if selectorField.DataType == "jsonb" {
@@ -237,45 +243,45 @@ func (fs *fieldSelector) resolveValue(selectorField *SelectorField, value string
 	case Int, IntArray:
 		v, err := strconv.Atoi(value)
 		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+			return nil, fmt.Errorf("failed to parse integer value: %w", err)
 		}
 		return resolve(v), nil
 
 	case SmallInt, SmallIntArray:
 		v, err := strconv.ParseInt(value, 10, 16)
 		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+			return nil, fmt.Errorf("failed to parse small integer value: %w", err)
 		}
 		if v < math.MinInt16 || v > math.MaxInt16 {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, fmt.Errorf("value out of range for int16: %d", v))
+			return nil, fmt.Errorf("value out of range for int16: %d", v)
 		}
 		return resolve(int16(v)), nil
 
 	case BigInt, BigIntArray:
 		v, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+			return nil, fmt.Errorf("failed to parse big integer value: %w", err)
 		}
 		return resolve(v), nil
 
 	case Float, FloatArray:
 		v, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+			return nil, fmt.Errorf("failed to parse float value: %w", err)
 		}
 		return resolve(v), nil
 
 	case Bool, BoolArray:
 		v, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+			return nil, fmt.Errorf("failed to parse boolean value: %w", err)
 		}
 		return resolve(v), nil
 
 	case Time, TimestampArray:
 		v, err := time.Parse(time.RFC3339, value)
 		if err != nil {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorParseInput, err)
+			return nil, fmt.Errorf("failed to parse timestamp value: %w", err)
 		}
 		return resolve(v), nil
 
@@ -289,16 +295,14 @@ func (fs *fieldSelector) resolveValue(selectorField *SelectorField, value string
 		return resolve(value), nil
 
 	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
-			fmt.Errorf("unknown type"))
+		return nil, fmt.Errorf("unknown type")
 	}
 }
 
 func (fs *fieldSelector) resolveQuery(operator selection.Operator, selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	_, exists := operatorsMap[operator]
 	if !exists {
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("unknown operator %q", operator))
+		return nil, fmt.Errorf("unknown operator %q", operator)
 	}
 
 	switch selectorField.Type {
@@ -315,8 +319,7 @@ func (fs *fieldSelector) resolveQuery(operator selection.Operator, selectorField
 	case String:
 		return fs.applyStringOperator(operator, selectorField, resolve)
 	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("unsupported type %q for operator %q", selectorField.Type.String(), operator))
+		return nil, fmt.Errorf("unsupported type %q for operator %q", selectorField.Type.String(), operator)
 	}
 }
 
@@ -330,8 +333,7 @@ func (fs *fieldSelector) applyArrayOperator(operator selection.Operator, resolve
 	case selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("operator %q is unsupported for type array", operator))
+		return nil, fmt.Errorf("operator %q is unsupported for type array", operator)
 	}
 }
 
@@ -342,8 +344,7 @@ func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, res
 		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("operator %q is unsupported for type timestamp", operator))
+		return nil, fmt.Errorf("operator %q is unsupported for type timestamp", operator)
 	}
 }
 
@@ -354,8 +355,7 @@ func (fs *fieldSelector) applyNumbersOperator(operator selection.Operator, resol
 		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("operator %q is unsupported for type number", operator))
+		return nil, fmt.Errorf("operator %q is unsupported for type number", operator)
 	}
 }
 
@@ -366,8 +366,7 @@ func (fs *fieldSelector) applyBooleanOperator(operator selection.Operator, resol
 		selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("operator %q is unsupported for type boolean", operator))
+		return nil, fmt.Errorf("operator %q is unsupported for type boolean", operator)
 	}
 }
 
@@ -378,8 +377,7 @@ func (fs *fieldSelector) applyJsonbOperator(operator selection.Operator, resolve
 		selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
-		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-			fmt.Errorf("operator %q is unsupported for type JSONB", operator))
+		return nil, fmt.Errorf("operator %q is unsupported for type JSONB", operator)
 	}
 }
 
@@ -391,8 +389,7 @@ func (fs *fieldSelector) applyStringOperator(operator selection.Operator, select
 		return resolve(operatorsMap[operator]), nil
 	default:
 		if selectorField.IsJSONBCast() {
-			return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax,
-				fmt.Errorf("operator %q is unsupported for type JSONB", operator))
+			return nil, fmt.Errorf("operator %q is unsupported for type JSONB", operator)
 		}
 		return nil, fmt.Errorf("operator %q is unsupported for type string", operator)
 	}
