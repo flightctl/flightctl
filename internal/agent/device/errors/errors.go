@@ -3,7 +3,6 @@ package errors
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 )
 
@@ -12,8 +11,8 @@ var (
 	ErrNoRetry   = errors.New("no retry")
 
 	// bootstrap
-	ErrEnrollmentRequestFailed = fmt.Errorf("enrollment request failed")
-	ErrEnrollmentRequestDenied = fmt.Errorf("enrollment request denied")
+	ErrEnrollmentRequestFailed = errors.New("enrollment request failed")
+	ErrEnrollmentRequestDenied = errors.New("enrollment request denied")
 
 	// applications
 	ErrAppNameRequired        = errors.New("application name is required")
@@ -24,17 +23,17 @@ var (
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
 
 	// spec
-	ErrMissingRenderedSpec  = fmt.Errorf("missing rendered spec")
-	ErrReadingRenderedSpec  = fmt.Errorf("reading rendered spec")
-	ErrWritingRenderedSpec  = fmt.Errorf("writing rendered spec")
-	ErrCheckingFileExists   = fmt.Errorf("checking if file exists")
-	ErrCopySpec             = fmt.Errorf("copying spec")
-	ErrGettingBootcStatus   = fmt.Errorf("getting current bootc status")
-	ErrGettingDeviceSpec    = fmt.Errorf("getting device spec")
-	ErrParseRenderedVersion = fmt.Errorf("failed to convert version to integer")
-	ErrUnmarshalSpec        = fmt.Errorf("unmarshalling spec")
-	ErrInvalidSpecType      = fmt.Errorf("invalid spec type")
-	ErrInvalidSpec          = fmt.Errorf("invalid spec")
+	ErrMissingRenderedSpec  = errors.New("missing rendered spec")
+	ErrReadingRenderedSpec  = errors.New("reading rendered spec")
+	ErrWritingRenderedSpec  = errors.New("writing rendered spec")
+	ErrCheckingFileExists   = errors.New("checking if file exists")
+	ErrCopySpec             = errors.New("copying spec")
+	ErrGettingBootcStatus   = errors.New("getting current bootc status")
+	ErrGettingDeviceSpec    = errors.New("getting device spec")
+	ErrParseRenderedVersion = errors.New("failed to convert version to integer")
+	ErrUnmarshalSpec        = errors.New("unmarshalling spec")
+	ErrInvalidSpecType      = errors.New("invalid spec type")
+	ErrInvalidSpec          = errors.New("invalid spec")
 
 	// hooks
 	ErrInvalidTokenFormat             = errors.New("invalid token: formatting")
@@ -43,8 +42,8 @@ var (
 	ErrUnsupportedFilesystemOperation = errors.New("unsupported filesystem operation")
 
 	// networking
-	ErrNoContent   = fmt.Errorf("no content")
-	ErrNilResponse = fmt.Errorf("received nil response")
+	ErrNoContent   = errors.New("no content")
+	ErrNilResponse = errors.New("received nil response")
 
 	// authentication
 	ErrAuthenticationFailed = errors.New("authentication failed")
