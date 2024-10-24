@@ -203,6 +203,9 @@ func createAgents(log *logrus.Logger, numDevices int, agentConfigTemplate *agent
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
 	err := wait.PollImmediateWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
+		// timeout after 30s and retry
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
 		bannerFileData, err := readBannerFile(agentDir)
 		if err != nil {
