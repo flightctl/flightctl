@@ -1,4 +1,3 @@
-{{- if .Values.prometheus.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -10,5 +9,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: default
-    namespace: flightctl-external
-{{- end }}
+    namespace: {{ .Values.prometheus.namespace }}

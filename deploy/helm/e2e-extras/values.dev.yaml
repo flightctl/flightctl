@@ -9,3 +9,7 @@ registry:
 gitserver:
   image: localhost/git-server:latest
   namespace: flightctl-e2e
+prometheus:
+  image: quay.io/prometheus/prometheus:v2.54.1
+  nodePort: 9090
+  namespace: flightctl-e2e

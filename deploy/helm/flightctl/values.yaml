@@ -112,5 +112,3 @@ ui:
   enabled: true
   api:
     insecureSkipTlsVerify: true
-prometheus:
-  enabled: false
