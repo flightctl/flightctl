@@ -176,7 +176,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
 			}
-			name := *appSpec.Name
+			name := util.FromPtr(appSpec.Name)
 			if name == "" {
 				name = provider.Image
 			}

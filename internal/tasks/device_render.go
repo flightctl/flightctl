@@ -323,8 +323,9 @@ func renderImageApplicationProvider(app *api.ApplicationSpec, args *renderApplic
 		return "", fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
 	}
 
+	appName := util.FromPtr(app.Name)
 	if args.validateOnly {
-		return *app.Name, nil
+		return appName, nil
 	}
 
 	renderedApp := api.RenderedApplicationSpec{
@@ -332,11 +333,11 @@ func renderImageApplicationProvider(app *api.ApplicationSpec, args *renderApplic
 		EnvVars: app.EnvVars,
 	}
 	if err := renderedApp.FromImageApplicationProvider(imageProvider); err != nil {
-		return *app.Name, fmt.Errorf("failed rendering application %s: %w", *app.Name, err)
+		return appName, fmt.Errorf("failed rendering application %s: %w", appName, err)
 	}
 
 	args.applications = append(args.applications, renderedApp)
-	return *app.Name, nil
+	return appName, nil
 }
 
 func renderGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec, args *renderConfigArgs) (string, error) {
