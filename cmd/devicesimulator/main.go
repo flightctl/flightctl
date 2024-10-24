@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -96,11 +97,22 @@ func main() {
 			defer wg.Done()
 			// stagger the start of each agent
 			activeAgents.Inc()
+
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
 			go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLables)
 			err := agents[i].Run(ctx)
-			// If agent failed to run we should log the error and exit but only in case the context is not done
-			if err != nil && ctx.Err() == nil {
-				log.Fatalf("%s: %v", agents[i].GetLogPrefix(), err)
+			if err != nil {
+				// agent timeout waiting for enrollment approval
+				if errors.Is(err, wait.ErrWaitTimeout) {
+					log.Errorf("%s: agent timed out: %v", agents[i].GetLogPrefix(), err)
+				} else if ctx.Err() != nil {
+					// normal teardown
+					log.Infof("%s: agent stopped due to context cancellation.", agents[i].GetLogPrefix())
+				} else {
+					log.Fatalf("%s: %v", agents[i].GetLogPrefix(), err)
+				}
 			}
 			activeAgents.Dec()
 		}(i)
