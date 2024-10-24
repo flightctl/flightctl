@@ -26,11 +26,15 @@ type Model struct {
 	Field16 string      `gorm:"type:jsonb" selector:"field16"`       // JSONB
 }
 
-func (m *Model) ResolveFieldName(field SelectorFieldName) []SelectorFieldName {
+func (m *Model) ResolveCustomSelector(field SelectorFieldName) []SelectorFieldName {
 	if strings.EqualFold("manualfield", string(field)) {
 		return []SelectorFieldName{"field6", "field16.val::string"}
 	}
 	return nil
+}
+
+func (m *Model) ListCustomSelectors() []SelectorFieldName {
+	return []SelectorFieldName{"manualfield"}
 }
 
 func TestFieldTypes(t *testing.T) {

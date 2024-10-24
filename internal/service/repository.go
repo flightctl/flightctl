@@ -94,9 +94,11 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		return server.ListRepositories200JSONResponse(*result), nil
 	}
 
+	var se *selector.SelectorError
+
 	switch {
-	case selector.IsSelectorError(err):
-		return server.ListRepositories400JSONResponse{Message: err.Error()}, nil
+	case selector.AsSelectorError(err, &se):
+		return server.ListRepositories400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}

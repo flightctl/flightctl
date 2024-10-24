@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"reflect"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -273,21 +272,42 @@ func (o *GetOptions) processReponse(response interface{}, err error, kind string
 		return fmt.Errorf(errorPrefix+": %w", err)
 	}
 
-	v := reflect.ValueOf(response).Elem()
-	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf(errorPrefix+": %d", v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return err
+	}
+
+	responseBody, err := responseField[[]byte](response, "Body")
+	if err != nil {
+		return err
+	}
+
+	if httpResponse.StatusCode != http.StatusOK {
+		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
+			var dest api.Error
+			if err := json.Unmarshal(responseBody, &dest); err != nil {
+				return fmt.Errorf("unmarshalling error: %w", err)
+			}
+			return fmt.Errorf(errorPrefix+": %d, message: %s", httpResponse.StatusCode, dest.Message)
+		}
+		return fmt.Errorf(errorPrefix+": %d", httpResponse.StatusCode)
+	}
+
+	json200, err := responseField[interface{}](response, "JSON200")
+	if err != nil {
+		return err
 	}
 
 	switch o.Output {
 	case jsonFormat:
-		marshalled, err := json.Marshal(v.FieldByName("JSON200").Interface())
+		marshalled, err := json.Marshal(json200)
 		if err != nil {
 			return fmt.Errorf("marshalling resource: %w", err)
 		}
 		fmt.Printf("%s\n", string(marshalled))
 		return nil
 	case yamlFormat:
-		marshalled, err := yaml.Marshal(v.FieldByName("JSON200").Interface())
+		marshalled, err := yaml.Marshal(json200)
 		if err != nil {
 			return fmt.Errorf("marshalling resource: %w", err)
 		}
