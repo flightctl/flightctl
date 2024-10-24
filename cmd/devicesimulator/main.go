@@ -202,10 +202,11 @@ func createAgents(log *logrus.Logger, numDevices int, agentConfigTemplate *agent
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
-	err := wait.PollWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
+	err := wait.PollImmediateWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
 		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
 		bannerFileData, err := readBannerFile(agentDir)
 		if err != nil {
+			log.Warnf("Error reading banner file: %v", err)
 			return false, nil
 		}
 		enrollmentId := testutil.GetEnrollmentIdFromText(bannerFileData)
@@ -214,7 +215,7 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 			return false, nil
 		}
 		_, err = serviceClient.ApproveEnrollmentRequestWithResponse(
-			context.Background(),
+			ctx,
 			enrollmentId,
 			v1alpha1.EnrollmentRequestApproval{
 				Approved: true,
@@ -224,6 +225,7 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 			log.Errorf("Error approving device %s enrollment: %v", enrollmentId, err)
 			return false, nil
 		}
+		log.Infof("Approved device enrollment %s", enrollmentId)
 		return true, nil
 	})
 	if err != nil && ctx.Err() == nil {
