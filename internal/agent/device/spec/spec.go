@@ -19,7 +19,8 @@ const (
 	defaultSpecRequeueMaxRetries = 0
 	defaultSpecQueueSize         = 1
 	defaultSpecRequeueThreshold  = 1
-	defaultSpecRequeueDelay      = 1 * time.Minute
+	// defaultSpecRequeueDelay is the default delay between requeue attempts.
+	defaultSpecRequeueDelay = 5 * time.Minute
 )
 
 type Manager interface {

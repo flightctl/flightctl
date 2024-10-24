@@ -170,7 +170,8 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("parsing current ignition: %w", err)
 	}
-	b.log.Info("Executing after-reboot hooks")
+	b.log.Info("Executing after reboot hooks")
+	defer b.log.Info("Finished executing after reboot hooks")
 	for _, f := range currentIgnition.Storage.Files {
 		b.hookManager.OnAfterReboot(ctx, f.Path)
 	}
@@ -204,7 +205,7 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 		return b.checkRollback(ctx, bootedOS, desired.Os.Image)
 	}
 
-	b.log.Infof("Booted to desired OS image: %s", desired.Os.Image)
+	b.log.Infof("Booted into desired OS image: %s", desired.Os.Image)
 	return nil
 }
 

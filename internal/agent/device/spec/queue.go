@@ -80,7 +80,7 @@ func (q *queue) Add(item *Item) error {
 			requeue.count++
 			if requeue.count >= q.requeueThreshold && requeue.nextAvailable.IsZero() {
 				requeue.nextAvailable = time.Now().Add(q.requeueThresholdDelayDuration)
-				q.log.Debugf("Requeue hreshold exceeded for version %d. Next available in %s", version, q.requeueThresholdDelayDuration.String())
+				q.log.Debugf("Requeue threshold exceeded for version %d. Next available in %s", version, q.requeueThresholdDelayDuration.String())
 			}
 		} else if q.maxRetries > 0 && requeue.tries >= q.maxRetries {
 			q.log.Debugf("Max retries exceeded for version %d", version)
@@ -120,7 +120,7 @@ func (q *queue) Next() (*Item, bool) {
 	if exists && now.Before(requeue.nextAvailable) {
 		// not yet available push it back and skip
 		heap.Push(&q.heap, item)
-		q.log.Debugf("Template version is not ready: %d", item.Version)
+		q.log.Debugf("Template version %d is not yet ready. Will retry at: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
 		return nil, false
 	}
 
@@ -162,7 +162,7 @@ func (q *queue) IsVersionFailed(version string) bool {
 }
 
 func (q *queue) SetVersionFailed(version string) {
-	q.log.Debugf("Setting version %v as failed", version)
+	q.log.Debugf("Setting template version as failed: %s", version)
 	q.failedVersions[stringToInt64(version)] = struct{}{}
 	delete(q.requeueStatus, stringToInt64(version))
 	q.remove(version)
@@ -171,9 +171,9 @@ func (q *queue) SetVersionFailed(version string) {
 // enforceMaxSize returns true amd removes the lowest version from the queue if
 // the maxSize is exceeded and the version has been tried at least once.
 func (q *queue) enforceMaxSize() bool {
+	q.log.Debug("Evaluating queue size limits")
 	if q.maxSize > 0 && q.heap.Len() > 0 && len(q.items) >= q.maxSize {
 		removed := heap.Pop(&q.heap).(*Item)
-		q.log.Debugf("Attempting to remove version: %d due to max size constraint", removed.Version)
 		if r, exists := q.requeueStatus[removed.Version]; exists {
 			if r.tries == 0 {
 				// push back the removed item
