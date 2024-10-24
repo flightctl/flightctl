@@ -1,11 +1,13 @@
 global:
   nodePorts:
-    registry: 5000
-    gitserver: 3222
-    prometheus: 9090
+    registry: ""
+    gitserver: ""
+    prometheus: ""
 registry:
   image: docker.io/library/registry:2
-  route: false
+  route: true
   hostName: ""
 gitserver:
   image: localhost/git-server:latest
+prometheus:
+  image: quay.io/prometheus/prometheus:v2.54.1

@@ -6,51 +6,8 @@ ONLY_DB=
 RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
 
-IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
-
-
-# Function to save images to kind, with workaround for github CI and other environment issues
-# In github CI, kind gets confused and tries to pull the image from docker instead
-# of podman, so if regular docker-image fails we need to:
-#   * save it to OCI image format
-#   * then load it into kind
-kind_load_image() {
-  local image=$1
-  local keep_tar=${2:-"do-not-keep-tar"}
-  local tar_filename=$(echo $image.tar | sed 's/[:\/]/_/g')
-
-  # First, try to load the image directly
-  if kind load docker-image "${image}"; then
-    echo "Image ${image} loaded successfully."
-    return
-  fi
-
-  # If that fails, we have the workaround in place
-  if [ -f "${tar_filename}" ] && [ "${keep_tar}" == "keep-tar" ]; then
-    echo "File ${tar_filename} already exists. Skipping save."
-  else
-    echo "Saving ${image} to ${tar_filename}..."
-
-    # If the image is not local we may need to pull it first
-    if [[ "${image}" != localhost* ]]; then
-      podman pull "${image}"
-    fi
-
-    # Save to tar file
-    podman save "${image}" -o "${tar_filename}"
-    if [ $? -eq 0 ]; then
-      echo "Image saved successfully to ${tar_filename}."
-    else
-      echo "Failed to save image to ${tar_filename}."
-      exit 1
-    fi
-  fi
-
-  kind load image-archive "${tar_filename}"
-  if [ "${keep_tar}" != "keep-tar" ]; then
-    rm -f "${tar_filename}"
-  fi
-}
+source "${SCRIPT_DIR}"/functions
+IP=$(get_ext_ip)
 
 # Use external getopt for long options
 options=$(getopt -o adh --long only-db,auth,help -n "$0" -- "$@")
@@ -144,19 +101,3 @@ if [[ "${LOGGED_IN}" == "false" ]]; then
   exit 1
 fi
 
-# in github CI load docker-image does not seem to work for our images
-kind_load_image localhost/git-server:latest
-kind_load_image docker.io/library/registry:2
-
-# deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
-helm upgrade --install --values ./deploy/helm/e2e-extras/values.dev.yaml flightctl-e2e-extras \
-                        ./deploy/helm/e2e-extras/ --kube-context kind-kind
-
-sudo tee /etc/containers/registries.conf.d/flightctl-e2e.conf <<EOF
-[[registry]]
-location = "${IP}:5000"
-insecure = true
-[[registry]]
-location = "localhost:5000"
-insecure = true
-EOF
