@@ -162,7 +162,6 @@ func (q *queue) IsVersionFailed(version string) bool {
 }
 
 func (q *queue) SetVersionFailed(version string) {
-	q.log.Debugf("Setting template version as failed: %s", version)
 	q.failedVersions[stringToInt64(version)] = struct{}{}
 	delete(q.requeueStatus, stringToInt64(version))
 	q.remove(version)

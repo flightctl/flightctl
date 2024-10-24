@@ -352,18 +352,36 @@ func (a *Agent) afterUpdate(ctx context.Context) error {
 func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec, syncErr error) {
 	version := desired.RenderedVersion
 	statusUpdate := v1alpha1.DeviceSummaryStatus{}
+	conditionUpdate := v1alpha1.Condition{
+		Type: v1alpha1.DeviceUpdating,
+	}
 
 	if !errors.IsRetryable(syncErr) {
+		a.log.Errorf("Marking template version %v as failed: %v", version, syncErr)
+
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
+
+		conditionUpdate.Reason = "Failed"
+		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
+		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
+
 		a.specManager.SetUpgradeFailed()
 	} else {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
+
+		conditionUpdate.Reason = "Retry"
+		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
+		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
 	}
 
 	if _, err := a.statusManager.Update(ctx, status.SetDeviceSummary(statusUpdate)); err != nil {
 		a.log.Errorf("Failed to update device status: %v", err)
+	}
+
+	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
+		a.log.Warnf("Failed to update device status condition: %v", err)
 	}
 
 	a.log.Error(*statusUpdate.Info)
