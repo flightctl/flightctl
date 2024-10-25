@@ -10,7 +10,7 @@
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-COPY bin/e2e-certs/ca.pem /etc/pki/ca-trust/source/anchors/
+COPY bin/e2e-certs/pki/CA/ca.pem /etc/pki/ca-trust/source/anchors/
 RUN update-ca-trust
 
 COPY bin/rpm/flightctl-agent-*.rpm /tmp/
