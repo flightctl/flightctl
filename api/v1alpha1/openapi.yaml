@@ -37,6 +37,12 @@ paths:
           description: Token invalid
         "418":
           description: Auth not configured
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/resourcesyncs:
     get:
       tags:

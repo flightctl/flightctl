@@ -2483,6 +2483,15 @@ func (response AuthValidate418Response) VisitAuthValidateResponse(w http.Respons
 	return nil
 }
 
+type AuthValidate500JSONResponse Error
+
+func (response AuthValidate500JSONResponse) VisitAuthValidateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type DeleteCertificateSigningRequestsRequestObject struct {
 }
 
