@@ -69,7 +69,7 @@ $ helm upgrade --install --version=<version-to-install> \
 ```
 
 Optionally, you may change the deployed UI version adding `--set ui.image.tag=<ui-version-to-install>`.
-Available versions can be found in [quay.io](https://quay.io/repository/flightctl/charts/flightctl-ui?tab=tags)
+Available versions can be found in [quay.io](https://quay.io/repository/flightctl/flightctl-ui?tab=tags)
 
 ### Flight Control on OpenShift
 
@@ -136,7 +136,7 @@ $ helm upgrade --install --version=<version-to-install> \
 ```
 
 Optionally, you may change the deployed UI version adding `--set ui.image.tag=<ui-version-to-install>`.
-Available versions can be found in [quay.io](https://quay.io/repository/flightctl/charts/flightctl-ocp-ui?tab=tags)
+Available versions can be found in [quay.io](https://quay.io/repository/flightctl/flightctl-ocp-ui?tab=tags)
 Verify your Flight Control Service is up and running:
 
 ```console

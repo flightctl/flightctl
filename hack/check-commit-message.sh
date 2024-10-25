@@ -12,7 +12,7 @@ error_msg="""Aborting commit: ${commit_message}
 Your commit message should start with a JIRA issue ('JIRA-1111') or a GitHub issue ('Fixes #39')
 with a following colon(:).
 i.e. 'MGMT-42: Summary of the commit message'
-You can also ignore the ticket checking with 'NO-ISSUE' for master only.
+You can also ignore the ticket checking with 'NO-ISSUE' for main only.
 
 Your message is preserved at '${commit_file}'
 """
