@@ -409,8 +409,13 @@ To deploy an application to a device, create a new entry in the "applications" s
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
 
 | Status Field | Description |
-| ------------ | ----------- |
-| | |
+| ------------ |-------------|
+| Preparing   | Application deployed; containers initialized but not yet running.
+| Starting    | Application started; at least one container running, awaiting results.
+| Running     | All containers are running.
+| Error       | All containers failed.
+| Unknown     | Application started, no containers observed.
+| Completed   | All containers have completed execution.
 
 ### Managing Applications on the Web UI
 
@@ -480,6 +485,22 @@ spec:
       WORDPRESS_DB_USER: "user"
       WORDPRESS_DB_PASSWORD: "password"
 [...]
+```
+
+## Creating Applications
+
+### Creating OCI Registry Application Package
+
+Define the application's functionality with the [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) and embed the compose file in a scratch container. Add the `appType=compose` label, then build and push the container to your OCI registry. Finally, reference the image in `spec.applications[]`.
+
+```yaml
+FROM scratch
+
+COPY podman-compose.yaml /podman-compose.yaml
+
+# required
+LABEL appType="compose"
+
 ```
 
 ## Using Device Lifecycle Hooks
