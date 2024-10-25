@@ -99,7 +99,7 @@ func (m *MemoryMonitor) CollectUsage(ctx context.Context, usage *MemoryUsage) er
 
 func (m *MemoryMonitor) sync(ctx context.Context, usage *MemoryUsage) {
 	if !m.hasAlertRules() {
-		m.log.Debug("Skipping Memory usage sync as there are no alert rules")
+		m.log.Debug("Skipping memory usage sync: no alert rules")
 		return
 	}
 

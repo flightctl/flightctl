@@ -10,11 +10,11 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -23,12 +23,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
 	"k8s.io/klog/v2"
-)
-
-var (
-	ErrEnrollmentRequestFailed = fmt.Errorf("enrollment request failed")
-	ErrEnrollmentRequestDenied = fmt.Errorf("enrollment request denied")
-	ErrGettingBootcStatus      = fmt.Errorf("getting current bootc status")
 )
 
 // agent banner file
@@ -44,7 +38,6 @@ type Bootstrap struct {
 	statusManager        status.Manager
 	hookManager          hook.Manager
 	backoff              wait.Backoff
-	bootcClient          container.BootcClient
 
 	managementServiceConfig *client.Config
 	managementClient        client.Management
@@ -69,7 +62,6 @@ func NewBootstrap(
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 	defaultLabels map[string]string,
-	bootcClient container.BootcClient,
 ) *Bootstrap {
 	return &Bootstrap{
 		deviceName:              deviceName,
@@ -85,7 +77,6 @@ func NewBootstrap(
 		backoff:                 backoff,
 		log:                     log,
 		defaultLabels:           defaultLabels,
-		bootcClient:             bootcClient,
 	}
 }
 
@@ -179,7 +170,8 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("parsing current ignition: %w", err)
 	}
-	b.log.Info("Executing after-reboot hooks")
+	b.log.Info("Executing after reboot hooks")
+	defer b.log.Info("Finished executing after reboot hooks")
 	for _, f := range currentIgnition.Storage.Files {
 		b.hookManager.OnAfterReboot(ctx, f.Path)
 	}
@@ -213,31 +205,7 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 		return b.checkRollback(ctx, bootedOS, desired.Os.Image)
 	}
 
-	b.log.Infof("Host is booted to the desired os image %s: upgrading current spec", desired.Os.Image)
-	// image is reconciled upgrade was a success update the current spec to the desired spec if nessisary
-	if err := b.specManager.Upgrade(); err != nil {
-		return fmt.Errorf("writing current rendered spec: %w", err)
-	}
-
-	bootcStatus, err := b.bootcClient.Status(ctx)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrGettingBootcStatus, err)
-	}
-
-	updateFns := []status.UpdateStatusFn{
-		status.SetOSImage(v1alpha1.DeviceOSStatus{
-			Image:       desired.Os.Image,
-			ImageDigest: bootcStatus.GetBootedImageDigest(),
-		}),
-		status.SetConfig(v1alpha1.DeviceConfigStatus{
-			RenderedVersion: desired.RenderedVersion,
-		}),
-	}
-
-	_, updateErr := b.statusManager.Update(ctx, updateFns...)
-	if updateErr != nil {
-		b.log.Warnf("Failed setting status: %v", updateErr)
-	}
+	b.log.Infof("Booted into desired OS image: %s", desired.Os.Image)
 	return nil
 }
 
@@ -322,10 +290,10 @@ func (b *Bootstrap) verifyEnrollment(ctx context.Context) (bool, error) {
 	approved := false
 	for _, cond := range enrollmentRequest.Status.Conditions {
 		if cond.Type == "Denied" {
-			return false, fmt.Errorf("%w: reason: %v, message: %v", ErrEnrollmentRequestDenied, cond.Reason, cond.Message)
+			return false, fmt.Errorf("%w: reason: %v, message: %v", errors.ErrEnrollmentRequestDenied, cond.Reason, cond.Message)
 		}
 		if cond.Type == "Failed" {
-			return false, fmt.Errorf("%w: reason: %v, message: %v", ErrEnrollmentRequestFailed, cond.Reason, cond.Message)
+			return false, fmt.Errorf("%w: reason: %v, message: %v", errors.ErrEnrollmentRequestFailed, cond.Reason, cond.Message)
 		}
 		if cond.Type == "Approved" {
 			approved = true
