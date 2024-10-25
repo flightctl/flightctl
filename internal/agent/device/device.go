@@ -289,7 +289,7 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 				return true, nil
 			})
 			if err != nil {
-				return fmt.Errorf("creating enrollment request: %w", err)
+				return fmt.Errorf("pulling image: %w", err)
 			}
 		}
 
