@@ -3,6 +3,7 @@ package hook
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,7 +56,7 @@ func TestReplaceTokensInrun(t *testing.T) {
 			name:    "invalid token format",
 			run:     "{{ FilePath }} foo bar baz",
 			tokens:  map[string]string{"FilePath": "replaced"},
-			wantErr: ErrInvalidTokenFormat,
+			wantErr: errors.ErrInvalidTokenFormat,
 		},
 	}
 
