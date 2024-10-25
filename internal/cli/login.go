@@ -321,7 +321,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			fmt.Printf("You must obtain an API token by visiting %s/request\n", oauthConfig.TokenEndpoint)
 			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n", config.Service.Server)
 			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
-			return nil
+			return fmt.Errorf("no token provided")
 		} else {
 			token = o.Token
 		}
@@ -330,7 +330,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			token = o.Token
 		} else {
 			fmt.Printf("Unknown auth provider. You can try logging in using \"flightctl login %s --token=<token>\"\n", config.Service.Server)
-			return nil
+			return fmt.Errorf("unknown auth provider")
 		}
 	}
 	c, err = client.NewFromConfig(config)
