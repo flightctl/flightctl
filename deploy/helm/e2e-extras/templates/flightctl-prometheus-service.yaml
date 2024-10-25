@@ -4,17 +4,17 @@ metadata:
   labels:
     flightctl.service: flightctl-prometheus
   name: flightctl-prometheus
-  namespace: {{ .Values.prometheus.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
-  {{- if .Values.prometheus.nodePort }}
+  {{- if .Values.global.nodePorts.prometheus }}
   type: NodePort
   {{- end }}
   ports:
     - name: "flightctl-prometheus"
       port: 9090
       targetPort: 9090
-      {{- if .Values.prometheus.nodePort }}
-      nodePort: {{ .Values.prometheus.nodePort }}
+      {{- if .Values.global.nodePorts.prometheus }}
+      nodePort: {{ .Values.global.nodePorts.prometheus }}
       {{- end }}
   selector:
     flightctl.service: flightctl-prometheus

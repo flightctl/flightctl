@@ -132,11 +132,11 @@ func (mr *MockManagerMockRecorder) Remove(app any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (m *MockManager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
 	ret0, _ := ret[0].([]v1alpha1.DeviceApplicationStatus)
-	ret1, _ := ret[1].(v1alpha1.ApplicationsSummaryStatusType)
+	ret1, _ := ret[1].(v1alpha1.DeviceApplicationsSummaryStatus)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -283,11 +283,11 @@ func (mr *MockApplicationMockRecorder) SetEnvVars(envVars any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockApplication) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.ApplicationsSummaryStatusType, error) {
+func (m *MockApplication) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
 	ret0, _ := ret[0].(*v1alpha1.DeviceApplicationStatus)
-	ret1, _ := ret[1].(v1alpha1.ApplicationsSummaryStatusType)
+	ret1, _ := ret[1].(v1alpha1.DeviceApplicationsSummaryStatus)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }

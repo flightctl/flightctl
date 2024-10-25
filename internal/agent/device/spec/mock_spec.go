@@ -10,12 +10,12 @@
 package spec
 
 import (
+	context "context"
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	gomock "go.uber.org/mock/gomock"
-	context "golang.org/x/net/context"
 )
 
 // MockManager is a mock of Manager interface.
@@ -72,18 +72,19 @@ func (mr *MockManagerMockRecorder) Ensure() *gomock.Call {
 }
 
 // GetDesired mocks base method.
-func (m *MockManager) GetDesired(ctx context.Context, renderedVersion string) (*v1alpha1.RenderedDeviceSpec, error) {
+func (m *MockManager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDesired", ctx, renderedVersion)
+	ret := m.ctrl.Call(m, "GetDesired", ctx)
 	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // GetDesired indicates an expected call of GetDesired.
-func (mr *MockManagerMockRecorder) GetDesired(ctx, renderedVersion any) *gomock.Call {
+func (mr *MockManagerMockRecorder) GetDesired(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDesired", reflect.TypeOf((*MockManager)(nil).GetDesired), ctx, renderedVersion)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDesired", reflect.TypeOf((*MockManager)(nil).GetDesired), ctx)
 }
 
 // Initialize mocks base method.
@@ -128,6 +129,20 @@ func (m *MockManager) IsRollingBack(ctx context.Context) (bool, error) {
 func (mr *MockManagerMockRecorder) IsRollingBack(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRollingBack", reflect.TypeOf((*MockManager)(nil).IsRollingBack), ctx)
+}
+
+// IsUpgrading mocks base method.
+func (m *MockManager) IsUpgrading() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsUpgrading")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsUpgrading indicates an expected call of IsUpgrading.
+func (mr *MockManagerMockRecorder) IsUpgrading() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsUpgrading", reflect.TypeOf((*MockManager)(nil).IsUpgrading))
 }
 
 // PrepareRollback mocks base method.
@@ -185,6 +200,18 @@ func (mr *MockManagerMockRecorder) SetClient(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClient", reflect.TypeOf((*MockManager)(nil).SetClient), arg0)
 }
 
+// SetUpgradeFailed mocks base method.
+func (m *MockManager) SetUpgradeFailed() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetUpgradeFailed")
+}
+
+// SetUpgradeFailed indicates an expected call of SetUpgradeFailed.
+func (mr *MockManagerMockRecorder) SetUpgradeFailed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed))
+}
+
 // Upgrade mocks base method.
 func (m *MockManager) Upgrade() error {
 	m.ctrl.T.Helper()
@@ -197,4 +224,134 @@ func (m *MockManager) Upgrade() error {
 func (mr *MockManagerMockRecorder) Upgrade() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockManager)(nil).Upgrade))
+}
+
+// MockPriorityQueue is a mock of PriorityQueue interface.
+type MockPriorityQueue struct {
+	ctrl     *gomock.Controller
+	recorder *MockPriorityQueueMockRecorder
+}
+
+// MockPriorityQueueMockRecorder is the mock recorder for MockPriorityQueue.
+type MockPriorityQueueMockRecorder struct {
+	mock *MockPriorityQueue
+}
+
+// NewMockPriorityQueue creates a new mock instance.
+func NewMockPriorityQueue(ctrl *gomock.Controller) *MockPriorityQueue {
+	mock := &MockPriorityQueue{ctrl: ctrl}
+	mock.recorder = &MockPriorityQueueMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPriorityQueue) EXPECT() *MockPriorityQueueMockRecorder {
+	return m.recorder
+}
+
+// Add mocks base method.
+func (m *MockPriorityQueue) Add(item *Item) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Add", item)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Add indicates an expected call of Add.
+func (mr *MockPriorityQueueMockRecorder) Add(item any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockPriorityQueue)(nil).Add), item)
+}
+
+// Clear mocks base method.
+func (m *MockPriorityQueue) Clear() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Clear")
+}
+
+// Clear indicates an expected call of Clear.
+func (mr *MockPriorityQueueMockRecorder) Clear() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Clear", reflect.TypeOf((*MockPriorityQueue)(nil).Clear))
+}
+
+// IsEmpty mocks base method.
+func (m *MockPriorityQueue) IsEmpty() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsEmpty")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsEmpty indicates an expected call of IsEmpty.
+func (mr *MockPriorityQueueMockRecorder) IsEmpty() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsEmpty", reflect.TypeOf((*MockPriorityQueue)(nil).IsEmpty))
+}
+
+// IsVersionFailed mocks base method.
+func (m *MockPriorityQueue) IsVersionFailed(version string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsVersionFailed", version)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsVersionFailed indicates an expected call of IsVersionFailed.
+func (mr *MockPriorityQueueMockRecorder) IsVersionFailed(version any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsVersionFailed", reflect.TypeOf((*MockPriorityQueue)(nil).IsVersionFailed), version)
+}
+
+// Next mocks base method.
+func (m *MockPriorityQueue) Next() (*Item, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Next")
+	ret0, _ := ret[0].(*Item)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// Next indicates an expected call of Next.
+func (mr *MockPriorityQueueMockRecorder) Next() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Next", reflect.TypeOf((*MockPriorityQueue)(nil).Next))
+}
+
+// Remove mocks base method.
+func (m *MockPriorityQueue) Remove(version string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Remove", version)
+}
+
+// Remove indicates an expected call of Remove.
+func (mr *MockPriorityQueueMockRecorder) Remove(version any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockPriorityQueue)(nil).Remove), version)
+}
+
+// SetVersionFailed mocks base method.
+func (m *MockPriorityQueue) SetVersionFailed(version string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetVersionFailed", version)
+}
+
+// SetVersionFailed indicates an expected call of SetVersionFailed.
+func (mr *MockPriorityQueueMockRecorder) SetVersionFailed(version any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetVersionFailed", reflect.TypeOf((*MockPriorityQueue)(nil).SetVersionFailed), version)
+}
+
+// Size mocks base method.
+func (m *MockPriorityQueue) Size() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Size")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// Size indicates an expected call of Size.
+func (mr *MockPriorityQueueMockRecorder) Size() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Size", reflect.TypeOf((*MockPriorityQueue)(nil).Size))
 }
