@@ -135,6 +135,12 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for SortOrder.
+const (
+	Asc  SortOrder = "Asc"
+	Desc SortOrder = "Desc"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime
@@ -1185,6 +1191,9 @@ type RolloutPolicy struct {
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
 
+// SortOrder Specifies the sort order.
+type SortOrder string
+
 // SshConfig defines model for SshConfig.
 type SshConfig struct {
 	// PrivateKeyPassphrase The passphrase for sshPrivateKey
@@ -1289,8 +1298,17 @@ type ListCertificateSigningRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field to sort by.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListDevicesParams defines parameters for ListDevices.
@@ -1300,6 +1318,9 @@ type ListDevicesParams struct {
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
 	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
@@ -1312,6 +1333,12 @@ type ListDevicesParams struct {
 
 	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
+
+	// SortBy Specifies the field to sort by.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
@@ -1328,8 +1355,17 @@ type ListEnrollmentRequestsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field to sort by.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListFleetsParams defines parameters for ListFleets.
@@ -1340,6 +1376,9 @@ type ListFleetsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
@@ -1348,6 +1387,12 @@ type ListFleetsParams struct {
 
 	// AddDevicesCount include the number of devices in each fleet
 	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
+
+	// SortBy Specifies the field to sort by.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
@@ -1358,8 +1403,17 @@ type ListTemplateVersionsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field to sort by.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ReadFleetParams defines parameters for ReadFleet.
@@ -1376,8 +1430,17 @@ type ListRepositoriesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// SortBy Specifies the field to sort by.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // ListResourceSyncParams defines parameters for ListResourceSync.
@@ -1388,11 +1451,20 @@ type ListResourceSyncParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Repository The name of the repository to filter results by.
 	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
+
+	// SortBy Specifies the field to sort by.
+	SortBy *string `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// SortOrder Specifies the sort order.
+	SortOrder *SortOrder `form:"sortOrder,omitempty" json:"sortOrder,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.

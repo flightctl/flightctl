@@ -15,6 +15,9 @@ var (
 	ErrIllegalResourceVersionFormat        = errors.New("resource version does not match the required integer format")
 	ErrNoRowsUpdated                       = errors.New("no rows were updated; assuming resource version was updated or resource was deleted")
 	ErrLimitParamOutOfBounds               = errors.New("the limit parameter is out of the valid bounds")
+	ErrFieldSelectorSyntax                 = errors.New("invalid field selector syntax")
+	ErrFieldSelectorParseFailed            = errors.New("failed to parse field selector")
+	ErrFieldSelectorUnknownField           = errors.New("unknown or unsupported field")
 
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")

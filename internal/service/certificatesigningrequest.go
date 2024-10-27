@@ -12,8 +12,10 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -85,10 +87,27 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 		return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector fields.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var sortField *store.SortField
+	if request.Params.SortBy != nil {
+		sortField = &store.SortField{
+			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			Order:     *request.Params.SortOrder,
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
+		Labels:        labelMap,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		FieldSelector: fieldSelector,
+		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -98,9 +117,15 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 	}
 
 	result, err := h.store.CertificateSigningRequest().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListCertificateSigningRequests200JSONResponse(*result), nil
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return server.ListCertificateSigningRequests400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}

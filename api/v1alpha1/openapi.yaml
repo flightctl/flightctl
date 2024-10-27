@@ -61,6 +61,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -73,6 +78,21 @@ paths:
           description: The name of the repository to filter results by.
           schema:
             type: string
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -330,6 +350,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -337,6 +362,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -594,6 +634,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: statusFilter
           in: query
           description: A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
@@ -620,6 +665,21 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1081,6 +1141,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1088,6 +1153,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1428,6 +1508,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1435,6 +1520,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1795,6 +1895,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1814,6 +1919,21 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -2158,6 +2278,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -2165,6 +2290,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -2286,6 +2426,13 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+    SortOrder:
+      type: string
+      enum:
+        - 'Asc'
+        - 'Desc'
+      description: Specifies the sort order.
+      default: 'Asc'
     PatchRequest:
       type: array
       items:
