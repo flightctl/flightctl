@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"k8s.io/apimachinery/pkg/fields"
 )
 
 var (
@@ -129,19 +132,28 @@ func (s *DataStore) Close() error {
 }
 
 type ListParams struct {
-	Labels       map[string]string
-	Filter       map[string][]string
-	InvertLabels *bool
-	Owners       []string
-	Limit        int
-	Continue     *Continue
-	FleetName    *string
+	Labels        map[string]string
+	Filter        map[string][]string
+	InvertLabels  *bool
+	Owners        []string
+	Limit         int
+	Continue      *Continue
+	FleetName     *string
+	FieldSelector fields.Selector
+	SortBy        *SortField
 }
 
 type Continue struct {
 	Version int
 	Name    string
 	Count   int64
+}
+
+type SortOrder string
+
+type SortField struct {
+	FieldName selector.SelectorFieldName
+	Order     v1alpha1.SortOrder
 }
 
 func ParseContinueString(contStr *string) (*Continue, error) {
