@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -665,7 +666,7 @@ func createOverlappingConditionMessage(matchingFleets []string) string {
 
 func getMatchLabelsSafe(fleet *api.Fleet) map[string]string {
 	if fleet.Spec.Selector != nil {
-		return fleet.Spec.Selector.MatchLabels
+		return lo.FromPtr(fleet.Spec.Selector.MatchLabels)
 	}
 	return map[string]string{}
 }
