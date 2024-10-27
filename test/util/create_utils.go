@@ -108,7 +108,7 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 	}
 
 	if selector != nil {
-		resource.Spec.Selector = &api.LabelSelector{MatchLabels: *selector}
+		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
 	callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
 	_, err := fleetStore.Create(ctx, orgId, &resource, callback)

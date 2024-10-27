@@ -416,7 +416,7 @@ func CreateTestingFleet(orgId uuid.UUID, name string, templateImage string, sele
 		},
 		Spec: api.FleetSpec{
 			Selector: &api.LabelSelector{
-				MatchLabels: *selector,
+				MatchLabels: selector,
 			},
 			Template: struct {
 				Metadata *api.ObjectMeta `json:"metadata,omitempty"`

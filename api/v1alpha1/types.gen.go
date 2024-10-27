@@ -115,6 +115,14 @@ const (
 	SystemdStop         HookActionSystemdUnitOperations = "Stop"
 )
 
+// Defines values for MatchExpressionOperator.
+const (
+	DoesNotExist MatchExpressionOperator = "DoesNotExist"
+	Exists       MatchExpressionOperator = "Exists"
+	In           MatchExpressionOperator = "In"
+	NotIn        MatchExpressionOperator = "NotIn"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
@@ -952,7 +960,8 @@ type KubernetesSecretProviderSpec struct {
 
 // LabelSelector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
 type LabelSelector struct {
-	MatchLabels map[string]string `json:"matchLabels"`
+	MatchExpressions *MatchExpressions  `json:"matchExpressions,omitempty"`
+	MatchLabels      *map[string]string `json:"matchLabels,omitempty"`
 }
 
 // ListMeta ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
@@ -963,6 +972,19 @@ type ListMeta struct {
 	// RemainingItemCount remainingItemCount is the number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
 	RemainingItemCount *int64 `json:"remainingItemCount,omitempty"`
 }
+
+// MatchExpression defines model for MatchExpression.
+type MatchExpression struct {
+	Key      string                  `json:"key"`
+	Operator MatchExpressionOperator `json:"operator"`
+	Values   *[]string               `json:"values,omitempty"`
+}
+
+// MatchExpressionOperator defines model for MatchExpression.Operator.
+type MatchExpressionOperator string
+
+// MatchExpressions defines model for MatchExpressions.
+type MatchExpressions = []MatchExpression
 
 // MemoryResourceMonitorSpec defines model for MemoryResourceMonitorSpec.
 type MemoryResourceMonitorSpec = ResourceMonitorSpec
