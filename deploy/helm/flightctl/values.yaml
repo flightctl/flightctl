@@ -108,6 +108,8 @@ rabbitmq:
     type: ClusterIP
     amqpPort: 5672
     managementPort: 15672
+prometheus:
+  enabled: false
 ui:
   enabled: true
   api:
