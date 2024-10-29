@@ -123,6 +123,38 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
 			expectedRestarts:      3,
 		},
+		{
+			name: "app has all containers exited",
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusExited,
+				},
+				{
+					Name:   "container2",
+					Status: ContainerStatusExited,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1alpha1.ApplicationStatusCompleted,
+			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app has one containers exited",
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusRunning,
+				},
+				{
+					Name:   "container2",
+					Status: ContainerStatusExited,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1alpha1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
+		},
 	}
 
 	for _, tt := range tests {
