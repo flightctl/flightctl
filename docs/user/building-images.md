@@ -33,7 +33,7 @@ This section describes the generic process for building an OS image (bootc) that
 
 Before you start, ensure you have installed the following prerequisites:
 
-* `flightctl` CLI latest version ([installation guide](gettting-started.md#-installing-the-flight-control-cli))
+* `flightctl` CLI latest version ([installation guide](getting-started.md#installing-the-flight-control-cli))
 * `podman` version 5.0 or higher ([installation guide](https://podman.io/docs/installation))
 * `skopeo` version 1.14 or higher ([installation guide](https://github.com/containers/skopeo/blob/main/install.md))
 * `bootc-image-builder` latest version ([installation guide](https://github.com/osbuild/bootc-image-builder))
