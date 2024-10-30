@@ -54,7 +54,7 @@ fi
 
 AUTH_ARGS=""
 if [ "$AUTH" ]; then
-  AUTH_ARGS="--set global.auth.type=builtin --set global.auth.oidcAuthority=http://${IP}:8080/realms/flightctl"
+  AUTH_ARGS="--set global.auth.type=builtin --set global.auth.oidcAuthority=http://${IP}:8080/realms/flightctl --set keycloak.directAccessGrantsEnabled=true"
 fi
 
 helm dependency build ./deploy/helm/flightctl
@@ -89,9 +89,18 @@ kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeo
 LOGGED_IN=false
 # attempt to login, it could take some time for API to be stable
 for i in {1..60}; do
-  if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:3443; then
-    LOGGED_IN=true
-    break
+  if [ "$AUTH" ]; then
+    PASS=$(kubectl get secret keycloak-demouser-secret -n flightctl-external -o json | jq -r '.data.password' | base64 -d)
+    TOKEN=$(curl -d client_id=flightctl -d username=demouser -d password=${PASS} -d grant_type=password http://auth.${IP}.nip.io:8080/realms/flightctl/protocol/openid-connect/token | jq -r '.access_token')
+    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:3443 --token ${TOKEN}; then
+      LOGGED_IN=true
+      break
+    fi
+  else
+    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:3443; then
+      LOGGED_IN=true
+      break
+    fi
   fi
   sleep 5
 done
