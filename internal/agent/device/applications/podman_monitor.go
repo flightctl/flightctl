@@ -97,7 +97,7 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	m.log.Debugf("Boot time: %s", bootTime)
 
 	// list of podman events to listen for
-	events := []string{"init", "start", "die", "sync", "remove"}
+	events := []string{"init", "start", "die", "sync", "remove", "exited"}
 	m.cmd = m.client.EventsSinceCmd(ctx, events, bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
@@ -378,7 +378,12 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	status := ContainerStatusType(event.Status)
+	inspectData, err := m.inspectContainer(ctx, event.ID)
+	if err != nil {
+		m.log.Errorf("Failed to inspect container: %v", err)
+	}
+
+	status := m.resolveStatus(event.Status, inspectData)
 	if status == ContainerStatusRemove {
 		// remove existing container
 		if removed := app.RemoveContainer(event.Name); removed {
@@ -387,14 +392,10 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 		return
 	}
 
-	m.log.Debugf("Updating application status for event: %v", event)
-
-	restarts, err := m.getContainerRestarts(ctx, event.ID)
+	restarts, err := m.getContainerRestarts(inspectData)
 	if err != nil {
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
-
-	// init ok
 
 	container, exists := app.Container(event.Name)
 	if exists {
@@ -417,21 +418,35 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	})
 }
 
-func (m *PodmanMonitor) getContainerRestarts(ctx context.Context, containerID string) (int, error) {
-	resp, err := m.client.Inspect(ctx, containerID)
-	if err != nil {
-		return 0, err
-	}
-
-	var inspectData []PodmanInspect
-	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
-		return 0, fmt.Errorf("unmarshal podman inspect output: %v", err)
-	}
-
+func (m *PodmanMonitor) getContainerRestarts(inspectData []PodmanInspect) (int, error) {
 	var restarts int
 	if len(inspectData) > 0 {
 		restarts = inspectData[0].Restarts
 	}
 
 	return restarts, nil
+}
+
+func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string) ([]PodmanInspect, error) {
+	resp, err := m.client.Inspect(ctx, containerID)
+	if err != nil {
+		return nil, err
+	}
+
+	var inspectData []PodmanInspect
+	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
+		return nil, fmt.Errorf("unmarshal podman inspect output: %v", err)
+	}
+	return inspectData, nil
+}
+
+func (m *PodmanMonitor) resolveStatus(status string, inspectData []PodmanInspect) ContainerStatusType {
+	initialStatus := ContainerStatusType(status)
+	// podman events don't properly event exited in the case where the container exits 0.
+	if initialStatus == ContainerStatusDie || initialStatus == ContainerStatusDied {
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+			return ContainerStatusExited
+		}
+	}
+	return initialStatus
 }

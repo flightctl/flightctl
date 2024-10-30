@@ -160,16 +160,7 @@ func TestListenForEvents(t *testing.T) {
 
 			go podmanMonitor.listenForEvents(context.Background(), reader)
 
-			inspectCount := 0
-			for i := range tc.events {
-				event := tc.events[i]
-				if event.Status != "remove" {
-					inspectCount++
-				}
-			}
-
-			// inspect is called except where the event is a remove in which case we can't inspect a removed container
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(inspectCount)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
 
 			// simulate events being written to the pipe
 			go func() {
