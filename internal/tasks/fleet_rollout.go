@@ -225,6 +225,10 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 }
 
 func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationSpec) (*api.ApplicationSpec, error) {
+	if app.EnvVars == nil {
+		return &app, nil
+	}
+
 	origEnvVars := *app.EnvVars
 	newEnvVars := make(map[string]string, len(origEnvVars))
 	for k, v := range origEnvVars {
