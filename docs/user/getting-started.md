@@ -273,7 +273,7 @@ $ cat Containerfile
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl-dev centos-stream-9-x86_64 && \
+RUN dnf -y copr enable @redhat-et/flightctl centos-stream-9-x86_64 && \
     dnf -y install flightctl-agent; \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
@@ -282,6 +282,8 @@ ADD agentconfig.yaml /etc/flightctl/config.yaml
 ```
 
 Note this is a regular `Containerfile` that you're used to from Docker/Podman, with the difference that the base image referenced in the `FROM` directive is bootable. This means you can use standard container build tools and workflows.
+
+If you wish to use the latest development version of the agent please use the `@redhat-et/flightctl-dev` copr repository instead.
 
 For example, as a user of Quay who has the privileges to push images into the `quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl` repository, build the bootc image like this:
 
@@ -320,7 +322,7 @@ $ mkdir -p output && \
   sudo podman run --rm -it --privileged --pull=newer --security-opt label=type:unconfined_t \
     -v $(pwd)/output:/output -v /var/lib/containers/storage:/var/lib/containers/storage \
     quay.io/centos-bootc/bootc-image-builder:latest \
-    --type raw quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
+    --type raw quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 --local
 
 [...]
 ```

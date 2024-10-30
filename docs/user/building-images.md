@@ -163,7 +163,7 @@ sudo podman run --rm -it --privileged --pull=newer \
     -v $(pwd)/output:/output \
     -v /var/lib/containers/storage:/var/lib/containers/storage \
     quay.io/centos-bootc/bootc-image-builder:latest \
-    --type raw \
+    --type raw --local \
     ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```
 
