@@ -39,10 +39,7 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 	if u == "" {
 		u = uuid.NewString()
 	}
-	csr.Subject.CommonName, err = crypto.BootstrapCNFromName(u)
-	if err != nil {
-		return nil, fmt.Errorf("cn: %s does not meet requirement: %w", u, err)
-	}
+	csr.Subject.CommonName = crypto.BootstrapCNFromName(u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
 	if request.Spec.ExpirationSeconds != nil {
