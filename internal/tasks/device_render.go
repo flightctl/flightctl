@@ -509,9 +509,43 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
 	}
 
-	body, err := sendHTTPrequest(repo.Spec.Data, repoURL)
-	if err != nil {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("sending HTTP Request")
+	var httpData []byte
+	var configStoreKey ConfigStorageHttpKey
+	needToStoreData := false
+
+	if t.ownerFleet != nil && t.templateVersion != nil {
+		configStoreKey = ConfigStorageHttpKey{
+			OrgID:           t.resourceRef.OrgID,
+			Fleet:           *t.ownerFleet,
+			TemplateVersion: *t.templateVersion,
+			URL:             repoURL,
+		}
+		data, err := t.configStorage.Get(ctx, configStoreKey.ComposeKey())
+		if err != nil {
+			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed fetching cached data: %w", err)
+		}
+		if data != nil {
+			httpData = data
+		} else {
+			needToStoreData = true
+		}
+	}
+
+	if httpData == nil {
+		httpData, err = sendHTTPrequest(repo.Spec.Data, repoURL)
+		if err != nil {
+			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed fetching data: %w", err)
+		}
+	}
+
+	if needToStoreData {
+		updated, err := t.configStorage.SetNX(ctx, configStoreKey.ComposeKey(), httpData)
+		if err != nil {
+			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed storing data: %w", err)
+		}
+		if !updated {
+			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed storing data: unexpectedly changed")
+		}
 	}
 
 	// Convert body to ignition config
@@ -520,7 +554,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
-	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, body, 0o644, false, nil, nil)
+	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, httpData, 0o644, false, nil, nil)
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
 
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
