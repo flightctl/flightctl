@@ -23,15 +23,13 @@ flowchart TD
     DevLabelsUpdated[(Device labels updated)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
     DevSpecUpdated[(Device spec updated)] --> DeviceRenderTask[[DeviceRenderTask]]
     DevConfigSourceUpdated[(Device config source updated)] --> DeviceRenderTask[[DeviceRenderTask]]
-    TemplateVersionCreated[(TemplateVersion created)] --> TemplateVersionPopulateTask[[TemplateVersionPopulateTask]]
-    TemplateVersionValidated[(TemplateVersion validated)] --> FleetRolloutTask[[FleetRolloutTask]]
+    TemplateVersionCreated[(TemplateVersion created)] --> FleetRolloutTask[[FleetRolloutTask]]
     DevLabelsUpdated --> FleetRolloutTask
     DevOwnerUpdated[(Device owner updated)] --> FleetRolloutTask
 
     FleetRolloutTask --> DevSpecUpdated
     FleetSelectorMatchTask --> DevOwnerUpdated
     FleetValidateTask --> TemplateVersionCreated
-    TemplateVersionPopulateTask --> TemplateVersionValidated
     RepositoryUpdatesTask --> FltConfigSourceUpdated
     RepositoryUpdatesTask --> DevConfigSourceUpdated
 ```
