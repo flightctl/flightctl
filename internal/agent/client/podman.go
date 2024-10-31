@@ -201,9 +201,10 @@ func (p *Podman) ListNetworks(ctx context.Context, labels []string) ([]string, e
 	defer cancel()
 
 	args := []string{
-		"ps",
+		"network",
+		"ls",
 		"--format",
-		"{{.Networks}}",
+		"{{.Network.ID}}",
 	}
 	for _, label := range labels {
 		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
