@@ -260,7 +260,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *ap
 	case api.GitConfigProviderType:
 		return t.renderGitConfig(ctx, configItem, ignitionConfig)
 	case api.KubernetesSecretProviderType:
-		return t.renderK8sConfig(configItem, ignitionConfig)
+		return t.renderK8sConfig(ctx, configItem, ignitionConfig)
 	case api.InlineConfigProviderType:
 		return t.renderInlineConfig(configItem, ignitionConfig)
 	case api.HttpConfigProviderType:
@@ -392,7 +392,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
 }
 
-func (t *DeviceRenderLogic) renderK8sConfig(configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
+func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
@@ -400,16 +400,58 @@ func (t *DeviceRenderLogic) renderK8sConfig(configItem *api.ConfigProviderSpec, 
 	if t.k8sClient == nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("kubernetes API is not available")
 	}
-	secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
-	if err != nil {
-		return &k8sSpec.Name, nil, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+
+	var secretData map[string][]byte
+	var configStoreKey ConfigStorageK8sSecretKey
+	needToStoreData := false
+
+	if t.ownerFleet != nil && t.templateVersion != nil {
+		configStoreKey = ConfigStorageK8sSecretKey{
+			OrgID:           t.resourceRef.OrgID,
+			Fleet:           *t.ownerFleet,
+			TemplateVersion: *t.templateVersion,
+			Namespace:       k8sSpec.SecretRef.Namespace,
+			Name:            k8sSpec.SecretRef.Name,
+		}
+		data, err := t.configStorage.Fetch(ctx, configStoreKey.ComposeKey())
+		if err != nil {
+			return &k8sSpec.Name, nil, fmt.Errorf("failed fetching cached secret data: %w", err)
+		}
+		if data != nil {
+			err = json.Unmarshal(data, &secretData)
+			if err != nil {
+				return &k8sSpec.Name, nil, fmt.Errorf("failed parsing cached secret data: %w", err)
+			}
+		} else {
+			needToStoreData = true
+		}
 	}
+
+	if secretData == nil {
+		secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+		if err != nil {
+			return &k8sSpec.Name, nil, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		}
+		secretData = secret.Data
+	}
+
+	if needToStoreData {
+		secretDataToStore, err := json.Marshal(secretData)
+		if err != nil {
+			return &k8sSpec.Name, nil, fmt.Errorf("failed marhsalling secret data %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		}
+		err = t.configStorage.StoreIfNotExists(ctx, configStoreKey.ComposeKey(), secretDataToStore)
+		if err != nil {
+			return &k8sSpec.Name, nil, fmt.Errorf("failed storing secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		}
+	}
+
 	ignitionWrapper, err := ignition.NewWrapper()
 	if err != nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
-	for name, contents := range secret.Data {
+	for name, contents := range secretData {
 		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644, false, nil, nil)
 	}
 
