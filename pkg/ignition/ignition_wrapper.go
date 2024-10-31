@@ -91,9 +91,9 @@ func userStringToNodeUser(user string) config_latest_types.NodeUser {
 	userConfig := config_latest_types.NodeUser{}
 	userID, err := strconv.Atoi(user)
 	if err != nil {
-		userConfig.ID = &userID
-	} else {
 		userConfig.Name = &user
+	} else {
+		userConfig.ID = &userID
 	}
 	return userConfig
 }
@@ -102,9 +102,9 @@ func groupStringToNodeGroup(group string) config_latest_types.NodeGroup {
 	groupConfig := config_latest_types.NodeGroup{}
 	groupID, err := strconv.Atoi(group)
 	if err != nil {
-		groupConfig.ID = &groupID
-	} else {
 		groupConfig.Name = &group
+	} else {
+		groupConfig.ID = &groupID
 	}
 	return groupConfig
 }
