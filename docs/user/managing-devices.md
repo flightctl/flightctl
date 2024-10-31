@@ -415,7 +415,7 @@ For each application in the "applications" section of the device's specification
 | Running     | All containers are running.
 | Error       | All containers failed.
 | Unknown     | Application started, no containers observed.
-| Completed   | All containers have completed execution.
+| Completed   | All containers have completed successfully.
 
 ### Managing Applications on the Web UI
 
