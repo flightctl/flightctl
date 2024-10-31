@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
@@ -178,41 +177,12 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.ConfigPro
 		return fmt.Errorf("failed getting config item as KubernetesSecretProviderSpec: %w", err)
 	}
 
-	for key, value := range map[string]string{
-		"name":      k8sSpec.SecretRef.Name,
-		"namespace": k8sSpec.SecretRef.Namespace,
-		"mountPath": k8sSpec.SecretRef.MountPath,
-	} {
-		if ContainsParameter([]byte(value)) {
-			return fmt.Errorf("parameters in field %s of secret reference are not currently supported", key)
-		}
-	}
-
-	secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+	newConfig := &api.ConfigProviderSpec{}
+	err = newConfig.FromKubernetesSecretProviderSpec(k8sSpec)
 	if err != nil {
-		return fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		return fmt.Errorf("failed creating k8s secret config from item %s: %w", k8sSpec.Name, err)
 	}
-
-	files := []api.FileSpec{}
-	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
-	for name, contents := range secret.Data {
-		file := api.FileSpec{
-			Path:    filepath.Join(append(splits, name)...),
-			Content: string(contents),
-			Mode:    util.IntToPtr(0o644),
-		}
-		files = append(files, file)
-	}
-
-	newConfig := api.ConfigProviderSpec{}
-	inlineSpec := api.InlineConfigProviderSpec{
-		Inline: files,
-		Name:   k8sSpec.Name,
-	}
-	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
-		return err
-	}
-	t.frozenConfig = append(t.frozenConfig, newConfig)
+	t.frozenConfig = append(t.frozenConfig, *newConfig)
 	return nil
 }
 
