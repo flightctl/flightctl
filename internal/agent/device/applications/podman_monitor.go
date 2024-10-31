@@ -52,8 +52,6 @@ type PodmanEvent struct {
 	Image      string            `json:"Image"`
 	Name       string            `json:"Name"`
 	Status     string            `json:"Status"`
-	Time       int64             `json:"time"`
-	TimeNano   int64             `json:"timeNano"`
 	Type       string            `json:"Type"`
 	Attributes map[string]string `json:"Attributes"`
 }
