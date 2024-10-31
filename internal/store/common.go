@@ -23,7 +23,7 @@ func ErrorFromGormError(err error) error {
 	switch err {
 	case nil:
 		return nil
-	case gorm.ErrRecordNotFound:
+	case gorm.ErrRecordNotFound, gorm.ErrForeignKeyViolated:
 		return flterrors.ErrResourceNotFound
 	case gorm.ErrDuplicatedKey:
 		return flterrors.ErrDuplicateName

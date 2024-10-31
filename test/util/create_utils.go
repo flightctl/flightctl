@@ -127,7 +127,7 @@ func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet
 	}
 }
 
-func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name, osImage string, valid bool) error {
+func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name string, status *api.TemplateVersionStatus) error {
 	owner := util.SetResourceOwner(model.FleetKind, fleet)
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
@@ -137,23 +137,22 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		Spec: api.TemplateVersionSpec{
 			Fleet: fleet,
 		},
+		Status: &api.TemplateVersionStatus{},
+	}
+	if status != nil {
+		resource.Status = status
 	}
 
 	callback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
-	tv, err := tvStore.Create(ctx, orgId, &resource, callback)
-	if err != nil {
-		return err
-	}
+	_, err := tvStore.Create(ctx, orgId, &resource, callback)
 
-	tv.Status = &api.TemplateVersionStatus{}
-	tv.Status.Os = &api.DeviceOSSpec{Image: osImage}
-	err = tvStore.UpdateStatus(ctx, orgId, tv, &valid, callback)
 	return err
 }
 
 func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tvStore store.TemplateVersion, orgId uuid.UUID, fleet string) error {
 	for i := 1; i <= numTemplateVersions; i++ {
-		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), "myimage", true)
+		status := api.TemplateVersionStatus{Os: &api.DeviceOSSpec{Image: "myimage"}}
+		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), &status)
 		if err != nil {
 			return err
 		}

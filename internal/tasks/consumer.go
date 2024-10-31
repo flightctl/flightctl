@@ -27,8 +27,6 @@ func dispatchTasks(store store.Store, callbackManager CallbackManager, k8sClient
 			return fleetRollout(ctx, &reference, store, callbackManager, log)
 		case FleetSelectorMatchTask:
 			return fleetSelectorMatching(ctx, &reference, store, callbackManager, log)
-		case TemplateVersionPopulateTask:
-			return templateVersionPopulate(ctx, &reference, store, callbackManager, k8sClient, log)
 		case FleetValidateTask:
 			return fleetValidate(ctx, &reference, store, callbackManager, k8sClient, log)
 		case DeviceRenderTask:
