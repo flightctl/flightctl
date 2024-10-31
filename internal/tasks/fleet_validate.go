@@ -66,6 +66,14 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 			Owner: util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name),
 		},
 		Spec: api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
+		Status: &api.TemplateVersionStatus{
+			Applications: fleet.Spec.Template.Spec.Applications,
+			Config:       fleet.Spec.Template.Spec.Config,
+			Hooks:        fleet.Spec.Template.Spec.Hooks,
+			Os:           fleet.Spec.Template.Spec.Os,
+			Resources:    fleet.Spec.Template.Spec.Resources,
+			Systemd:      fleet.Spec.Template.Spec.Systemd,
+		},
 	}
 
 	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.callbackManager.TemplateVersionCreatedCallback)
