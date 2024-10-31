@@ -118,7 +118,7 @@ func (t *TemplateVersionPopulateLogic) handleConfigItem(ctx context.Context, con
 
 	switch configType {
 	case api.GitConfigProviderType:
-		return t.handleGitConfig(ctx, configItem)
+		return t.handleGitConfig(configItem)
 	case api.KubernetesSecretProviderType:
 		return t.handleK8sConfig(configItem)
 	case api.InlineConfigProviderType:
@@ -153,33 +153,12 @@ func (t *TemplateVersionPopulateLogic) handleImageApplicationProvider(app api.Ap
 }
 
 // Translate branch or tag into hash
-func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec) error {
+func (t *TemplateVersionPopulateLogic) handleGitConfig(configItem *api.ConfigProviderSpec) error {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return fmt.Errorf("failed getting config item as GitConfigProviderSpec: %w", err)
 	}
 
-	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
-	if err != nil {
-		return fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
-
-	if repo.Spec == nil {
-		return fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
-
-	if ContainsParameter([]byte(gitSpec.GitRef.TargetRevision)) {
-		return fmt.Errorf("parameters in TargetRevision are not currently supported")
-	}
-
-	// TODO: Use local cache
-	_, hash, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, util.IntToPtr(1))
-	if err != nil {
-		return fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
-
-	// Add this git hash into the frozen config
-	gitSpec.GitRef.TargetRevision = hash
 	newConfig := &api.ConfigProviderSpec{}
 	err = newConfig.FromGitConfigProviderSpec(gitSpec)
 	if err != nil {
