@@ -11,6 +11,7 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -41,6 +42,7 @@ type DeviceRenderLogic struct {
 	configStorage   ConfigStorage
 	resourceRef     ResourceReference
 	ownerFleet      *string
+	templateVersion *string
 	deviceConfig    *[]api.ConfigProviderSpec
 	applications    *[]api.ApplicationSpec
 }
@@ -69,6 +71,11 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 			return fmt.Errorf("failed getting device owner %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
 		}
 		t.ownerFleet = &owner
+
+		if device.Metadata.Annotations != nil {
+			tvString := (*device.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]
+			t.templateVersion = &tvString
+		}
 	}
 
 	ignitionConfig, referencedRepos, renderErr := t.renderConfig(ctx)
@@ -309,10 +316,69 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
-	// TODO: Use local cache
-	mfs, _, err := CloneGitRepo(repo, &gitSpec.GitRef.TargetRevision, nil)
+	repoURL, err := repo.Spec.Data.GetRepoURL()
+	if err != nil {
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+	}
+
+	var gitHash string
+
+	// If the device is part of a fleet, we need to make sure the repo and targetRevision are frozen
+	if t.ownerFleet != nil && t.templateVersion != nil {
+		repoKey := ConfigStorageRepositoryUrlKey{
+			OrgID:           t.resourceRef.OrgID,
+			Fleet:           *t.ownerFleet,
+			TemplateVersion: *t.templateVersion,
+			Repository:      gitSpec.GitRef.Repository,
+		}
+		origRepoURL, err := t.configStorage.StoreIfNotExistsAndFetch(ctx, repoKey.ComposeKey(), []byte(repoURL))
+		if err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed getting repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+		}
+		if repoURL != string(origRepoURL) {
+			t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
+			err = repo.Spec.Data.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
+			if err != nil {
+				return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+			}
+		}
+
+		gitRevisionKey := ConfigStorageGitRevisionKey{
+			OrgID:           t.resourceRef.OrgID,
+			Fleet:           *t.ownerFleet,
+			TemplateVersion: *t.templateVersion,
+			Repository:      gitSpec.GitRef.Repository,
+			TargetRevision:  gitSpec.GitRef.TargetRevision,
+		}
+		hashBytes, err := t.configStorage.Fetch(ctx, gitRevisionKey.ComposeKey())
+		if err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+		}
+		gitHash = string(hashBytes)
+	}
+
+	gitRevision := gitSpec.GitRef.TargetRevision
+	if gitHash != "" {
+		gitRevision = gitHash
+	}
+
+	mfs, clonedHash, err := CloneGitRepo(repo, &gitRevision, nil)
 	if err != nil {
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+	}
+
+	if gitHash == "" && t.ownerFleet != nil && t.templateVersion != nil {
+		gitRevisionKey := ConfigStorageGitRevisionKey{
+			OrgID:           t.resourceRef.OrgID,
+			Fleet:           *t.ownerFleet,
+			TemplateVersion: *t.templateVersion,
+			Repository:      gitSpec.GitRef.Repository,
+			TargetRevision:  gitSpec.GitRef.TargetRevision,
+		}
+		err := t.configStorage.StoreIfNotExists(ctx, gitRevisionKey.ComposeKey(), []byte(clonedHash))
+		if err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed storing frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+		}
 	}
 
 	// Create an ignition from the git subtree and merge it into the rendered config
