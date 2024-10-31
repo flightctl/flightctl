@@ -286,7 +286,7 @@ Note this is a regular `Containerfile` that you're used to from Docker/Podman, w
 For example, as a user of Quay who has the privileges to push images into the `quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl` repository, build the bootc image like this:
 
 ```console
-$ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
+$ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
 
 [...]
 ```
