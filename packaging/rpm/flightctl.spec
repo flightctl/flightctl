@@ -1,13 +1,13 @@
 %define debug_package %{nil}
 
 Name: flightctl
-Version: 0.0.1
-Release: 5%{?dist}
+Version: 0.3.0
+Release: 1%{?dist}
 Summary: Flightctl CLI
 
 License: XXX
 URL: https://github.com/flightctl/flightctl
-Source0: flightctl-0.0.1.tar.gz
+Source0: flightctl-0.3.0.tar.gz
 
 BuildRequires: golang
 BuildRequires: make
@@ -68,9 +68,12 @@ install -Dpm 0644 _flightctl-completion -t %{buildroot}/%{_datadir}/zsh/site-fun
 /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
 
 %changelog
+* Mon Nov 4 2024 Miguel Angel Ajo <majopela@redhat.com> - 0.3.0-1
+- Move the Release field to -1 so we avoid auto generating packages
+  with -5 all the time.
 * Wed Aug 21 2024 Sam Batschelet <sbatsche@redhat.com> - 0.0.1-5
 - Add must-gather script to provide a simple mechanism to collect agent debug
 * Wed Aug 7 2024 Sam Batschelet <sbatsche@redhat.com> - 0.0.1-4
-- Add basic greenboot support for failed flightctl-agent service 
+- Add basic greenboot support for failed flightctl-agent service
 * Wed Mar 13 2024 Ricardo Noriega <rnoriega@redhat.com> - 0.0.1-3
 - New specfile for both CLI and agent packages
