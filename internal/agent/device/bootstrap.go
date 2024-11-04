@@ -124,6 +124,11 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		b.log.Warnf("Failed setting status: %v", updateErr)
 	}
 
+	// unset NOTIFY_SOCKET on successful bootstrap to prevent subprocesses from
+	// using it.
+	// ref: https://bugzilla.redhat.com/show_bug.cgi?id=1781506
+	os.Unsetenv("NOTIFY_SOCKET")
+
 	b.log.Info("Bootstrap complete")
 	return nil
 }
