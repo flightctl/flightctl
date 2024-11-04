@@ -161,7 +161,11 @@ func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
 	return bootedOSImage == rollback.Os.Image && bootedOSImage != desired.Os.Image, nil
 }
 
-func (s *manager) Upgrade() error {
+func (s *manager) Upgrade(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// only upgrade if the device is in the process of reconciling the desired spec
 	if s.IsUpgrading() {
 		desired, err := s.Read(Desired)

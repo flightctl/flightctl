@@ -378,7 +378,8 @@ func TestUpgrade(t *testing.T) {
 
 			tc.setupMocks(mockReadWriter, mockPriorityQueue)
 
-			err := s.Upgrade()
+			ctx := context.Background()
+			err := s.Upgrade(ctx)
 
 			if tc.expectedError != nil {
 				require.ErrorIs(err, tc.expectedError)

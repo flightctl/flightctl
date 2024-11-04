@@ -124,6 +124,11 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 }
 
 func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error) {
+	if err := ctx.Err(); err != nil {
+		a.log.Debugf("Context error: %v", err)
+		return
+	}
+
 	startTime := time.Now()
 	a.log.Debug("Starting sync of device spec")
 	defer func() {
@@ -181,7 +186,7 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 		return err
 	}
 
-	if err := a.specManager.Upgrade(); err != nil {
+	if err := a.specManager.Upgrade(ctx); err != nil {
 		return err
 	}
 

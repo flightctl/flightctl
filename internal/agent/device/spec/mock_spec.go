@@ -213,17 +213,17 @@ func (mr *MockManagerMockRecorder) SetUpgradeFailed() *gomock.Call {
 }
 
 // Upgrade mocks base method.
-func (m *MockManager) Upgrade() error {
+func (m *MockManager) Upgrade(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Upgrade")
+	ret := m.ctrl.Call(m, "Upgrade", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Upgrade indicates an expected call of Upgrade.
-func (mr *MockManagerMockRecorder) Upgrade() *gomock.Call {
+func (mr *MockManagerMockRecorder) Upgrade(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockManager)(nil).Upgrade))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockManager)(nil).Upgrade), ctx)
 }
 
 // MockPriorityQueue is a mock of PriorityQueue interface.
