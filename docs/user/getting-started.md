@@ -278,6 +278,11 @@ RUN dnf -y copr enable @redhat-et/flightctl centos-stream-9-x86_64 && \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
 
+# Optional: to enable podman-compose application support uncomment below”
+# RUN dnf -y install epel-release epel-next-release && \
+#    dnf -y install podman-compose && \
+#    systemctl enable podman.service
+
 ADD agentconfig.yaml /etc/flightctl/config.yaml
 ```
 
@@ -288,7 +293,7 @@ If you wish to use the latest development version of the agent please use the `@
 For example, as a user of Quay who has the privileges to push images into the `quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl` repository, build the bootc image like this:
 
 ```console
-$ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
+$ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
 
 [...]
 ```
