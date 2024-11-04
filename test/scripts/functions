@@ -155,3 +155,37 @@ function try_login() {
     return 0
   fi
 }
+
+# Function to determine the correct COPR repository based on the FLIGHTCTL_RPM variable
+function copr_repo() {
+    # split FLIGHTCTL_RPM by the '/' character in two variables
+    local REPO_NAME=$(echo "${FLIGHTCTL_RPM}" | cut -d'/' -f1)
+    if [[ "${REPO_NAME}" == "release" ]]; then
+        echo "@redhat-et/flightctl"
+    else
+        echo "@redhat-et/flightctl-dev"
+    fi
+}
+
+# Function to append the RPM version to the specified package name based on the FLIGHTCTL_RPM variable
+function append_rpm_version() {
+    local pkgname="${1}"
+    # check if FLIGHTCTL_RPM contains the '/' character
+     if [[ "${FLIGHTCTL_RPM}" == *"/"* ]]; then
+        echo "${pkgname}-${FLIGHTCTL_RPM##*/}"
+    else
+        echo "${pkgname}"
+    fi
+}
+
+# Function to generate the package name for the flightctl agent with the appropriate version
+function package_agent() {
+    local VERSION=$(echo "${FLIGHTCTL_RPM}" | cut -d'/' -f2)
+    append_rpm_version "flightctl-agent"
+}
+
+# Function to generate the package name for the flightctl CLI with the appropriate version
+function package_cli() {
+    local VERSION=$(echo "${FLIGHTCTL_RPM}" | cut -d'/' -f2)
+    append_rpm_version "flightctl"
+}

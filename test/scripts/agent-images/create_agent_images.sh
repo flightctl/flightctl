@@ -7,10 +7,24 @@ source "${SCRIPT_DIR}"/../functions
 REGISTRY_ADDRESS=$(registry_address)
 IMAGE_LIST="base v2 v3"
 
+# if FLIGHTCTL_RPM is not empty
+if [ -n "${FLIGHTCTL_RPM:-}" ]; then
+    RPM_COPR=$(copr_repo)
+    RPM_PACKAGE=$(package_agent)
+    # if the package reference includes version, we need to append the system variant, always el9 for our images
+    if [[ "${RPM_PACKAGE}" != "flightctl-agent" ]]; then
+        RPM_PACKAGE="${RPM_PACKAGE}.el9"
+    fi
+    BUILD_ARGS="--build-arg=RPM_COPR=${RPM_COPR}"
+    BUILD_ARGS="${BUILD_ARGS} --build-arg=RPM_PACKAGE=${RPM_PACKAGE}"
+fi
+
+
+
 for img in $IMAGE_LIST; do
    FINAL_REF="${REGISTRY_ADDRESS}/flightctl-device:${img}"
    echo -e "\033[32mCreating image ${FINAL_REF} \033[m"
-   podman build -f "${SCRIPT_DIR}"/Containerfile-e2e-"${img}".local -t localhost:5000/flightctl-device:${img} .
+   podman build ${BUILD_ARGS} -f "${SCRIPT_DIR}"/Containerfile-e2e-"${img}".local -t localhost:5000/flightctl-device:${img} .
    podman tag "localhost:5000/flightctl-device:${img}" "${FINAL_REF}"
    podman push "${FINAL_REF}"
 done

@@ -228,6 +228,28 @@ export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
 make in-cluster-e2e-test
 ```
 
+You can also use `FLIGHTCTL_RPM=release/0.3.0`, `FLIGHTCTL_RPM=devel/0.3.0.rc1-5.20241104145530808450.main.19.ga531984`
+or simply `FLIGHTCTL_RPM=release` or `FLIGHTCTL_RPM=devel` to consume an specific version/repository
+of the CLI and agent rpm.
+
+I.e. if you wanted to test the cluster along with the 0.3.0 release in
+https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl/builds/, you would run:
+```bash
+export FLIGHTCTL_NS=flightctl
+export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
+export FLIGHTCTL_RPM=release/0.3.0
+
+make in-cluster-e2e-test
+```
+
+If you wanted to test the cluster along with the latest devel build in
+https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl-dev/builds/, you could use run:
+```bash
+export FLIGHTCTL_RPM=devel/0.3.0.rc2-1.20241104145530808450.main.19.ga531984
+
+make in-cluster-e2e-test
+```
+
 #### If your host system is not suitable for bootc image builder
 
 * Install vagrant
