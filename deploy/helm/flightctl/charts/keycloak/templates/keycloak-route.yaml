@@ -5,6 +5,8 @@ kind: Route
 metadata:
   labels:
     app: keycloak
+    shard: external
+    external-exposed: "true"
   name: keycloak
   namespace: {{ .Release.Namespace }}
 spec:
