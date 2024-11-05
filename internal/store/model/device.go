@@ -29,7 +29,7 @@ type Device struct {
 	Alias *string `selector:"metadata.alias"`
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb" selector:"spec"`
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb" selector:"status"`

@@ -22,7 +22,7 @@ type Fleet struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.FleetSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[api.FleetSpec] `gorm:"type:jsonb" selector:"spec"`
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.FleetStatus] `gorm:"type:jsonb" selector:"status"`
