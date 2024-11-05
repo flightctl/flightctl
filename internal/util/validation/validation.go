@@ -20,8 +20,26 @@ func ValidateResourceName(name *string) []error {
 	return ValidateResourceNameReference(name, "metadata.name")
 }
 
-// ValidateResourceRef validates that metadata.name is not empty and is a valid name in K8s.
+// ValidateResourceNameReference validates that metadata.name is not empty and is a valid name in K8s.
 func ValidateResourceNameReference(name *string, path string) []error {
+	errs := field.ErrorList{}
+	if name == nil {
+		errs = append(errs, field.Required(fieldPathFor(path), ""))
+	} else {
+		for _, msg := range k8sutilvalidation.IsQualifiedName(*name) {
+			errs = append(errs, field.Invalid(fieldPathFor(path), *name, msg))
+		}
+	}
+	return asErrors(errs)
+}
+
+// ValidateDNSResourceName validates that metadata.name is not empty and is a valid DNS name in K8s.
+func ValidateDNSResourceName(name *string) []error {
+	return ValidateResourceDNSNameReference(name, "metadata.name")
+}
+
+// ValidateResourceDNSNameReference validates that metadata.name is not empty and is a valid DNS subdomain name in K8s.
+func ValidateResourceDNSNameReference(name *string, path string) []error {
 	errs := field.ErrorList{}
 	if name == nil {
 		errs = append(errs, field.Required(fieldPathFor(path), ""))
