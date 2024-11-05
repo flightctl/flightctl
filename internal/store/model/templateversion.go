@@ -25,13 +25,13 @@ type TemplateVersion struct {
 	Name            string         `gorm:"primary_key;" selector:"metadata.name"`
 	FleetName       string         `gorm:"primary_key;" selector:"metadata.fleetname"`
 	Fleet           Fleet          `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
-	Labels          pq.StringArray `gorm:"type:text[]"`
-	Annotations     pq.StringArray `gorm:"type:text[]"`
+	Labels          pq.StringArray `gorm:"type:text[]" selector:"metadata.labels"`
+	Annotations     pq.StringArray `gorm:"type:text[]" selector:"metadata.annotations"`
 	Generation      *int64
 	ResourceVersion *int64
-	CreatedAt       time.Time      `selector:"metadata.created_at"`
-	UpdatedAt       time.Time      `selector:"metadata.updated_at"`
-	DeletedAt       gorm.DeletedAt `gorm:"index"`
+	CreatedAt       time.Time `selector:"metadata.creationTimestamp"`
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index" selector:"metadata.deletionTimestamp"`
 
 	// The desired state, stored as opaque JSON object.
 	Spec *JSONField[api.TemplateVersionSpec] `gorm:"type:jsonb"`

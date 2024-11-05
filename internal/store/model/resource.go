@@ -33,9 +33,9 @@ type Resource struct {
 
 	Generation      *int64
 	ResourceVersion *int64
-	CreatedAt       time.Time      `selector:"metadata.created_at"`
-	UpdatedAt       time.Time      `selector:"metadata.updated_at"`
-	DeletedAt       gorm.DeletedAt `gorm:"index"`
+	CreatedAt       time.Time `selector:"metadata.creationTimestamp"`
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index" selector:"metadata.deletionTimestamp"`
 }
 
 func (r *Resource) BeforeCreate(tx *gorm.DB) error {
