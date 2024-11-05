@@ -20,7 +20,7 @@ type Repository struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.RepositorySpec] `gorm:"type:jsonb"`
+	Spec *JSONField[api.RepositorySpec] `gorm:"type:jsonb" selector:"spec"`
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.RepositoryStatus] `gorm:"type:jsonb" selector:"status"`
