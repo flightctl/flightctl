@@ -6,7 +6,7 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
-deploy: cluster build deploy-helm prepare-agent-config
+deploy: cluster build deploy-helm deploy-e2e-extras prepare-agent-config
 
 deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
 	kubectl config set-context kind-kind
