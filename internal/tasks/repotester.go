@@ -51,12 +51,15 @@ func (r *RepoTester) TestRepositories() {
 		repository := repositories[i]
 
 		repoSpec, _ := repository.Spec.Data.GetGenericRepoSpec()
-		if repoSpec.Type == "http" {
+		switch repoSpec.Type {
+		case "http":
 			log.Info("Detected HTTP repository type")
 			r.TypeSpecificRepoTester = &HttpRepoTester{}
-		} else {
+		case "git":
 			log.Info("Defaulting to Git repository type")
 			r.TypeSpecificRepoTester = &GitRepoTester{}
+		default:
+			log.Errorf("unsupported repository type: %s", repoSpec.Type)
 		}
 
 		accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
