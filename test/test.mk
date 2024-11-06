@@ -52,7 +52,7 @@ in-cluster-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
 	./test/scripts/prepare_cli.sh
 	$(MAKE) _e2e_test
 
-e2e-test: deploy deploy-e2e-extras bin/output/qcow2/disk.qcow2
+e2e-test: deploy bin/output/qcow2/disk.qcow2
 	$(MAKE) _e2e_test
 
 run-e2e-test:
