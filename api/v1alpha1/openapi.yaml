@@ -2515,6 +2515,9 @@ components:
           $ref: "#/components/schemas/RepoSpecType"
         httpConfig:
           $ref: "#/components/schemas/HttpConfig"
+        validationSuffix:
+          type: string
+          description: 'URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.'
       required:
         - url
         - type
