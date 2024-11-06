@@ -3,8 +3,6 @@ package tasks
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
@@ -121,33 +119,8 @@ func (r *HttpRepoTester) TestAccess(repository *model.Repository) error {
 		repoURL += *repoHttpSpec.ValidationSuffix
 	}
 
-	req, err := http.NewRequest("GET", repoURL, nil)
-	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
-	}
-
-	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
-	if err != nil {
-		return fmt.Errorf("error building request authentication: %w", err)
-	}
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
-	}
-
-	_, err = io.ReadAll(resp.Body)
+	repoSpec := repository.Spec.Data
+	_, err = sendHTTPrequest(repoSpec, repoURL)
 	return err
 }
 

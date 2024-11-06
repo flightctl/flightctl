@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -459,38 +457,10 @@ func renderHttpProviderConfig(ctx context.Context, configItem *api.ConfigProvide
 	if args.validateOnly {
 		return httpConfigProviderSpec.Name, nil
 	}
-	req, err := http.NewRequest("GET", repoURL, nil)
+	repoSpec := repo.Spec.Data
+	body, err := sendHTTPrequest(repoSpec, repoURL)
 	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
-	}
-
-	repoHttpSpec, err := repo.Spec.Data.GetHttpRepoSpec()
-	if err != nil {
-		return "", err
-	}
-
-	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
-	if err != nil {
-		return "", fmt.Errorf("error building request authentication: %w", err)
-	}
-
-	// Set up the HTTP client with the configured TLS settings
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("sending request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("reading response body: %w", err)
+		return "", fmt.Errorf("sending HTTP Request")
 	}
 
 	// Convert body to ignition config
