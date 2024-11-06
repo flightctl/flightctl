@@ -3,6 +3,8 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
@@ -28,9 +30,8 @@ type RepoTester struct {
 
 func NewRepoTester(log logrus.FieldLogger, store store.Store) *RepoTester {
 	return &RepoTester{
-		log:                    log,
-		repoStore:              store.Repository(),
-		TypeSpecificRepoTester: &GitRepoTester{},
+		log:       log,
+		repoStore: store.Repository(),
 	}
 }
 
@@ -50,6 +51,16 @@ func (r *RepoTester) TestRepositories() {
 
 	for i := range repositories {
 		repository := repositories[i]
+
+		repoSpec, _ := repository.Spec.Data.GetGenericRepoSpec()
+		if repoSpec.Type == "http" {
+			log.Info("Detected HTTP repository type")
+			r.TypeSpecificRepoTester = &HttpRepoTester{}
+		} else {
+			log.Info("Defaulting to Git repository type")
+			r.TypeSpecificRepoTester = &GitRepoTester{}
+		}
+
 		accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
 
 		err := r.SetAccessCondition(repository, accessErr)
@@ -64,6 +75,9 @@ type TypeSpecificRepoTester interface {
 }
 
 type GitRepoTester struct {
+}
+
+type HttpRepoTester struct {
 }
 
 func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
@@ -88,6 +102,52 @@ func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
 
 	listOps.Auth = auth
 	_, err = remote.List(listOps)
+	return err
+}
+
+func (r *HttpRepoTester) TestAccess(repository *model.Repository) error {
+	if repository.Spec == nil {
+		return fmt.Errorf("repository has no spec")
+	}
+
+	repoHttpSpec, err := repository.Spec.Data.GetHttpRepoSpec()
+	if err != nil {
+		return fmt.Errorf("failed to get HTTP repo spec: %w", err)
+	}
+
+	repoURL := repoHttpSpec.Url
+	// Append the validationSuffix if it exists
+	if repoHttpSpec.ValidationSuffix != nil {
+		repoURL += *repoHttpSpec.ValidationSuffix
+	}
+
+	req, err := http.NewRequest("GET", repoURL, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+	if err != nil {
+		return fmt.Errorf("error building request authentication: %w", err)
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+
+	_, err = io.ReadAll(resp.Body)
 	return err
 }
 
