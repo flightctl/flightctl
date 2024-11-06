@@ -9,7 +9,7 @@ metadata:
   labels:
     app: keycloak
     {{ if .Values.global.appCode }}
-      paas.redhat.com/appcode: {{ .Values.global.appCode }}
+    paas.redhat.com/appcode: {{ .Values.global.appCode }}
     {{ end }}
 spec:
   accessModes:

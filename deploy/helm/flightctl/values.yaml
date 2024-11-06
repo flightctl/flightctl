@@ -66,6 +66,15 @@ db:
   masterUser: admin
   user: demouser
   userPassword: demopass
+  ## @param db.resources the request/limit resource requests for the DB deployment pod
+  resources:
+    requests:
+      cpu: "512m"
+      memory: "512Mi"
+    limit:
+      cpu: "2000m"
+      memory: "2Gi"
+
 api:
   enabled: true
   image:

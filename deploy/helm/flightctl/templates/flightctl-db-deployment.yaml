@@ -40,10 +40,10 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/pgsql/data
               name: flightctl-db
+{{ if .Values.db.resources }}
           resources:
-            requests:
-              cpu: "1000m"
-              memory: "2Gi"
+{{ toYaml .Values.db.resources | indent 12 }}
+{{ end }}
       restartPolicy: Always
       volumes:
         - name: flightctl-db
