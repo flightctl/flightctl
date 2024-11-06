@@ -31,6 +31,9 @@ This image is the base image for all other images. It contains the following ser
    with the `test/script/prepare_agent_config.sh` script to be connected to our local
    flightctl service.
 
+The installed flightctl-agent will be either a locally compiled rpm or a downloaded
+rpm based on the `FLIGHTCTL_RPM` variable, please see [test-docs](../../README.md) for more information.
+
 It is configured to trust our locally generated CA created in `test/scripts/create_e2e_certs.sh`
 
 ### v2
