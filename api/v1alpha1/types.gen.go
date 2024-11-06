@@ -931,6 +931,9 @@ type HttpRepoSpec struct {
 
 	// Url The HTTP URL to call or clone from
 	Url string `json:"url"`
+
+	// ValidationSuffix URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.
+	ValidationSuffix *string `json:"validationSuffix,omitempty"`
 }
 
 // ImageApplicationProvider defines model for ImageApplicationProvider.
