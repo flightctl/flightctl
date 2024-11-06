@@ -15,7 +15,7 @@ spec:
     targetPort: 8080
   tls:
     termination: edge
-    insecureEdgeTerminationPolicy: None
+    insecureEdgeTerminationPolicy: Redirect
     {{- if (.Values.global.baseDomainTls).cert }}
     certificate: {{ .Values.global.baseDomainTls.cert | quote }}
     key: {{ .Values.global.baseDomainTls.key | quote }}
