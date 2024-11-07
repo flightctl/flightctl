@@ -150,7 +150,7 @@ func TestListenForEvents(t *testing.T) {
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
-				err = podmanMonitor.add(testApp)
+				err = podmanMonitor.ensure(testApp)
 				require.NoError(err)
 			}
 
