@@ -42,8 +42,9 @@ type Agent struct {
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
 
-	backoff wait.Backoff
-	log     *log.PrefixLogger
+	cancelFn context.CancelFunc
+	backoff  wait.Backoff
+	log      *log.PrefixLogger
 }
 
 // NewAgent creates a new device agent.
@@ -89,6 +90,8 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
+	ctx, a.cancelFn = context.WithCancel(ctx)
+
 	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
 	defer specTicker.Stop()
 	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
@@ -106,6 +109,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
+// Stop ensures that the device agent stops reconciling during graceful shutdown.
+func (a *Agent) Stop(ctx context.Context) error {
+	a.cancelFn()
+	return nil
+}
+
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	if err := a.beforeUpdate(ctx, current, desired); err != nil {
 		return fmt.Errorf("before update: %w", err)
@@ -117,7 +126,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 	}
 
 	if err := a.afterUpdate(ctx); err != nil {
-		return fmt.Errorf("after update: %w: %w", errors.ErrNoRetry, err)
+		return fmt.Errorf("after update: %w", err)
 	}
 
 	return nil

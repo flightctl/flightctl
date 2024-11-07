@@ -199,7 +199,7 @@ func (m *manager) Run(ctx context.Context) {
 			}
 			job(ctx)
 		case <-ctx.Done():
-			m.log.Info("Background jobs context closed")
+			m.log.Info("Hooks manager: context closed")
 			return
 		}
 	}

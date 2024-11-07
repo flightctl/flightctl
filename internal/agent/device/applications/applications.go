@@ -62,11 +62,12 @@ type Monitor interface {
 }
 
 type Manager interface {
-	Add(app Application) error
+	Ensure(app Application) error
 	Remove(app Application) error
 	Update(app Application) error
 	ExecuteActions(ctx context.Context) error
 	Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
+	Stop(ctx context.Context) error
 }
 
 type Application interface {
@@ -78,6 +79,7 @@ type Application interface {
 	Container(name string) (*Container, bool)
 	AddContainer(container Container)
 	RemoveContainer(name string) bool
+	IsEmbedded() bool
 	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 }
 
@@ -175,6 +177,10 @@ func (a *application[T]) RemoveContainer(name string) bool {
 		}
 	}
 	return false
+}
+
+func (a *application[T]) IsEmbedded() bool {
+	return a.embedded
 }
 
 func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
@@ -324,6 +330,7 @@ func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.Image
 	return providers, nil
 }
 
+// TypeFromImage returns the app type from the image label.
 func TypeFromImage(ctx context.Context, podman *client.Podman, image string) (AppType, error) {
 	labels, err := podman.InspectLabels(ctx, image)
 	if err != nil {
@@ -336,6 +343,7 @@ func TypeFromImage(ctx context.Context, podman *client.Podman, image string) (Ap
 	return ParseAppType(appTypeLabel)
 }
 
+// EnsureDependenciesFromType ensures that the dependencies required for the given app type are available.
 func EnsureDependenciesFromType(appType AppType) error {
 	var deps []string
 	switch appType {
@@ -354,7 +362,7 @@ func EnsureDependenciesFromType(appType AppType) error {
 	return fmt.Errorf("%w: %v", errors.ErrAppDependency, deps)
 }
 
-func CopyImageManifests(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman, image, destPath string) (err error) {
+func copyImageManifests(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman, image, destPath string) (err error) {
 	var mountPoint string
 
 	rootless := client.IsPodmanRootless()
