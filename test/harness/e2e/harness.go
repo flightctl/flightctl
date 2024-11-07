@@ -2,12 +2,14 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
@@ -18,6 +20,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 const POLLING = "250ms"
@@ -28,6 +31,7 @@ type Harness struct {
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
 	ctxCancel context.CancelFunc
+	startTime time.Time
 }
 
 func findTopLevelDir() string {
@@ -49,6 +53,8 @@ func findTopLevelDir() string {
 
 func NewTestHarness() *Harness {
 
+	startTime := time.Now()
+
 	testVM, err := vm.NewVM(vm.TestVM{
 		TestDir:       GinkgoT().TempDir(),
 		VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
@@ -69,6 +75,7 @@ func NewTestHarness() *Harness {
 		Client:    c,
 		Context:   ctx,
 		ctxCancel: cancel,
+		startTime: startTime,
 	}
 }
 
@@ -100,6 +107,9 @@ func (h *Harness) Cleanup(printConsole bool) {
 		fmt.Print("\n\n\n")
 	}
 	err := h.VM.ForceDelete()
+
+	diffTime := time.Since(h.startTime)
+	fmt.Printf("Test took %s\n", diffTime)
 	Expect(err).ToNot(HaveOccurred())
 	// This will stop any blocking function that is waiting for the context to be canceled
 	h.ctxCancel()
@@ -253,4 +263,60 @@ func (h *Harness) CLI(args ...string) (string, error) {
 
 func (h *Harness) SH(command string, args ...string) (string, error) {
 	return h.SHWithStdin("", command, args...)
+}
+
+func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) {
+	Eventually(func(updFunction func(*v1alpha1.Device)) error {
+		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
+		Expect(err).NotTo(HaveOccurred())
+		if response.JSON200 == nil {
+			logrus.Errorf("An error happened retrieving device: %+v", response)
+			return errors.New("device not found???")
+		}
+		device := response.JSON200
+
+		updFunction(device)
+
+		resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceId, *device)
+
+		// if a conflict happens (the device updated status or object since we read it) we retry
+		if resp.JSON409 != nil {
+			logrus.Warningf("conflict updating device: %s", deviceId)
+			return errors.New("conflict")
+		}
+		// if other type of error happens we fail
+		Expect(err).ToNot(HaveOccurred())
+		return nil
+	}, TIMEOUT, "2s").WithArguments(updateFunction).Should(BeNil())
+}
+
+func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
+	lastStatusPrint := ""
+
+	Eventually(func() error {
+		logrus.Infof("Waiting for condition: %q to be met", description)
+		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
+		Expect(err).NotTo(HaveOccurred())
+		if response.JSON200 == nil {
+			logrus.Errorf("An error happened retrieving device: %+v", response)
+			return errors.New("device not found???")
+		}
+		device := response.JSON200
+
+		yamlData, err := yaml.Marshal(device.Status)
+		yamlString := string(yamlData)
+		Expect(err).ToNot(HaveOccurred())
+		if yamlString != lastStatusPrint {
+			fmt.Println("")
+			fmt.Println("======================= Device status change ===================== ")
+			fmt.Println(yamlString)
+			fmt.Println("================================================================== ")
+			lastStatusPrint = yamlString
+		}
+
+		if condition(device) {
+			return nil
+		}
+		return errors.New("not updated")
+	}, timeout, "2s").Should(BeNil())
 }
