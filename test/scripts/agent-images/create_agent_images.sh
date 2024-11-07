@@ -5,7 +5,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
 REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="base v2 v3"
+IMAGE_LIST="base v2 v3 v4"
 
 # if FLIGHTCTL_RPM is not empty
 if [ -n "${FLIGHTCTL_RPM:-}" ]; then
