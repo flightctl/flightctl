@@ -24,8 +24,8 @@ jobs:
             notdocs:
               - '!.spelling'
               - '!README.md'
-              - '!docs/*.md'
-              - '!docs/*.svg'
+              - '!docs/**.md'
+              - '!docs/**.svg'
 
       - name: Setup all dependencies
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
