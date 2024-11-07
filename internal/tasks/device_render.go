@@ -331,9 +331,9 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 			TemplateVersion: *t.templateVersion,
 			Repository:      gitSpec.GitRef.Repository,
 		}
-		origRepoURL, err := t.configStorage.StoreIfNotExistsAndFetch(ctx, repoKey.ComposeKey(), []byte(repoURL))
+		origRepoURL, err := t.configStorage.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
 		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed getting repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
 		if repoURL != string(origRepoURL) {
 			t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
@@ -350,7 +350,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 			Repository:      gitSpec.GitRef.Repository,
 			TargetRevision:  gitSpec.GitRef.TargetRevision,
 		}
-		hashBytes, err := t.configStorage.Fetch(ctx, gitRevisionKey.ComposeKey())
+		hashBytes, err := t.configStorage.Get(ctx, gitRevisionKey.ComposeKey())
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
@@ -375,9 +375,12 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 			Repository:      gitSpec.GitRef.Repository,
 			TargetRevision:  gitSpec.GitRef.TargetRevision,
 		}
-		err := t.configStorage.StoreIfNotExists(ctx, gitRevisionKey.ComposeKey(), []byte(clonedHash))
+		updated, err := t.configStorage.SetNX(ctx, gitRevisionKey.ComposeKey(), []byte(clonedHash))
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed storing frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+		}
+		if !updated {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed freezing git revision %s/%s: unexpectedly changed", t.resourceRef.OrgID, gitSpec.GitRef.Repository)
 		}
 	}
 
@@ -413,7 +416,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 			Namespace:       k8sSpec.SecretRef.Namespace,
 			Name:            k8sSpec.SecretRef.Name,
 		}
-		data, err := t.configStorage.Fetch(ctx, configStoreKey.ComposeKey())
+		data, err := t.configStorage.Get(ctx, configStoreKey.ComposeKey())
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed fetching cached secret data: %w", err)
 		}
@@ -440,9 +443,12 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed marhsalling secret data %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
-		err = t.configStorage.StoreIfNotExists(ctx, configStoreKey.ComposeKey(), secretDataToStore)
+		updated, err := t.configStorage.SetNX(ctx, configStoreKey.ComposeKey(), secretDataToStore)
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed storing secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		}
+		if !updated {
+			return &k8sSpec.Name, nil, fmt.Errorf("failed freezing secret %s/%s: unexpectedly changed", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 		}
 	}
 
