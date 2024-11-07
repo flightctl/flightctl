@@ -3,7 +3,6 @@ package agent_test
 import (
 	"fmt"
 	"strings"
-	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -11,14 +10,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
-
-const TIMEOUT = "1m"
-const POLLING = "250ms"
-
-func TestAgent(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Agent E2E Suite")
-}
 
 var _ = Describe("VM Agent behavior", func() {
 	var (
@@ -36,7 +27,6 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("vm", func() {
-
 		It("should print QR output to console", func() {
 			// Wait for the top-most part of the QR output to appear
 			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
