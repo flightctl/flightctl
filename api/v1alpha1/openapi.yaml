@@ -63,7 +63,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2"). For a full list of operators and examples, refer to the documentation.
           schema:
             type: string
         - name: limit
