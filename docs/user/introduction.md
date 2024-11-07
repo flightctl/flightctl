@@ -39,6 +39,8 @@ Features and use cases Flight Control aims to support:
 
 **Label Selector** - A way for users to group or filter their devices and other resources based on their assigned labels, e.g. "all devices having 'site=factory-berlin' and 'device-type=autonomous-forklift').
 
+**Field Selector** - A way for users to filter and select Flight Control objects based on the values of specific resource fields. Field selectors follow the same syntax, principles, and support the same operators as Kubernetes Field and Label selectors. 
+
 **Service** -  The Flight Control Service handles user and agent authentication and authorization, device enrollment and inventory, rolling out updates to devices, and rolling up status from devices.
 
 **Agent** - The Flight Control Agent runs on each device and is responsible for securely enrolling into the Service, querying the Service for updates, autonomously applying these updates, and reporting status on the updates and the health of devices back to the Service.
