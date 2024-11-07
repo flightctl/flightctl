@@ -22,8 +22,8 @@ jobs:
             docs:
               - '.spelling'
               - 'README.md'
-              - 'docs/*.md'
-              - 'docs/*.svg'
+              - 'docs/**.md'
+              - 'docs/**.svg'
 
       - name: Running Markdown Linter
         if: ${{ steps.filter.outputs.docs == 'true' }}
