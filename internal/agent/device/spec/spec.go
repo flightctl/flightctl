@@ -33,7 +33,7 @@ type Manager interface {
 	Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error)
 	// Upgrade updates the current rendered spec to the desired rendered spec
 	// and resets the rollback spec.
-	Upgrade() error
+	Upgrade(ctx context.Context) error
 	// SetUpgradeFailed marks the desired rendered spec as failed.
 	SetUpgradeFailed()
 	// IsUpdating returns true if the device is in the process of reconciling the desired spec.
@@ -44,14 +44,20 @@ type Manager interface {
 	CheckOsReconciliation(ctx context.Context) (string, bool, error)
 	// IsRollingBack returns true if the device is in a rollback state.
 	IsRollingBack(ctx context.Context) (bool, error)
-	// PrepareRollback creates a rollback version of the current rendered spec.
-	PrepareRollback(ctx context.Context) error
+	// SetRollback creates a rollback version of the current rendered spec.
+	SetRollback(ctx context.Context) error
+	// ClearRollback clears the rollback rendered spec.
+	ClearRollback() error
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback() error
 	// SetClient sets the management API client.
 	SetClient(client.Management)
 	// GetDesired returns the desired rendered device spec from the management API.
 	GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error)
+	// Version returns the version of the specified spec type.
+	Version(specType Type) (string, error)
+	// OSVersion returns the version of the OS in the specified spec type.
+	OSVersion(specType Type) (string, error)
 }
 
 type PriorityQueue interface {

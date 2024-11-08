@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -27,11 +28,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-)
-
-const (
-	// TODO: expose via config
-	gracefulShutdownTimeout = 2 * time.Minute
 )
 
 // New creates a new agent.
@@ -91,12 +87,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// create bootc client
-	bootcClient := container.NewBootcCmd(executer)
-
-	// create podman client
-	podmanClient := client.NewPodman(a.log, executer)
-
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
@@ -106,7 +96,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.New(a.log, a.config.ShutdownGracePeriod, cancel)
+
+	// create bootc client
+	bootcClient := container.NewBootcCmd(executer)
+
+	// create podman client
+	podmanClient := client.NewPodman(a.log, executer, backoff)
 
 	// create spec manager
 	specManager := spec.NewManager(
@@ -139,6 +135,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		hookManager,
 		applicationManager,
 		executer,
+		a.log,
+	)
+
+	// create os manager
+	osManager := os.NewManager(
+		statusManager,
+		bootcClient,
+		podmanClient,
 		a.log,
 	)
 
@@ -183,11 +187,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create os image controller
-	osImageController := device.NewOSImageController(
-		executer,
-		statusManager,
-		specManager,
+	osController := os.NewController(
 		a.log,
+		osManager,
 	)
 
 	// create console controller
@@ -198,6 +200,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create applications controller
 	applicationsController := applications.NewController(
 		podmanClient,
 		applicationManager,
@@ -212,12 +215,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		statusManager,
 		specManager,
 		applicationManager,
+		osManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
 		hookManager,
 		applicationsController,
 		configController,
-		osImageController,
+		osController,
 		resourceController,
 		consoleController,
 		bootcClient,

@@ -11,8 +11,6 @@ spec:
       labels:
         fleet: default
     spec:
-      os:
-        image: quay.io/redhat/rhde:9.2
       config:
         - name: rendered-config  # <-- this is the merged config rendered by flightctl
           configType: InlineConfigProviderSpec

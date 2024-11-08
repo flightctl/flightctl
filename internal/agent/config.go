@@ -33,6 +33,8 @@ const (
 	DefaultManagementEndpoint = "https://localhost:7443"
 	// DefaultGrpcManagementEndpoint is the default address of the device management server (gRPC)
 	DefaultGrpcManagementEndpoint = "https://localhost:7444"
+	// DefaultShutdownGracePeriod is the time the agent waits for the device to shutdown gracefully
+	DefaultShutdownGracePeriod = util.Duration(2 * time.Minute)
 	// name of the CA bundle file
 	CacertFile = "ca.crt"
 	// GeneratedCertFile is the name of the cert file which is generated as the result of enrollment
@@ -70,6 +72,9 @@ type Config struct {
 
 	// TPMPath is the path to the TPM device
 	TPMPath string `json:"tpm-path,omitempty"`
+
+	// ShutdownGracePeriod is the time the agent waits for the device to shutdown gracefully
+	ShutdownGracePeriod util.Duration `json:"shutdown-grace-period,omitempty"`
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -121,9 +126,10 @@ func NewDefault() *Config {
 		ManagementService:    ManagementService{Config: *client.NewDefault()},
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
-		reader:               fileio.NewReader(),
+		ShutdownGracePeriod:  DefaultShutdownGracePeriod,
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
+		reader:               fileio.NewReader(),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -178,6 +184,11 @@ func (cfg *Config) Complete() error {
 		cfg.ManagementService.Config = *cfg.EnrollmentService.Config.DeepCopy()
 		cfg.ManagementService.Config.AuthInfo = client.AuthInfo{}
 	}
+
+	if cfg.ShutdownGracePeriod == 0 {
+		cfg.ShutdownGracePeriod = DefaultShutdownGracePeriod
+	}
+
 	return nil
 }
 

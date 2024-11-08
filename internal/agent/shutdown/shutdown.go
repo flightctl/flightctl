@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -25,10 +26,10 @@ type manager struct {
 	log        *log.PrefixLogger
 }
 
-func New(log *log.PrefixLogger, timeout time.Duration, cancelFn context.CancelFunc) Manager {
+func New(log *log.PrefixLogger, timeout util.Duration, cancelFn context.CancelFunc) Manager {
 	return &manager{
 		registered: make(map[string]func(context.Context) error),
-		timeout:    timeout,
+		timeout:    time.Duration(timeout),
 		cancelFn:   cancelFn,
 		log:        log,
 	}

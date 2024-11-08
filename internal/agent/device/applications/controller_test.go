@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type testApp struct {
@@ -78,7 +79,8 @@ func TestParseApps(t *testing.T) {
 			require.NoError(err)
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0).Times(len(tc.apps))
 
-			mockPodman := client.NewPodman(log, execMock)
+			backoff := wait.Backoff{}
+			mockPodman := client.NewPodman(log, execMock, backoff)
 			apps, err := parseApps(ctx, mockPodman, spec)
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)

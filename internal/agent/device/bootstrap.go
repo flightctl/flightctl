@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -153,43 +152,16 @@ func (b *Bootstrap) ensureSpecFiles() error {
 }
 
 func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
-	desiredSpec, err := b.specManager.Read(spec.Desired)
-	if err != nil {
+	if err := b.ensureBootedOS(ctx); err != nil {
 		return err
 	}
 
-	if err := b.ensureBootedOS(ctx, desiredSpec); err != nil {
-		return err
-	}
-
-	currentSpec, err := b.specManager.Read(spec.Current)
-	if err != nil {
-		return err
-	}
-
-	if currentSpec.Config == nil {
-		return nil
-	}
-
-	currentIgnition, err := config.ParseAndConvertConfigFromStr(*currentSpec.Config)
-	if err != nil {
-		return fmt.Errorf("parsing current ignition: %w", err)
-	}
-	b.log.Info("Executing after reboot hooks")
-	defer b.log.Info("Finished executing after reboot hooks")
-	for _, f := range currentIgnition.Storage.Files {
-		b.hookManager.OnAfterReboot(ctx, f.Path)
-	}
+	// TODO: add back afterReboot hooks
 
 	return nil
 }
 
-func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	if desired.Os == nil || desired.Os.Image == "" {
-		b.log.Debug("Device os image is empty")
-		return nil
-	}
-
+func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
 	updating, err := b.specManager.IsOSUpdate()
 	if err != nil {
 		return err
@@ -200,23 +172,27 @@ func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.Render
 		return nil
 	}
 
+	return b.checkRollback(ctx)
+}
+
+// checkRollback checks if the device has rebooted without applying the new OS
+// image. If the device has rebooted without applying the new OS image, it
+// triggers a rollback to the previous OS image.
+func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	// check if the bootedOS image is expected
 	bootedOS, reconciled, err := b.specManager.CheckOsReconciliation(ctx)
 	if err != nil {
 		return fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
 
-	if !reconciled {
-		return b.checkRollback(ctx, bootedOS, desired.Os.Image)
+	if reconciled {
+		b.log.Infof("Booted into desired OS image: %s", bootedOS)
+		return nil
 	}
 
-	b.log.Infof("Booted into desired OS image: %s", desired.Os.Image)
-	return nil
-}
-
-func (b *Bootstrap) checkRollback(ctx context.Context, bootedOS, desiredOS string) error {
-	if bootedOS == desiredOS {
-		return nil
+	desiredOS, err := b.specManager.OSVersion(spec.Desired)
+	if err != nil {
+		return err
 	}
 
 	// We rebooted without applying the new OS image - something potentially went wrong
@@ -463,5 +439,6 @@ func SdNotify(state string) error {
 	if err != nil {
 		return fmt.Errorf("failed to write to systemd: %w", err)
 	}
+
 	return nil
 }

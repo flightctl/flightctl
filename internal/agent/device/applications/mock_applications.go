@@ -103,18 +103,18 @@ func (mr *MockManagerMockRecorder) Ensure(app any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ensure", reflect.TypeOf((*MockManager)(nil).Ensure), app)
 }
 
-// ExecuteActions mocks base method.
-func (m *MockManager) ExecuteActions(ctx context.Context) error {
+// AfterUpdate mocks base method.
+func (m *MockManager) AfterUpdate(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExecuteActions", ctx)
+	ret := m.ctrl.Call(m, "AfterUpdate", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// ExecuteActions indicates an expected call of ExecuteActions.
-func (mr *MockManagerMockRecorder) ExecuteActions(ctx any) *gomock.Call {
+// AfterUpdate indicates an expected call of AfterUpdate.
+func (mr *MockManagerMockRecorder) AfterUpdate(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteActions", reflect.TypeOf((*MockManager)(nil).ExecuteActions), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AfterUpdate", reflect.TypeOf((*MockManager)(nil).AfterUpdate), ctx)
 }
 
 // Remove mocks base method.

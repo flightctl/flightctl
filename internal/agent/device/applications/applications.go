@@ -65,7 +65,7 @@ type Manager interface {
 	Ensure(app Application) error
 	Remove(app Application) error
 	Update(app Application) error
-	ExecuteActions(ctx context.Context) error
+	AfterUpdate(ctx context.Context) error
 	Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 	Stop(ctx context.Context) error
 }

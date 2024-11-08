@@ -83,7 +83,7 @@ func TestIsOsImageReconciled(t *testing.T) {
 			testHost.Status.Booted.Image.Image.Image = testCase.bootedImage
 			testSpec := &v1alpha1.RenderedDeviceSpec{Os: testCase.desiredOs}
 
-			reconciled, err := IsOsImageReconciled(testHost, testSpec)
+			reconciled, err := IsOsImageReconciled(testHost, testSpec.Os.Image)
 
 			if testCase.expectedError != nil {
 				require.ErrorIs(err, testCase.expectedError)

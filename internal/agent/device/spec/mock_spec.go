@@ -57,6 +57,20 @@ func (mr *MockManagerMockRecorder) CheckOsReconciliation(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckOsReconciliation", reflect.TypeOf((*MockManager)(nil).CheckOsReconciliation), ctx)
 }
 
+// ClearRollback mocks base method.
+func (m *MockManager) ClearRollback() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearRollback")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearRollback indicates an expected call of ClearRollback.
+func (mr *MockManagerMockRecorder) ClearRollback() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearRollback", reflect.TypeOf((*MockManager)(nil).ClearRollback))
+}
+
 // Ensure mocks base method.
 func (m *MockManager) Ensure() error {
 	m.ctrl.T.Helper()
@@ -145,18 +159,19 @@ func (mr *MockManagerMockRecorder) IsUpgrading() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsUpgrading", reflect.TypeOf((*MockManager)(nil).IsUpgrading))
 }
 
-// PrepareRollback mocks base method.
-func (m *MockManager) PrepareRollback(ctx context.Context) error {
+// OSVersion mocks base method.
+func (m *MockManager) OSVersion(specType Type) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PrepareRollback", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "OSVersion", specType)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// PrepareRollback indicates an expected call of PrepareRollback.
-func (mr *MockManagerMockRecorder) PrepareRollback(ctx any) *gomock.Call {
+// OSVersion indicates an expected call of OSVersion.
+func (mr *MockManagerMockRecorder) OSVersion(specType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareRollback", reflect.TypeOf((*MockManager)(nil).PrepareRollback), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OSVersion", reflect.TypeOf((*MockManager)(nil).OSVersion), specType)
 }
 
 // Read mocks base method.
@@ -200,6 +215,20 @@ func (mr *MockManagerMockRecorder) SetClient(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClient", reflect.TypeOf((*MockManager)(nil).SetClient), arg0)
 }
 
+// SetRollback mocks base method.
+func (m *MockManager) SetRollback(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRollback", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRollback indicates an expected call of SetRollback.
+func (mr *MockManagerMockRecorder) SetRollback(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRollback", reflect.TypeOf((*MockManager)(nil).SetRollback), ctx)
+}
+
 // SetUpgradeFailed mocks base method.
 func (m *MockManager) SetUpgradeFailed() {
 	m.ctrl.T.Helper()
@@ -213,17 +242,32 @@ func (mr *MockManagerMockRecorder) SetUpgradeFailed() *gomock.Call {
 }
 
 // Upgrade mocks base method.
-func (m *MockManager) Upgrade() error {
+func (m *MockManager) Upgrade(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Upgrade")
+	ret := m.ctrl.Call(m, "Upgrade", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Upgrade indicates an expected call of Upgrade.
-func (mr *MockManagerMockRecorder) Upgrade() *gomock.Call {
+func (mr *MockManagerMockRecorder) Upgrade(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockManager)(nil).Upgrade))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockManager)(nil).Upgrade), ctx)
+}
+
+// Version mocks base method.
+func (m *MockManager) Version(specType Type) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Version", specType)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Version indicates an expected call of Version.
+func (mr *MockManagerMockRecorder) Version(specType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Version", reflect.TypeOf((*MockManager)(nil).Version), specType)
 }
 
 // MockPriorityQueue is a mock of PriorityQueue interface.

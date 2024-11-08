@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -19,24 +20,60 @@ const (
 
 type Podman struct {
 	exec    executer.Executer
-	log     *log.PrefixLogger
 	timeout time.Duration
+	backoff wait.Backoff
+	log     *log.PrefixLogger
 }
 
 type ImageConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
-func NewPodman(log *log.PrefixLogger, exec executer.Executer) *Podman {
+func NewPodman(log *log.PrefixLogger, exec executer.Executer, backoff wait.Backoff) *Podman {
 	return &Podman{
 		log:     log,
 		exec:    exec,
+		backoff: backoff,
 		timeout: defaultPodmanTimeout,
 	}
 }
 
 // Pull pulls the image from the registry.
-func (p *Podman) Pull(ctx context.Context, image string) (string, error) {
+func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (string, error) {
+	options := clientOptions{
+		retry: false,
+	}
+
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	if options.retry {
+		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
+			resp, err := p.pullImage(ctx, image)
+			if err != nil {
+				p.log.Warnf("Failed to pull os image %q: %v", image, err)
+				return false, nil
+			}
+			p.log.Debugf("Pulled os image %q: %s", image, resp)
+			return true, nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("pulling os image: %w", err)
+		}
+	} else {
+		// no retry
+		resp, err := p.pullImage(ctx, image)
+		if err != nil {
+			return "", fmt.Errorf("pulling os image: %w", err)
+		}
+		return resp, nil
+	}
+
+	return "", nil
+}
+
+func (p *Podman) pullImage(ctx context.Context, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
@@ -270,4 +307,17 @@ func (p *Podman) Compose() *Compose {
 
 func IsPodmanRootless() bool {
 	return os.Geteuid() != 0
+}
+
+// ClientOption is a functional option for configuring the client.
+type ClientOption func(*clientOptions)
+
+type clientOptions struct {
+	retry bool
+}
+
+func WithRetry(retry bool) ClientOption {
+	return func(opts *clientOptions) {
+		opts.retry = retry
+	}
 }
