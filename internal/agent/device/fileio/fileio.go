@@ -36,6 +36,7 @@ type Reader interface {
 	SetRootdir(path string)
 	PathFor(filePath string) string
 	ReadFile(filePath string) ([]byte, error)
+	ReadDir(dirPath string) ([]fs.DirEntry, error)
 	FileExists(filePath string) (bool, error)
 }
 
