@@ -2,6 +2,7 @@ package fileio
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 )
@@ -31,6 +32,19 @@ func (r *reader) PathFor(filePath string) string {
 // ReadFile reads the file at the provided path
 func (r *reader) ReadFile(filePath string) ([]byte, error) {
 	return os.ReadFile(r.PathFor(filePath))
+}
+
+// ReadDir reads the directory at the provided path and returns a slice of fs.DirEntry. If the directory
+// does not exist, it returns an empty slice and no error.
+func (r *reader) ReadDir(dirPath string) ([]fs.DirEntry, error) {
+	entries, err := os.ReadDir(r.PathFor(dirPath))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []fs.DirEntry{}, nil
+		}
+		return nil, err
+	}
+	return entries, nil
 }
 
 // FileExists checks if a path exists and returns a boolean indicating existence,
