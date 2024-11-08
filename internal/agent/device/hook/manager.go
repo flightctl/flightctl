@@ -194,12 +194,12 @@ func (m *manager) Run(ctx context.Context) {
 		select {
 		case job, ok := <-m.backgroundJobs:
 			if !ok {
-				m.log.Warn("Background jobs channel closed")
+				m.log.Warn("Hooks manager: jobs channel closed")
 				return
 			}
 			job(ctx)
 		case <-ctx.Done():
-			m.log.Info("Hooks manager: context closed")
+			m.log.Debug("Hooks manager: context closed")
 			return
 		}
 	}

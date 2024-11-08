@@ -119,7 +119,7 @@ func (m *PodmanMonitor) Stop(ctx context.Context) error {
 		if err := m.drain(ctx); err != nil {
 			errs = append(errs, err)
 		}
-		m.log.Infof("podman drain complete")
+		m.log.Infof("Podman drain complete")
 		m.cancelFn()
 
 		// its possible that we call stop before the monitor has been
@@ -129,7 +129,7 @@ func (m *PodmanMonitor) Stop(ctx context.Context) error {
 				errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
 			}
 		}
-		m.log.Info("Podman monitor stopped!!")
+		m.log.Info("Podman monitor stopped")
 	})
 
 	if len(errs) > 0 {
@@ -379,7 +379,6 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
 	defer func() {
-		m.log.Info("Podman application monitor stopped")
 		stdoutPipe.Close()
 	}()
 
