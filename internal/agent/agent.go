@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/internal/container"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -97,6 +98,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer)
 
+	// create systemd client
+	systemdClient := client.NewSystemd(executer)
+
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
@@ -132,12 +136,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationManager.Stop)
 
+	// create systemd manager
+	systemdManager := systemd.NewManager(a.log, systemdClient)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
 		resourceManager,
 		hookManager,
 		applicationManager,
+		systemdManager,
 		executer,
 		a.log,
 	)
@@ -212,6 +220,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		statusManager,
 		specManager,
 		applicationManager,
+		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
 		hookManager,

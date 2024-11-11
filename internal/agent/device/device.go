@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -31,6 +32,7 @@ type Agent struct {
 	specManager            spec.Manager
 	hookManager            hook.Manager
 	appManager             applications.Manager
+	systemdManager         systemd.Manager
 	applicationsController *applications.Controller
 	configController       *config.Controller
 	osImageController      *OSImageController
@@ -54,6 +56,7 @@ func NewAgent(
 	statusManager status.Manager,
 	specManager spec.Manager,
 	appManager applications.Manager,
+	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
@@ -74,6 +77,7 @@ func NewAgent(
 		specManager:            specManager,
 		hookManager:            hookManager,
 		appManager:             appManager,
+		systemdManager:         systemdManager,
 		fetchSpecInterval:      fetchSpecInterval,
 		fetchStatusInterval:    fetchStatusInterval,
 		applicationsController: applicationsController,
@@ -339,8 +343,22 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 		return fmt.Errorf("os image: %w", err)
 	}
 
-	// set status collector properties based on new desired spec
-	a.statusManager.SetProperties(desired)
+	if err := a.systemdControllerSync(ctx, desired); err != nil {
+		return fmt.Errorf("systemd: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+	var matchPatterns []string
+	if desired.Systemd != nil {
+		matchPatterns = util.FromPtr(desired.Systemd.MatchPatterns)
+	}
+
+	if err := a.systemdManager.EnsurePatterns(matchPatterns); err != nil {
+		return err
+	}
 
 	return nil
 }
