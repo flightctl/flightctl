@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -44,6 +45,7 @@ type Agent struct {
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
 
+	once     sync.Once
 	cancelFn context.CancelFunc
 	backoff  wait.Backoff
 	log      *log.PrefixLogger
@@ -87,6 +89,7 @@ func NewAgent(
 		consoleController:      consoleController,
 		bootcClient:            bootcClient,
 		podmanClient:           podmanClient,
+		cancelFn:               func() {},
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -115,7 +118,11 @@ func (a *Agent) Run(ctx context.Context) error {
 
 // Stop ensures that the device agent stops reconciling during graceful shutdown.
 func (a *Agent) Stop(ctx context.Context) error {
-	a.cancelFn()
+	a.once.Do(func() {
+		if a.cancelFn != nil {
+			a.cancelFn()
+		}
+	})
 	return nil
 }
 

@@ -13,6 +13,20 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
+type ActiveStateType string
+type SubStateType string
+
+const (
+	ActiveStateActivating ActiveStateType = "activating"
+	ActiveStateActive     ActiveStateType = "active"
+	ActiveStateFailed     ActiveStateType = "failed"
+
+	SubStateStartPre  SubStateType = "start-pre"
+	SubStateStartPost SubStateType = "start-post"
+	SubStateRunning   SubStateType = "running"
+	SubStateExited    SubStateType = "exited"
+)
+
 type Manager interface {
 	// EnsurePatterns sets the match patterns for systemd units.
 	EnsurePatterns([]string) error
@@ -21,11 +35,11 @@ type Manager interface {
 }
 
 type SystemDUnitListEntry struct {
-	Unit        string `json:"unit"`
-	LoadState   string `json:"load"`
-	ActiveState string `json:"active"`
-	Sub         string `json:"sub"`
-	Description string `json:"description"`
+	Unit        string          `json:"unit"`
+	LoadState   string          `json:"load"`
+	ActiveState ActiveStateType `json:"active"`
+	Sub         SubStateType    `json:"sub"`
+	Description string          `json:"description"`
 }
 
 type manager struct {
@@ -83,13 +97,14 @@ func (m *manager) Status(ctx context.Context) ([]v1alpha1.DeviceApplicationStatu
 
 func parseApplicationStatusType(unit SystemDUnitListEntry) (v1alpha1.ApplicationStatusType, string) {
 	switch {
-	case unit.ActiveState == "activating" && (unit.Sub == "start-pre" || unit.Sub == "start-post"):
+	case unit.ActiveState == ActiveStateActivating &&
+		(unit.Sub == SubStateStartPre || unit.Sub == SubStateStartPost):
 		return v1alpha1.ApplicationStatusStarting, "0/1"
-	case unit.ActiveState == "active" && unit.Sub == "running":
+	case unit.ActiveState == ActiveStateActive && unit.Sub == SubStateRunning:
 		return v1alpha1.ApplicationStatusRunning, "1/1"
-	case unit.ActiveState == "active" && unit.Sub == "exited":
+	case unit.ActiveState == ActiveStateActive && unit.Sub == SubStateExited:
 		return v1alpha1.ApplicationStatusCompleted, "0/1"
-	case unit.ActiveState == "failed":
+	case unit.ActiveState == ActiveStateFailed:
 		return v1alpha1.ApplicationStatusError, "0/1"
 	default:
 		return v1alpha1.ApplicationStatusUnknown, "0/1"
