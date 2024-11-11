@@ -28,6 +28,3 @@ func (a *Applications) Export(ctx context.Context, status *v1alpha1.DeviceStatus
 	status.Applications = applicationsStatus
 	return nil
 }
-
-func (a *Applications) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
-}
