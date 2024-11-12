@@ -50,9 +50,11 @@ help:
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
 	@echo "    deploy-db:       deploy only the database as a container, for testing"
 	@echo "    deploy-mq:       deploy only the message queue broker as a container"
+	@echo "    deploy-quadlets: deploy FlightCtl using Quadlets"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
+	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 
 publish: build-containers
@@ -173,6 +175,11 @@ clean: clean-agent-vm clean-e2e-agent-images
 	- rm -f -r $(shell uname -m)
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
+
+clean-quadlets:
+	sudo systemctl stop flightctl.slice
+	sudo rm -rf /etc/containers/systemd/flightctl*
+	sudo podman volume rm flightctl-db flightctl-api-certs rabbitmq-data
 
 .PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container
 tools: $(GOBIN)/golangci-lint
