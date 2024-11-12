@@ -165,13 +165,13 @@ func TestEnsure(t *testing.T) {
 	fileErr := errors.New("invalid file")
 
 	t.Run("error checking if file exists", func(t *testing.T) {
-		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, fileErr)
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, fileErr)
 		err := s.Ensure()
 		require.ErrorIs(err, errors.ErrCheckingFileExists)
 	})
 
 	t.Run("error writing file when it does not exist", func(t *testing.T) {
-		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(false, nil)
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
 		err := s.Ensure()
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
@@ -179,9 +179,9 @@ func TestEnsure(t *testing.T) {
 
 	t.Run("files are written when they don't exist", func(t *testing.T) {
 		// First two files checked exist
-		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(2).Return(true, nil)
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(2).Return(true, nil)
 		// Third file does not exist, so then expect a write
-		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(1).Return(false, nil)
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).Return(nil)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
 		mockPriorityQueue.EXPECT().Add(gomock.Any()).Return(nil).Times(1)
@@ -190,7 +190,7 @@ func TestEnsure(t *testing.T) {
 	})
 
 	t.Run("no files are written when they all exist", func(t *testing.T) {
-		mockReadWriter.EXPECT().FileExists(gomock.Any()).Times(3).Return(true, nil)
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(3).Return(true, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
 		mockPriorityQueue.EXPECT().Add(gomock.Any()).Return(nil).Times(1)

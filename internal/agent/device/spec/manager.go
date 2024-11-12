@@ -406,7 +406,7 @@ func (s *manager) exists(specType Type) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	exists, err := s.deviceReadWriter.FileExists(filePath)
+	exists, err := s.deviceReadWriter.PathExists(filePath)
 	if err != nil {
 		return false, fmt.Errorf("%w: %s: %w", errors.ErrCheckingFileExists, specType, err)
 	}
