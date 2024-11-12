@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestListenForEvents(t *testing.T) {
@@ -145,7 +146,8 @@ func TestListenForEvents(t *testing.T) {
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
-			podman := client.NewPodman(log, execMock)
+			backoff := wait.Backoff{}
+			podman := client.NewPodman(log, execMock, backoff)
 			podmanMonitor := NewPodmanMonitor(log, execMock, podman)
 
 			// add test apps to the monitor

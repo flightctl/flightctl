@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -30,10 +31,11 @@ type Agent struct {
 	statusManager          status.Manager
 	specManager            spec.Manager
 	hookManager            hook.Manager
+	osManager              os.Manager
 	appManager             applications.Manager
 	applicationsController *applications.Controller
 	configController       *config.Controller
-	osImageController      *OSImageController
+	osController           *os.Controller
 	resourceController     *resource.Controller
 	consoleController      *console.ConsoleController
 	bootcClient            container.BootcClient
@@ -54,12 +56,13 @@ func NewAgent(
 	statusManager status.Manager,
 	specManager spec.Manager,
 	appManager applications.Manager,
+	osManager os.Manager,
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
 	applicationsController *applications.Controller,
 	configController *config.Controller,
-	osImageController *OSImageController,
+	osController *os.Controller,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,
 	bootcClient container.BootcClient,
@@ -74,11 +77,12 @@ func NewAgent(
 		specManager:            specManager,
 		hookManager:            hookManager,
 		appManager:             appManager,
+		osManager:              osManager,
 		fetchSpecInterval:      fetchSpecInterval,
 		fetchStatusInterval:    fetchStatusInterval,
 		applicationsController: applicationsController,
 		configController:       configController,
-		osImageController:      osImageController,
+		osController:           osController,
 		resourceController:     resourceController,
 		consoleController:      consoleController,
 		bootcClient:            bootcClient,
@@ -190,7 +194,7 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 		return err
 	}
 
-	if err := a.specManager.Upgrade(); err != nil {
+	if err := a.specManager.Upgrade(ctx); err != nil {
 		return err
 	}
 
@@ -255,7 +259,14 @@ func (a *Agent) pushStatus(ctx context.Context) {
 	}
 }
 
+// beforeUpdate performs pre-checks on the spec and its dependencies before updating the device.
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+	// os image
+	if err := a.osManager.BeforeUpdate(ctx, desired.Os); err != nil {
+		return fmt.Errorf("os image: %w", err)
+	}
+
+	// applications
 	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
@@ -263,6 +274,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Ren
 	return nil
 }
 
+// TODO: this logic should be moved to the applications manager
 func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alpha1.RenderedDeviceSpec) error {
 	if desired.Applications == nil {
 		a.log.Debug("No applications to pre-check")
@@ -287,19 +299,9 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 		// pull the image if it does not exist. it is possible that the image
 		// tag such as latest in which case it will be pulled later. but we
 		// don't want to require calling out the network on every sync.
-		if !a.podmanClient.ImageExists(ctx, imageProvider.Image) {
-			err := wait.ExponentialBackoffWithContext(ctx, a.backoff, func() (bool, error) {
-				resp, err := a.podmanClient.Pull(ctx, providerImage)
-				if err != nil {
-					a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
-					return false, nil
-				}
-				a.log.Debugf("Pulled image %q: %s", providerImage, resp)
-				return true, nil
-			})
-			if err != nil {
-				return fmt.Errorf("pulling image: %w", err)
-			}
+		_, err := a.podmanClient.Pull(ctx, providerImage, client.WithRetry(true))
+		if err != nil {
+			return fmt.Errorf("pulling image: %w", err)
 		}
 
 		addType, err := applications.TypeFromImage(ctx, a.podmanClient, providerImage)
@@ -335,7 +337,7 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 		return fmt.Errorf("resources: %w", err)
 	}
 
-	if err := a.osImageController.Sync(ctx, desired); err != nil {
+	if err := a.osController.Sync(ctx, desired); err != nil {
 		return fmt.Errorf("os image: %w", err)
 	}
 
@@ -345,16 +347,51 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 	return nil
 }
 
+// afterUpdate performs post actions after updating the device.
 func (a *Agent) afterUpdate(ctx context.Context) error {
-	a.log.Debug("Executing post actions")
-	defer a.log.Debug("Finished executing post actions")
+	a.log.Debug("Executing after update actions")
+	defer a.log.Debug("Finished executing after update actions")
 
 	// execute post actions for applications
-	if err := a.appManager.ExecuteActions(ctx); err != nil {
+	if err := a.appManager.AfterUpdate(ctx); err != nil {
 		a.log.Errorf("Error executing actions: %v", err)
 		return err
 	}
 
+	// TODO: add afterUpdate hooks
+
+	if err := a.beforeReboot(ctx); err != nil {
+		return fmt.Errorf("before reboot: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Agent) beforeReboot(ctx context.Context) error {
+	updating, err := a.specManager.IsOSUpdate()
+	if err != nil {
+		return err
+	}
+	if !updating {
+		a.log.Debug("No OS update in progress")
+		// no change in OS image, so nothing else to do here
+		return nil
+	}
+
+	// TODO: add beforeReboot hooks
+
+	if err := a.specManager.SetRollback(ctx); err != nil {
+		return err
+	}
+
+	// reboot the device if the os image has changed
+	if err := a.osManager.Reboot(ctx); err != nil {
+		// clear rollback state if os image fails
+		if err := a.specManager.ClearRollback(); err != nil {
+			return err
+		}
+		return fmt.Errorf("os image: %w", err)
+	}
 	return nil
 }
 

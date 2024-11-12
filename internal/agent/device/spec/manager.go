@@ -36,7 +36,13 @@ type manager struct {
 	currentRenderedVersion  string
 	desiredRenderedVersion  string
 	rollbackRenderedVersion string
-	queue                   PriorityQueue
+
+	// cache os image versions
+	currentOSImage  string
+	desiredOSImage  string
+	rollbackOSImage string
+
+	queue PriorityQueue
 
 	log     *log.PrefixLogger
 	backoff wait.Backoff
@@ -115,10 +121,19 @@ func (s *manager) Ensure() error {
 		return fmt.Errorf("ensuring cache: %w", err)
 	}
 
-	// update cached rendered versions
+	// update cached versions
 	s.currentRenderedVersion = current.RenderedVersion
+	if current.Os != nil {
+		s.currentOSImage = current.Os.Image
+	}
 	s.desiredRenderedVersion = desired.RenderedVersion
+	if desired.Os != nil {
+		s.desiredOSImage = desired.Os.Image
+	}
 	s.rollbackRenderedVersion = rollback.RenderedVersion
+	if rollback.Os != nil {
+		s.rollbackOSImage = rollback.Os.Image
+	}
 
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
@@ -126,21 +141,11 @@ func (s *manager) Ensure() error {
 }
 
 func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
-	desired, err := s.Read(Desired)
-	if err != nil {
-		return false, err
-	}
-
-	if desired.Os == nil || desired.Os.Image == "" {
+	if s.desiredOSImage == "" {
 		return false, nil
 	}
 
-	rollback, err := s.Read(Rollback)
-	if err != nil {
-		return false, err
-	}
-
-	if rollback.Os == nil || rollback.Os.Image == "" {
+	if s.rollbackOSImage == "" {
 		return false, nil
 	}
 
@@ -158,10 +163,14 @@ func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
 	}
 
 	bootedOSImage := bootcStatus.GetBootedImage()
-	return bootedOSImage == rollback.Os.Image && bootedOSImage != desired.Os.Image, nil
+	return bootedOSImage == s.rollbackOSImage && bootedOSImage != s.desiredOSImage, nil
 }
 
-func (s *manager) Upgrade() error {
+func (s *manager) Upgrade(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// only upgrade if the device is in the process of reconciling the desired spec
 	if s.IsUpgrading() {
 		desired, err := s.Read(Desired)
@@ -173,7 +182,7 @@ func (s *manager) Upgrade() error {
 			return err
 		}
 
-		if err := s.write(Rollback, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+		if err := s.ClearRollback(); err != nil {
 			return err
 		}
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.RenderedVersion)
@@ -192,29 +201,24 @@ func (s *manager) IsUpgrading() bool {
 	return s.currentRenderedVersion != s.desiredRenderedVersion
 }
 
-func (s *manager) PrepareRollback(ctx context.Context) error {
-	current, err := s.Read(Current)
-	if err != nil {
-		return err
-	}
-
+func (s *manager) SetRollback(ctx context.Context) error {
 	// it is possible that the current rendered spec does not have an OS image.
 	// In this case, we need to get the booted image from bootc.
 	var currentOSImage string
-	if current.Os == nil || current.Os.Image == "" {
+	if s.currentOSImage == "" {
 		bootcStatus, err := s.bootcClient.Status(ctx)
 		if err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrGettingBootcStatus, err)
 		}
 		currentOSImage = bootcStatus.GetBootedImage()
 	} else {
-		currentOSImage = current.Os.Image
+		currentOSImage = s.currentOSImage
 	}
 
 	// rollback is a basic copy of the current rendered spec
 	// which contains the rendered version and the OS image.
 	rollback := &v1alpha1.RenderedDeviceSpec{
-		RenderedVersion: current.RenderedVersion,
+		RenderedVersion: s.currentRenderedVersion,
 		Os:              &v1alpha1.DeviceOSSpec{Image: currentOSImage},
 	}
 
@@ -222,6 +226,10 @@ func (s *manager) PrepareRollback(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (s *manager) ClearRollback() error {
+	return s.write(Rollback, &v1alpha1.RenderedDeviceSpec{})
 }
 
 func (s *manager) Rollback() error {
@@ -241,8 +249,11 @@ func (s *manager) Rollback() error {
 		return err
 	}
 
-	// update cached rendered versions
+	// update cached versions
 	s.desiredRenderedVersion = desired.RenderedVersion
+	if desired.Os != nil {
+		s.desiredOSImage = desired.Os.Image
+	}
 	return nil
 }
 
@@ -260,10 +271,19 @@ func (s *manager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
 	switch specType {
 	case Current:
 		s.currentRenderedVersion = spec.RenderedVersion
+		if spec.Os != nil {
+			s.currentOSImage = spec.Os.Image
+		}
 	case Desired:
 		s.desiredRenderedVersion = spec.RenderedVersion
+		if spec.Os != nil {
+			s.desiredOSImage = spec.Os.Image
+		}
 	case Rollback:
 		s.rollbackRenderedVersion = spec.RenderedVersion
+		if spec.Os != nil {
+			s.rollbackOSImage = spec.Os.Image
+		}
 	}
 
 	return spec, nil
@@ -338,24 +358,7 @@ func (s *manager) SetClient(client client.Management) {
 }
 
 func (s *manager) IsOSUpdate() (bool, error) {
-	current, err := s.Read(Current)
-	if err != nil {
-		return false, err
-	}
-	desired, err := s.Read(Desired)
-	if err != nil {
-		return false, err
-	}
-
-	currentImage := ""
-	if current.Os != nil {
-		currentImage = current.Os.Image
-	}
-	desiredImage := ""
-	if desired.Os != nil {
-		desiredImage = desired.Os.Image
-	}
-	return currentImage != desiredImage, nil
+	return s.currentOSImage != s.desiredOSImage, nil
 }
 
 func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
@@ -364,17 +367,33 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 		return "", false, fmt.Errorf("%w: %w", errors.ErrGettingBootcStatus, err)
 	}
 	bootedOSImage := bootc.GetBootedImage()
+	return bootedOSImage, s.desiredOSImage == bootc.GetBootedImage(), nil
+}
 
-	desired, err := s.Read(Desired)
-	if err != nil {
-		return "", false, err
+func (s *manager) Version(specType Type) (string, error) {
+	switch specType {
+	case Current:
+		return s.currentRenderedVersion, nil
+	case Desired:
+		return s.desiredRenderedVersion, nil
+	case Rollback:
+		return s.rollbackRenderedVersion, nil
+	default:
+		return "", fmt.Errorf("%w: %s", errors.ErrInvalidSpecType, specType)
 	}
+}
 
-	if desired.Os == nil {
-		return bootedOSImage, false, nil
+func (s *manager) OSVersion(specType Type) (string, error) {
+	switch specType {
+	case Current:
+		return s.currentOSImage, nil
+	case Desired:
+		return s.desiredOSImage, nil
+	case Rollback:
+		return s.rollbackOSImage, nil
+	default:
+		return "", fmt.Errorf("%w: %s", errors.ErrInvalidSpecType, specType)
 	}
-
-	return bootedOSImage, desired.Os.Image == bootc.GetBootedImage(), nil
 }
 
 func (s *manager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
@@ -392,10 +411,19 @@ func (s *manager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error 
 	switch specType {
 	case Current:
 		s.currentRenderedVersion = spec.RenderedVersion
+		if spec.Os != nil {
+			s.currentOSImage = spec.Os.Image
+		}
 	case Desired:
 		s.desiredRenderedVersion = spec.RenderedVersion
+		if spec.Os != nil {
+			s.desiredOSImage = spec.Os.Image
+		}
 	case Rollback:
 		s.rollbackRenderedVersion = spec.RenderedVersion
+		if spec.Os != nil {
+			s.rollbackOSImage = spec.Os.Image
+		}
 	}
 
 	return nil
