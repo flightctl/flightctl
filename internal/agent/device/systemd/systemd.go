@@ -20,11 +20,13 @@ const (
 	ActiveStateActivating ActiveStateType = "activating"
 	ActiveStateActive     ActiveStateType = "active"
 	ActiveStateFailed     ActiveStateType = "failed"
+	ActiveStateInactive   ActiveStateType = "inactive"
 
 	SubStateStartPre  SubStateType = "start-pre"
 	SubStateStartPost SubStateType = "start-post"
 	SubStateRunning   SubStateType = "running"
 	SubStateExited    SubStateType = "exited"
+	SubStateDead      SubStateType = "dead"
 )
 
 type Manager interface {
@@ -102,7 +104,8 @@ func parseApplicationStatusType(unit SystemDUnitListEntry) (v1alpha1.Application
 		return v1alpha1.ApplicationStatusStarting, "0/1"
 	case unit.ActiveState == ActiveStateActive && unit.Sub == SubStateRunning:
 		return v1alpha1.ApplicationStatusRunning, "1/1"
-	case unit.ActiveState == ActiveStateActive && unit.Sub == SubStateExited:
+	case unit.ActiveState == ActiveStateActive && unit.Sub == SubStateExited,
+		unit.ActiveState == ActiveStateInactive && unit.Sub == SubStateDead:
 		return v1alpha1.ApplicationStatusCompleted, "0/1"
 	case unit.ActiveState == ActiveStateFailed:
 		return v1alpha1.ApplicationStatusError, "0/1"
