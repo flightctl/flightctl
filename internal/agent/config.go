@@ -204,7 +204,7 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("%s is required", field.name)
 		}
 		if field.checkPath {
-			exists, err := cfg.reader.FileExists(field.value)
+			exists, err := cfg.reader.PathExists(field.value)
 			if err != nil {
 				return fmt.Errorf("%s: %w", field.name, err)
 			}
