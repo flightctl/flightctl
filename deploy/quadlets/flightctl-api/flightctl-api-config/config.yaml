@@ -1,0 +1,23 @@
+database:
+    hostname: flightctl-db
+    type: pgsql
+    port: 5432
+    name: flightctl
+    user: admin
+    password: adminpass   # we should funnel this via secrets instead
+service:
+    address: flightctl-api:3443
+    agentEndpointAddress: flightctl-api:7443
+    agentGrpcAddress: flightctl-api:7444
+    baseUrl: https://api.localhost/
+    baseAgentEndpointUrl: https://agent-api.localhost/
+    baseAgentGrpcUrl: grpcs://agent-grpc.localhost
+    baseUIUrl: https://ui.localhost
+    altNames:
+      - api.localhost
+      - agent-api.localhost
+      - agent-grpc.localhost
+      - flightctl-api
+      - flightctl-api-agent-grpc
+queue:
+    amqpUrl: amqp://user:password@flightctl-rabbitmq:5672/

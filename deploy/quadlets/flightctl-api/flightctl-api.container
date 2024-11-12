@@ -1,0 +1,32 @@
+[Unit]
+Description=FlightCtl API server
+After=flightctl-db.service
+After=flightctl-rabbitmq.service
+Requires=flightctl-db.service
+Requires=flightctl-rabbitmq.service
+
+[Container]
+ContainerName=flightctl-api
+Image=quay.io/flightctl/flightctl-api:latest
+Network=flightctl-network
+Environment=HOME=/root
+Environment=FLIGHTCTL_DISABLE_AUTH=true
+
+PublishPort=3443:3443
+PublishPort=7443:7443
+PublishPort=7444:7444
+PublishPort=15690:15690
+PublishPort=15691:15691
+Volume=./flightctl-api-config/config.yaml:/root/.flightctl/config.yaml
+Volume=flightctl-api-certs:/root/.flightctl/certs
+
+[Service]
+Slice=flightctl.slice
+Restart=always
+RestartSec=30
+
+ExecStartPost=/bin/systemctl start flightctl-periodic.service
+ExecStartPost=/bin/systemctl start flightctl-worker.service
+
+[Install]
+WantedBy=flightctl.slice
