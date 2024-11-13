@@ -284,10 +284,20 @@ func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*
 			logrus.Warningf("conflict updating device: %s", deviceId)
 			return errors.New("conflict")
 		}
+
 		// if other type of error happens we fail
 		Expect(err).ToNot(HaveOccurred())
+
+		// response code 200 = updated, we are expecting to update... something else is unexpected
+		if resp.StatusCode() != 200 {
+			logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
+			logrus.Errorf("Unexpected http response: %s", string(resp.Body))
+		}
+		// make the test fail and stop the Eventually loop if at this point we didn't have a 200 response
+		Expect(resp.StatusCode()).Should(Equal(200))
+
 		return nil
-	}, TIMEOUT, "2s").WithArguments(updateFunction).Should(BeNil())
+	}, TIMEOUT, "1s").WithArguments(updateFunction).Should(BeNil())
 }
 
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
