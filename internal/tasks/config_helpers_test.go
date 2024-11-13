@@ -20,7 +20,7 @@ var _ = Describe("config helpers", func() {
 		It("will replace them correctly", func() {
 			configItem := "ignition blah blah {{ device.metadata.labels[key]}} blah blah {{ device.metadata.labels[key2] }} blah {{ device.metadata.name }} ok"
 			labels := map[string]string{"key": "val", "key2": "val2", "otherkey": "otherval"}
-			meta := api.DeviceMetadata{Labels: &labels, Name: util.StrToPtr("devname")}
+			meta := api.ObjectMeta{Labels: &labels, Name: util.StrToPtr("devname")}
 			new, warnings := ReplaceParameters([]byte(configItem), meta)
 			Expect(warnings).To(HaveLen(0))
 			Expect(string(new)).To(Equal("ignition blah blah val blah blah val2 blah devname ok"))
@@ -31,7 +31,7 @@ var _ = Describe("config helpers", func() {
 		It("will return an error", func() {
 			configItem := "ignition blah blah {{ device.metadata.labels[key]}} blah blah {{ device.metadata.labels[key2] }} blah"
 			labels := map[string]string{"key": "val", "otherkey": "otherval"}
-			meta := api.DeviceMetadata{Labels: &labels, Name: util.StrToPtr("devname")}
+			meta := api.ObjectMeta{Labels: &labels, Name: util.StrToPtr("devname")}
 			_, warnings := ReplaceParameters([]byte(configItem), meta)
 			Expect(warnings).To(HaveLen(1))
 		})
@@ -41,7 +41,7 @@ var _ = Describe("config helpers", func() {
 		It("will return an error", func() {
 			configItem := "ignition blah blah {{ device.metadata.labels[key]}} blah blah {{ device.metadata.name }} blah"
 			labels := map[string]string{"key": "val", "otherkey": "otherval"}
-			meta := api.DeviceMetadata{Labels: &labels}
+			meta := api.ObjectMeta{Labels: &labels}
 			_, warnings := ReplaceParameters([]byte(configItem), meta)
 			Expect(warnings).To(HaveLen(1))
 		})

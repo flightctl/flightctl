@@ -401,9 +401,13 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 		if !d.Status.LastSeen.IsZero() {
 			lastSeen = humanize.Time(d.Status.LastSeen)
 		}
+		alias := ""
+		if d.Metadata.Labels != nil {
+			alias = (*d.Metadata.Labels)["alias"]
+		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
 			*d.Metadata.Name,
-			util.DefaultIfNil(d.Metadata.Alias, ""),
+			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
 			d.Status.Summary.Status,
 			d.Status.Updated.Status,

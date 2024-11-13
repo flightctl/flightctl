@@ -316,9 +316,11 @@ type Device struct {
 	ApiVersion string `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-	Kind     string         `json:"kind"`
-	Metadata DeviceMetadata `json:"metadata"`
-	Spec     *DeviceSpec    `json:"spec,omitempty"`
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta  `json:"metadata"`
+	Spec     *DeviceSpec `json:"spec,omitempty"`
 
 	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	Status *DeviceStatus `json:"status,omitempty"`
@@ -406,32 +408,6 @@ type DeviceList struct {
 
 	// Summary A summary of the devices in the fleet returned when fetching a single Fleet.
 	Summary *DevicesSummary `json:"summary,omitempty"`
-}
-
-// DeviceMetadata defines model for DeviceMetadata.
-type DeviceMetadata struct {
-	// Alias alias of the device
-	Alias *string `json:"alias,omitempty"`
-
-	// Annotations Properties set by the service.
-	Annotations       *map[string]string `json:"annotations,omitempty"`
-	CreationTimestamp *time.Time         `json:"creationTimestamp,omitempty"`
-	DeletionTimestamp *time.Time         `json:"deletionTimestamp,omitempty"`
-
-	// Generation A sequence number representing a specific generation of the desired state. Populated by the system. Read-only.
-	Generation *int64 `json:"generation,omitempty"`
-
-	// Labels Map of string keys and values that can be used to organize and categorize (scope and select) objects.
-	Labels *map[string]string `json:"labels,omitempty"`
-
-	// Name name of the object
-	Name *string `json:"name,omitempty"`
-
-	// Owner A resource that owns this resource, in "kind/name" format.
-	Owner *string `json:"owner,omitempty"`
-
-	// ResourceVersion An opaque string that identifies the server's internal version of an object.
-	ResourceVersion *string `json:"resourceVersion,omitempty"`
 }
 
 // DeviceOSSpec defines model for DeviceOSSpec.

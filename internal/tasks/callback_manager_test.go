@@ -423,7 +423,7 @@ func CreateTestingDevice(orgId uuid.UUID, name string, labels *map[string]string
 	resource := api.Device{
 		ApiVersion: "v1",
 		Kind:       model.DeviceKind,
-		Metadata: api.DeviceMetadata{
+		Metadata: api.ObjectMeta{
 			Name:   &name,
 			Labels: labels,
 		},
