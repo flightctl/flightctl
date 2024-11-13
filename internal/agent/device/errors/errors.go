@@ -47,6 +47,9 @@ var (
 
 	// authentication
 	ErrAuthenticationFailed = errors.New("authentication failed")
+
+	// io
+	ErrReadingPath = errors.New("failed reading path")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
