@@ -32,6 +32,3 @@ func (s *Hooks) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error
 	}
 	return nil
 }
-
-func (s *Hooks) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
-}
