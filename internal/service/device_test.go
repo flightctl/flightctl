@@ -68,7 +68,7 @@ func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (
 	device := v1alpha1.Device{
 		ApiVersion: "v1",
 		Kind:       "Device",
-		Metadata: v1alpha1.DeviceMetadata{
+		Metadata: v1alpha1.ObjectMeta{
 			Name:   util.StrToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
@@ -225,7 +225,7 @@ func TestDeviceNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &DeviceStore{DeviceVal: v1alpha1.Device{
-			Metadata: v1alpha1.DeviceMetadata{Name: util.StrToPtr("foo")},
+			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchDevice(context.Background(), server.PatchDeviceRequestObject{

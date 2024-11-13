@@ -70,7 +70,7 @@ var _ = Describe("FleetStore create", func() {
 		It("Get fleet with device summary", func() {
 			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
 			device := api.Device{
-				Metadata: api.DeviceMetadata{
+				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Status: &api.DeviceStatus{

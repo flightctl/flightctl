@@ -21,10 +21,6 @@ func (r Device) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-
-	if r.Metadata.Alias != nil {
-		allErrs = append(allErrs, validation.ValidateResourceNameReference(r.Metadata.Alias, "metadata.alias")...)
-	}
 	if r.Spec != nil {
 		if r.Spec.Os != nil {
 			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Os.Image, "spec.os.image")...)
