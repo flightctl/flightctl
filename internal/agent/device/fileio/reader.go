@@ -2,9 +2,12 @@ package fileio
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
+
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
 // Reader is a struct for reading files from the device
@@ -47,19 +50,49 @@ func (r *reader) ReadDir(dirPath string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
-// FileExists checks if a path exists and returns a boolean indicating existence,
-// and an error only if there was a problem checking the path.
-func (r *reader) FileExists(filePath string) (bool, error) {
-	return checkPathExists(r.PathFor(filePath))
+// PathExists checks if a path exists and is readable and returns a boolean
+// indicating existence, and an error only if there was a problem checking the
+// path.
+func (r *reader) PathExists(path string) (bool, error) {
+	return checkPathExists(r.PathFor(path))
 }
 
-func checkPathExists(filePath string) (bool, error) {
-	_, err := os.Stat(filePath)
-	if err == nil {
-		return true, nil
+func checkPathExists(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error checking path: %w", err)
 	}
-	if os.IsNotExist(err) {
-		return false, nil
+
+	if info.IsDir() {
+		dir, err := os.Open(path)
+		if err != nil {
+			return false, fmt.Errorf("directory exists but %w: %w", errors.ErrReadingPath, err)
+		}
+		defer dir.Close()
+		// read a single entry from the directory to confirm readability
+		_, err = dir.Readdirnames(1)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				// readable but empty
+				return true, nil
+			}
+			return false, fmt.Errorf("directory exists but %w: %w", errors.ErrReadingPath, err)
+		}
+	} else {
+		file, err := os.Open(path)
+		if err != nil {
+			return false, fmt.Errorf("file exists but %w: %w", errors.ErrReadingPath, err)
+		}
+		defer file.Close()
+		// read a single byte from the file to ensure permissions are correct
+		buffer := make([]byte, 1)
+		if _, err := file.Read(buffer); err != nil {
+			return false, fmt.Errorf("file exists but %w: %w", errors.ErrReadingPath, err)
+		}
 	}
-	return false, fmt.Errorf("error checking path: %w", err)
+
+	return true, nil
 }
