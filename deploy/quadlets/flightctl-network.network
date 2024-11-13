@@ -1,5 +1,0 @@
-[Network]
-NetworkName=flightctl-network
-Driver=bridge
-IPAMDriver=host-local
-PodmanArgs=--interface-name flightctl-network

@@ -6,7 +6,7 @@ Requires=flightctl-api.service
 [Container]
 ContainerName=flightctl-ui
 Image=quay.io/flightctl/flightctl-ui:latest
-Network=flightctl-network
+Network=flightctl.network
 Environment=API_PORT=8080
 Environment=FLIGHTCTL_SERVER="https://flightctl-api:3443/"
 Environment=FLIGHTCTL_GRPC_SERVER="grpcs://flightctl-api:7444/"

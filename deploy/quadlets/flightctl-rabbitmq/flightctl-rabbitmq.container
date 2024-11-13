@@ -4,7 +4,7 @@ Description=Rabbit MQ service for FlightCtl
 [Container]
 ContainerName=flightctl-rabbitmq
 Image=docker.io/library/rabbitmq:3.13-management
-Network=flightctl-network
+Network=flightctl.network
 PublishPort=5672:5672
 PublishPort=15672:15672
 Environment=RABBITMQ_DEFAULT_USER=user

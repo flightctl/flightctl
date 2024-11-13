@@ -6,7 +6,7 @@ Requires=flightctl-db.service
 [Container]
 ContainerName=flightctl-worker
 Image=quay.io/flightctl/flightctl-worker:latest
-Network=flightctl-network
+Network=flightctl.network
 Environment=HOME=/root
 
 Volume=./flightctl-worker-config/config.yaml:/root/.flightctl/config.yaml
