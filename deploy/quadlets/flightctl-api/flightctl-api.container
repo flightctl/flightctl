@@ -8,7 +8,7 @@ Requires=flightctl-rabbitmq.service
 [Container]
 ContainerName=flightctl-api
 Image=quay.io/flightctl/flightctl-api:latest
-Network=flightctl-network
+Network=flightctl.network
 Environment=HOME=/root
 Environment=FLIGHTCTL_DISABLE_AUTH=true
 
