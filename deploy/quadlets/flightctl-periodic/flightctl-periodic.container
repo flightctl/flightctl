@@ -6,7 +6,7 @@ Requires=flightctl-db.service
 [Container]
 ContainerName=flightctl-periodic
 Image=quay.io/flightctl/flightctl-periodic:latest
-Network=flightctl-network
+Network=flightctl.network
 Environment=HOME=/root
 
 Volume=./flightctl-periodic-config/config.yaml:/root/.flightctl/config.yaml

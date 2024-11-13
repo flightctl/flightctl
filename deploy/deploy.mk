@@ -43,7 +43,7 @@ deploy-quadlets:
 	@echo "Deployment started. Checking if services are running..."
 	@timeout 240s bash -c 'until sudo podman ps --quiet --filter "name=flightctl-api" --filter "name=flightctl-worker" --filter "name=flightctl-periodic" --filter "name=flightctl-db" --filter "name=flightctl-rabbitmq" --filter "name=flightctl-ui" | wc -l | grep -q 6; do echo "Waiting for all services to be running..."; sleep 5; done'
 	@echo "Deployment completed. Add the following entries to your /etc/hosts file for container name resolution:"
-	@sudo podman network inspect flightctl-network | jq -r '.[0].containers | to_entries[] | "\(.value.interfaces.eth0.subnets[0].ipnet) \(.value.name)"' | sed 's/\/[0-9]\+//'
+	@sudo podman network inspect flightctl | jq -r '.[0].containers | to_entries[] | "\(.value.interfaces.eth0.subnets[0].ipnet) \(.value.name)"' | sed 's/\/[0-9]\+//'
 
 kill-db:
 	cd deploy/podman && podman-compose down flightctl-db
