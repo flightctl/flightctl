@@ -140,14 +140,14 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create device1 referencing repo1, device2 referencing repo2
 		device1 := api.Device{
-			Metadata: api.DeviceMetadata{Name: util.StrToPtr("device1")},
+			Metadata: api.ObjectMeta{Name: util.StrToPtr("device1")},
 			Spec: &api.DeviceSpec{
 				Config: &config1,
 			},
 		}
 
 		device2 := api.Device{
-			Metadata: api.DeviceMetadata{Name: util.StrToPtr("device2")},
+			Metadata: api.ObjectMeta{Name: util.StrToPtr("device2")},
 			Spec: &api.DeviceSpec{
 				Config: &config2,
 			},

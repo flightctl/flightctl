@@ -83,6 +83,12 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 		}
 		resourceVersion = &i
 	}
+	var alias *string
+	if labels := resource.Metadata.Labels; labels != nil {
+		if l, ok := (*labels)["alias"]; ok {
+			alias = &l
+		}
+	}
 
 	return &Device{
 		Resource: Resource{
@@ -93,7 +99,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
-		Alias:  resource.Metadata.Alias,
+		Alias:  alias,
 		Spec:   MakeJSONField(spec),
 		Status: MakeJSONField(status),
 	}, nil
@@ -131,9 +137,8 @@ func (d *Device) ToApiResource() api.Device {
 	return api.Device{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceKind,
-		Metadata: api.DeviceMetadata{
+		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(d.Name),
-			Alias:             d.Alias,
 			CreationTimestamp: util.TimeToPtr(d.CreatedAt.UTC()),
 			Labels:            &metadataLabels,
 			Generation:        d.Generation,

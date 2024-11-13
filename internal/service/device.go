@@ -28,7 +28,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
-	common.NilOutManagedDeviceMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.CreateDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
@@ -200,7 +200,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 
 	// don't overwrite fields that are managed by the service
 	request.Body.Status = nil
-	common.NilOutManagedDeviceMetaProperties(&request.Body.Metadata)
+	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.ReplaceDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
@@ -309,7 +309,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
 	}
 
-	common.NilOutManagedDeviceMetaProperties(&newObj.Metadata)
+	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
 	var updateCallback func(before *model.Device, after *model.Device)

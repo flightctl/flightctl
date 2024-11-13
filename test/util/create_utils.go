@@ -46,7 +46,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	_ = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 
 	resource := api.Device{
-		Metadata: api.DeviceMetadata{
+		Metadata: api.ObjectMeta{
 			Name:   &name,
 			Labels: labels,
 			Owner:  owner,

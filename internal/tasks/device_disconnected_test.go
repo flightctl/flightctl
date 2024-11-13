@@ -87,7 +87,7 @@ func generateMockDevices(count int) []v1alpha1.Device {
 	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 	for i := 0; i < count; i++ {
 		devices[i] = v1alpha1.Device{
-			Metadata: v1alpha1.DeviceMetadata{
+			Metadata: v1alpha1.ObjectMeta{
 				Name: util.StrToPtr(fmt.Sprintf("device-%d", i)),
 			},
 			Spec: &v1alpha1.DeviceSpec{},
