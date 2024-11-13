@@ -9,15 +9,18 @@ service:
     address: flightctl-api:3443
     agentEndpointAddress: flightctl-api:7443
     agentGrpcAddress: flightctl-api:7444
-    baseUrl: https://api.localhost/
-    baseAgentEndpointUrl: https://agent-api.localhost/
-    baseAgentGrpcUrl: grpcs://agent-grpc.localhost
-    baseUIUrl: https://ui.localhost
+    baseUrl: https://api.flightctl.$PRIMARY_IP.nip.io:3443/
+    baseAgentEndpointUrl: https://agent-api.flightctl.$PRIMARY_IP.nip.io:7443/
+    baseAgentGrpcUrl: grpcs://agent-grpc.flightctl.$PRIMARY_IP.nip.io:7444/
+    baseUIUrl: http://ui.flightctl.$PRIMARY_IP.nip.io:8080
     altNames:
       - api.localhost
       - agent-api.localhost
       - agent-grpc.localhost
       - flightctl-api
       - flightctl-api-agent-grpc
+      - agent-grpc.flightctl.$PRIMARY_IP.nip.io
+      - agent-api.flightctl.$PRIMARY_IP.nip.io
+      - api.flightctl.$PRIMARY_IP.nip.io
 queue:
     amqpUrl: amqp://user:password@flightctl-rabbitmq:5672/
