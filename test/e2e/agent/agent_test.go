@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -120,7 +119,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Retrying",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", string(status.UpdateStateRetrying))
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRetrying))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(

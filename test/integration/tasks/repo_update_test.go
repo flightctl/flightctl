@@ -171,7 +171,7 @@ var _ = Describe("RepoUpdate", func() {
 
 	When("a Repository definition is updated", func() {
 		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: model.RepositoryKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "fleet1")).Times(1)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "device1")).Times(1)
@@ -183,7 +183,7 @@ var _ = Describe("RepoUpdate", func() {
 
 	When("all Repository definitions are deleted", func() {
 		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "")).Times(2)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "")).Times(2)

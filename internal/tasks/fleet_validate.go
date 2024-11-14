@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
@@ -16,7 +15,7 @@ import (
 func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
 	logic := NewFleetValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
 	switch {
-	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == model.FleetKind:
+	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
 		if err != nil {
 			log.Errorf("failed validating fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
@@ -63,7 +62,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	templateVersion := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
 			Name:  util.TimeStampStringPtr(),
-			Owner: util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name),
+			Owner: util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name),
 		},
 		Spec: api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
 		Status: &api.TemplateVersionStatus{
@@ -82,7 +81,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	}
 
 	annotations := map[string]string{
-		model.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
+		api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 	}
 	err = t.store.Fleet().UpdateAnnotations(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name, annotations, nil)
 	if err != nil {

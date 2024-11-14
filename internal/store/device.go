@@ -275,8 +275,8 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 			} else {
 				// If the device isn't part of a fleet, make sure it doesn't have the TV annotation
 				existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
-				if existingAnnotations[model.DeviceAnnotationTemplateVersion] != "" {
-					delete(existingAnnotations, model.DeviceAnnotationTemplateVersion)
+				if existingAnnotations[api.DeviceAnnotationTemplateVersion] != "" {
+					delete(existingAnnotations, api.DeviceAnnotationTemplateVersion)
 					annotationsArray := util.LabelMapToArray(&existingAnnotations)
 					device.Annotations = pq.StringArray(annotationsArray)
 				}
@@ -448,13 +448,13 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 
-	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
+	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
 	}
-	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
+	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
 
 	// Changing the console annotation requires bumping the renderedVersion annotation
 	if existingConsoleAnnotation != newConsoleAnnotation {
@@ -463,7 +463,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 			return false, err
 		}
 
-		existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+		existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	}
 
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
@@ -502,7 +502,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 		return false, err
 	}
 
-	existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	renderedApplicationsJSON := renderedApplications
@@ -530,7 +530,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 func getNextRenderedVersion(annotations map[string]string) (string, error) {
 	var currentRenderedVersion int64 = 0
 	var err error
-	renderedVersionString, ok := annotations[model.DeviceAnnotationRenderedVersion]
+	renderedVersionString, ok := annotations[api.DeviceAnnotationRenderedVersion]
 	if ok {
 		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
 		if err != nil {
@@ -558,14 +558,14 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	}
 
 	annotations := util.LabelArrayToMap(device.Annotations)
-	renderedVersion, ok := annotations[model.DeviceAnnotationRenderedVersion]
+	renderedVersion, ok := annotations[api.DeviceAnnotationRenderedVersion]
 	if !ok {
 		return nil, flterrors.ErrNoRenderedVersion
 	}
 
 	var console *api.DeviceConsole
 
-	if val, ok := annotations[model.DeviceAnnotationConsole]; ok {
+	if val, ok := annotations[api.DeviceAnnotationConsole]; ok {
 		console = &api.DeviceConsole{
 			GRPCEndpoint: consoleGrpcEndpoint,
 			SessionID:    val,

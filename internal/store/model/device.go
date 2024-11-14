@@ -10,16 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	DeviceAPI      = "v1alpha1"
-	DeviceKind     = "Device"
-	DeviceListKind = "DeviceList"
-
-	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
-	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
-	DeviceAnnotationConsole         = "device-controller/console"
-)
-
 type Device struct {
 	Resource
 
@@ -133,8 +123,8 @@ func (d *Device) ToApiResource() api.Device {
 		resourceVersion = lo.ToPtr(strconv.FormatInt(*d.ResourceVersion, 10))
 	}
 	return api.Device{
-		ApiVersion: DeviceAPI,
-		Kind:       DeviceKind,
+		ApiVersion: api.DeviceAPIVersion,
+		Kind:       api.DeviceKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(d.Name),
 			CreationTimestamp: util.TimeToPtr(d.CreatedAt.UTC()),
@@ -152,8 +142,8 @@ func (d *Device) ToApiResource() api.Device {
 func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.DeviceList {
 	if dl == nil {
 		return api.DeviceList{
-			ApiVersion: DeviceAPI,
-			Kind:       DeviceListKind,
+			ApiVersion: api.DeviceAPIVersion,
+			Kind:       api.DeviceListKind,
 			Items:      []api.Device{},
 		}
 	}
@@ -172,8 +162,8 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 	}
 	ret := api.DeviceList{
-		ApiVersion: DeviceAPI,
-		Kind:       DeviceListKind,
+		ApiVersion: api.DeviceAPIVersion,
+		Kind:       api.DeviceListKind,
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
 		Summary: &api.DevicesSummary{
