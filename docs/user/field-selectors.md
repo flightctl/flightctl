@@ -28,7 +28,7 @@ flightctl get devices --field-selector 'metadata.name!=c3tkb18x9fw32fzx5l556n0p0
 #### Example 2: Filter by Owner, Labels, and Creation Timestamp
 This command retrieves devices owned by `Fleet/pos-fleet`, located in the `us` region, and created in 2024:
 ```bash
-flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels @> region\=us, metadata.creationTimestamp >= 2024-01-01T00:00:00Z, metadata.creationTimestamp < 2025-01-01T00:00:00Z'
+flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region\=us, metadata.creationTimestamp >= 2024-01-01T00:00:00Z, metadata.creationTimestamp < 2025-01-01T00:00:00Z'
 ```
 
 ### List of Additional Supported Fields
@@ -92,7 +92,7 @@ The following table lists the fields supported for filtering for each resource k
 #### Example 3: Filter by Owner, Labels, and Device Status
 This command retrieves devices owned by `Fleet/pos-fleet`, located in the `us` region, and with a `status.updated.status` of either `Unknown` or `OutOfDate`:
 ```bash
-flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels @> region\=us, status.updated.status in (Unknown, OutOfDate)'
+flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region\=us, status.updated.status in (Unknown, OutOfDate)'
 ```
 
 ### Fields Discovery
@@ -110,29 +110,29 @@ In this example, the field `text` is not a valid field for filtering. The error 
 
 You can then use one of the supported fields, as shown below:
 ```bash
-flightctl get devices --field-selector 'metadata.alias @> cluster'
+flightctl get devices --field-selector 'metadata.alias contains cluster'
 ```
-In this command, the `metadata.alias` field is checked with the containment operator `@>` to see if it contains the value `cluster`.
+In this command, the `metadata.alias` field is checked with the containment operator `contains` to see if it contains the value `cluster`.
 
 
 
 ## Supported operators
 
-| Operator             | Symbol | Description                                 |
-|----------------------|--------|---------------------------------------------|
-| Exists               | `exists` | Checks if a field exists                   |
-| DoesNotExist         | `!`      | Checks if a field does not exist           |
-| Equals               | `=`      | Checks if a field is equal to a value      |
-| DoubleEquals         | `==`     | Another form of equality check             |
-| NotEquals            | `!=`     | Checks if a field is not equal to a value  |
-| GreaterThan          | `>`      | Checks if a field is greater than a value  |
-| GreaterThanOrEquals  | `>=`     | Checks if a field is greater than or equal to a value |
-| LessThan             | `<`      | Checks if a field is less than a value     |
-| LessThanOrEquals     | `<=`     | Checks if a field is less than or equal to a value |
-| In                   | `in`     | Checks if a field is within a list of values |
-| NotIn                | `notin`  | Checks if a field is not in a list of values |
-| Contains             | `@>`     | Checks if a field contains a value         |
-| NotContains          | `!@`     | Checks if a field does not contain a value |
+| Operator             | Symbol         | Description                                           |
+|----------------------|----------------|-------------------------------------------------------|
+| Exists               | `exists`       | Checks if a field exists                              |
+| DoesNotExist         | `!`            | Checks if a field does not exist                      |
+| Equals               | `=`            | Checks if a field is equal to a value                 |
+| DoubleEquals         | `==`           | Another form of equality check                        |
+| NotEquals            | `!=`           | Checks if a field is not equal to a value             |
+| GreaterThan          | `>`            | Checks if a field is greater than a value             |
+| GreaterThanOrEquals  | `>=`           | Checks if a field is greater than or equal to a value |
+| LessThan             | `<`            | Checks if a field is less than a value                |
+| LessThanOrEquals     | `<=`           | Checks if a field is less than or equal to a value    |
+| In                   | `in`           | Checks if a field is within a list of values          |
+| NotIn                | `notin`        | Checks if a field is not in a list of values          |
+| Contains             | `contains`     | Checks if a field contains a value                    |
+| NotContains          | `notcontains`  | Checks if a field does not contain a value            |
 
 
 ### Operators Usage by Field Type

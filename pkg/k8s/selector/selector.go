@@ -358,7 +358,7 @@ func (r *Requirement) String() string {
 	sb.Grow(
 		// length of r.key
 		len(r.key) +
-			// length of 'r.operator' + 2 spaces for the worst case ('in' and 'notin')
+			// length of 'r.operator' + 2 spaces for the worst case ('in', 'notin' and 'contains', 'notcontains')
 			len(r.operator) + 2 +
 			// length of 'r.strValues' slice times. Heuristically 5 chars per word
 			+5*len(r.strValues))
@@ -375,9 +375,9 @@ func (r *Requirement) String() string {
 	case selection.NotEquals:
 		sb.WriteString("!=")
 	case selection.Contains:
-		sb.WriteString("@>")
+		sb.WriteString(" contains ")
 	case selection.NotContains:
-		sb.WriteString("!@")
+		sb.WriteString(" notcontains ")
 	case selection.In:
 		sb.WriteString(" in ")
 	case selection.NotIn:
@@ -519,21 +519,21 @@ const (
 // string2token contains the mapping between lexer Token and token literal
 // (except IdentifierToken, EndOfStringToken and ErrorToken since it makes no sense)
 var string2token = map[string]Token{
-	")":     ClosedParToken,
-	",":     CommaToken,
-	"!":     DoesNotExistToken,
-	"==":    DoubleEqualsToken,
-	"=":     EqualsToken,
-	">":     GreaterThanToken,
-	">=":    GreaterThanOrEqualsToken,
-	"@>":    ContainsToken,
-	"in":    InToken,
-	"<":     LessThanToken,
-	"<=":    LessThanOrEqualsToken,
-	"!=":    NotEqualsToken,
-	"!@":    NotContainsToken,
-	"notin": NotInToken,
-	"(":     OpenParToken,
+	")":           ClosedParToken,
+	",":           CommaToken,
+	"!":           DoesNotExistToken,
+	"==":          DoubleEqualsToken,
+	"=":           EqualsToken,
+	">":           GreaterThanToken,
+	">=":          GreaterThanOrEqualsToken,
+	"contains":    ContainsToken,
+	"in":          InToken,
+	"<":           LessThanToken,
+	"<=":          LessThanOrEqualsToken,
+	"!=":          NotEqualsToken,
+	"notcontains": NotContainsToken,
+	"notin":       NotInToken,
+	"(":           OpenParToken,
 }
 
 // ScannedItem contains the Token and the literal produced by the lexer.
@@ -550,7 +550,7 @@ func isWhitespace(ch byte) bool {
 // isSpecialSymbol detects if the character ch can be an operator
 func isSpecialSymbol(ch byte) bool {
 	switch ch {
-	case '@', '=', '!', '(', ')', ',', '>', '<':
+	case '=', '!', '(', ')', ',', '>', '<':
 		return true
 	}
 	return false
@@ -943,7 +943,7 @@ func (p *Parser) parseExactValue() (sets.String, error) {
 //	<value-set>                 ::= "(" <values> ")"
 //	<values>                    ::= VALUE | VALUE "," <values>
 //	<exact-match-restriction>   ::= ["="|"=="|"!="] VALUE
-//	<partial-match-restriction> ::= ["@>"|"!@"] VALUE
+//	<partial-match-restriction> ::= ["contains"|"notcontains"] VALUE
 //
 // Delimiter is white space: (' ', '\t')
 // Example of valid syntax:
