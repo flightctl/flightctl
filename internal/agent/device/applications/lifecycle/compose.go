@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -28,63 +29,78 @@ func NewCompose(log *log.PrefixLogger, podman *client.Podman) *Compose {
 }
 
 func (c *Compose) add(ctx context.Context, action *Action) error {
+	c.log.Debugf("Starting application %s", action.Name)
 	appPath, err := action.ApplicationPath()
 	if err != nil {
 		return err
 	}
 
-	c.log.Infof("Starting application %s", action.Name)
-
 	noRecreate := true
-	return c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate)
+	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate); err != nil {
+		return err
+	}
+
+	c.log.Infof("Started application %s", action.Name)
+	return nil
 }
 
 func (c *Compose) remove(ctx context.Context, action *Action) error {
+	c.log.Debugf("Removing application %s", action.Name)
+
 	// by using podman directly we can avoid the need to parse the compose file.
 	// this makes the reconciliation process faster and more reliable as the
 	// compose file is not required.
 	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", action.Name)}
 
+	var errs []error
 	// get networks from the running containers for the app
 	networks, err := c.podman.ListNetworks(ctx, labels)
 	if err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// stop containers
 	if err := c.podman.StopContainers(ctx, labels); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// remove containers
 	if err := c.podman.RemoveContainer(ctx, labels); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// remove networks
 	if err := c.podman.RemoveNetworks(ctx, networks...); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	c.log.Infof("Removed application %s", action.Name)
 	return nil
 }
 
 func (c *Compose) update(ctx context.Context, action *Action) error {
+	c.log.Debugf("Updating application %s", action.Name)
+
 	appPath, err := action.ApplicationPath()
 	if err != nil {
 		return err
 	}
 	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", action.Name)}
 
+	var errs []error
 	// get networks from the running containers for the app
 	networks, err := c.podman.ListNetworks(ctx, labels)
 	if err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// stop containers
 	if err := c.podman.StopContainers(ctx, labels); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// do not remove volumes as they are not removed by `docker-compose down`
@@ -92,17 +108,27 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 
 	// remove containers
 	if err := c.podman.RemoveContainer(ctx, labels); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// remove networks
 	if err := c.podman.RemoveNetworks(ctx, networks...); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// change to work dir and run `docker compose up -d`
 	noRecreate := true
-	return c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate)
+	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	c.log.Infof("Updated application %s", action.Name)
+
+	return nil
 }
 
 func (c *Compose) Execute(ctx context.Context, action *Action) error {

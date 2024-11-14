@@ -45,7 +45,7 @@ func (suite *ConsoleControllerSuite) SetupTest() {
 		},
 	}
 
-	suite.testCommand = exec.Command("bash", "-i", "-l")
+	suite.testCommand = exec.Command("echo", "testing")
 }
 
 func (suite *ConsoleControllerSuite) TearDownTest() {

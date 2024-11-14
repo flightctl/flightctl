@@ -24,11 +24,11 @@ func NewManager(log *log.PrefixLogger, exec executer.Executer, podmanClient *cli
 }
 
 // Add an application to be managed
-func (m *manager) Add(app Application) error {
+func (m *manager) Ensure(app Application) error {
 	appType := app.Type()
 	switch appType {
 	case AppCompose:
-		return m.podmanMonitor.add(app)
+		return m.podmanMonitor.ensure(app)
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -68,4 +68,8 @@ func (m *manager) ExecuteActions(ctx context.Context) error {
 
 func (m *manager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	return m.podmanMonitor.Status()
+}
+
+func (m *manager) Stop(ctx context.Context) error {
+	return m.podmanMonitor.Stop(ctx)
 }
