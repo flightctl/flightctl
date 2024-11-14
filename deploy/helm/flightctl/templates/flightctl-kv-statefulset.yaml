@@ -1,0 +1,53 @@
+{{ if .Values.rabbitmq.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flightctl-kv
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    flightctl.service: flightctl-kv
+spec:
+  serviceName: flightctl-kv
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-kv
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-kv
+    spec:
+      containers:
+        - name: flightctl-kv
+          image: {{ .Values.kv.image.image }}:{{ .Values.kv.image.tag }}
+          imagePullPolicy: {{ .Values.kv.image.pullPolicy }}
+          ports:
+            - name: kv
+              containerPort: 6379
+          env:
+            - name: VALKEY_EXTRA_FLAGS
+              value: {{ .Values.kv.flags }}
+          volumeMounts:
+            - name: flightctl-kv
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: flightctl-kv
+        annotations:
+          kubernetes.io/reclaimPolicy: Delete
+        {{ if .Values.global.appCode }}
+        labels:
+          paas.redhat.com/appcode: {{ .Values.global.appCode }}
+        {{ end }}
+      spec:
+        storageClassName: {{ .Values.global.storageClassName }}
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+  {{ end }}

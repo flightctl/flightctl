@@ -5,6 +5,8 @@ METHOD=install
 ONLY_DB=
 RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
+VALKEY_VERSION=${VALKEY_VERSION:-"8.0.1"}
+VALKEY_IMAGE=${VALKEY_IMAGE:-"docker.io/valkey/valkey"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -15,7 +17,7 @@ eval set -- "$options"
 
 while true; do
   case "$1" in
-    -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false" ; shift ;;
+    -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false --set flightctl.kv.enabled=false" ; shift ;;
     -h|--help) echo "Usage: $0 [--only-db]"; exit 0 ;;
     --) shift; break ;;
     *) echo "Invalid option: $1" >&2; exit 1 ;;
@@ -23,6 +25,7 @@ while true; do
 done
 
 RABBITMQ_ARG="--set flightctl.rabbitmq.image.image=${RABBITMQ_IMAGE} --set flightctl.rabbitmq.image.tag=${RABBITMQ_VERSION}"
+VALKEY_ARG="--set flightctl.kv.image.image=${VALKEY_IMAGE} --set flightctl.kv.image.tag=${VALKEY_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -38,6 +41,7 @@ if [ -z "$ONLY_DB" ]; then
   done
 
   kind_load_image "${RABBITMQ_IMAGE}:${RABBITMQ_VERSION}" keep-tar
+  kind_load_image "${VALKEY_IMAGE}:${VALKEY_VERSION}" keep-tar
 fi
 
 
@@ -71,7 +75,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} flightctl \
+                  ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${VALKEY_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s

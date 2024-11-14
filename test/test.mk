@@ -42,7 +42,7 @@ unit-test:
 run-integration-test:
 	$(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
-integration-test: deploy-db run-integration-test kill-db
+integration-test: deploy-db deploy-kv run-integration-test kill-kv kill-db
 
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem

@@ -246,8 +246,19 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 
 	// Update the generation if the spec was updated
 	if !sameSpec {
-		if fromAPI && len(lo.FromPtr(existingRecord.Owner)) != 0 {
-			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		if fromAPI {
+			if len(lo.FromPtr(existingRecord.Owner)) != 0 {
+				// Don't let the user update the device spec if it's part of a fleet
+				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+			} else {
+				// If the device isn't part of a fleet, make sure it doesn't have the TV annotation
+				existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+				if existingAnnotations[model.DeviceAnnotationTemplateVersion] != "" {
+					delete(existingAnnotations, model.DeviceAnnotationTemplateVersion)
+					annotationsArray := util.LabelMapToArray(&existingAnnotations)
+					device.Annotations = pq.StringArray(annotationsArray)
+				}
+			}
 		}
 
 		device.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
