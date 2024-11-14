@@ -117,12 +117,12 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				currentImage := device.Status.Os.Image
 				logrus.Infof("current image for %s is %s", deviceId, currentImage)
 				repo, _ := parseImageReference(currentImage)
-				newImageReference = repo + ":v2"
+				newImageReference = repo + ":base"
 				device.Spec.Os = &v1alpha1.DeviceOSSpec{Image: newImageReference}
 				logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 			})
 
-			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
+			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 3",
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "True", "Update")
 				}, "1m")
@@ -138,9 +138,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						conditionExists(device, "Updating", "False", "Updated")
 				}, "2m")
 
-			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
-			// related to: https://issues.redhat.com/browse/EDM-679
-			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 			logrus.Info("Device updated to new image 🎉")
 
 			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
@@ -163,6 +160,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// related to: https://issues.redhat.com/browse/EDM-679
 			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 			logrus.Info("Device updated to new image 🎉")
+
 		})
 	})
 })
