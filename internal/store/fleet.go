@@ -90,7 +90,7 @@ type fleetWithCount struct {
 
 func fleetSelectStr(withDeviceCount bool) string {
 	return lo.Ternary(withDeviceCount,
-		fmt.Sprintf("*, (select count(*) from devices where org_id = fleets.org_id and owner = CONCAT('%s/', fleets.name)) as device_count", model.FleetKind),
+		fmt.Sprintf("*, (select count(*) from devices where org_id = fleets.org_id and owner = CONCAT('%s/', fleets.name)) as device_count", api.FleetKind),
 		"*")
 }
 
@@ -211,7 +211,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 	}
 	if options.withSummary {
 		deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId,
-			ListParams{Owners: []string{*util.SetResourceOwner(model.FleetKind, name)}})
+			ListParams{Owners: []string{*util.SetResourceOwner(api.FleetKind, name)}})
 		if err != nil {
 			return nil, err
 		}
