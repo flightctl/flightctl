@@ -410,12 +410,12 @@ For each application in the "applications" section of the device's specification
 
 | Status Field | Description |
 | ------------ |-------------|
-| Preparing   | Application deployed; containers initialized but not yet running.
-| Starting    | Application started; at least one container running, awaiting results.
-| Running     | All containers are running.
-| Error       | All containers failed.
-| Unknown     | Application started, no containers observed.
-| Completed   | All containers have completed successfully.
+| Preparing   | Application deployed; containers initialized but not yet running. |
+| Starting    | Application started; at least one container running, awaiting results. |
+| Running     | All containers are running. |
+| Error       | All containers failed. |
+| Unknown     | Application started, no containers observed. |
+| Completed   | All containers have completed successfully. |
 
 ### Managing Applications on the Web UI
 

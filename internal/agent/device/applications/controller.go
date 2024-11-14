@@ -3,36 +3,37 @@ package applications
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
 type Controller struct {
-	podman  *client.Podman
-	writer  fileio.Writer
-	manager Manager
-	log     *log.PrefixLogger
+	podman     *client.Podman
+	readWriter fileio.ReadWriter
+	manager    Manager
+	log        *log.PrefixLogger
 }
 
 func NewController(
 	podman *client.Podman,
 	manager Manager,
-	writer fileio.Writer,
+	readWriter fileio.ReadWriter,
 	log *log.PrefixLogger,
 ) *Controller {
 	return &Controller{
-		log:     log,
-		manager: manager,
-		podman:  podman,
-		writer:  writer,
+		log:        log,
+		manager:    manager,
+		podman:     podman,
+		readWriter: readWriter,
 	}
 }
 
@@ -50,9 +51,8 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 		return err
 	}
 
-	// if this is the steady state, only ensure apps
-	if !spec.IsUpgrading(current, desired) {
-		return c.ensureApps(ctx, currentApps)
+	if err := c.ensureEmbedded(); err != nil {
+		return err
 	}
 
 	// reconcile image based packages
@@ -64,32 +64,30 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 }
 
 func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps []*application[*v1alpha1.ImageApplicationProvider]) error {
-	added, removed, updated, err := diffApps(currentApps, desiredApps)
+	diff, err := diffApps(currentApps, desiredApps)
 	if err != nil {
 		return err
 	}
 
-	for _, app := range removed {
+	for _, app := range diff.Removed {
 		if err := c.removeImagePackage(app); err != nil {
 			return err
 		}
 		if err := c.manager.Remove(app); err != nil {
 			return err
 		}
-		c.log.Infof("Removed application %s", app.Name())
 	}
 
-	for _, app := range added {
+	for _, app := range diff.Ensure {
 		if err := c.ensureImagePackage(ctx, app); err != nil {
 			return err
 		}
-		if err := c.manager.Add(app); err != nil {
+		if err := c.manager.Ensure(app); err != nil {
 			return err
 		}
-		c.log.Infof("Added application %s", app.Name())
 	}
 
-	for _, app := range updated {
+	for _, app := range diff.Changed {
 		if err := c.removeImagePackage(app); err != nil {
 			return err
 		}
@@ -99,21 +97,8 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 		if err := c.manager.Update(app); err != nil {
 			return err
 		}
-		c.log.Infof("Updated application %s", app.Name())
 	}
 
-	return nil
-}
-
-func (c *Controller) ensureApps(ctx context.Context, currentApps *applications) error {
-	for _, app := range currentApps.ImageBased() {
-		if err := c.ensureImagePackage(ctx, app); err != nil {
-			return err
-		}
-		if err := c.manager.Add(app); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -123,7 +108,7 @@ func (c *Controller) removeImagePackage(app *application[*v1alpha1.ImageApplicat
 		return err
 	}
 	// remove the application directory for compose.
-	return c.writer.RemoveAll(appPath)
+	return c.readWriter.RemoveAll(appPath)
 }
 
 func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProvider]) error {
@@ -137,7 +122,7 @@ func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v
 
 	containerImage := app.provider.Image
 	// copy image manifests from container image to the application path
-	if err := CopyImageManifests(ctx, c.log, c.writer, c.podman, containerImage, appPath); err != nil {
+	if err := copyImageManifests(ctx, c.log, c.readWriter, c.podman, containerImage, appPath); err != nil {
 		return err
 	}
 
@@ -150,7 +135,7 @@ func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v
 		}
 		envPath := fmt.Sprintf("%s/.env", appPath)
 		c.log.Debugf("writing env vars to %s", envPath)
-		if err := c.writer.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {
+		if err := c.readWriter.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {
 			return err
 		}
 	}
@@ -199,20 +184,29 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 	return &apps, nil
 }
 
-// diffApps compares two sets of applications and returns the added, removed, and changed applications.
+type diff[T any] struct {
+	// Ensure contains both newly added and unchanged apps
+	Ensure []*application[T]
+	// Removed contains apps that are no longer part of the desired state
+	Removed []*application[T]
+	// Changed contains apps that have changed between the current and desired state
+	Changed []*application[T]
+}
+
 func diffApps[T any](
 	current []*application[T],
 	desired []*application[T],
-) (added []*application[T], removed []*application[T], changed []*application[T], err error) {
+) (diff[T], error) {
+	var diff diff[T]
 
-	added = make([]*application[T], 0, len(desired))
-	removed = make([]*application[T], 0, len(current))
-	changed = make([]*application[T], 0, len(current))
+	diff.Ensure = make([]*application[T], 0, len(desired))
+	diff.Removed = make([]*application[T], 0, len(current))
+	diff.Changed = make([]*application[T], 0, len(current))
 
 	desiredApps := make(map[string]*application[T])
 	for _, app := range desired {
 		if len(app.Name()) == 0 {
-			return nil, nil, nil, errors.ErrAppNameRequired
+			return diff, errors.ErrAppNameRequired
 		}
 		desiredApps[app.Name()] = app
 	}
@@ -220,28 +214,30 @@ func diffApps[T any](
 	currentApps := make(map[string]*application[T])
 	for _, app := range current {
 		if len(app.Name()) == 0 {
-			return nil, nil, nil, errors.ErrAppNameRequired
+			return diff, errors.ErrAppNameRequired
 		}
 		currentApps[app.Name()] = app
 	}
 
 	for name, app := range currentApps {
 		if _, exists := desiredApps[name]; !exists {
-			removed = append(removed, app)
+			diff.Removed = append(diff.Removed, app)
 		}
 	}
 
 	for name, desiredApp := range desiredApps {
 		if currentApp, exists := currentApps[name]; !exists {
-			added = append(added, desiredApp)
+			diff.Ensure = append(diff.Ensure, desiredApp)
 		} else {
-			if !isEqual(currentApp, desiredApp) {
-				changed = append(changed, desiredApp)
+			if isEqual(currentApp, desiredApp) {
+				diff.Ensure = append(diff.Ensure, desiredApp)
+			} else {
+				diff.Changed = append(diff.Changed, desiredApp)
 			}
 		}
 	}
 
-	return added, removed, changed, nil
+	return diff, nil
 }
 
 // isEqual compares two applications and returns true if they are equal.
@@ -259,4 +255,39 @@ func isEqual[T any](a, b *application[T]) bool {
 		return false
 	}
 	return true
+}
+
+func (c *Controller) ensureEmbedded() error {
+	// discover embedded compose applications
+	elements, err := c.readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
+	if err != nil {
+		return err
+	}
+
+	for _, element := range elements {
+		if !element.IsDir() {
+			continue
+		}
+
+		suffixPatterns := []string{"*.yml", "*.yaml"}
+		for _, pattern := range suffixPatterns {
+			// search for compose files
+			files, err := filepath.Glob(filepath.Join(lifecycle.EmbeddedComposeAppPath, element.Name(), pattern))
+			if err != nil {
+				fmt.Printf("Error searching for pattern %s: %v\n", pattern, err)
+				continue
+			}
+			// TODO: we could do podman config here to verify further.
+			if len(files) > 0 {
+				// ensure the embedded application
+				provider := EmbeddedProvider{}
+				app := NewApplication(element.Name(), provider, AppCompose)
+				if err := c.manager.Ensure(app); err != nil {
+					return err
+				}
+				c.log.Infof("Observed embedded compose application %s", app.Name())
+			}
+		}
+	}
+	return nil
 }

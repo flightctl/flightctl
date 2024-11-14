@@ -5,11 +5,8 @@ import (
 	"crypto"
 	"encoding/base32"
 	"fmt"
-	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
@@ -23,6 +20,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/internal/container"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -32,7 +31,8 @@ import (
 )
 
 const (
-	gracefulShutdownTimeout = 15 * time.Second
+	// TODO: expose via config
+	gracefulShutdownTimeout = 2 * time.Minute
 )
 
 // New creates a new agent.
@@ -58,24 +58,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	defer utilruntime.HandleCrash()
 	ctx, cancel := context.WithCancel(ctx)
-
-	// handle teardown
-	signals := make(chan os.Signal, 2)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	go func(ctx context.Context) {
-		select {
-		case s := <-signals:
-			a.log.Infof("Agent received shutdown signal: %s", s)
-			// give the agent time to shutdown gracefully
-			time.Sleep(gracefulShutdownTimeout)
-			close(signals)
-			cancel()
-		case <-ctx.Done():
-			a.log.Infof("Context has been cancelled, shutting down.")
-			close(signals)
-			cancel()
-		}
-	}(ctx)
+	defer cancel()
 
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.testRootDir))
@@ -115,6 +98,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer)
 
+	// create systemd client
+	systemdClient := client.NewSystemd(executer)
+
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
@@ -122,6 +108,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		Factor:   1.5,
 		Steps:    6,
 	}
+
+	// create shutdown manager
+	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
 
 	// create spec manager
 	specManager := spec.NewManager(
@@ -144,12 +133,19 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create application manager
 	applicationManager := applications.NewManager(a.log, executer, podmanClient)
 
+	// register the application manager with the shutdown manager
+	shutdownManager.Register("applications", applicationManager.Stop)
+
+	// create systemd manager
+	systemdManager := systemd.NewManager(a.log, systemdClient)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
 		resourceManager,
 		hookManager,
 		applicationManager,
+		systemdManager,
 		executer,
 		a.log,
 	)
@@ -224,6 +220,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		statusManager,
 		specManager,
 		applicationManager,
+		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
 		hookManager,
@@ -238,6 +235,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// register agent with shutdown manager
+	shutdownManager.Register("agent", agent.Stop)
+
+	go shutdownManager.Run(ctx)
 	go hookManager.Run(ctx)
 	go resourceManager.Run(ctx)
 

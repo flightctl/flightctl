@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -22,10 +23,11 @@ func NewManager(
 	resourceManager resource.Manager,
 	hookManager hook.Manager,
 	applicationManager applications.Manager,
+	systemdManager systemd.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	exporters := newExporters(resourceManager, hookManager, applicationManager, executer, log)
+	exporters := newExporters(resourceManager, hookManager, applicationManager, systemdManager, executer, log)
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{
 		deviceName: deviceName,
@@ -52,8 +54,6 @@ type StatusManager struct {
 type Exporter interface {
 	// Export collects status information and updates the device status.
 	Export(ctx context.Context, device *v1alpha1.DeviceStatus) error
-	// SetProperties sets the properties for the exporter.
-	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
 type Collector interface {
@@ -73,8 +73,6 @@ type Manager interface {
 	UpdateCondition(context.Context, v1alpha1.Condition) error
 	// SetClient sets the management client for the status manager.
 	SetClient(client.Management)
-	// SetProperties sets the properties for the exporters.
-	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
 func (m *StatusManager) SetClient(managementClient client.Management) {
@@ -135,12 +133,6 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return fmt.Errorf("failed to update device status: %w", err)
 	}
 	return nil
-}
-
-func (m *StatusManager) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
-	for _, exporter := range m.exporters {
-		exporter.SetProperties(spec)
-	}
 }
 
 type UpdateStatusFn func(status *v1alpha1.DeviceStatus) error
