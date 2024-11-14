@@ -44,7 +44,7 @@ func main() {
 	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
 	numDevices := pflag.Int("count", 1, "number of devices to simulate")
-	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))
+	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
 	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
 
