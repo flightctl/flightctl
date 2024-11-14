@@ -142,7 +142,27 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// related to: https://issues.redhat.com/browse/EDM-679
 			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 			logrus.Info("Device updated to new image 🎉")
->>>>>>> 986f098 (EDM-213: Added polarion case OCP-75523 A device can upgrade with embedded app)
+
+			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", "Update")
+				}, "1m")
+
+			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", "Rebooting")
+				}, "2m")
+
+			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
+				func(device *v1alpha1.Device) bool {
+					return device.Status.Os.Image == newImageReference &&
+						conditionExists(device, "Updating", "False", "Updated")
+				}, "2m")
+
+			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
+			// related to: https://issues.redhat.com/browse/EDM-679
+			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+			logrus.Info("Device updated to new image 🎉")
 		})
 	})
 })
