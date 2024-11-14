@@ -4,9 +4,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	gormschema "gorm.io/gorm/schema"
 )
 
-type Model struct {
+type goodTestModel struct {
 	Field1  bool        `selector:"model.field1"`                          // Boolean
 	Field2  int         `selector:"model.field2"`                          // Integer
 	Field5  float64     `selector:"model.field5"`                          // Float
@@ -20,38 +22,112 @@ type Model struct {
 	Field13 []float64   `gorm:"type:real[]" selector:"model.field13"`      // Float Array
 	Field15 []time.Time `gorm:"type:timestamp[]" selector:"model.field15"` // Timestamp Array
 	Field16 string      `gorm:"type:jsonb" selector:"model.field16"`       // JSONB
+	Field17 string      `selector:"model.field17"`                         // Text
 }
 
-type BadModel struct {
-	Field1 bool `selector:"model.field"` // conflict
-	Field2 bool `selector:"model.field.mine"`
-}
-
-func (m *Model) ResolveCustomSelector(field SelectorFieldName) []SelectorFieldName {
-	if strings.EqualFold("manualfield", string(field)) {
-		return []SelectorFieldName{"model.field6", "model.field16.val::string"}
+func (m *goodTestModel) MapSelectorName(selector SelectorName) []SelectorName {
+	if strings.EqualFold("mappedselector", selector.String()) {
+		return []SelectorName{"model.field6", "model.field17"}
 	}
 	return nil
 }
 
-func (m *Model) ListCustomSelectors() []SelectorFieldName {
-	return []SelectorFieldName{"manualfield"}
+func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, error) {
+	if strings.EqualFold("customfield1", selector.String()) {
+		return &SelectorField{
+			Name:      "customfield1",
+			Type:      String,
+			FieldName: "goodfield",
+			FieldType: gormschema.String,
+		}, nil
+	}
+	if strings.EqualFold("customfield2", selector.String()) {
+		return &SelectorField{
+			Name:      "customfield2",
+			Type:      Timestamp,
+			FieldName: "goodfield.key",
+			FieldType: "jsonb",
+		}, nil
+	}
+	if strings.EqualFold("customfield3", selector.String()) {
+		return &SelectorField{
+			Name:      "customfield3",
+			Type:      Jsonb,
+			FieldName: "goodfield.key",
+			FieldType: "jsonb",
+		}, nil
+	}
+	if strings.EqualFold("customfield4.some.array[5]", selector.String()) {
+		return &SelectorField{
+			Name:      "customfield4.some.array[5]",
+			Type:      String,
+			FieldName: "goodfield.some.array[5]",
+			FieldType: "jsonb",
+		}, nil
+	}
+	if strings.EqualFold("customfield5.approved", selector.String()) {
+		return &SelectorField{
+			Name:      "customfield5.approved",
+			Type:      Bool,
+			FieldName: "goodfield.path.approved",
+			FieldType: "jsonb",
+		}, nil
+	}
+	return nil, nil
+}
+
+func (m *goodTestModel) ListSelectors() SelectorNameSet {
+	return NewSelectorFieldNameSet().Add("mappedselector", "customfield1", "customfield2",
+		"customfield3", "customfield4.some.array[5]", "customfield5.approved")
+}
+
+type badTestModel struct {
+}
+
+func (m *badTestModel) ResolveSelector(selector SelectorName) (*SelectorField, error) {
+	if strings.EqualFold("customfield4", selector.String()) {
+		return &SelectorField{
+			Name:      "customfield4",
+			Type:      TextArray, //Not supported
+			FieldName: "badfield.key",
+			FieldType: "jsonb",
+		}, nil
+	}
+	if strings.EqualFold("customfield5", selector.String()) {
+		return &SelectorField{
+			Name:      "customfield5.key",
+			Type:      16, //Not supported
+			FieldName: "badfield.key",
+			FieldType: "jsonb",
+		}, nil
+	}
+	return nil, nil
+}
+
+func (m *badTestModel) ListSelectors() SelectorNameSet {
+	return NewSelectorFieldNameSet().Add("customfield4", "customfield5")
+}
+
+type conflictTestModel struct {
+	Field1 bool `selector:"model.field"` // conflict
+	Field2 bool `selector:"model.field.mine"`
 }
 
 func TestResolveSchemaFields(t *testing.T) {
-	_, err := ResolveFieldsFromSchema(&Model{})
+	_, err := ResolveFieldsFromSchema(&goodTestModel{})
 	if err != nil {
 		t.Errorf("good model got error %v (%#v)\n", err, err)
 	}
 
-	_, err = ResolveFieldsFromSchema(&BadModel{})
+	_, err = ResolveFieldsFromSchema(&conflictTestModel{})
 	if err == nil {
-		t.Errorf("bad model did not get expected error\n")
+		t.Errorf("conflict model did not get expected error\n")
 	}
 }
 
 func TestResolveFields(t *testing.T) {
-	fr, err := SelectorFieldResolver(&Model{})
+	goodmodel := &goodTestModel{}
+	fr, err := SelectorFieldResolver(goodmodel)
 	if err != nil {
 		t.Errorf("%v: error %v (%#v)\n", fr, err, err)
 		return
@@ -66,6 +142,25 @@ func TestResolveFields(t *testing.T) {
 
 		if _, err := fr.ResolveNames(selector); err != nil {
 			t.Errorf("%s: error %v (%#v)\n", selector, err, err)
+		}
+	}
+
+	if _, err := fr.ResolveFields("unknownselector"); err == nil {
+		t.Errorf("unknownselector: did not get expected error\n")
+	}
+
+	badmodel := &badTestModel{}
+	fr, err = SelectorFieldResolver(badmodel)
+	if err != nil {
+		t.Errorf("%v: error %v (%#v)\n", fr, err, err)
+		return
+	}
+
+	selectors = fr.ListSelectors()
+	for _, selector := range selectors {
+		if _, err := fr.ResolveFields(selector); err == nil {
+			t.Errorf("%s: did not get expected error\n", selector)
+			continue
 		}
 	}
 }

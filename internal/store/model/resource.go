@@ -35,7 +35,7 @@ type Resource struct {
 	ResourceVersion *int64
 	CreatedAt       time.Time `selector:"metadata.creationTimestamp"`
 	UpdatedAt       time.Time
-	DeletedAt       gorm.DeletedAt `gorm:"index" selector:"metadata.deletionTimestamp"`
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
 }
 
 func (r *Resource) BeforeCreate(tx *gorm.DB) error {

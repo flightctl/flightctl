@@ -95,8 +95,8 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			return nil, err
 		}
 
-		field, values, operator := SelectorFieldName(strings.TrimSpace(req.Key())), req.Values(), req.Operator()
-		resolvedFields, err := fs.fieldResolver.ResolveFields(field)
+		name, values, operator := SelectorName(strings.TrimSpace(req.Key())), req.Values(), req.Operator()
+		resolvedFields, err := fs.fieldResolver.ResolveFields(name)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +111,7 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			fieldToken, err := fs.createFieldToken(resolvedField)
 			if err != nil {
 				return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
-					fmt.Errorf("failed to parse field %q: %w", field, err))
+					fmt.Errorf("failed to parse selector %q: %w", name, err))
 			}
 
 			var valuesToken queryparser.TokenSet
@@ -121,7 +121,7 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 					valueToken, err := fs.createValueToken(operator, resolvedField, val)
 					if err != nil {
 						return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
-							fmt.Errorf("failed to parse value for field %q: %w", field, err))
+							fmt.Errorf("failed to parse value for selector %q: %w", name, err))
 					}
 					valuesToken = valuesToken.Append(valueToken)
 				}
@@ -130,7 +130,7 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			operatorToken, err := fs.createOperatorToken(operator, resolvedField, fieldToken, valuesToken)
 			if err != nil {
 				return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
-					fmt.Errorf("failed to resolve operation for field %q: %w", field, err))
+					fmt.Errorf("failed to resolve operation for selector %q: %w", name, err))
 			}
 
 			resolvedTokens = resolvedTokens.Append(operatorToken)
@@ -209,7 +209,7 @@ func (fs *fieldSelector) createOperatorToken(operator selection.Operator, select
 var fieldRegex = regexp.MustCompile(`^[A-Za-z0-9][-A-Za-z0-9_.*\[\]0-9]*[A-Za-z0-9\]]$`)
 
 func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
-	if !fieldRegex.MatchString(selectorField.DBName) {
+	if !fieldRegex.MatchString(selectorField.FieldName) {
 		return nil, fmt.Errorf(
 			"field must consist of alphanumeric characters, '-', '_', or '.', "+
 				"and must start with an alphanumeric character and end with either an alphanumeric character or an array index "+
@@ -218,9 +218,9 @@ func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve reso
 			fieldRegex.String())
 	}
 
-	if selectorField.DataType == "jsonb" {
+	if selectorField.FieldType == "jsonb" {
 		var params strings.Builder
-		parts := strings.Split(selectorField.DBName, ".")
+		parts := strings.Split(selectorField.FieldName, ".")
 		params.WriteString(parts[0])
 
 		for i, part := range parts[1:] {
@@ -259,8 +259,8 @@ func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve reso
 		return resolve(params.String()), nil
 	}
 
-	// For non-JSONB fields, directly use the DBName
-	return resolve(selectorField.DBName), nil
+	// For non-JSONB fields, directly use the FieldName
+	return resolve(selectorField.FieldName), nil
 }
 
 func (fs *fieldSelector) resolveValue(
@@ -440,7 +440,7 @@ func (fs *fieldSelector) applyStringOperator(operator selection.Operator, select
 			return nil, fmt.Errorf("the operator %q is not supported for partial string matching when the field is of type JSONB with string casting", operator)
 		}
 		if selectorField.IsArrayElement() {
-			return nil, fmt.Errorf("the operator %q is not supported for partial string matching when the field is an element within an array", operator)
+			return nil, fmt.Errorf("the operator %q is not supported for partial string matching when the selector is an element within an array", operator)
 		}
 		return resolve(operatorsMap[operator]), nil
 	default:

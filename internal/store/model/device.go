@@ -3,11 +3,9 @@ package model
 import (
 	"encoding/json"
 	"strconv"
-	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 )
@@ -29,10 +27,10 @@ type Device struct {
 	Alias *string `selector:"metadata.alias"`
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb" selector:"spec"`
+	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb" selector:"status"`
+	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
 
 	// Conditions set by the service, as opposed to the agent.
 	ServiceConditions *JSONField[ServiceConditions]
@@ -149,17 +147,6 @@ func (d *Device) ToApiResource() api.Device {
 		Spec:   &spec,
 		Status: &status,
 	}
-}
-
-func (d *DeviceList) ResolveCustomSelector(field selector.SelectorFieldName) []selector.SelectorFieldName {
-	if strings.EqualFold("metadata.nameoralias", string(field)) {
-		return []selector.SelectorFieldName{"metadata.name", "metadata.alias"}
-	}
-	return nil
-}
-
-func (d *DeviceList) ListCustomSelectors() []selector.SelectorFieldName {
-	return []selector.SelectorFieldName{"metadata.nameoralias"}
 }
 
 func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.DeviceList {

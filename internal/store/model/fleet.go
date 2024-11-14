@@ -22,10 +22,10 @@ type Fleet struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.FleetSpec] `gorm:"type:jsonb" selector:"spec"`
+	Spec *JSONField[api.FleetSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.FleetStatus] `gorm:"type:jsonb" selector:"status"`
+	Status *JSONField[api.FleetStatus] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of fleets to repositories
 	Repositories []Repository `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`
