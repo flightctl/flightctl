@@ -4060,7 +4060,6 @@ components:
       - 'Updating'             # Device
       - 'SpecValid'            # Device (service condition)
       - 'MultipleOwners'       # Device (service condition)
-      - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
       - CertificateSigningRequestApproved
@@ -4075,7 +4074,6 @@ components:
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
-      - TemplateVersionValid
     ConditionStatus:
       type: string
       enum:

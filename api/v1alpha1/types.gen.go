@@ -52,7 +52,6 @@ const (
 	ResourceSyncAccessible            ConditionType = "Accessible"
 	ResourceSyncResourceParsed        ConditionType = "ResourceParsed"
 	ResourceSyncSynced                ConditionType = "Synced"
-	TemplateVersionValid              ConditionType = "Valid"
 )
 
 // Defines values for DeviceIntegrityStatusSummaryType.

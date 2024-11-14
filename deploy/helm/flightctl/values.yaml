@@ -79,6 +79,15 @@ db:
       cpu: "2000m"
       memory: "2Gi"
 
+kv:
+  enabled: true
+  image:
+    image: valkey/valkey
+    tag: latest
+    pullPolicy: Always
+  # Save a snapshot of the DB every 60 seconds if at least 1 write operation was performed.
+  # Each snapshot replaces the previous one.
+  flags: '--save 60 1 --loglevel warning'
 api:
   enabled: true
   image:

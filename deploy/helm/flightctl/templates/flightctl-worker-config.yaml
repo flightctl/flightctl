@@ -16,4 +16,7 @@ data:
     service: {}
     queue:
         amqpUrl: amqp://{{ .Values.rabbitmq.auth.username }}:{{ .Values.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:{{ .Values.rabbitmq.ports.amqp }}/
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
 {{ end }}

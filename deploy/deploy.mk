@@ -32,10 +32,17 @@ deploy-mq:
 	podman rm -f flightctl-mq || true
 	cd deploy/podman && podman-compose up -d flightctl-mq
 
+deploy-kv:
+	podman rm -f flightctl-kv || true
+	cd deploy/podman && podman-compose up -d flightctl-kv
+
 kill-db:
 	cd deploy/podman && podman-compose down flightctl-db
 
 kill-mq:
 	cd deploy/podman && podman-compose down flightctl-mq
+
+kill-kv:
+	cd deploy/podman && podman-compose down flightctl-kv
 
 .PHONY: deploy-db deploy cluster run-db-container kill-db-container
