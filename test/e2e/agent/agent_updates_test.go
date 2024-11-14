@@ -26,7 +26,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	})
 
 	Context("updates", func() {
-		It("should update to the requested image", Label("updates", "OCP-75523"), func() {
+
+		It("should update to the requested image", Label("updates", "75523"), func() {
 
 			// Check the device status right after bootstrap
 			response := harness.GetDeviceWithStatusSystem(deviceId)
@@ -67,7 +68,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 			logrus.Info("Device updated to new image 🎉")
 		})
-		It("Should update to v4 with embedded application", Label("updates", "OCP-77667"), func() {
+
+		It("Should update to v4 with embedded application", Label("updates", "77667"), func() {
 			// Check the device status right after bootstrap
 			response := harness.GetDeviceWithStatusSystem(deviceId)
 			device := response.JSON200
@@ -106,12 +108,41 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 			logrus.Info("Device updated to new image 🎉")
 
-			//Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("Observed embedded compose application embedded-demo-app"))
-			logrus.Info("Container with sleep infinity process is present but not running as expected")
+			logrus.Info("Container with sleep infinity process is present but not running, as expected")
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("sleep infinity"))
+			logrus.Info("Pods are not running, as expected 👌")
+			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				currentImage := device.Status.Os.Image
+				logrus.Infof("current image for %s is %s", deviceId, currentImage)
+				repo, _ := parseImageReference(currentImage)
+				newImageReference = repo + ":v2"
+				device.Spec.Os = &v1alpha1.DeviceOSSpec{Image: newImageReference}
+				logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
+			})
 
+			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", "Update")
+				}, "1m")
+
+			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", "Rebooting")
+				}, "2m")
+
+			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
+				func(device *v1alpha1.Device) bool {
+					return device.Status.Os.Image == newImageReference &&
+						conditionExists(device, "Updating", "False", "Updated")
+				}, "2m")
+
+			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
+			// related to: https://issues.redhat.com/browse/EDM-679
+			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+			logrus.Info("Device updated to new image 🎉")
+>>>>>>> 986f098 (EDM-213: Added polarion case OCP-75523 A device can upgrade with embedded app)
 		})
 	})
 })
