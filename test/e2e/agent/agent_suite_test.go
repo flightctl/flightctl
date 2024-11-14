@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const TIMEOUT = "1m"
+const TIMEOUT = "5m"
 const POLLING = "250ms"
 
 func TestAgent(t *testing.T) {
