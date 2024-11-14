@@ -98,7 +98,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 	var sortField *store.SortField
 	if request.Params.SortBy != nil {
 		sortField = &store.SortField{
-			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			FieldName: selector.SelectorName(*request.Params.SortBy),
 			Order:     *request.Params.SortOrder,
 		}
 	}

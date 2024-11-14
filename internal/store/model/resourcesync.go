@@ -20,10 +20,10 @@ type ResourceSync struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.ResourceSyncSpec] `gorm:"type:jsonb" selector:"spec"`
+	Spec *JSONField[api.ResourceSyncSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.ResourceSyncStatus] `gorm:"type:jsonb" selector:"status"`
+	Status *JSONField[api.ResourceSyncStatus] `gorm:"type:jsonb"`
 }
 
 type ResourceSyncList []ResourceSync

@@ -1,10 +1,11 @@
 package selector
 
 import (
-	"reflect"
 	"regexp"
+	"strings"
 
 	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
+	"github.com/flightctl/flightctl/pkg/queryparser"
 	gormschema "gorm.io/gorm/schema"
 )
 
@@ -27,7 +28,7 @@ const (
 	Jsonb
 )
 
-var schemaTypeResolution = map[gormschema.DataType]SelectorFieldType{
+var schemaTypeResolution = map[gormschema.DataType]SelectorType{
 	gormschema.Bool:   Bool,
 	gormschema.Int:    Int,
 	gormschema.Float:  Float,
@@ -61,16 +62,41 @@ var operatorsMap = map[selection.Operator]string{
 
 var arrayPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+\[\d+\]$`)
 
-// SelectorFieldName represents the name of a field used in a selector.
-type SelectorFieldName string
+// SelectorNameMapping defines an interface for mapping a custom selector
+// to one or more selectors defined for the model.
+type SelectorNameMapping interface {
+	// MapSelectorName maps a custom selector to one or more selectors.
+	MapSelectorName(selector SelectorName) []SelectorName
 
-func (sf SelectorFieldName) String() string {
+	// ListSelectors returns all custom selectors.
+	ListSelectors() SelectorNameSet
+}
+
+// SelectorResolver defines an interface for manually resolving a selector to specific
+// SelectorField instances, enabling direct use of fields.
+type SelectorResolver interface {
+	// ResolveSelector manually resolves a selector to a SelectorField instance.
+	ResolveSelector(selector SelectorName) (*SelectorField, error)
+
+	// ListSelectors returns all custom selectors.
+	ListSelectors() SelectorNameSet
+}
+
+// SelectorName represents the name of a selector.
+type SelectorName string
+
+func (sf SelectorName) TrimSpace() SelectorName {
+	return SelectorName(strings.TrimSpace(sf.String()))
+}
+
+func (sf SelectorName) String() string {
 	return string(sf)
 }
 
-type SelectorFieldType int
+// SelectorType represents the type of a selector.
+type SelectorType int
 
-func (t SelectorFieldType) IsArray() bool {
+func (t SelectorType) IsArray() bool {
 	switch t {
 	case BoolArray, IntArray, SmallIntArray, BigIntArray, FloatArray, TextArray, TimestampArray:
 		return true
@@ -79,7 +105,7 @@ func (t SelectorFieldType) IsArray() bool {
 	}
 }
 
-func (t SelectorFieldType) ArrayType() SelectorFieldType {
+func (t SelectorType) ArrayType() SelectorType {
 	if !t.IsArray() {
 		return Unknown
 	}
@@ -104,7 +130,7 @@ func (t SelectorFieldType) ArrayType() SelectorFieldType {
 	}
 }
 
-func (t SelectorFieldType) String() string {
+func (t SelectorType) String() string {
 	switch t {
 	case Bool:
 		return "boolean"
@@ -142,25 +168,40 @@ func (t SelectorFieldType) String() string {
 }
 
 type SelectorField struct {
-	DBName      string
-	Type        SelectorFieldType
-	DataType    gormschema.DataType
-	StructField reflect.StructField
+	Name      SelectorName
+	Type      SelectorType
+	FieldName string
+	FieldType gormschema.DataType
 }
 
-// IsJSONBCast returns true if the field's data type is 'jsonb' in the database and the expected type is not Jsonb.
+// IsJSONBCast returns true if the field's data type is 'jsonb' and the expected type is not Jsonb.
 func (sf *SelectorField) IsJSONBCast() bool {
-	return sf.DataType == "jsonb" && sf.Type != Jsonb
+	return sf.FieldType == "jsonb" && sf.Type != Jsonb
 }
 
-// IsArrayElement returns true if the field is an element within an array.
+// IsArrayElement returns true if the selector is an element within an array.
 func (sf *SelectorField) IsArrayElement() bool {
 	// Check if the schema type exists in the resolution map
-	t, exists := schemaTypeResolution[sf.DataType]
+	t, exists := schemaTypeResolution[sf.FieldType]
 	if !exists {
 		return false
 	}
 
-	// Check if the schema type is an array and the array type matches the field's type
+	// Check if the schema type is an array and the array type matches the selector's type
 	return t.IsArray() && t.ArrayType() == sf.Type
+}
+
+type SelectorNameSet struct {
+	*queryparser.Set[SelectorName]
+}
+
+// NewSelectorFieldNameSet initializes a new SelectorNameSet.
+func NewSelectorFieldNameSet() SelectorNameSet {
+	return SelectorNameSet{queryparser.NewSet[SelectorName]()}
+}
+
+// Add is a wrapper for the embedded Set's Add method that returns SelectorNameSet.
+func (s SelectorNameSet) Add(items ...SelectorName) SelectorNameSet {
+	s.Set.Add(items...)
+	return s
 }

@@ -71,7 +71,7 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 	var sortField *store.SortField
 	if request.Params.SortBy != nil {
 		sortField = &store.SortField{
-			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			FieldName: selector.SelectorName(*request.Params.SortBy),
 			Order:     *request.Params.SortOrder,
 		}
 	}

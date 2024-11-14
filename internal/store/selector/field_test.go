@@ -45,7 +45,7 @@ func TestFieldTypes(t *testing.T) {
 		"model.field15=aa", // Timestamp Array
 	}
 
-	f, err := NewFieldSelector(&Model{})
+	f, err := NewFieldSelector(&goodTestModel{})
 	if err != nil {
 		t.Errorf("%v: error %v (%#v)\n", f, err, err)
 	}
@@ -117,16 +117,17 @@ func TestOperations(t *testing.T) {
 		"model.field6 notin (text1,text2)": "OR(ISNULL(K(field6)),NOTIN(K(field6),V(text1),V(text2)))", //NotIn
 
 		// Timestamps
-		"model.field7":                                   "ISNOTNULL(K(field7))",                                                //Exists
-		"!model.field7":                                  "ISNULL(K(field7))",                                                   //DoesNotExist
-		"model.field7=2024-10-14T22:47:31+03:00":         "EQ(K(field7),V(2024-10-14T22:47:31+03:00))",                          //Equals
-		"model.field7 in (2024-10-14T22:47:31+03:00)":    "IN(K(field7),V(2024-10-14T22:47:31+03:00))",                          //In
-		"model.field7!=2024-10-14T22:47:31+03:00":        "OR(ISNULL(K(field7)),NOTEQ(K(field7),V(2024-10-14T22:47:31+03:00)))", //NotEquals
-		"model.field7 notin (2024-10-14T22:47:31+03:00)": "OR(ISNULL(K(field7)),NOTIN(K(field7),V(2024-10-14T22:47:31+03:00)))", //NotIn
-		"model.field7>2024-10-14T22:47:31+03:00":         "GT(K(field7),V(2024-10-14T22:47:31+03:00))",                          //GreaterThan
-		"model.field7>=2024-10-14T22:47:31+03:00":        "GTE(K(field7),V(2024-10-14T22:47:31+03:00))",                         //GreaterThanOrEquals
-		"model.field7<2024-10-14T22:47:31+03:00":         "LT(K(field7),V(2024-10-14T22:47:31+03:00))",                          //LessThan
-		"model.field7<=2024-10-14T22:47:31+03:00":        "LTE(K(field7),V(2024-10-14T22:47:31+03:00))",                         //LessThanOrEquals
+		"model.field7":                                   "ISNOTNULL(K(field7))",                                                                                           //Exists
+		"!model.field7":                                  "ISNULL(K(field7))",                                                                                              //DoesNotExist
+		"model.field7=2024-10-14T22:47:31+03:00":         "EQ(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //Equals
+		"model.field7 in (2024-10-14T22:47:31+03:00)":    "IN(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //In
+		"model.field7!=2024-10-14T22:47:31+03:00":        "OR(ISNULL(K(field7)),NOTEQ(K(field7),V(2024-10-14T22:47:31+03:00)))",                                            //NotEquals
+		"model.field7 notin (2024-10-14T22:47:31+03:00)": "OR(ISNULL(K(field7)),NOTIN(K(field7),V(2024-10-14T22:47:31+03:00)))",                                            //NotIn
+		"model.field7>2024-10-14T22:47:31+03:00":         "GT(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //GreaterThan
+		"model.field7>=2024-10-14T22:47:31+03:00":        "GTE(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                    //GreaterThanOrEquals
+		"model.field7<2024-10-14T22:47:31+03:00":         "LT(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //LessThan
+		"model.field7<=2024-10-14T22:47:31+03:00":        "LTE(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                    //LessThanOrEquals
+		"customfield2!=2024-10-14T22:47:31+03:00":        "OR(ISNULL(K(goodfield ->> 'key')),NOTEQ(CAST(K(goodfield ->> 'key'), timestamp),V(2024-10-14T22:47:31+03:00)))", //NotEquals + JSONB cast
 
 		// Arrays
 		"model.field12[0]":                            "ISNOTNULL(K(field12[1]))",                                         //Exists
@@ -157,31 +158,18 @@ func TestOperations(t *testing.T) {
 		"model.field16.some.array[0]":               "ISNOTNULL(K(field16 -> 'some' -> 'array' -> 0))",                    //Exists + array index
 		"model.field16.some.array[12].val=\"text\"": "EQ(K(field16 -> 'some' -> 'array' -> 12 -> 'val'),V(\"text\"))",     //Equals + array index
 
-		// JSONB casting
-		"model.field16.test::boolean":                                 "ISNOTNULL(K(field16 ->> 'test'))",                                                               //Exists
-		"!model.field16.test::boolean":                                "ISNULL(K(field16 ->> 'test'))",                                                                  //DoesNotExist
-		"model.field16.test::boolean=true":                            "EQ(CAST(K(field16 ->> 'test'), boolean),V(true))",                                               //Equals
-		"model.field16.test::boolean==true":                           "EQ(CAST(K(field16 ->> 'test'), boolean),V(true))",                                               //DoubleEquals
-		"model.field16.test::boolean in (true,false)":                 "IN(CAST(K(field16 ->> 'test'), boolean),V(false),V(true))",                                      //In
-		"model.field16.test::boolean!=true":                           "OR(ISNULL(K(field16 ->> 'test')),NOTEQ(CAST(K(field16 ->> 'test'), boolean),V(true)))",          //NotEquals
-		"model.field16.test::boolean notin (true,false)":              "OR(ISNULL(K(field16 ->> 'test')),NOTIN(CAST(K(field16 ->> 'test'), boolean),V(false),V(true)))", //NotIn
-		"model.field16.some.array[22].check::boolean in (true,false)": "IN(CAST(K(field16 -> 'some' -> 'array' -> 22 ->> 'check'), boolean),V(false),V(true))",          //In + array index
-		"model.field16.test::string":                                  "ISNOTNULL(K(field16 ->> 'test'))",                                                               //Exists
-		"!model.field16.test::string":                                 "ISNULL(K(field16 ->> 'test'))",                                                                  //DoesNotExist
-		"model.field16.test::string=text":                             "EQ(K(field16 ->> 'test'),V(text))",                                                              //Equals
-		"model.field16.test::string==text":                            "EQ(K(field16 ->> 'test'),V(text))",                                                              //DoubleEquals
-		"model.field16.test::string in (text1,text2)":                 "IN(K(field16 ->> 'test'),V(text1),V(text2))",                                                    //In
-		"model.field16.test::string!=text":                            "OR(ISNULL(K(field16 ->> 'test')),NOTEQ(K(field16 ->> 'test'),V(text)))",                         //NotEquals
-		"model.field16.test::string notin (text1,text2)":              "OR(ISNULL(K(field16 ->> 'test')),NOTIN(K(field16 ->> 'test'),V(text1),V(text2)))",               //NotIn
-		"!model.field16.some.array[5]::string":                        "ISNULL(K(field16 -> 'some' -> 'array' ->> 5))",                                                  //DoesNotExist + array index
-
 		// Multiple requirements
 		"model.field1, model.field1 notin (true,false)": "AND(ISNOTNULL(K(field1)),OR(ISNULL(K(field1)),NOTIN(K(field1),V(false),V(true))))",                     // Exists + NotIn
 		"model.field2 >= 0, model.field2 <= 10":         "AND(GTE(K(field2),V(0)), LTE(K(field2),V(10)))",                                                        // GreaterThanOrEquals + LessThanOrEquals
 		"model.field6 != text1, model.field6 != text2":  "AND(OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text1))), OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text2))))", // NotEquals
 
-		// Manual resolved fields
-		"manualfield=test": "OR(EQ(K(field6),V(test)),EQ(K(field16 ->> 'val'),V(test)))",
+		// Manual resolved selectors
+		"mappedselector=test":                    "OR(EQ(K(field6),V(test)),EQ(K(field17),V(test)))",
+		"customfield1=text":                      "EQ(K(goodfield),V(text))",
+		"customfield2=2024-10-14T22:47:31+03:00": "EQ(CAST(K(goodfield ->> 'key'), timestamp),V(2024-10-14T22:47:31+03:00))",
+		"customfield3=\"text\"":                  "EQ(K(goodfield -> 'key'),V(\"text\"))",
+		"!customfield4.some.array[5]":            "ISNULL(K(goodfield -> 'some' -> 'array' ->> 5))",
+		"customfield5.approved = true":           "EQ(CAST(K(goodfield -> 'path' ->> 'approved'), boolean),V(true))",
 	}
 
 	testBadOperations := []string{
@@ -200,10 +188,11 @@ func TestOperations(t *testing.T) {
 		"model.field2!@1", //NotContains
 
 		// Strings
-		"model.field6>1",  //GreaterThan
-		"model.field6>=1", //GreaterThanOrEquals
-		"model.field6<1",  //LessThan
-		"model.field6<=1", //LessThanOrEquals
+		"model.field6>1",                     //GreaterThan
+		"model.field6>=1",                    //GreaterThanOrEquals
+		"model.field6<1",                     //LessThan
+		"model.field6<=1",                    //LessThanOrEquals
+		"customfield4.some.array[5] @> test", //Partial string matching when the field is of type JSONB
 
 		// Timestamps
 		"model.field7@>2024-10-14T22:47:31+03:00", //Contains
@@ -211,10 +200,10 @@ func TestOperations(t *testing.T) {
 
 		// Arrays
 		"model.field12[-2]",      //Invalid index
-		"model.field12[]",        //Invalid field
-		"model.field12[0",        //Invalid field
-		"[model.field12[0",       //Invalid field
-		"model.[field12]",        //Invalid field
+		"model.field12[]",        //Invalid selector
+		"model.field12[0",        //Invalid selector
+		"[model.field12[0",       //Invalid selector
+		"model.[field12]",        //Invalid selector
 		"model.field12[0]@>text", //Partial string matching is not supported
 		"model.field12=text",     //Equals
 		"model.field12==text",    //DoubleEquals
@@ -230,28 +219,22 @@ func TestOperations(t *testing.T) {
 		"model.field16<1",              //LessThan
 		"model.field16<=1",             //LessThanOrEquals
 		"model.field16=notjson",        //LessThanOrEquals
-		"model.field16.some.arr[ay[0]", //Invalid JSONB field
-		"[model.field16.some.array[0]", //Invalid JSONB field
-		"model.field16.some.array[0",   //Invalid JSONB field
+		"model.field16.some.arr[ay[0]", //Invalid JSONB selector
+		"[model.field16.some.array[0]", //Invalid JSONB selector
+		"model.field16.some.array[0",   //Invalid JSONB selector
 
-		// JSONB casting
-		"model.field16.test::",             //No suffix
-		"model.field16.test::unknown",      //Unknown suffix
-		"model.field16.test::string@>text", //Contains - not allowed for JSONB
-		"model.field16.test::string!@text", //NotContains - not allowed for JSONB
-		"model.field16.test::string>1",     //GreaterThan
-		"model.field16.test::string>=1",    //GreaterThanOrEquals
-		"model.field16.test::string<1",     //LessThan
-		"model.field16.test::string<=1",    //LessThanOrEquals
+		// Explicit casting for JSONB fields is not supported
+		"model.field16.test::",
+		"model.field16.test::boolean",
 
-		// Unknown field
+		// Unknown selector
 		"unknownfield=test",
 
-		// Bad fields
+		// Bad selectors
 		"model.field16.badfield$$=text",
 	}
 
-	f, err := NewFieldSelector(&Model{})
+	f, err := NewFieldSelector(&goodTestModel{})
 	if err != nil {
 		t.Errorf("%v: error %v (%#v)\n", f, err, err)
 		return

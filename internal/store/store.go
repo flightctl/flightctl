@@ -154,7 +154,7 @@ type Continue struct {
 type SortOrder string
 
 type SortField struct {
-	FieldName selector.SelectorFieldName
+	FieldName selector.SelectorName
 	Order     v1alpha1.SortOrder
 }
 
