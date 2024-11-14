@@ -43,13 +43,17 @@ global:
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
-  exposeServicesMethod: "route" # route, nodePort
+  exposeServicesMethod: "route" # route, nodePort, gateway
+  gatewayClass: ""
   nodePorts:
     api: 3443
     agent: 7443
     grpc: 7444
     ui: 9000
     keycloak: 8080
+  gatewayPorts:
+    tls: 443
+    http: 80
 
 
 ## @section Compoment specific parameters
