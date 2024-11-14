@@ -126,7 +126,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 	var sortField *store.SortField
 	if request.Params.SortBy != nil {
 		sortField = &store.SortField{
-			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			FieldName: selector.SelectorName(*request.Params.SortBy),
 			Order:     *request.Params.SortOrder,
 		}
 	}

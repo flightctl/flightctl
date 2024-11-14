@@ -156,7 +156,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&devices).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&devices).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 			if err != nil {
 				return nil, err
 			}
@@ -200,7 +200,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
-	query, err := ListQuery(&model.DeviceList{}).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
