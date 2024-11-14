@@ -417,7 +417,7 @@ func (fs *fieldSelector) applyBooleanOperator(operator selection.Operator, resol
 // applyJsonbOperator applies the appropriate operator for JSONB fields.
 func (fs *fieldSelector) applyJsonbOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn,
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals,
 		selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	case selection.Contains:

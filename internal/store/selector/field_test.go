@@ -72,8 +72,8 @@ func TestOperations(t *testing.T) {
 		Equals              Operator = "="
 		DoubleEquals        Operator = "=="
 		In                  Operator = "in"
-		Contains            Operator = "@>"
-		NotContains         Operator = "!@"
+		Contains            Operator = "contains"
+		NotContains         Operator = "notcontains"
 		NotEquals           Operator = "!="
 		NotIn               Operator = "notin"
 		Exists              Operator = "exists"
@@ -111,8 +111,8 @@ func TestOperations(t *testing.T) {
 		"model.field6=text":                "EQ(K(field6),V(text))",                                    //Equals
 		"model.field6==text":               "EQ(K(field6),V(text))",                                    //DoubleEquals
 		"model.field6 in (text1,text2)":    "IN(K(field6),V(text1),V(text2))",                          //In
-		"model.field6@>text":               "LIKE(K(field6),V(%text%))",                                //Contains
-		"model.field6!@text":               "NOTLIKE(K(field6),V(%text%))",                             //NotContains
+		"model.field6 contains text":       "LIKE(K(field6),V(%text%))",                                //Contains
+		"model.field6 notcontains text":    "NOTLIKE(K(field6),V(%text%))",                             //NotContains
 		"model.field6!=text":               "OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text)))",           //NotEquals
 		"model.field6 notin (text1,text2)": "OR(ISNULL(K(field6)),NOTIN(K(field6),V(text1),V(text2)))", //NotIn
 
@@ -139,24 +139,22 @@ func TestOperations(t *testing.T) {
 		"!model.field12":                              "ISNULL(K(field12))",                                               //DoesNotExist
 		"model.field12 in (text1,text2)":              "OVERLAPS(K(field12),V(text1),V(text2))",                           //In
 		"model.field12 notin (text1,text2)":           "OR(ISNULL(K(field12)),NOTOVERLAPS(K(field12),V(text1),V(text2)))", //NotIn
-		"model.field12@>text":                         "CONTAINS(K(field12),V(text))",                                     //Contains
-		"model.field12!@text":                         "NOTCONTAINS(K(field12),V(text))",                                  //NotContains
+		"model.field12 contains text":                 "CONTAINS(K(field12),V(text))",                                     //Contains
+		"model.field12 notcontains text":              "NOTCONTAINS(K(field12),V(text))",                                  //NotContains
 
 		// JSONB
-		"model.field16":                             "ISNOTNULL(K(field16))",                                              //Exists
-		"model.field16.some.key":                    "ISNOTNULL(K(field16 -> 'some' -> 'key'))",                           //Exists
-		"!model.field16":                            "ISNULL(K(field16))",                                                 //DoesNotExist
-		"model.field16=\"text\"":                    "EQ(K(field16),V(\"text\"))",                                         //Equals
-		"model.field16={\"some\":\"text\"}":         "EQ(K(field16),V({\"some\":\"text\"}))",                              //Equals
-		"model.field16.some.key.val=\"text\"":       "EQ(K(field16 -> 'some' -> 'key' -> 'val'),V(\"text\"))",             //Equals
-		"model.field16==\"text\"":                   "EQ(K(field16),V(\"text\"))",                                         //DoubleEquals
-		"model.field16 in (\"text1\",\"text2\")":    "IN(K(field16),V(\"text1\"),V(\"text2\"))",                           //In
-		"model.field16!=\"text\"":                   "OR(ISNULL(K(field16)),NOTEQ(K(field16),V(\"text\")))",               //NotEquals
-		"model.field16 notin (\"text1\",\"text2\")": "OR(ISNULL(K(field16)),NOTIN(K(field16),V(\"text1\"),V(\"text2\")))", //NotIn
-		"model.field16@>{\"a\":\"b\"}":              "JSONB_CONTAINS(K(field16),V({\"a\":\"b\"}))",                        //Contains
-		"model.field16!@{\"a\":\"b\"}":              "JSONB_NOTCONTAINS(K(field16),V({\"a\":\"b\"}))",                     //NotContains
-		"model.field16.some.array[0]":               "ISNOTNULL(K(field16 -> 'some' -> 'array' -> 0))",                    //Exists + array index
-		"model.field16.some.array[12].val=\"text\"": "EQ(K(field16 -> 'some' -> 'array' -> 12 -> 'val'),V(\"text\"))",     //Equals + array index
+		"model.field16":                             "ISNOTNULL(K(field16))",                                          //Exists
+		"model.field16.some.key":                    "ISNOTNULL(K(field16 -> 'some' -> 'key'))",                       //Exists
+		"!model.field16":                            "ISNULL(K(field16))",                                             //DoesNotExist
+		"model.field16=\"text\"":                    "EQ(K(field16),V(\"text\"))",                                     //Equals
+		"model.field16={\"some\":\"text\"}":         "EQ(K(field16),V({\"some\":\"text\"}))",                          //Equals
+		"model.field16.some.key.val=\"text\"":       "EQ(K(field16 -> 'some' -> 'key' -> 'val'),V(\"text\"))",         //Equals
+		"model.field16==\"text\"":                   "EQ(K(field16),V(\"text\"))",                                     //DoubleEquals
+		"model.field16!=\"text\"":                   "OR(ISNULL(K(field16)),NOTEQ(K(field16),V(\"text\")))",           //NotEquals
+		"model.field16 contains {\"a\":\"b\"}":      "JSONB_CONTAINS(K(field16),V({\"a\":\"b\"}))",                    //Contains
+		"model.field16 notcontains {\"a\":\"b\"}":   "JSONB_NOTCONTAINS(K(field16),V({\"a\":\"b\"}))",                 //NotContains
+		"model.field16.some.array[0]":               "ISNOTNULL(K(field16 -> 'some' -> 'array' -> 0))",                //Exists + array index
+		"model.field16.some.array[12].val=\"text\"": "EQ(K(field16 -> 'some' -> 'array' -> 12 -> 'val'),V(\"text\"))", //Equals + array index
 
 		// Multiple requirements
 		"model.field1, model.field1 notin (true,false)": "AND(ISNOTNULL(K(field1)),OR(ISNULL(K(field1)),NOTIN(K(field1),V(false),V(true))))",                     // Exists + NotIn
@@ -174,44 +172,44 @@ func TestOperations(t *testing.T) {
 
 	testBadOperations := []string{
 		// Booleans
-		"model.field1@>true",  //Contains
-		"model.field1!@true",  //NotContains
-		"model.field1>1",      //GreaterThan
-		"model.field1>=1",     //GreaterThanOrEquals
-		"model.field1<1",      //LessThan
-		"model.field1<=1",     //LessThanOrEquals
-		"model.field1[0]",     //Not JSONB + array
-		"model.field1.val[0]", //Not JSONB + array
+		"model.field1 contains true",    //Contains
+		"model.field1 notcontains true", //NotContains
+		"model.field1>1",                //GreaterThan
+		"model.field1>=1",               //GreaterThanOrEquals
+		"model.field1<1",                //LessThan
+		"model.field1<=1",               //LessThanOrEquals
+		"model.field1[0]",               //Not JSONB + array
+		"model.field1.val[0]",           //Not JSONB + array
 
 		// Numbers
-		"model.field2@>1", //Contains
-		"model.field2!@1", //NotContains
+		"model.field2 contains 1",    //Contains
+		"model.field2 notcontains 1", //NotContains
 
 		// Strings
-		"model.field6>1",                     //GreaterThan
-		"model.field6>=1",                    //GreaterThanOrEquals
-		"model.field6<1",                     //LessThan
-		"model.field6<=1",                    //LessThanOrEquals
-		"customfield4.some.array[5] @> test", //Partial string matching when the field is of type JSONB
+		"model.field6>1",  //GreaterThan
+		"model.field6>=1", //GreaterThanOrEquals
+		"model.field6<1",  //LessThan
+		"model.field6<=1", //LessThanOrEquals
+		"customfield4.some.array[5]  contains  test", //Partial string matching when the field is of type JSONB
 
 		// Timestamps
-		"model.field7@>2024-10-14T22:47:31+03:00", //Contains
-		"model.field7!@2024-10-14T22:47:31+03:00", //NotContains
+		"model.field7 contains 2024-10-14T22:47:31+03:00",    //Contains
+		"model.field7 notcontains 2024-10-14T22:47:31+03:00", //NotContains
 
 		// Arrays
-		"model.field12[-2]",      //Invalid index
-		"model.field12[]",        //Invalid selector
-		"model.field12[0",        //Invalid selector
-		"[model.field12[0",       //Invalid selector
-		"model.[field12]",        //Invalid selector
-		"model.field12[0]@>text", //Partial string matching is not supported
-		"model.field12=text",     //Equals
-		"model.field12==text",    //DoubleEquals
-		"model.field12!=text",    //NotEquals
-		"model.field12>1",        //GreaterThan
-		"model.field12>=1",       //GreaterThanOrEquals
-		"model.field12<1",        //LessThan
-		"model.field12<=1",       //LessThanOrEquals
+		"model.field12[-2]",              //Invalid index
+		"model.field12[]",                //Invalid selector
+		"model.field12[0",                //Invalid selector
+		"[model.field12[0",               //Invalid selector
+		"model.[field12]",                //Invalid selector
+		"model.field12[0] contains text", //Partial string matching is not supported
+		"model.field12=text",             //Equals
+		"model.field12==text",            //DoubleEquals
+		"model.field12!=text",            //NotEquals
+		"model.field12>1",                //GreaterThan
+		"model.field12>=1",               //GreaterThanOrEquals
+		"model.field12<1",                //LessThan
+		"model.field12<=1",               //LessThanOrEquals
 
 		// JSONB
 		"model.field16>1",              //GreaterThan
