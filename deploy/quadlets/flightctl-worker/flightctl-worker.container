@@ -1,0 +1,20 @@
+[Unit]
+Description=FlightCtl Worker service
+After=flightctl-db.service
+Requires=flightctl-db.service
+
+[Container]
+ContainerName=flightctl-worker
+Image=quay.io/flightctl/flightctl-worker:latest
+Network=flightctl.network
+Environment=HOME=/root
+
+Volume=./flightctl-worker-config/config.yaml:/root/.flightctl/config.yaml
+
+[Service]
+Restart=always
+RestartSec=30
+Slice=flightctl.slice
+
+[Install]
+WantedBy=flightctl.slice
