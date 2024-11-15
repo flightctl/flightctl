@@ -8,3 +8,6 @@ database:
 service: {}
 queue:
     amqpUrl: amqp://user:password@flightctl-rabbitmq:5672/
+kv:
+    hostname: flightctl-kv
+    port: 6379
