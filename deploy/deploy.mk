@@ -45,7 +45,7 @@ deploy-quadlets:
 	@sudo systemctl daemon-reload
 	@sudo systemctl start flightctl.slice
 	@echo "Deployment started. Checking if services are running..."
-	@timeout 300s bash -c 'until sudo podman ps --quiet --filter "name=flightctl-api" --filter "name=flightctl-worker" --filter "name=flightctl-periodic" --filter "name=flightctl-db" --filter "name=flightctl-rabbitmq" --filter "name=flightctl-ui" | wc -l | grep -q 6; do echo "Waiting for all services to be running..."; sleep 5; done'
+	@timeout 300s bash -c 'until sudo podman ps --quiet --filter "name=flightctl-api" --filter "name=flightctl-worker" --filter "name=flightctl-periodic" --filter "name=flightctl-db" --filter "name=flightctl-rabbitmq" --filter "name=flightctl-kv" --filter "name=flightctl-ui" | wc -l | grep -q 7; do echo "Waiting for all services to be running..."; sleep 5; done'
 	@echo "Deployment completed. Please, login to FlightCtl with the following command:"
 	@echo "flightctl login --insecure-skip-tls-verify $(shell cat ./deploy/quadlets/flightctl-api/flightctl-api-config/config.yaml | grep baseUrl | awk '{print $$2}')"
 	@echo "The FlightCtl console is in the following URL: $(shell cat ./deploy/quadlets/flightctl-api/flightctl-api-config/config.yaml | grep baseUIUrl | awk '{print $$2}')"
