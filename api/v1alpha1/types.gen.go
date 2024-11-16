@@ -500,6 +500,9 @@ type DeviceSystemInfo struct {
 
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem string `json:"operatingSystem"`
+
+	// TimeZone The Time Zone reported by the device.
+	TimeZone string `json:"timeZone"`
 }
 
 // DeviceUpdateHookSpec defines model for DeviceUpdateHookSpec.

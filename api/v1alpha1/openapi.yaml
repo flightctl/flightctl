@@ -3120,6 +3120,7 @@ components:
         - architecture
         - bootID
         - operatingSystem
+        - timeZone
       type: object
       properties:
         architecture:
@@ -3131,6 +3132,9 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
+        timeZone:
+          type: string
+          description: The Time Zone reported by the device.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
     DeviceApplicationStatus:
       type: object
