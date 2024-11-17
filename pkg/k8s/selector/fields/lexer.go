@@ -96,16 +96,28 @@ func (l *lexer) Lex() (tok selector.Token, lit string) {
 func (l *lexer) updateContextForSyntaxChar(tok selector.Token) {
 	switch l.state.context {
 	case lhsOrOp:
-		l.state.context = lhs
+		// Transition to lhs unless the token is a comma
+		if tok != selector.CommaToken {
+			l.state.context = lhs
+		}
+
 	case op:
-		l.state.context = rhs
+		// Transition to rhs or reset to lhsOrOp on a comma
+		if tok == selector.CommaToken {
+			l.state.context = lhsOrOp
+		} else {
+			l.state.context = rhs
+		}
+
 	default:
+		// Handle tokens specific to nested structures
 		switch tok {
 		case selector.OpenParToken:
 			l.state.inParentheses++
 		case selector.ClosedParToken:
 			l.state.inParentheses--
 		case selector.CommaToken:
+			// Reset to lhsOrOp if not within parentheses
 			if l.state.inParentheses == 0 {
 				l.state.context = lhsOrOp
 			}

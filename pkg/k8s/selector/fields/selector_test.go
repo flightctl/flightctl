@@ -25,8 +25,16 @@ func TestSelectorParse(t *testing.T) {
 		"x=a||y=b",
 		"x==a==b",
 		"x=msg:\\(hello!world\\)",
+		"x,x=a",
+		"!x,x!=a",
+		"x=,y=",
+		"!x,!y",
+		"x,y=",
+		"!x,y=",
+		"",
 	}
 	testBadStrings := []string{
+		",",
 		"!x=a",
 		"x<a",
 		"x<2024-10-24T10:00:00",
