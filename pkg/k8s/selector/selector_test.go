@@ -245,7 +245,7 @@ func TestLexer(t *testing.T) {
 		{"||", IdentifierToken},
 	}
 	for _, v := range testcases {
-		l := &Lexer{s: v.s, pos: 0}
+		l := &lexer{s: v.s, pos: 0}
 		token, lit := l.Lex()
 		if token != v.t {
 			t.Errorf("Got %d it should be %d for '%s'", token, v.t, v.s)
@@ -283,7 +283,7 @@ func TestLexerSequence(t *testing.T) {
 	}
 	for _, v := range testcases {
 		var tokens []Token
-		l := &Lexer{s: v.s, pos: 0}
+		l := &lexer{s: v.s, pos: 0}
 		for {
 			token, _ := l.Lex()
 			if token == EndOfStringToken {
@@ -320,7 +320,7 @@ func TestParserLookahead(t *testing.T) {
 		{"key contains a, key notcontains b", []Token{IdentifierToken, ContainsToken, IdentifierToken, CommaToken, IdentifierToken, NotContainsToken, IdentifierToken, EndOfStringToken}},
 	}
 	for _, v := range testcases {
-		p := &Parser{l: &Lexer{s: v.s, pos: 0}, position: 0}
+		p := &Parser{l: &lexer{s: v.s, pos: 0}, position: 0}
 		p.scan()
 		if len(p.scannedItems) != len(v.t) {
 			t.Errorf("Expected %d items found %d", len(v.t), len(p.scannedItems))
@@ -358,7 +358,7 @@ func TestParseOperator(t *testing.T) {
 		{"(", fmt.Errorf("found '%s', expected: %v", "(", strings.Join(binaryOperators, ", "))},
 	}
 	for _, testcase := range testcases {
-		p := &Parser{l: &Lexer{s: testcase.token, pos: 0}, position: 0}
+		p := &Parser{l: &lexer{s: testcase.token, pos: 0}, position: 0}
 		p.scan()
 
 		_, err := p.parseOperator()
