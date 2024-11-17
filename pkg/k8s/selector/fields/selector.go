@@ -35,5 +35,5 @@ func ParseSelectorOrDie(s string) selector.Selector {
 // ParseSelector takes a string representing a selector and returns an
 // object suitable for matching, or an error.
 func ParseSelector(s string) (selector.Selector, error) {
-	return selector.Parse(s)
+	return selector.ParseWithLexer(s, &lexer{s: s, pos: 0})
 }
