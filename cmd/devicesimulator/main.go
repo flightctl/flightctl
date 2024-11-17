@@ -47,7 +47,7 @@ func main() {
 	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
 	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
-	logLevel := pflag.StringP("v", "v", "info", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
+	logLevel := pflag.StringP("v", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
 	pflag.Usage = func() {
 		fmt.Fprintf(pflag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
@@ -58,7 +58,9 @@ func main() {
 
 	logLvl, err := logrus.ParseLevel(*logLevel)
 	if err != nil {
-		logLvl = logrus.DebugLevel
+		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
+		pflag.Usage()
+		os.Exit(1)
 	}
 	log.SetLevel(logLvl)
 
