@@ -47,6 +47,7 @@ func TestLexerSequence(t *testing.T) {
 		s string
 		t []selector.Token
 	}{
+
 		{"key in ( value )", []selector.Token{selector.IdentifierToken, selector.InToken, selector.OpenParToken, selector.IdentifierToken, selector.ClosedParToken}},
 		{"key notin ( value )", []selector.Token{selector.IdentifierToken, selector.NotInToken, selector.OpenParToken, selector.IdentifierToken, selector.ClosedParToken}},
 		{"key in ( value1, value2 )", []selector.Token{selector.IdentifierToken, selector.InToken, selector.OpenParToken, selector.IdentifierToken, selector.CommaToken, selector.IdentifierToken, selector.ClosedParToken}},
@@ -60,6 +61,14 @@ func TestLexerSequence(t *testing.T) {
 		{"key contains a, key notcontains b", []selector.Token{selector.IdentifierToken, selector.ContainsToken, selector.IdentifierToken, selector.CommaToken, selector.IdentifierToken, selector.NotContainsToken, selector.IdentifierToken}},
 		{"key contains a=b, key notcontains b", []selector.Token{selector.IdentifierToken, selector.ContainsToken, selector.IdentifierToken, selector.CommaToken, selector.IdentifierToken, selector.NotContainsToken, selector.IdentifierToken}},
 		{"key contains a=b, key notcontains hello!", []selector.Token{selector.IdentifierToken, selector.ContainsToken, selector.IdentifierToken, selector.CommaToken, selector.IdentifierToken, selector.NotContainsToken, selector.IdentifierToken}},
+		{"key, key=val", []selector.Token{selector.IdentifierToken, selector.CommaToken, selector.IdentifierToken, selector.EqualsToken, selector.IdentifierToken}},
+		{"key=, key=val", []selector.Token{selector.IdentifierToken, selector.EqualsToken, selector.CommaToken, selector.IdentifierToken, selector.EqualsToken, selector.IdentifierToken}},
+		{"key, key", []selector.Token{selector.IdentifierToken, selector.CommaToken, selector.IdentifierToken}},
+		{"key, !key", []selector.Token{selector.IdentifierToken, selector.CommaToken, selector.DoesNotExistToken, selector.IdentifierToken}},
+		{"!key, key", []selector.Token{selector.DoesNotExistToken, selector.IdentifierToken, selector.CommaToken, selector.IdentifierToken}},
+		{"!key,!key!=val", []selector.Token{selector.DoesNotExistToken, selector.IdentifierToken, selector.CommaToken, selector.DoesNotExistToken, selector.IdentifierToken, selector.NotEqualsToken, selector.IdentifierToken}},
+		{",", []selector.Token{selector.CommaToken}},
+		{"", []selector.Token{}},
 	}
 
 	for _, v := range testcases {
