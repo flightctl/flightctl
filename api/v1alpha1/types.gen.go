@@ -1475,7 +1475,7 @@ type ListResourceSyncParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2"). For a full list of operators and examples, refer to the documentation.
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.

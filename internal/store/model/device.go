@@ -23,11 +23,14 @@ var (
 type Device struct {
 	Resource
 
+	// The alias for the device.
+	Alias *string `selector:"metadata.alias"`
+
 	// The desired state, stored as opaque JSON object.
 	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb" selector:"status"`
+	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
 
 	// Conditions set by the service, as opposed to the agent.
 	ServiceConditions *JSONField[ServiceConditions]
@@ -78,6 +81,12 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 		}
 		resourceVersion = &i
 	}
+	var alias *string
+	if labels := resource.Metadata.Labels; labels != nil {
+		if l, ok := (*labels)["alias"]; ok {
+			alias = &l
+		}
+	}
 
 	return &Device{
 		Resource: Resource{
@@ -88,6 +97,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
+		Alias:  alias,
 		Spec:   MakeJSONField(spec),
 		Status: MakeJSONField(status),
 	}, nil

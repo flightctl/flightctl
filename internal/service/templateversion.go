@@ -12,8 +12,9 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tasks"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -43,7 +44,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector fields.Selector
+	var fieldSelector k8sselector.Selector
 	if request.Params.FieldSelector != nil {
 		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
@@ -53,7 +54,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	var sortField *store.SortField
 	if request.Params.SortBy != nil {
 		sortField = &store.SortField{
-			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			FieldName: selector.SelectorName(*request.Params.SortBy),
 			Order:     *request.Params.SortOrder,
 		}
 	}

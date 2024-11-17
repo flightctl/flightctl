@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
 	"github.com/flightctl/flightctl/pkg/queryparser"
 	"github.com/flightctl/flightctl/pkg/queryparser/sql"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/selection"
 )
 
 type fieldSelector struct {
@@ -60,7 +61,7 @@ func (fs *fieldSelector) ParseFromString(ctx context.Context, input string) (str
 }
 
 // Parse parses the selector and returns a SQL query with parameters.
-func (fs *fieldSelector) Parse(ctx context.Context, selector fields.Selector) (string, []any, error) {
+func (fs *fieldSelector) Parse(ctx context.Context, selector k8sselector.Selector) (string, []any, error) {
 	q, args, err := fs.parser.Parse(ctx, selector)
 	if err != nil {
 		if ok := IsSelectorError(err); ok {
@@ -78,21 +79,24 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 	}
 
 	// Assert that input is a selector
-	selector, ok := input.(fields.Selector)
+	selector, ok := input.(k8sselector.Selector)
 	if !ok {
 		return nil, fmt.Errorf("invalid input type: expected fieldSelector, got %T", input)
 	}
 
-	requirements := selector.Requirements()
-	tokens := make(queryparser.TokenSet, 0)
+	requirements, selectable := selector.Requirements()
+	if !selectable {
+		return nil, nil
+	}
 
+	tokens := make(queryparser.TokenSet, 0)
 	for _, req := range requirements {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		field, value, operator := SelectorFieldName(strings.TrimSpace(req.Field)), req.Value, req.Operator
-		resolvedFields, err := fs.fieldResolver.ResolveFields(field)
+		name, values, operator := SelectorName(strings.TrimSpace(req.Key())), req.Values(), req.Operator()
+		resolvedFields, err := fs.fieldResolver.ResolveFields(name)
 		if err != nil {
 			return nil, err
 		}
@@ -107,24 +111,26 @@ func (fs *fieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			fieldToken, err := fs.createFieldToken(resolvedField)
 			if err != nil {
 				return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
-					fmt.Errorf("failed to parse field %q: %w", field, err))
+					fmt.Errorf("failed to parse selector %q: %w", name, err))
 			}
 
-			var valueToken queryparser.TokenSet
-			if value != "" {
-				valueToken = queryparser.NewTokenSet()
-				vtokens, err := fs.createValueToken(resolvedField, value)
-				if err != nil {
-					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
-						fmt.Errorf("failed to parse value for field %q: %w", field, err))
+			var valuesToken queryparser.TokenSet
+			if values.Len() > 0 {
+				valuesToken = queryparser.NewTokenSet()
+				for _, val := range values.List() {
+					valueToken, err := fs.createValueToken(operator, resolvedField, val)
+					if err != nil {
+						return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+							fmt.Errorf("failed to parse value for selector %q: %w", name, err))
+					}
+					valuesToken = valuesToken.Append(valueToken)
 				}
-				valueToken = valueToken.Append(vtokens)
 			}
 
-			operatorToken, err := fs.createOperatorToken(operator, resolvedField, fieldToken, valueToken)
+			operatorToken, err := fs.createOperatorToken(operator, resolvedField, fieldToken, valuesToken)
 			if err != nil {
 				return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
-					fmt.Errorf("failed to resolve operation for field %q: %w", field, err))
+					fmt.Errorf("failed to resolve operation for selector %q: %w", name, err))
 			}
 
 			resolvedTokens = resolvedTokens.Append(operatorToken)
@@ -159,8 +165,8 @@ func (fs *fieldSelector) createFieldToken(selectorField *SelectorField) (querypa
 	})
 }
 
-func (fs *fieldSelector) createValueToken(selectorField *SelectorField, value string) (queryparser.TokenSet, error) {
-	return fs.resolveValue(selectorField, value, func(v any) queryparser.TokenSet {
+func (fs *fieldSelector) createValueToken(operator selection.Operator, selectorField *SelectorField, value string) (queryparser.TokenSet, error) {
+	return fs.resolveValue(operator, selectorField, value, func(v any) queryparser.TokenSet {
 		return queryparser.NewTokenSet().AddFunctionToken("V", func() queryparser.TokenSet {
 			return queryparser.NewTokenSet().AddValueToken(v)
 		})
@@ -200,32 +206,50 @@ func (fs *fieldSelector) createOperatorToken(operator selection.Operator, select
 	})
 }
 
-var fieldRegex = regexp.MustCompile(`^[A-Za-z0-9][-A-Za-z0-9_.]*[A-Za-z0-9]$`)
+var fieldRegex = regexp.MustCompile(`^[A-Za-z0-9][-A-Za-z0-9_.*\[\]0-9]*[A-Za-z0-9\]]$`)
 
 func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
-	if !fieldRegex.MatchString(selectorField.DBName) {
+	if !fieldRegex.MatchString(selectorField.FieldName) {
 		return nil, fmt.Errorf(
 			"field must consist of alphanumeric characters, '-', '_', or '.', "+
-				"and must start and end with an alphanumeric character (e.g., 'MyField', 'my.field', or '123-abc'); "+
+				"and must start with an alphanumeric character and end with either an alphanumeric character or an array index "+
+				"(e.g., 'MyField', 'my.field', '123-abc', or 'arrayField[0]'); "+
 				"regex used for validation is '%s'",
 			fieldRegex.String())
 	}
 
-	if selectorField.DataType == "jsonb" {
+	if selectorField.FieldType == "jsonb" {
 		var params strings.Builder
-
-		parts := strings.Split(selectorField.DBName, ".")
+		parts := strings.Split(selectorField.FieldName, ".")
 		params.WriteString(parts[0])
 
-		if len(parts) > 1 {
-			for i, part := range parts[1:] {
-				// If it's the last part and the field should be cast to text, use '->>'
-				// This happens when the DataType is 'jsonb' but the expected Type is not Jsonb,
-				// indicating that the field will use casting and we need to handle the field as plain text.
+		for i, part := range parts[1:] {
+			// Handle array indexing in JSONB fields if applicable
+			if openBracketIdx, closeBracketIdx := strings.Index(part, "["), strings.Index(part, "]"); openBracketIdx > -1 || closeBracketIdx > -1 {
+				if !arrayPattern.MatchString(part) {
+					return nil, fmt.Errorf(
+						"array access must specify a valid index (e.g., 'conditions[0]'); invalid part: %s", part)
+				}
+				// Parse the array field and index
+				arrayKey := part[:openBracketIdx]
+				arrayIndex := part[openBracketIdx+1 : len(part)-1]
+
+				params.WriteString(" -> '")
+				params.WriteString(arrayKey)
+				params.WriteString("'")
+
+				// Use '->>' if casting to text is needed for the final part
+				if i == len(parts[1:])-1 && selectorField.IsJSONBCast() {
+					params.WriteString(" ->> ")
+				} else {
+					params.WriteString(" -> ")
+				}
+				params.WriteString(arrayIndex)
+			} else {
+				// Handle regular JSON key access
 				if i == len(parts[1:])-1 && selectorField.IsJSONBCast() {
 					params.WriteString(" ->> '")
 				} else {
-					// Otherwise, use '->' to traverse the JSONB structure.
 					params.WriteString(" -> '")
 				}
 				params.WriteString(part)
@@ -235,10 +259,16 @@ func (fs *fieldSelector) resolveField(selectorField *SelectorField, resolve reso
 		return resolve(params.String()), nil
 	}
 
-	return resolve(selectorField.DBName), nil
+	// For non-JSONB fields, directly use the FieldName
+	return resolve(selectorField.FieldName), nil
 }
 
-func (fs *fieldSelector) resolveValue(selectorField *SelectorField, value string, resolve resolverFunc[any]) (queryparser.TokenSet, error) {
+func (fs *fieldSelector) resolveValue(
+	operator selection.Operator,
+	selectorField *SelectorField,
+	value string,
+	resolve resolverFunc[any],
+) (queryparser.TokenSet, error) {
 	switch selectorField.Type {
 	case Int, IntArray:
 		v, err := strconv.Atoi(value)
@@ -278,7 +308,7 @@ func (fs *fieldSelector) resolveValue(selectorField *SelectorField, value string
 		}
 		return resolve(v), nil
 
-	case Time, TimestampArray:
+	case Timestamp, TimestampArray:
 		v, err := time.Parse(time.RFC3339, value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse timestamp value: %w", err)
@@ -286,6 +316,14 @@ func (fs *fieldSelector) resolveValue(selectorField *SelectorField, value string
 		return resolve(v), nil
 
 	case String, TextArray:
+		if !selectorField.IsJSONBCast() && selectorField.Type == String &&
+			(operator == selection.Contains || operator == selection.NotContains) {
+
+			if strings.Contains(value, "%") {
+				return nil, fmt.Errorf("partial match strings cannot contain '%%' characters")
+			}
+			return resolve("%" + value + "%"), nil
+		}
 		return resolve(value), nil
 
 	case Jsonb:
@@ -310,7 +348,7 @@ func (fs *fieldSelector) resolveQuery(operator selection.Operator, selectorField
 		return fs.applyNumbersOperator(operator, resolve)
 	case Bool:
 		return fs.applyBooleanOperator(operator, resolve)
-	case Time:
+	case Timestamp:
 		return fs.applyTimestampOperator(operator, resolve)
 	case IntArray, SmallIntArray, BigIntArray, FloatArray, BoolArray, TimestampArray, TextArray:
 		return fs.applyArrayOperator(operator, resolve)
@@ -326,6 +364,10 @@ func (fs *fieldSelector) resolveQuery(operator selection.Operator, selectorField
 // applyArrayOperator applies the appropriate operator for array fields.
 func (fs *fieldSelector) applyArrayOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
+	case selection.Contains:
+		return resolve("CONTAINS"), nil
+	case selection.NotContains:
+		return resolve("NOTCONTAINS"), nil
 	case selection.In:
 		return resolve("OVERLAPS"), nil
 	case selection.NotIn:
@@ -340,7 +382,8 @@ func (fs *fieldSelector) applyArrayOperator(operator selection.Operator, resolve
 // applyTimestampOperator applies the appropriate operator for timestamp fields.
 func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan,
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan,
+		selection.GreaterThanOrEquals, selection.LessThan, selection.LessThanOrEquals,
 		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
@@ -351,7 +394,8 @@ func (fs *fieldSelector) applyTimestampOperator(operator selection.Operator, res
 // applyNumbersOperator applies the appropriate operator for numbers fields.
 func (fs *fieldSelector) applyNumbersOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan, selection.LessThan,
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.GreaterThan,
+		selection.GreaterThanOrEquals, selection.LessThan, selection.LessThanOrEquals,
 		selection.In, selection.NotIn, selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
 	default:
@@ -373,9 +417,13 @@ func (fs *fieldSelector) applyBooleanOperator(operator selection.Operator, resol
 // applyJsonbOperator applies the appropriate operator for JSONB fields.
 func (fs *fieldSelector) applyJsonbOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	switch operator {
-	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn,
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals,
 		selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
+	case selection.Contains:
+		return resolve("JSONB_CONTAINS"), nil
+	case selection.NotContains:
+		return resolve("JSONB_NOTCONTAINS"), nil
 	default:
 		return nil, fmt.Errorf("operator %q is unsupported for type JSONB", operator)
 	}
@@ -387,10 +435,15 @@ func (fs *fieldSelector) applyStringOperator(operator selection.Operator, select
 	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn,
 		selection.Exists, selection.DoesNotExist:
 		return resolve(operatorsMap[operator]), nil
-	default:
+	case selection.Contains, selection.NotContains:
 		if selectorField.IsJSONBCast() {
-			return nil, fmt.Errorf("operator %q is unsupported for type JSONB", operator)
+			return nil, fmt.Errorf("the operator %q is not supported for partial string matching when the field is of type JSONB with string casting", operator)
 		}
+		if selectorField.IsArrayElement() {
+			return nil, fmt.Errorf("the operator %q is not supported for partial string matching when the selector is an element within an array", operator)
+		}
+		return resolve(operatorsMap[operator]), nil
+	default:
 		return nil, fmt.Errorf("operator %q is unsupported for type string", operator)
 	}
 }

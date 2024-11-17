@@ -71,7 +71,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&repositories).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Repository{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&repositories).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&model.Repository{}).Build(ctx, s.db, orgId, listParams)
 			if err != nil {
 				return nil, err
 			}
