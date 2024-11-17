@@ -141,6 +141,8 @@ func TestOperations(t *testing.T) {
 		"model.field12 notin (text1,text2)":           "OR(ISNULL(K(field12)),NOTOVERLAPS(K(field12),V(text1),V(text2)))", //NotIn
 		"model.field12 contains text":                 "CONTAINS(K(field12),V(text))",                                     //Contains
 		"model.field12 notcontains text":              "NOTCONTAINS(K(field12),V(text))",                                  //NotContains
+		"model.field12 contains k=v":                  "CONTAINS(K(field12),V(k=v))",                                      //Contains
+		"model.field12 notcontains k=v":               "NOTCONTAINS(K(field12),V(k=v))",                                   //NotContains
 
 		// JSONB
 		"model.field16":                             "ISNOTNULL(K(field16))",                                          //Exists

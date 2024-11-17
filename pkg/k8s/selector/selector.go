@@ -556,9 +556,13 @@ func isSpecialSymbol(ch byte) bool {
 	return false
 }
 
+type Lexer interface {
+	Lex() (tok Token, lit string)
+}
+
 // Lexer represents the Lexer struct for label selector.
 // It contains necessary informationt to tokenize the input string
-type Lexer struct {
+type lexer struct {
 	// s stores the string to be tokenized
 	s string
 	// pos is the position currently tokenized
@@ -567,7 +571,7 @@ type Lexer struct {
 
 // read returns the character currently lexed
 // increment the position and check the buffer overflow
-func (l *Lexer) read() (b byte) {
+func (l *lexer) read() (b byte) {
 	b = 0
 	if l.pos < len(l.s) {
 		b = l.s[l.pos]
@@ -577,54 +581,35 @@ func (l *Lexer) read() (b byte) {
 }
 
 // unread 'undoes' the last read character
-func (l *Lexer) unread() {
+func (l *lexer) unread() {
 	l.pos--
 }
 
-// scanIDOrKeyword scans the input to recognize a literal token (e.g., 'in') or an identifier.
-func (l *Lexer) scanIDOrKeyword() (tok Token, lit string) {
+// scanIDOrKeyword scans string to recognize literal token (for example 'in') or an identifier.
+func (l *lexer) scanIDOrKeyword() (tok Token, lit string) {
 	var buffer []byte
-	var escapeNextChar bool
-
-	// Read characters one by one.
+IdentifierLoop:
 	for {
-		ch := l.read()
-
-		// Exit loop if end of input is reached.
-		if ch == 0 {
-			break
-		}
-
-		// Handle special symbols and whitespace unless escaping is enabled.
-		if (isSpecialSymbol(ch) || isWhitespace(ch)) && !escapeNextChar {
+		switch ch := l.read(); {
+		case ch == 0:
+			break IdentifierLoop
+		case isSpecialSymbol(ch) || isWhitespace(ch):
 			l.unread()
-			break
-		}
-
-		// Toggle escape flag on encountering backslash.
-		if ch == '\\' && !escapeNextChar {
-			escapeNextChar = true
-		} else {
-			escapeNextChar = false
+			break IdentifierLoop
+		default:
 			buffer = append(buffer, ch)
 		}
 	}
-
-	// Convert buffer to string.
 	s := string(buffer)
-
-	// Check if the string corresponds to a literal token.
-	if val, ok := string2token[s]; ok {
+	if val, ok := string2token[s]; ok { // is a literal token?
 		return val, s
 	}
-
-	// Return as identifier token if no literal match found.
-	return IdentifierToken, s
+	return IdentifierToken, s // otherwise is an identifier
 }
 
 // scanSpecialSymbol scans string starting with special symbol.
 // special symbol identify non literal operators. "!=", "==", "="
-func (l *Lexer) scanSpecialSymbol() (Token, string) {
+func (l *lexer) scanSpecialSymbol() (Token, string) {
 	lastScannedItem := ScannedItem{}
 	var buffer []byte
 SpecialSymbolLoop:
@@ -653,7 +638,7 @@ SpecialSymbolLoop:
 
 // skipWhiteSpaces consumes all blank characters
 // returning the first non blank character
-func (l *Lexer) skipWhiteSpaces(ch byte) byte {
+func (l *lexer) skipWhiteSpaces(ch byte) byte {
 	for {
 		if !isWhitespace(ch) {
 			return ch
@@ -664,7 +649,7 @@ func (l *Lexer) skipWhiteSpaces(ch byte) byte {
 
 // Lex returns a pair of Token and the literal
 // literal is meaningfull only for IdentifierToken token
-func (l *Lexer) Lex() (tok Token, lit string) {
+func (l *lexer) Lex() (tok Token, lit string) {
 	switch ch := l.skipWhiteSpaces(l.read()); {
 	case ch == 0:
 		return EndOfStringToken, ""
@@ -679,7 +664,7 @@ func (l *Lexer) Lex() (tok Token, lit string) {
 
 // Parser data structure contains the label selector parser data structure
 type Parser struct {
-	l            *Lexer
+	l            Lexer
 	scannedItems []ScannedItem
 	position     int
 	path         *field.Path
@@ -960,7 +945,18 @@ func (p *Parser) parseExactValue() (sets.String, error) {
 //     the KEY exists and can be any VALUE.
 //  5. A requirement with just !KEY requires that the KEY not exist.
 func Parse(selector string, opts ...field.PathOption) (Selector, error) {
-	parsedSelector, err := parse(selector, field.ToPath(opts...))
+	parsedSelector, err := parse(&lexer{s: selector, pos: 0}, field.ToPath(opts...))
+	if err == nil {
+		return parsedSelector, nil
+	}
+	return nil, err
+}
+
+// ParseWithLexer takes a selector string and a custom lexer to tokenize the input,
+// and returns a selector object or an error.
+// This function is similar to Parse but allows for a custom lexer implementation.
+func ParseWithLexer(selector string, l Lexer, opts ...field.PathOption) (Selector, error) {
+	parsedSelector, err := parse(l, field.ToPath(opts...))
 	if err == nil {
 		return parsedSelector, nil
 	}
@@ -971,8 +967,8 @@ func Parse(selector string, opts ...field.PathOption) (Selector, error) {
 // The callers of this method can then decide how to return the internalSelector struct to their
 // callers. This function has two callers now, one returns a Selector interface and the other
 // returns a list of requirements.
-func parse(selector string, path *field.Path) (internalSelector, error) {
-	p := &Parser{l: &Lexer{s: selector, pos: 0}, path: path}
+func parse(l Lexer, path *field.Path) (internalSelector, error) {
+	p := &Parser{l: l, path: path}
 	items, err := p.parse()
 	if err != nil {
 		return nil, err
@@ -1033,7 +1029,7 @@ func SelectorFromValidatedSet(ls k8sLabels.Set) Selector {
 // See the documentation for Parse() function for more details.
 // TODO: Consider exporting the internalSelector type instead.
 func ParseToRequirements(selector string, opts ...field.PathOption) ([]Requirement, error) {
-	return parse(selector, field.ToPath(opts...))
+	return parse(&lexer{s: selector, pos: 0}, field.ToPath(opts...))
 }
 
 // ValidatedSetSelector wraps a Set, allowing it to implement the Selector interface. Unlike

@@ -28,7 +28,7 @@ flightctl get devices --field-selector 'metadata.name!=c3tkb18x9fw32fzx5l556n0p0
 #### Example 2: Filter by Owner, Labels, and Creation Timestamp
 This command retrieves devices owned by `Fleet/pos-fleet`, located in the `us` region, and created in 2024:
 ```bash
-flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region\=us, metadata.creationTimestamp >= 2024-01-01T00:00:00Z, metadata.creationTimestamp < 2025-01-01T00:00:00Z'
+flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region=us, metadata.creationTimestamp >= 2024-01-01T00:00:00Z, metadata.creationTimestamp < 2025-01-01T00:00:00Z'
 ```
 
 ### List of Additional Supported Fields
@@ -92,7 +92,7 @@ The following table lists the fields supported for filtering for each resource k
 #### Example 3: Filter by Owner, Labels, and Device Status
 This command retrieves devices owned by `Fleet/pos-fleet`, located in the `us` region, and with a `status.updated.status` of either `Unknown` or `OutOfDate`:
 ```bash
-flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region\=us, status.updated.status in (Unknown, OutOfDate)'
+flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region=us, status.updated.status in (Unknown, OutOfDate)'
 ```
 
 ### Fields Discovery
