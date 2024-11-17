@@ -65,7 +65,7 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	var nextContinue *string
 	var numRemaining *int64
 
-	query, err := ListQuery(&certificateSigningRequests).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.CertificateSigningRequest{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&certificateSigningRequests).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&model.CertificateSigningRequest{}).Build(ctx, s.db, orgId, listParams)
 			if err != nil {
 				return nil, err
 			}

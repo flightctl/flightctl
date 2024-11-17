@@ -16,6 +16,7 @@ func TestSQLQueries(t *testing.T) {
 		LIKE, NOTLIKE,
 		ISNULL, ISNOTNULL,
 		CONTAINS, NOTCONTAINS,
+		JSONB_CONTAINS, JSONB_NOTCONTAINS,
 		OVERLAPS, NOTOVERLAPS,
 		CAST,
 		K, V
@@ -34,6 +35,8 @@ func TestSQLQueries(t *testing.T) {
 		"ISNOTNULL(K(a))":                                {"a IS NOT NULL"},
 		"CONTAINS(K(a),V(a),V(b),V(c))":                  {"a @> ARRAY[?, ?, ?]", "a", "b", "c"},
 		"NOTCONTAINS(K(a),V(a),V(b),V(c))":               {"NOT (a @> ARRAY[?, ?, ?])", "a", "b", "c"},
+		"JSONB_CONTAINS(K(a),V(b))":                      {"a @> ?", "b"},
+		"JSONB_NOTCONTAINS(K(a),V(b))":                   {"NOT (a @> ?)", "b"},
 		"OVERLAPS(K(a),V(a),V(b),V(c))":                  {"a && ARRAY[?, ?, ?]", "a", "b", "c"},
 		"NOTOVERLAPS(K(a),V(a),V(b),V(c))":               {"NOT (a && ARRAY[?, ?, ?])", "a", "b", "c"},
 		"EQ(CAST(K(a),INT), V(5))":                       {"CAST(a AS INT) = ?", "5"},
@@ -48,15 +51,15 @@ func TestSQLQueries(t *testing.T) {
 		// AND and OR need at least two queries parameters
 		"AND()",                             // No arguments
 		"AND(EQ(K(a),V(b)))",                // One argument
-		"AND(a,b)",                          // No values
-		"AND(EQ(K(a),V(b)),val)",            // No values
+		"AND(a,b)",                          // No literal values
+		"AND(EQ(K(a),V(b)),val)",            // No literal values
 		"AND(K(a),V(b))",                    // K and V cannot be used directly
 		"AND(EQ(K(a),V(b)),V(val))",         // K and V cannot be used directly
 		"AND(CAST(K(a),INT),EQ(K(a),V(b)))", // CAST cannot be used directly
 		"OR()",                              // No arguments
 		"OR(EQ(K(a),V(b)))",                 // One argument
-		"OR(a,b)",                           // No values
-		"OR(EQ(K(a),V(b)),val)",             // No values
+		"OR(a,b)",                           // No literal values
+		"OR(EQ(K(a),V(b)),val)",             // No literal values
 		"OR(K(a),V(b))",                     // K and V cannot be used directly
 		"OR(EQ(K(a),V(b)),V(val))",          // K and V cannot be used directly
 		"OR(CAST(K(a),INT),EQ(K(a),V(b)))",  // CAST cannot be used directly
@@ -67,13 +70,13 @@ func TestSQLQueries(t *testing.T) {
 		"EQ(K(a),V(b),V(c))",    // Three arguments
 		"EQ(V(b),K(a))",         // First query must be K or CAST
 		"EQ(val2,val2)",         // First query must be K or CAST
-		"EQ(K(b),val)",          // No values
+		"EQ(K(b),val)",          // No literal values
 		"NOTEQ()",               // No arguments
 		"NOTEQ(K(a))",           // One argument
 		"NOTEQ(K(a),V(b),V(c))", // Three arguments
 		"NOTEQ(V(b),K(a))",      // First query must be K or CAST
 		"NOTEQ(val2,val2)",      // First query must be K or CAST
-		"NOTEQ(K(b),val)",       // No values
+		"NOTEQ(K(b),val)",       // No literal values
 
 		// LT, LTE, GT, GTE require exactly two queries parameters
 		"LT()",                // No arguments
@@ -81,37 +84,37 @@ func TestSQLQueries(t *testing.T) {
 		"LT(K(a),V(b),V(c))",  // Three arguments
 		"LT(V(b),K(a))",       // First query must be K or CAST
 		"LT(val2,val2)",       // First query must be K or CAST
-		"LT(K(b),val)",        // No values
+		"LT(K(b),val)",        // No literal values
 		"LTE()",               // No arguments
 		"LTE(K(a))",           // One argument
 		"LTE(K(a),V(b),V(c))", // Three arguments
 		"LTE(V(b),K(a))",      // First query must be K or CAST
 		"LTE(val2,val2)",      // First query must be K or CAST
-		"LTE(K(b),val)",       // No values
+		"LTE(K(b),val)",       // No literal values
 		"GT()",                // No arguments
 		"GT(K(a))",            // One argument
 		"GT(K(a),V(b),V(c))",  // Three arguments
 		"GT(V(b),K(a))",       // First query must be K or CAST
 		"GT(val2,val2)",       // First query must be K or CAST
-		"GT(K(b),val)",        // No values
+		"GT(K(b),val)",        // No literal values
 		"GTE()",               // No arguments
 		"GTE(K(a))",           // One argument
 		"GTE(K(a),V(b),V(c))", // Three arguments
 		"GTE(V(b),K(a))",      // First query must be K or CAST
 		"GTE(val2,val2)",      // First query must be K or CAST
-		"GTE(K(b),val)",       // No values
+		"GTE(K(b),val)",       // No literal values
 
 		// IN and NOTIN require at least two queries parameters
 		"IN()",             // No arguments
 		"IN(K(a))",         // One argument
 		"IN(V(b),K(a))",    // First query must be K or CAST
 		"IN(val2,val2)",    // First query must be K or CAST
-		"IN(K(b),val)",     // No values
+		"IN(K(b),val)",     // No literal values
 		"NOTIN()",          // No arguments
 		"NOTIN(K(a))",      // One argument
 		"NOTIN(V(b),K(a))", // First query must be K or CAST
 		"NOTIN(val2,val2)", // First query must be K or CAST
-		"NOTIN(K(b),val)",  // No values
+		"NOTIN(K(b),val)",  // No literal values
 
 		// LIKE and NOTLIKE require exactly two queries parameters
 		"LIKE()",                  // No arguments
@@ -119,47 +122,59 @@ func TestSQLQueries(t *testing.T) {
 		"LIKE(K(a),V(b),V(c))",    // Three arguments
 		"LIKE(V(b),K(a))",         // First query must be K or CAST
 		"LIKE(val2,val2)",         // First query must be K or CAST
-		"LIKE(K(b),val)",          // No values
+		"LIKE(K(b),val)",          // No literal values
 		"NOTLIKE()",               // No arguments
 		"NOTLIKE(K(a))",           // One argument
 		"NOTLIKE(K(a),V(b),V(c))", // Three arguments
 		"NOTLIKE(V(b),K(a))",      // First query must be K or CAST
 		"NOTLIKE(val2,val2)",      // First query must be K or CAST
-		"NOTLIKE(K(b),val)",       // No values
+		"NOTLIKE(K(b),val)",       // No literal values
 
 		// ISNULL and ISNOTNULL require exactly one query parameter
 		"ISNULL()",             // No arguments
 		"ISNULL(K(a),V(b))",    // Two arguments
 		"ISNULL(V(b))",         // First query must be K or CAST
-		"ISNULL(val)",          // No values
+		"ISNULL(val)",          // No literal values
 		"ISNOTNULL()",          // No arguments
 		"ISNOTNULL(K(a),V(b))", // Two arguments
 		"ISNOTNULL(V(b))",      // First query must be K or CAST
-		"ISNOTNULL(val)",       // No values
+		"ISNOTNULL(val)",       // No literal values
 
 		// CONTAINS and NOTCONTAINS require at least two queries parameters
 		"CONTAINS()",             // No arguments
 		"CONTAINS(K(a))",         // One argument
 		"CONTAINS(V(b),K(a))",    // First query must be K or CAST
 		"CONTAINS(val2,val2)",    // First query must be K or CAST
-		"CONTAINS(K(b),val)",     // No values
+		"CONTAINS(K(b),val)",     // No literal values
 		"NOTCONTAINS()",          // No arguments
 		"NOTCONTAINS(K(a))",      // One argument
 		"NOTCONTAINS(V(b),K(a))", // First query must be K or CAST
 		"NOTCONTAINS(val2,val2)", // First query must be K or CAST
-		"NOTCONTAINS(K(b),val)",  // No values
+		"NOTCONTAINS(K(b),val)",  // No literal values
+
+		// JSONB_CONTAINS and JSONB_NOTCONTAINS require at least two queries parameters
+		"JSONB_CONTAINS()",             // No arguments
+		"JSONB_CONTAINS(K(a))",         // One argument
+		"JSONB_CONTAINS(V(b),K(a))",    // First query must be K or CAST
+		"JSONB_CONTAINS(val2,val2)",    // First query must be K or CAST
+		"JSONB_CONTAINS(K(b),val)",     // No literal values
+		"JSONB_NOTCONTAINS()",          // No arguments
+		"JSONB_NOTCONTAINS(K(a))",      // One argument
+		"JSONB_NOTCONTAINS(V(b),K(a))", // First query must be K or CAST
+		"JSONB_NOTCONTAINS(val2,val2)", // First query must be K or CAST
+		"JSONB_NOTCONTAINS(K(b),val)",  // No literal values
 
 		// OVERLAPS and NOTOVERLAPS require at least two queries parameters
 		"OVERLAPS()",             // No arguments
 		"OVERLAPS(K(a))",         // One argument
 		"OVERLAPS(V(b),K(a))",    // First query must be K or CAST
 		"OVERLAPS(val2,val2)",    // First query must be K or CAST
-		"OVERLAPS(K(b),val)",     // No values
+		"OVERLAPS(K(b),val)",     // No literal values
 		"NOTOVERLAPS()",          // No arguments
 		"NOTOVERLAPS(K(a))",      // One argument
 		"NOTOVERLAPS(V(b),K(a))", // First query must be K or CAST
 		"NOTOVERLAPS(val2,val2)", // First query must be K or CAST
-		"NOTOVERLAPS(K(b),val)",  // No values
+		"NOTOVERLAPS(K(b),val)",  // No literal values
 
 		// CAST requires exactly two queries parameters (K, V and type)
 		"EQ(CAST(), V(5))",                   // No arguments
@@ -213,13 +228,13 @@ func TestSQLQueries(t *testing.T) {
 		}
 
 		if q != expected[0] {
-			t.Errorf("Expected query %v, got %v", expected[0], q)
+			t.Errorf("%q: expected query %v, got %v", test, expected[0], q)
 			continue
 		}
 
 		for i, param := range params {
 			if param.(string) != expected[i+1] {
-				t.Errorf("Expected param %v, got %v", expected[i+1], param)
+				t.Errorf("%q: expected param %v, got %v", test, expected[i+1], param)
 			}
 		}
 	}
@@ -227,7 +242,7 @@ func TestSQLQueries(t *testing.T) {
 	for _, test := range testBadQueries {
 		_, _, err := p.Parse(ctx, test)
 		if err == nil {
-			t.Errorf("Expected error for bad query %v, but got none", test)
+			t.Errorf("Expected error for bad query %q, but got none", test)
 		}
 	}
 }
