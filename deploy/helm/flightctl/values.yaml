@@ -32,12 +32,13 @@ global:
     key: ""
   storageClassName: ""
   auth:
-    type: "builtin" # builtin, openshift, oidc, none
+    type: "builtin" # builtin, openshift, oidc, aap, none
     openShiftApiUrl: ""
     caCert: ""
     insecureSkipTlsVerify: false
     oidcAuthority: ""
     internalOidcAuthority: ""
+    aapGatewayApiUrl: ""
   metrics:
     enabled: true
   internalNamespace: ""

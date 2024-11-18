@@ -4580,7 +4580,7 @@ func (r AuthConfigResponse) StatusCode() int {
 type AuthValidateResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON500      *Error
+	JSON401      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -6750,12 +6750,12 @@ func ParseAuthValidateResponse(rsp *http.Response) (*AuthValidateResponse, error
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON500 = &dest
+		response.JSON401 = &dest
 
 	}
 

@@ -2635,12 +2635,13 @@ func (response AuthValidate200Response) VisitAuthValidateResponse(w http.Respons
 	return nil
 }
 
-type AuthValidate401Response struct {
-}
+type AuthValidate401JSONResponse Error
 
-func (response AuthValidate401Response) VisitAuthValidateResponse(w http.ResponseWriter) error {
+func (response AuthValidate401JSONResponse) VisitAuthValidateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type AuthValidate418Response struct {
@@ -2649,15 +2650,6 @@ type AuthValidate418Response struct {
 func (response AuthValidate418Response) VisitAuthValidateResponse(w http.ResponseWriter) error {
 	w.WriteHeader(418)
 	return nil
-}
-
-type AuthValidate500JSONResponse Error
-
-func (response AuthValidate500JSONResponse) VisitAuthValidateResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-
-	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteCertificateSigningRequestsRequestObject struct {

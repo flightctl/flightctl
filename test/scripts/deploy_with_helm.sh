@@ -69,6 +69,9 @@ AUTH_ARGS=""
 if [ "$AUTH" ]; then
   AUTH_ARGS="--set global.auth.type=builtin --set keycloak.directAccessGrantsEnabled=true"
 fi
+if [ "$AAP_AUTH" ]; then
+  AUTH_ARGS="--set global.auth.type=aap --set global.auth.aapGatewayApiUrl=https://${IP}:8000/api/gateway --set global.auth.insecureSkipTlsVerify=true"
+fi
 
 helm dependency build ./deploy/helm/flightctl
 

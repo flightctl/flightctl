@@ -29,18 +29,14 @@ func (h *ServiceHandler) AuthValidate(ctx context.Context, request server.AuthVa
 		return server.AuthValidate418Response{}, nil
 	}
 	if request.Params.Authentication == nil {
-		return server.AuthValidate401Response{}, nil
+		return server.AuthValidate401JSONResponse{}, nil
 	}
-	token, ok := auth.ParseAuthHeader(*request.Params.Authentication)
-	if !ok {
-		return server.AuthValidate401Response{}, nil
-	}
-	valid, err := authn.ValidateToken(ctx, token)
+	valid, err := authn.ValidateToken(ctx, *request.Params.Authentication)
 	if err != nil {
-		return server.AuthValidate500JSONResponse{Message: err.Error()}, nil
+		return server.AuthValidate401JSONResponse{Message: err.Error()}, nil
 	}
 	if !valid {
-		return server.AuthValidate401Response{}, nil
+		return server.AuthValidate401JSONResponse{}, nil
 	}
 	return server.AuthValidate200Response{}, nil
 }

@@ -34,15 +34,13 @@ paths:
         "200":
           description: Token valid
         "401":
-          description: Token invalid
-        "418":
-          description: Auth not configured
-        "500":
-          description: InternalServerError
+          description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "418":
+          description: Auth not configured
   /api/v1/resourcesyncs:
     get:
       tags:
