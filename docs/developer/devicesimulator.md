@@ -16,7 +16,7 @@ Copy the necessary setup files to run a `devicesimulator`.
 
 # Remote simulator
 
-To simulate a huge number of devices (10,000 for example) a
+To simulate a large number of devices (10,000 for example) a
 `devicesimulator` has to be installed on a number of separate hosts to let it use more resources. Each remote host must be [set up](#remote-setup) with the same files. Then you have to [start simulator](#remote-run) on each host.
 
 ### Remote setup
