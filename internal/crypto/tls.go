@@ -28,7 +28,7 @@ func TLSConfigForServer(caConfig, serverConfig *TLSCertificateConfig) (*tls.Conf
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS13,
+		MinVersion:   tls.VersionTLS12,
 	}
 
 	agentTlsConfig := &tls.Config{

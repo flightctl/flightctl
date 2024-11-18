@@ -19,6 +19,10 @@ type OauthServerResponse struct {
 }
 
 func (o OpenShiftAuthN) ValidateToken(ctx context.Context, token string) (bool, error) {
+	token, success := common.ParseAuthToken(token)
+	if !success {
+		return false, fmt.Errorf("incorrect auth token format")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/apis/user.openshift.io/v1/users/~", o.OpenShiftApiUrl), nil)
 	if err != nil {
 		return false, err
@@ -45,4 +49,8 @@ func (o OpenShiftAuthN) GetAuthConfig() common.AuthConfig {
 		Type: "OpenShift",
 		Url:  o.OpenShiftApiUrl,
 	}
+}
+
+func (o OpenShiftAuthN) GetAuthToken(r *http.Request) (string, bool) {
+	return common.GetAuthToken(r)
 }
