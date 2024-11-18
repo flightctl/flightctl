@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -54,12 +55,19 @@ func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthen
 	return review, nil
 }
 
-func (o K8sAuthN) ValidateToken(ctx context.Context, token string) (bool, error) {
+func (o K8sAuthN) ValidateToken(ctx context.Context, token string) error {
 	review, err := o.loadTokenReview(ctx, token)
 	if err != nil {
-		return false, err
+		return err
 	}
-	return review.Status.Authenticated, nil
+	if !review.Status.Authenticated {
+		return fmt.Errorf("user is not authenticated")
+	}
+	return nil
+}
+
+func (o K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
+	return common.ExtractBearerToken(r)
 }
 
 func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
@@ -76,7 +84,7 @@ func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (*common.Identi
 
 func (o K8sAuthN) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: "k8s",
+		Type: common.AuthTypeK8s,
 		Url:  o.externalOpenShiftApiUrl,
 	}
 }

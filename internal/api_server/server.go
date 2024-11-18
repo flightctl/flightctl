@@ -12,7 +12,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	fctlmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
@@ -162,13 +162,17 @@ func (s *Server) Run(ctx context.Context) error {
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	router.Use(
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
-		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fctlmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
 		auth.CreatePermissionsMiddleware(s.log),
 	)
+
+	if s.cfg.Target == "aap" {
+		router.Use(fctlmiddleware.AAPResponseMiddleware)
+	}
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service
@@ -188,7 +192,7 @@ func (s *Server) Run(ctx context.Context) error {
 	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
 	ws.RegisterRoutes(router)
 
-	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
+	srv := fctlmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {
 		<-ctx.Done()

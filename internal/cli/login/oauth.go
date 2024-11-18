@@ -1,68 +1,17 @@
 package login
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 
-	"github.com/RangelReale/osincli"
+	"github.com/openshift/osincli"
 	"github.com/pkg/browser"
 )
 
-const (
-	csrfTokenHeader = "X-CSRF-Token" //nolint:gosec
-)
-
-type OAuth2 struct {
-	ConfigUrl          string
-	ClientId           string
-	CAFile             string
-	InsecureSkipVerify bool
-}
-
-func NewK8sOAuth2Config(caFile, clientId, authUrl string, insecure bool) OAuth2 {
-	return OAuth2{
-		CAFile:             caFile,
-		InsecureSkipVerify: insecure,
-		ConfigUrl:          fmt.Sprintf("%s/.well-known/oauth-authorization-server", authUrl),
-		ClientId:           clientId,
-	}
-}
-
-func (o OAuth2) GetOAuth2Config() (OauthServerResponse, error) {
-	oauthResponse := OauthServerResponse{}
-	req, err := http.NewRequest(http.MethodGet, o.ConfigUrl, nil)
-	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to create http request: %w", err)
-	}
-
-	transport, err := getAuthClientTransport(o.CAFile, o.InsecureSkipVerify)
-	if err != nil {
-		return oauthResponse, err
-	}
-
-	httpClient := http.Client{
-		Transport: transport,
-	}
-
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to fetch oidc config: %w", err)
-	}
-
-	defer res.Body.Close()
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to read oidc config: %w", err)
-	}
-	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
-		return oauthResponse, fmt.Errorf("failed to parse oidc config: %w", err)
-	}
-	return oauthResponse, nil
-}
+type GetClientFunc func(callbackURL string) (*osincli.Client, error)
 
 func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.AuthorizeRequest, r *http.Request) (string, error) {
 	areqdata, err := authorizeRequest.HandleRequest(r)
@@ -81,72 +30,7 @@ func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.Auth
 	return ad.AccessToken, nil
 }
 
-func (o OAuth2) getOAuth2Client(scope string, callback string) (*osincli.Client, *osincli.AuthorizeRequest, error) {
-	oauthResponse, err := o.GetOAuth2Config()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	redirectUrl := callback
-	if redirectUrl == "" {
-		redirectUrl = oauthResponse.TokenEndpoint + "/implicit"
-	}
-
-	config := &osincli.ClientConfig{
-		ClientId:           o.ClientId,
-		AuthorizeUrl:       oauthResponse.AuthEndpoint,
-		TokenUrl:           oauthResponse.TokenEndpoint,
-		ErrorsInStatusCode: true,
-		Scope:              scope,
-		RedirectUrl:        redirectUrl,
-	}
-
-	client, err := osincli.NewClient(config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create oauth2 client: %w", err)
-	}
-
-	transport, err := getAuthClientTransport(o.CAFile, o.InsecureSkipVerify)
-	if err != nil {
-		return nil, nil, err
-	}
-	client.Transport = transport
-
-	return client, client.NewAuthorizeRequest(osincli.CODE), nil
-}
-
-func (o OAuth2) authHeadless(username, password string) (string, error) {
-	client, authorizeRequest, err := o.getOAuth2Client("", "")
-	if err != nil {
-		return "", err
-	}
-	requestURL := authorizeRequest.GetAuthorizeUrl().String()
-	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set(csrfTokenHeader, "1")
-	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(username+":"+password)))
-	resp, err := client.Transport.RoundTrip(req)
-
-	if err != nil {
-		return "", err
-	}
-
-	if resp.StatusCode == http.StatusFound {
-		redirectURL := resp.Header.Get("Location")
-
-		req, err := http.NewRequest(http.MethodGet, redirectURL, nil)
-		if err != nil {
-			return "", err
-		}
-
-		return getOAuth2AccessToken(client, authorizeRequest, req)
-	}
-	return "", fmt.Errorf("unexpected http code: %v", resp.StatusCode)
-}
-
-func (o OAuth2) authWeb(scope string) (string, error) {
+func oauth2AuthCodeFlow(getClient GetClientFunc) (string, error) {
 	token := ""
 
 	// find free port
@@ -160,10 +44,11 @@ func (o OAuth2) authWeb(scope string) (string, error) {
 	mux := http.NewServeMux()
 	callback := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
-	client, authorizeRequest, err := o.getOAuth2Client(scope, callback)
+	client, err := getClient(callback)
 	if err != nil {
 		return token, err
 	}
+	authorizeRequest := client.NewAuthorizeRequest(osincli.CODE)
 
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		token, err = getOAuth2AccessToken(client, authorizeRequest, r)
@@ -200,9 +85,36 @@ func (o OAuth2) authWeb(scope string) (string, error) {
 	return token, err
 }
 
-func (o OAuth2) Auth(web bool, username, password string) (string, error) {
-	if web {
-		return o.authWeb("")
+func GetOAuth2Config(configUrl, caFile string, insecure bool) (OauthServerResponse, error) {
+	oauthResponse := OauthServerResponse{}
+	req, err := http.NewRequest(http.MethodGet, configUrl, nil)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to create http request: %w", err)
 	}
-	return o.authHeadless(username, password)
+
+	tlsConfig, err := getAuthClientTlsConfig(caFile, insecure)
+	if err != nil {
+		return oauthResponse, err
+	}
+
+	httpClient := http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to fetch oidc config: %w", err)
+	}
+
+	defer res.Body.Close()
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to read oidc config: %w", err)
+	}
+	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
+		return oauthResponse, fmt.Errorf("failed to parse oidc config: %w", err)
+	}
+	return oauthResponse, nil
 }

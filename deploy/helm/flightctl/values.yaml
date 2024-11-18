@@ -19,6 +19,7 @@
 ## @param global.auth.k8s.rbacNs Namespace that should be used for the RBAC checks
 ## @param global.auth.oidc.oidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
 ## @param global.auth.oidc.externalOidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
+## @param global.auth.aap.apiUrl The URL of the AAP Gateway API endpoint
 ## @param global.metrics.enabled Enable metrics exporting and service
 ## @param global.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
 ## @param global.internalNamespace Namespace where internal components are deployed
@@ -29,7 +30,7 @@
 ## @param global.generateSecrets Generate secrets when deploying FCTL. This should be set to false if you want to provide your own secrets or when upgrading FCTL to avoid overriding the existing secrets
 
 global:
-  target: "standalone" # standalone, acm
+  target: "standalone" # standalone, acm, aap
   baseDomain: ""
   baseDomainTls:
     cert: ""
@@ -38,7 +39,7 @@ global:
   imagePullSecretName: ""
   apiUrl: "" # alternative to global.auth.k8s.externalOpenShiftApiUrl used by multiclusterhub operator
   auth:
-    type: "builtin" # builtin, k8s, oidc, none
+    type: "builtin" # builtin, k8s, oidc, aap, none
     caCert: ""
     insecureSkipTlsVerify: false
     k8s:
@@ -49,6 +50,9 @@ global:
     oidc:
       oidcAuthority: http://keycloak:8081/realms/flightctl
       externalOidcAuthority: ""
+    aap:
+       apiUrl: ""
+       externalApiUrl: ""
   metrics:
     enabled: true
   internalNamespace: ""
