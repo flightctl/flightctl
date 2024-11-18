@@ -2,6 +2,7 @@ package ignition
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
@@ -14,8 +15,10 @@ const initialIgnition = `{"ignition": {"version": "3.4.0"}}`
 
 type Wrapper interface {
 	SetFile(filePath string, contents []byte, mode int, base64 bool, user *string, group *string)
+	ChangeMountPath(mountPath string)
 	AsJson() ([]byte, error)
 	AsMap() (map[string]interface{}, error)
+	AsIgnitionConfig() config_latest_types.Config
 	Merge(parent config_latest_types.Config) config_latest_types.Config
 }
 
@@ -31,6 +34,21 @@ func NewWrapper() (Wrapper, error) {
 	return &wrapper{
 		config: cfg,
 	}, nil
+}
+
+func NewWrapperFromJson(j []byte) (Wrapper, error) {
+	var cfg config_latest_types.Config
+	err := json.Unmarshal(j, &cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &wrapper{
+		config: cfg,
+	}, nil
+}
+
+func NewWrapperFromIgnition(ign config_latest_types.Config) Wrapper {
+	return &wrapper{config: ign}
 }
 
 func (w *wrapper) SetFile(filePath string, contents []byte, mode int, base64 bool, user *string, group *string) {
@@ -63,6 +81,12 @@ func (w *wrapper) SetFile(filePath string, contents []byte, mode int, base64 boo
 	w.config.Storage.Files = append(w.config.Storage.Files, file)
 }
 
+func (w *wrapper) ChangeMountPath(mountPath string) {
+	for _, f := range w.config.Storage.Files {
+		f.Node.Path = filepath.Join(mountPath, f.Node.Path)
+	}
+}
+
 func (w *wrapper) AsJson() ([]byte, error) {
 	b, err := json.Marshal(&w.config)
 	if err != nil {
@@ -81,6 +105,10 @@ func (w *wrapper) AsMap() (map[string]interface{}, error) {
 		return nil, err
 	}
 	return ret, nil
+}
+
+func (w *wrapper) AsIgnitionConfig() config_latest_types.Config {
+	return w.config
 }
 
 func (w *wrapper) Merge(parent config_latest_types.Config) config_latest_types.Config {
