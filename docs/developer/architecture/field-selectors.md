@@ -114,7 +114,7 @@ func (m *Device) ListSelectors() selector.SelectorNameSet {
 > - Mapping a selector name using `MapSelectorName` to a custom selector is also supported. This can be useful for deprecating a key.
 > - When `FieldType` is defined as **JSONB**, the field-selector Adapts the `FieldName` to a valid **JSONB** key (e.g., `status -> 'updated' ->> 'status'`).
 > - If the `Type` is different from **JSONB**, the field-selector will cast the key to the corresponding type, and the selector will be processed as that type.
-> - A custom selector is resolved second. It can override or hide an existing resolver defined by the resource model.
+> - A custom selector is resolved after mapped selectors. It can override or hide an existing resolver defined by the resource model.
 
 
 ## Kubernetes Selector Package
