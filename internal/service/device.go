@@ -265,12 +265,12 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 
 // (PUT /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	return common.ReplaceDeviceStatus(ctx, h.store, request)
+	return common.ReplaceDeviceStatus(ctx, h.store, h.log, request)
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	return common.GetRenderedDeviceSpec(ctx, h.store, request, h.consoleGrpcEndpoint)
+	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.consoleGrpcEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
