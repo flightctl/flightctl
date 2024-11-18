@@ -27,7 +27,7 @@ type ConfigStorageRepositoryUrlKey struct {
 }
 
 func (k *ConfigStorageRepositoryUrlKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/repo/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository)
+	return fmt.Sprintf("v1/%s/%s/%s/repo-url/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository)
 }
 
 type ConfigStorageGitRevisionKey struct {
@@ -39,7 +39,20 @@ type ConfigStorageGitRevisionKey struct {
 }
 
 func (k *ConfigStorageGitRevisionKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/git/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository, k.TargetRevision)
+	return fmt.Sprintf("v1/%s/%s/%s/git-hash/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository, k.TargetRevision)
+}
+
+type ConfigStorageGitContentsKey struct {
+	OrgID           uuid.UUID
+	Fleet           string
+	TemplateVersion string
+	Repository      string
+	TargetRevision  string
+	Path            string
+}
+
+func (k *ConfigStorageGitContentsKey) ComposeKey() string {
+	return fmt.Sprintf("v1/%s/%s/%s/git-data/%s/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository, k.TargetRevision, k.Path)
 }
 
 type ConfigStorageK8sSecretKey struct {
@@ -51,7 +64,7 @@ type ConfigStorageK8sSecretKey struct {
 }
 
 func (k *ConfigStorageK8sSecretKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/k8s/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Namespace, k.Name)
+	return fmt.Sprintf("v1/%s/%s/%s/k8ssecret-data/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Namespace, k.Name)
 }
 
 type ConfigStorageHttpKey struct {
@@ -63,7 +76,7 @@ type ConfigStorageHttpKey struct {
 
 func (k *ConfigStorageHttpKey) ComposeKey() string {
 	md5sum := md5.Sum([]byte(k.URL)) //nolint: gosec
-	return fmt.Sprintf("v1/%s/%s/%s/http/%x", k.OrgID, k.Fleet, k.TemplateVersion, md5sum)
+	return fmt.Sprintf("v1/%s/%s/%s/http-data/%x", k.OrgID, k.Fleet, k.TemplateVersion, md5sum)
 }
 
 type ConfigStorage interface {
