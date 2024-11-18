@@ -54,6 +54,10 @@ func NewJWTAuth(oidcAuthority string, internalOIDCAuthority string, clientTlsCon
 }
 
 func (j JWTAuth) ValidateToken(ctx context.Context, token string) (bool, error) {
+	token, success := common.ParseAuthToken(token)
+	if !success {
+		return false, fmt.Errorf("incorrect auth token format")
+	}
 	client := &http.Client{Transport: &http.Transport{
 		TLSClientConfig: j.clientTlsConfig,
 	}}
@@ -74,4 +78,8 @@ func (j JWTAuth) GetAuthConfig() common.AuthConfig {
 		Type: "OIDC",
 		Url:  j.oidcAuthority,
 	}
+}
+
+func (j JWTAuth) GetAuthToken(r *http.Request) (string, bool) {
+	return common.GetAuthToken(r)
 }

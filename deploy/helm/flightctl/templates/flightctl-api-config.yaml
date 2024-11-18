@@ -51,6 +51,10 @@ data:
     auth:
         openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
+    {{- else if eq .Values.global.auth.type "aap"  }}
+    auth:
+        aapGatewayApiUrl: {{ .Values.global.auth.aapGatewayApiUrl }}
+        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
     {{- else }}
     auth:
         {{- if .Values.global.auth.oidcAuthority }}

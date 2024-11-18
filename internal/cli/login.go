@@ -347,11 +347,10 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	statusCode := res.StatusCode()
 
 	if statusCode == http.StatusUnauthorized {
+		if res.JSON401 != nil && res.JSON401.Message != "" {
+			fmt.Printf("%v\n", res.JSON401.Message)
+		}
 		return fmt.Errorf("the token provided is invalid or expired")
-	}
-
-	if statusCode == http.StatusInternalServerError && res.JSON500 != nil {
-		return fmt.Errorf("%v: %v", statusCode, res.JSON500.Message)
 	}
 
 	if statusCode != http.StatusOK {

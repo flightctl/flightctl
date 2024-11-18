@@ -23,6 +23,7 @@ const (
 )
 
 type AuthNMiddleware interface {
+	GetAuthToken(r *http.Request) (string, bool)
 	ValidateToken(ctx context.Context, token string) (bool, error)
 	GetAuthConfig() common.AuthConfig
 }
@@ -40,25 +41,6 @@ func GetAuthZ() AuthZMiddleware {
 
 func GetAuthN() AuthNMiddleware {
 	return authN
-}
-
-func ParseAuthHeader(authHeader string) (string, bool) {
-	authToken := strings.Split(authHeader, "Bearer ")
-	if len(authToken) != 2 {
-		return "", false
-	}
-	return authToken[1], true
-}
-
-func getAuthToken(r *http.Request) (string, bool) {
-	if _, isAuthDisabled := authN.(NilAuth); isAuthDisabled {
-		return "", true
-	}
-	authHeader := r.Header.Get(common.AuthHeader)
-	if authHeader == "" {
-		return "", false
-	}
-	return ParseAuthHeader(authHeader)
 }
 
 func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http.Handler) http.Handler, error) {
@@ -91,6 +73,15 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 			if err != nil {
 				return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
 			}
+		} else if cfg.Auth.AAPGatewayApiUrl != "" {
+			aapUrl := strings.TrimSuffix(cfg.Auth.AAPGatewayApiUrl, "/")
+			log.Println(fmt.Sprintf("AAP Gateway auth enabled: %s", aapUrl))
+			authZ = NilAuth{}
+			var err error
+			authN, err = authn.NewAapGatewayAuth(aapUrl, tlsConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
+			}
 		}
 	}
 
@@ -107,7 +98,7 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 				next.ServeHTTP(w, r)
 				return
 			}
-			authToken, ok := getAuthToken(r)
+			authToken, ok := authN.GetAuthToken(r)
 			if !ok {
 				w.WriteHeader(http.StatusUnauthorized)
 				return

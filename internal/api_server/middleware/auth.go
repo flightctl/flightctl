@@ -21,11 +21,7 @@ func GrpcAuthMiddleware(ctx context.Context) (context.Context, error) {
 		// auth disabled
 		return ctx, nil
 	}
-	token, ok := auth.ParseAuthHeader(authHeader)
-	if !ok {
-		return ctx, status.Error(codes.Unauthenticated, "invalid authentication token")
-	}
-	ok, err := authn.ValidateToken(ctx, token)
+	ok, err := authn.ValidateToken(ctx, authHeader)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
