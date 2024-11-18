@@ -126,6 +126,6 @@ The package was added in `/pkg/k8s/selector`, and the following modifications we
 - Kubernetes label selectors are now used for both fields and labels.
 - The functions `validateLabelKey` and `validateLabelValue` are applied only to labels.
 - Fields have a modified lexer to support escaping and RHS symbols (e.g., `key in (x=y)`).
-- A new operators, `contains` and `notcontains`, were added.
+- Two new operators, `contains` and `notcontains`, were added.
 
 A "vanilla" commit of Kubernetes selector: `86edb2182817bb492751786aa8471732abadf8ab`
