@@ -141,7 +141,3 @@ func responseField[T any](response interface{}, name string) (T, error) {
 
 	return fieldValue, nil
 }
-
-func strIsEmpty(str string) bool {
-	return len(str) == 0
-}

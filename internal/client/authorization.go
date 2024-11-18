@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -14,53 +15,56 @@ import (
 )
 
 type accessTokenRefresher struct {
-	authInfo           AuthInfo
-	insecureSkipVerify bool
-	renewals           atomic.Int32
-	once               sync.Once
-	provider           login.AuthProvider
-	log                logrus.FieldLogger
+	config   *Config
+	renewals atomic.Int32
+	once     sync.Once
+	provider login.AuthProvider
+	log      logrus.FieldLogger
 }
 
 func (c *accessTokenRefresher) init() error {
-	switch c.authInfo.AuthType {
-	case "k8s":
-		c.provider = login.NewK8sOAuth2Config(c.authInfo.AuthCAFile, c.authInfo.ClientId, c.authInfo.AuthURL, c.insecureSkipVerify)
-	case "OIDC":
-		c.provider = login.NewOIDCConfig(c.authInfo.AuthCAFile, c.authInfo.ClientId, c.authInfo.AuthURL, c.insecureSkipVerify)
+	authInfo := c.config.AuthInfo
+	insecure := c.config.Service.InsecureSkipVerify
+	switch authInfo.AuthType {
+	case common.AuthTypeK8s:
+		c.provider = login.NewK8sOAuth2Config(authInfo.AuthCAFile, authInfo.ClientId, authInfo.AuthURL, insecure)
+	case common.AuthTypeOIDC:
+		c.provider = login.NewOIDCConfig(authInfo.AuthCAFile, authInfo.ClientId, authInfo.AuthURL, insecure)
+	case common.AuthTypeAAP:
+		c.provider = login.NewAAPOAuth2Config(authInfo.AuthCAFile, authInfo.ClientId, authInfo.AuthURL, insecure)
 	default:
-		return fmt.Errorf("unsupported auth type: %s", c.authInfo.AuthType)
+		return fmt.Errorf("unsupported auth type: %s", authInfo.AuthType)
 	}
 	return nil
 }
 
 func (c *accessTokenRefresher) parseExpireTime() (time.Time, error) {
-	return time.Parse(time.RFC3339Nano, c.authInfo.AccessTokenExpiry)
+	return time.Parse(time.RFC3339Nano, c.config.AuthInfo.AccessTokenExpiry)
 }
 
 func (c *accessTokenRefresher) shouldRefresh(expireTime time.Time) bool {
 	return time.Now().Add(5 * time.Second).After(expireTime)
 }
 
-func (c *accessTokenRefresher) refresh() error {
-	authInfo, err := c.provider.Renew(c.authInfo.RefreshToken)
+func (c *accessTokenRefresher) refresh(configFilePath string) error {
+	authInfo, err := c.provider.Renew(c.config.AuthInfo.RefreshToken)
 	if err != nil {
 		return fmt.Errorf("failed to renew token: %w", err)
 	}
-	c.authInfo.RefreshToken = authInfo.RefreshToken
-	c.authInfo.AccessToken = authInfo.AccessToken
+	c.config.AuthInfo.RefreshToken = authInfo.RefreshToken
+	c.config.AuthInfo.AccessToken = authInfo.AccessToken
 	if authInfo.ExpiresIn != nil {
-		c.authInfo.AccessTokenExpiry = time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
+		c.config.AuthInfo.AccessTokenExpiry = time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
 	}
-	return nil
+	return c.config.Persist(configFilePath)
 }
 
 func (c *accessTokenRefresher) waitDuration() time.Duration {
 	waitDuration := time.Second
-	if c.authInfo.AccessTokenExpiry != "" {
+	if c.config.AuthInfo.AccessTokenExpiry != "" {
 		expireTime, err := c.parseExpireTime()
 		if err != nil {
-			c.log.Errorf("failed to parse time %s: %v", c.authInfo.AccessTokenExpiry, err)
+			c.log.Errorf("failed to parse time %s: %v", c.config.AuthInfo.AccessTokenExpiry, err)
 		} else {
 			waitDuration = util.Max(time.Until(expireTime)-5*time.Second, time.Second)
 		}
@@ -68,13 +72,13 @@ func (c *accessTokenRefresher) waitDuration() time.Duration {
 	return waitDuration
 }
 
-func (c *accessTokenRefresher) refreshLoop(ctx context.Context) {
+func (c *accessTokenRefresher) refreshLoop(ctx context.Context, configFilePath string) {
 	ticker := time.NewTicker(c.waitDuration())
 	defer ticker.Stop()
 	for c.renewals.Add(-1) >= 0 {
 		select {
 		case <-ticker.C:
-			if err := c.refresh(); err != nil {
+			if err := c.refresh(configFilePath); err != nil {
 				c.log.Errorf("failed to renew token: %v", err)
 				return
 			}
@@ -86,10 +90,10 @@ func (c *accessTokenRefresher) refreshLoop(ctx context.Context) {
 	}
 }
 
-func (c *accessTokenRefresher) start() {
+func (c *accessTokenRefresher) start(configFilePath string) {
 	c.once.Do(func() {
 		c.log = flightlog.InitLogs()
-		if c.authInfo.RefreshToken == "" {
+		if c.config.AuthInfo.RefreshToken == "" {
 			return
 		}
 		if err := c.init(); err != nil {
@@ -98,31 +102,30 @@ func (c *accessTokenRefresher) start() {
 		}
 		expireTime, err := c.parseExpireTime()
 		if err != nil || c.shouldRefresh(expireTime) {
-			if err := c.refresh(); err != nil {
+			if err := c.refresh(configFilePath); err != nil {
 				c.log.WithError(err).Error("failed to refresh access token")
 				return
 			}
 		}
-		go c.refreshLoop(context.TODO())
+		go c.refreshLoop(context.TODO(), configFilePath)
 	})
 }
 
 var authorizer util.Singleton[accessTokenRefresher]
 
 func (c *accessTokenRefresher) accessToken() string {
-	return c.authInfo.AccessToken
+	return c.config.AuthInfo.AccessToken
 }
 
 func (c *accessTokenRefresher) rewind() {
 	c.renewals.Store(3)
 }
 
-func GetAccessToken(config *Config) string {
+func GetAccessToken(config *Config, configFilePath string) string {
 	auth := authorizer.GetOrInit(&accessTokenRefresher{
-		authInfo:           config.AuthInfo,
-		insecureSkipVerify: config.Service.InsecureSkipVerify,
+		config: config,
 	})
-	auth.start()
+	auth.start(configFilePath)
 	auth.rewind()
 	return auth.accessToken()
 }
