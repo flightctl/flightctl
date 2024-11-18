@@ -76,7 +76,7 @@ func (s *AgentServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request
 		Name:   request.Name,
 		Params: request.Params,
 	}
-	return common.GetRenderedDeviceSpec(ctx, s.store, serverRequest, s.agentGrpcEndpoint)
+	return common.GetRenderedDeviceSpec(ctx, s.store, s.log, serverRequest, s.agentGrpcEndpoint)
 }
 
 // (PUT /api/v1/devices/{name}/status)
@@ -92,7 +92,7 @@ func (s *AgentServiceHandler) ReplaceDeviceStatus(ctx context.Context, request a
 		Name: request.Name,
 		Body: request.Body,
 	}
-	return common.ReplaceDeviceStatus(ctx, s.store, serverRequest)
+	return common.ReplaceDeviceStatus(ctx, s.store, s.log, serverRequest)
 }
 
 // (POST /api/v1/enrollmentrequests)
