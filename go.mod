@@ -3,7 +3,6 @@ module github.com/flightctl/flightctl
 go 1.22
 
 require (
-	github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2
 	github.com/ccoveille/go-safecast v1.1.0
 	github.com/containers/image/v5 v5.30.1
 	github.com/containers/storage v1.53.0
@@ -34,6 +33,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.34.1
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
+	github.com/openshift/osincli v0.0.0-20160924135400-fababb0555f2
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/client_golang v1.19.0
 	github.com/redis/go-redis/v9 v9.7.0

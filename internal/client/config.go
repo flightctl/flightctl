@@ -188,7 +188,7 @@ func NewDefault() *Config {
 }
 
 // NewFromConfig returns a new Flight Control API client from the given config.
-func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
+func NewFromConfig(config *Config, configFilePath string) (*client.ClientWithResponses, error) {
 
 	httpClient, err := NewHTTPClientFromConfig(config)
 	if err != nil {
@@ -196,7 +196,7 @@ func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
 	}
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
-		accessToken := GetAccessToken(config)
+		accessToken := GetAccessToken(config, configFilePath)
 		if accessToken != "" {
 			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
 		}
@@ -355,7 +355,7 @@ func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewFromConfig(config)
+	return NewFromConfig(config, filename)
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config read from the given file.
