@@ -30,7 +30,7 @@ Run the same commands per each host. Note: some commands must be run remotely.
     scp ~/.config/flightctl/client.yaml your_username@remotehoist:~/.config/flightctl/client.yaml
     scp bin/devicesimulator your_username@remotehoist:~/bin/
     # on remote host 
-    chmod -R 755 ~postgres/.flightctl/ ~postgres/.config/flightctl bin/devicesimulator
+    chmod -R 755 ~/.flightctl/ ~/.config/flightctl bin/devicesimulator
 
 ### Remote run
 
