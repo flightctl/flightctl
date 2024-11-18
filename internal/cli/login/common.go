@@ -3,7 +3,6 @@ package login
 import (
 	"crypto/tls"
 	"fmt"
-	"net/http"
 	"os"
 
 	certutil "k8s.io/client-go/util/cert"
@@ -14,11 +13,9 @@ type OauthServerResponse struct {
 	AuthEndpoint  string `json:"authorization_endpoint"`
 }
 
-func getAuthClientTransport(authCAFile string, insecureSkipVerify bool) (*http.Transport, error) {
-	authTransport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecureSkipVerify, //nolint:gosec
-		},
+func getAuthClientTlsConfig(authCAFile string, insecureSkipVerify bool) (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: insecureSkipVerify, //nolint:gosec
 	}
 
 	if authCAFile != "" {
@@ -31,10 +28,10 @@ func getAuthClientTransport(authCAFile string, insecureSkipVerify bool) (*http.T
 			return nil, fmt.Errorf("failed parsing Auth CA certs: %w", err)
 		}
 
-		authTransport.TLSClientConfig.RootCAs = caPool
+		tlsConfig.RootCAs = caPool
 	}
 
-	return authTransport, nil
+	return tlsConfig, nil
 }
 
 type AuthProvider interface {

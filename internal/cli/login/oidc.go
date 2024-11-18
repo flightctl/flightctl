@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/openshift/osincli"
 )
 
 type OIDCDirectResponse struct {
@@ -14,22 +16,52 @@ type OIDCDirectResponse struct {
 }
 
 type OIDC struct {
-	OAuth2
+	ClientId           string
+	CAFile             string
+	InsecureSkipVerify bool
+	ConfigUrl          string
 }
 
 func NewOIDCConfig(caFile, clientId, authUrl string, insecure bool) OIDC {
 	return OIDC{
-		OAuth2: OAuth2{
-			CAFile:             caFile,
-			InsecureSkipVerify: insecure,
-			ConfigUrl:          fmt.Sprintf("%s/.well-known/openid-configuration", authUrl),
-			ClientId:           clientId,
-		},
+		CAFile:             caFile,
+		InsecureSkipVerify: insecure,
+		ClientId:           clientId,
+		ConfigUrl:          fmt.Sprintf("%s/.well-known/openid-configuration", authUrl),
 	}
 }
 
+func (k OIDC) getOAuth2Client(callback string) (*osincli.Client, error) {
+	oauthServerResponse, err := GetOAuth2Config(k.ConfigUrl, k.CAFile, k.InsecureSkipVerify)
+	if err != nil {
+		return nil, err
+	}
+
+	config := &osincli.ClientConfig{
+		ClientId:           k.ClientId,
+		AuthorizeUrl:       oauthServerResponse.AuthEndpoint,
+		TokenUrl:           oauthServerResponse.TokenEndpoint,
+		ErrorsInStatusCode: true,
+		RedirectUrl:        callback,
+		Scope:              "openid",
+	}
+
+	client, err := osincli.NewClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create oidc client: %w", err)
+	}
+
+	tlsConfig, err := getAuthClientTlsConfig(k.CAFile, k.InsecureSkipVerify)
+	if err != nil {
+		return nil, err
+	}
+	client.Transport = &http.Transport{TLSClientConfig: tlsConfig}
+
+	return client, nil
+}
+
 func (o OIDC) authHeadless(username, password string) (string, error) {
-	oauthResponse, err := o.GetOAuth2Config()
+	oauthResponse, err := GetOAuth2Config(o.ConfigUrl, o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
 		return "", err
 	}
@@ -47,11 +79,12 @@ func (o OIDC) authHeadless(username, password string) (string, error) {
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	transport, err := getAuthClientTransport(o.CAFile, o.InsecureSkipVerify)
+	tlsConfig, err := getAuthClientTlsConfig(o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
 		return "", err
 	}
-	client := &http.Client{Transport: transport}
+
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig}}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send http request: %w", err)
@@ -87,7 +120,7 @@ func (o OIDC) authHeadless(username, password string) (string, error) {
 
 func (o OIDC) Auth(web bool, username, password string) (string, error) {
 	if web {
-		return o.authWeb("openid")
+		return oauth2AuthCodeFlow(o.getOAuth2Client)
 	}
 	return o.authHeadless(username, password)
 }
