@@ -25,10 +25,10 @@ Run the same commands per each host. Note: some commands must be run remotely.
 
     # on remote host
     mkdir -p ~/.flightctl/certs/ ~/.config/flightctl ~/bin
-    scp bin/agent/etc/flightctl/certs/* your_username@remotehoist:~/.flightctl/certs/
-    scp bin/agent/etc/flightctl/config.yaml your_username@remotehoist:~/.flightctl/agent.yaml
-    scp ~/.config/flightctl/client.yaml your_username@remotehoist:~/.config/flightctl/client.yaml
-    scp bin/devicesimulator your_username@remotehoist:~/bin/
+    scp bin/agent/etc/flightctl/certs/* your_username@remotehost:~/.flightctl/certs/
+    scp bin/agent/etc/flightctl/config.yaml your_username@remotehost:~/.flightctl/agent.yaml
+    scp ~/.config/flightctl/client.yaml your_username@remotehost:~/.config/flightctl/client.yaml
+    scp bin/devicesimulator your_username@remotehost:~/bin/
     # on remote host 
     chmod -R 755 ~/.flightctl/ ~/.config/flightctl bin/devicesimulator
 
