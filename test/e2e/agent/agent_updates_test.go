@@ -66,7 +66,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
 			// related to: https://issues.redhat.com/browse/EDM-679
 			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
-			logrus.Info("Device updated to new image 🎉")
+			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:v2")
 		})
 
 		It("Should update to v4 with embedded application", Label("updates", "77667"), func() {
@@ -106,7 +106,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
 			// related to: https://issues.redhat.com/browse/EDM-679
 			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
-			logrus.Info("Device updated to new image 🎉")
+			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:v4")
 
 			logrus.Info("Container with sleep infinity process is present but not running, as expected")
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
@@ -138,28 +138,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						conditionExists(device, "Updating", "False", "Updated")
 				}, "2m")
 
-			logrus.Info("Device updated to new image 🎉")
-
-			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
-				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", "Update")
-				}, "1m")
-
-			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
-				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", "Rebooting")
-				}, "2m")
-
-			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
-				func(device *v1alpha1.Device) bool {
-					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", "Updated")
-				}, "2m")
-
-			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
-			// related to: https://issues.redhat.com/browse/EDM-679
-			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
-			logrus.Info("Device updated to new image 🎉")
+			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:base")
 
 		})
 	})
