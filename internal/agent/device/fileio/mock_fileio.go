@@ -260,19 +260,19 @@ func (m *MockReader) EXPECT() *MockReaderMockRecorder {
 	return m.recorder
 }
 
-// FileExists mocks base method.
-func (m *MockReader) FileExists(filePath string) (bool, error) {
+// PathExists mocks base method.
+func (m *MockReader) PathExists(path string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FileExists", filePath)
+	ret := m.ctrl.Call(m, "PathExists", path)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FileExists indicates an expected call of FileExists.
-func (mr *MockReaderMockRecorder) FileExists(filePath any) *gomock.Call {
+// PathExists indicates an expected call of PathExists.
+func (mr *MockReaderMockRecorder) PathExists(path any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FileExists", reflect.TypeOf((*MockReader)(nil).FileExists), filePath)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathExists", reflect.TypeOf((*MockReader)(nil).PathExists), path)
 }
 
 // PathFor mocks base method.
@@ -287,6 +287,21 @@ func (m *MockReader) PathFor(filePath string) string {
 func (mr *MockReaderMockRecorder) PathFor(filePath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathFor", reflect.TypeOf((*MockReader)(nil).PathFor), filePath)
+}
+
+// ReadDir mocks base method.
+func (m *MockReader) ReadDir(dirPath string) ([]fs.DirEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadDir", dirPath)
+	ret0, _ := ret[0].([]fs.DirEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadDir indicates an expected call of ReadDir.
+func (mr *MockReaderMockRecorder) ReadDir(dirPath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadDir", reflect.TypeOf((*MockReader)(nil).ReadDir), dirPath)
 }
 
 // ReadFile mocks base method.
@@ -368,21 +383,6 @@ func (mr *MockReadWriterMockRecorder) CreateManagedFile(file any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateManagedFile", reflect.TypeOf((*MockReadWriter)(nil).CreateManagedFile), file)
 }
 
-// FileExists mocks base method.
-func (m *MockReadWriter) FileExists(filePath string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FileExists", filePath)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// FileExists indicates an expected call of FileExists.
-func (mr *MockReadWriterMockRecorder) FileExists(filePath any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FileExists", reflect.TypeOf((*MockReadWriter)(nil).FileExists), filePath)
-}
-
 // MkdirAll mocks base method.
 func (m *MockReadWriter) MkdirAll(path string, perm fs.FileMode) error {
 	m.ctrl.T.Helper()
@@ -397,6 +397,21 @@ func (mr *MockReadWriterMockRecorder) MkdirAll(path, perm any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirAll", reflect.TypeOf((*MockReadWriter)(nil).MkdirAll), path, perm)
 }
 
+// PathExists mocks base method.
+func (m *MockReadWriter) PathExists(path string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PathExists", path)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PathExists indicates an expected call of PathExists.
+func (mr *MockReadWriterMockRecorder) PathExists(path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathExists", reflect.TypeOf((*MockReadWriter)(nil).PathExists), path)
+}
+
 // PathFor mocks base method.
 func (m *MockReadWriter) PathFor(filePath string) string {
 	m.ctrl.T.Helper()
@@ -409,6 +424,21 @@ func (m *MockReadWriter) PathFor(filePath string) string {
 func (mr *MockReadWriterMockRecorder) PathFor(filePath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathFor", reflect.TypeOf((*MockReadWriter)(nil).PathFor), filePath)
+}
+
+// ReadDir mocks base method.
+func (m *MockReadWriter) ReadDir(dirPath string) ([]fs.DirEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadDir", dirPath)
+	ret0, _ := ret[0].([]fs.DirEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadDir indicates an expected call of ReadDir.
+func (mr *MockReadWriterMockRecorder) ReadDir(dirPath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadDir", reflect.TypeOf((*MockReadWriter)(nil).ReadDir), dirPath)
 }
 
 // ReadFile mocks base method.

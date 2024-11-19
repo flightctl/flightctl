@@ -82,6 +82,28 @@ func (s *DeviceStore) InitialMigration() error {
 		}
 	}
 
+	// Create indexes for device 'Alias' column
+	if !s.db.Migrator().HasIndex(&model.Device{}, "device_alias") {
+		if s.db.Dialector.Name() == "postgres" {
+			// Enable pg_trgm extension if not already enabled
+			if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+				return err
+			}
+			// Create a B-Tree index for exact matches on the 'Alias' field
+			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS device_alias_btree ON devices USING BTREE (alias)").Error; err != nil {
+				return err
+			}
+			// Create a GIN index for substring matches on the 'Alias' field
+			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "device_alias"); err != nil {
+				return err
+			}
+		}
+	}
+
 	// TODO: generalize this for fleet, enrollmentrequest, etc. Make part of the base resource
 	if !s.db.Migrator().HasIndex(&model.Device{}, "device_labels") {
 		// see https://github.com/go-gorm/gorm/discussions/6695
@@ -134,7 +156,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&devices).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +182,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&devices).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 			if err != nil {
 				return nil, err
 			}
@@ -178,7 +200,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
-	query, err := ListQuery(&model.DeviceList{}).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -246,8 +268,19 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 
 	// Update the generation if the spec was updated
 	if !sameSpec {
-		if fromAPI && len(lo.FromPtr(existingRecord.Owner)) != 0 {
-			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		if fromAPI {
+			if len(lo.FromPtr(existingRecord.Owner)) != 0 {
+				// Don't let the user update the device spec if it's part of a fleet
+				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+			} else {
+				// If the device isn't part of a fleet, make sure it doesn't have the TV annotation
+				existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+				if existingAnnotations[model.DeviceAnnotationTemplateVersion] != "" {
+					delete(existingAnnotations, model.DeviceAnnotationTemplateVersion)
+					annotationsArray := util.LabelMapToArray(&existingAnnotations)
+					device.Annotations = pq.StringArray(annotationsArray)
+				}
+			}
 		}
 
 		device.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
@@ -259,7 +292,7 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
 	query := s.db.Model(where).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion))
 
-	selectFields := []string{"spec"}
+	selectFields := []string{"spec", "alias"}
 	selectFields = append(selectFields, GetNonNilFieldsFromResource(device.Resource)...)
 	selectFields = append(selectFields, fieldsToUnset...)
 	query = query.Select(selectFields)

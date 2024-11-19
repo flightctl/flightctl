@@ -32,3 +32,9 @@ nodes:
   - containerPort: 9090 # Prometheus server
     hostPort: 9090
     protocol: TCP
+  - containerPort: 4443 # gateway TLS
+    hostPort: 4443
+    protocol: TCP
+  - containerPort: 4480 # gateway HTTP
+    hostPort: 4480
+    protocol: TCP

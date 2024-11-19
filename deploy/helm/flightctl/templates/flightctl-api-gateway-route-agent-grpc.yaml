@@ -1,0 +1,17 @@
+{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: flightctl-api-route-agent-grpc
+  namespace: {{ .Release.Namespace }}
+spec:
+  parentRefs:
+    - name: flightctl-gateway
+      sectionName: api
+  hostnames:
+    - agent-grpc.{{ include "flightctl.getBaseDomain" . }}
+  rules:
+    - backendRefs:
+      - name: flightctl-api-agent-grpc
+        port: 7444
+{{ end }}

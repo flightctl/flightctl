@@ -38,9 +38,8 @@ func TestInitialization(t *testing.T) {
 	ctx := context.TODO()
 
 	t.Run("initialization", func(t *testing.T) {
-		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, nil).Times(2)
 		mockSpecManager.EXPECT().Ensure().Return(nil)
-		mockReadWriter.EXPECT().FileExists(gomock.Any()).Return(true, nil)
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(3)
 		mockSpecManager.EXPECT().SetClient(gomock.Any())
 		mockStatusManager.EXPECT().SetClient(gomock.Any())
 		mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1alpha1.RenderedDeviceSpec{}, nil)

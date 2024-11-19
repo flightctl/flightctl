@@ -42,16 +42,17 @@ unit-test:
 run-integration-test:
 	$(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
-integration-test: deploy-db run-integration-test kill-db
+integration-test: deploy-db deploy-kv run-integration-test kill-kv kill-db
 
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
-in-cluster-e2e-test: build-cli deploy-e2e-extras bin/output/qcow2/disk.qcow2
+in-cluster-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
+	./test/scripts/prepare_cli.sh
 	$(MAKE) _e2e_test
 
-e2e-test: deploy deploy-e2e-extras bin/output/qcow2/disk.qcow2
+e2e-test: deploy bin/output/qcow2/disk.qcow2
 	$(MAKE) _e2e_test
 
 run-e2e-test:

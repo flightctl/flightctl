@@ -7,10 +7,10 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-	"k8s.io/apimachinery/pkg/fields"
 )
 
 var (
@@ -141,7 +141,7 @@ type ListParams struct {
 	Limit                       int
 	Continue                    *Continue
 	FleetName                   *string
-	FieldSelector               fields.Selector
+	FieldSelector               k8sselector.Selector
 	SortBy                      *SortField
 }
 
@@ -154,7 +154,7 @@ type Continue struct {
 type SortOrder string
 
 type SortField struct {
-	FieldName selector.SelectorFieldName
+	FieldName selector.SelectorName
 	Order     v1alpha1.SortOrder
 }
 

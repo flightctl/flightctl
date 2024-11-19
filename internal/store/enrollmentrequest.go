@@ -65,7 +65,7 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&enrollmentRequests).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.EnrollmentRequest{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&enrollmentRequests).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&model.EnrollmentRequest{}).Build(ctx, s.db, orgId, listParams)
 			if err != nil {
 				return nil, err
 			}

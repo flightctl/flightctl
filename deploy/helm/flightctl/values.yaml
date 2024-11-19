@@ -43,13 +43,17 @@ global:
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
-  exposeServicesMethod: "route" # route, nodePort
+  exposeServicesMethod: "route" # route, nodePort, gateway
+  gatewayClass: ""
   nodePorts:
     api: 3443
     agent: 7443
     grpc: 7444
     ui: 9000
     keycloak: 8080
+  gatewayPorts:
+    tls: 443
+    http: 80
 
 
 ## @section Compoment specific parameters
@@ -66,6 +70,24 @@ db:
   masterUser: admin
   user: demouser
   userPassword: demopass
+  ## @param db.resources the request/limit resource requests for the DB deployment pod
+  resources:
+    requests:
+      cpu: "512m"
+      memory: "512Mi"
+    limit:
+      cpu: "2000m"
+      memory: "2Gi"
+
+kv:
+  enabled: true
+  image:
+    image: valkey/valkey
+    tag: latest
+    pullPolicy: Always
+  # Save a snapshot of the DB every 60 seconds if at least 1 write operation was performed.
+  # Each snapshot replaces the previous one.
+  flags: '--save 60 1 --loglevel warning'
 api:
   enabled: true
   image:

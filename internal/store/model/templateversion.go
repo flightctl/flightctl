@@ -23,24 +23,21 @@ var (
 type TemplateVersion struct {
 	OrgID           uuid.UUID      `gorm:"type:uuid;primary_key;"`
 	Name            string         `gorm:"primary_key;" selector:"metadata.name"`
-	FleetName       string         `gorm:"primary_key;" selector:"metadata.fleetname"`
+	FleetName       string         `gorm:"primary_key;" selector:"metadata.owner"`
 	Fleet           Fleet          `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
-	Labels          pq.StringArray `gorm:"type:text[]"`
-	Annotations     pq.StringArray `gorm:"type:text[]"`
+	Labels          pq.StringArray `gorm:"type:text[]" selector:"metadata.labels"`
+	Annotations     pq.StringArray `gorm:"type:text[]" selector:"metadata.annotations"`
 	Generation      *int64
 	ResourceVersion *int64
-	CreatedAt       time.Time      `selector:"metadata.created_at"`
-	UpdatedAt       time.Time      `selector:"metadata.updated_at"`
+	CreatedAt       time.Time `selector:"metadata.creationTimestamp"`
+	UpdatedAt       time.Time
 	DeletedAt       gorm.DeletedAt `gorm:"index"`
 
 	// The desired state, stored as opaque JSON object.
 	Spec *JSONField[api.TemplateVersionSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.TemplateVersionStatus] `gorm:"type:jsonb" selector:"status"`
-
-	// An indication if this version is valid. It exposed in a Condition but easier to query here.
-	Valid *bool
+	Status *JSONField[api.TemplateVersionStatus] `gorm:"type:jsonb"`
 }
 
 type TemplateVersionList []TemplateVersion

@@ -211,6 +211,16 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
 			handle:        Wrap(sp.queryNotContains),
 		},
+		"JSONB_CONTAINS": {
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
+			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
+			handle:        Wrap(sp.queryJsonbContains),
+		},
+		"JSONB_NOTCONTAINS": {
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
+			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
+			handle:        Wrap(sp.queryJsonbNotContains),
+		},
 		"OVERLAPS": {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
@@ -223,18 +233,18 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 		},
 		"CAST": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "ISNULL", "ISNOTNULL"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL"),
 			Verifications: []verificationHandler{withPrecedingKeyOrValueQuery()},
 			handle:        sp.queryCast,
 		},
 		"K": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "ISNULL", "ISNOTNULL", "CAST"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL", "CAST"),
 			handle: Wrap(sp.queryKey),
 		},
 		"V": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "CAST"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "CAST"),
 			handle: sp.queryValue,
 		},
 	}
@@ -494,6 +504,28 @@ func (sp *SQLParser) queryNotContains(args ...string) (*FunctionResult, error) {
 
 	return &FunctionResult{
 		Query: fmt.Sprintf("NOT (%s @> ARRAY[%s])", args[0], strings.Join(args[1:], ", ")),
+	}, nil
+}
+
+func (sp *SQLParser) queryJsonbContains(args ...string) (*FunctionResult, error) {
+	if err := validateArgsCount(args, 2, 2); err != nil {
+		return nil, err
+	}
+
+	containsQuery := fmt.Sprintf("%s @> %s", args[0], args[1])
+	return &FunctionResult{
+		Query: containsQuery,
+	}, nil
+}
+
+func (sp *SQLParser) queryJsonbNotContains(args ...string) (*FunctionResult, error) {
+	if err := validateArgsCount(args, 2, 2); err != nil {
+		return nil, err
+	}
+
+	notContainsQuery := fmt.Sprintf("NOT (%s @> %s)", args[0], args[1])
+	return &FunctionResult{
+		Query: notContainsQuery,
 	}, nil
 }
 

@@ -57,6 +57,3 @@ func (r *Resources) Export(ctx context.Context, status *v1alpha1.DeviceStatus) e
 
 	return nil
 }
-
-func (r *Resources) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
-}

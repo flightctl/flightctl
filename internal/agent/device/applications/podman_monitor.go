@@ -112,19 +112,70 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	return nil
 }
 
-func (m *PodmanMonitor) Stop() {
+func (m *PodmanMonitor) Stop(ctx context.Context) error {
+	var errs []error
 	m.once.Do(func() {
-		m.cancelFn()
-		if err := m.cmd.Wait(); err != nil {
-			m.log.Errorf("Failed to wait for podman events: %v", err)
+		m.log.Info("Stopping podman monitor")
+		if err := m.drain(ctx); err != nil {
+			errs = append(errs, err)
 		}
+		m.log.Infof("Podman drain complete")
+		m.cancelFn()
+
+		// its possible that we call stop before the monitor has been
+		// initialized
+		if m.cmd != nil {
+			if err := m.cmd.Wait(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
+			}
+		}
+		m.log.Info("Podman monitor stopped")
 	})
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
 
-// add ensures that and application is added to the monitor. if the application
+func (m *PodmanMonitor) getApps() []Application {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	apps := make([]Application, 0, len(m.apps))
+	for _, app := range m.apps {
+		apps = append(apps, app)
+	}
+	return apps
+}
+
+func (m *PodmanMonitor) drain(ctx context.Context) error {
+	var errs []error
+
+	apps := m.getApps()
+	m.log.Infof("Draining %d applications", len(apps))
+	for _, app := range apps {
+		if err := m.remove(app); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if err := m.ExecuteActions(ctx); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+// ensures that and application is added to the monitor. if the application
 // is added for the first time an Add action is queued to be executed by the
 // lifecycle manager. so additional adds for the same app will be idempotent.
-func (m *PodmanMonitor) add(app Application) error {
+func (m *PodmanMonitor) ensure(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -142,9 +193,10 @@ func (m *PodmanMonitor) add(app Application) error {
 	}
 
 	action := lifecycle.Action{
-		Handler: handler,
-		Type:    lifecycle.ActionAdd,
-		Name:    appName,
+		Handler:  handler,
+		Type:     lifecycle.ActionAdd,
+		Name:     appName,
+		Embedded: app.IsEmbedded(),
 	}
 
 	m.actions = append(m.actions, action)
@@ -168,6 +220,7 @@ func (m *PodmanMonitor) remove(app Application) error {
 
 	delete(m.apps, appName)
 
+	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
 		Handler: handler,
 		Type:    lifecycle.ActionRemove,
@@ -197,6 +250,7 @@ func (m *PodmanMonitor) update(app Application) error {
 		return err
 	}
 
+	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
 		Handler: handler,
 		Type:    lifecycle.ActionUpdate,
@@ -325,7 +379,6 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
 	defer func() {
-		m.log.Info("Podman application monitor stopped")
 		stdoutPipe.Close()
 	}()
 

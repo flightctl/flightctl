@@ -41,16 +41,16 @@ var _ = Describe("TemplateVersion", func() {
 
 	Context("TemplateVersion store", func() {
 		It("Create no fleet error", func() {
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", "os", true)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Create duplicate error", func() {
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", "os", true)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", "os", true)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrDuplicateName))
 		})
@@ -153,7 +153,7 @@ var _ = Describe("TemplateVersion", func() {
 
 		It("Get templateVersion success", func() {
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", "os", true)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			templateVersion, err := storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).ToNot(HaveOccurred())
@@ -172,7 +172,7 @@ var _ = Describe("TemplateVersion", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", "os", true)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			badOrgId, _ := uuid.NewUUID()
 			_, err = storeInst.TemplateVersion().Get(ctx, badOrgId, "myfleet", "1.0.1")
@@ -182,7 +182,7 @@ var _ = Describe("TemplateVersion", func() {
 
 		It("Delete templateVersion success", func() {
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", "os", true)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			err = storeInst.TemplateVersion().Delete(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).ToNot(HaveOccurred())
@@ -196,15 +196,15 @@ var _ = Describe("TemplateVersion", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("Get newest valid", func() {
+		It("Get latest", func() {
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", "os1", true)
+			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.2", "os2", false)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.2", nil)
 			Expect(err).ToNot(HaveOccurred())
-			tv, err := storeInst.TemplateVersion().GetNewestValid(ctx, orgId, "myfleet")
+			tv, err := storeInst.TemplateVersion().GetLatest(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*tv.Metadata.Name).To(Equal("1.0.1"))
+			Expect(*tv.Metadata.Name).To(Equal("1.0.2"))
 		})
 	})
 })

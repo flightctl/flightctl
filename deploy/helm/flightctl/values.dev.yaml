@@ -10,6 +10,7 @@ global:
     agent: 7443
     grpc: 7444
     db: 5432
+    kv: 6379
     keycloak: 8080
     prometheus: 9090
     gitserver: 3222

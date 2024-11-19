@@ -18,9 +18,13 @@ data:
         agentEndpointAddress: :7443
         agentGrpcAddress: :7444
         {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-        baseUrl: https://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
-        baseAgentEndpointUrl: https://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
-        baseAgentGrpcUrl: grpcs://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.grpc }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
+        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.grpc }}
+        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq .Values.global.gatewayPorts.tls 443)) }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
+        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}
         {{- else }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
@@ -28,13 +32,9 @@ data:
         {{- end }}
         baseUIUrl: {{ include "flightctl.getUIUrl" . }}
         altNames:
-          {{- if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
           - api.{{ include "flightctl.getBaseDomain" . }}
           - agent-api.{{ include "flightctl.getBaseDomain" . }}
           - agent-grpc.{{ include "flightctl.getBaseDomain" . }}
-          {{- else }}
-          - {{ include "flightctl.getBaseDomain" . }}
-          {{- end }} 
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
@@ -43,6 +43,9 @@ data:
           - flightctl-api-agent-grpc.{{ .Release.Namespace }}.svc.cluster.local
     queue:
         amqpUrl: amqp://{{ .Values.rabbitmq.auth.username }}:{{ .Values.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:{{ .Values.rabbitmq.ports.amqp }}/
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
     {{- if not (eq .Values.global.auth.type "none")  }}
     {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:
@@ -51,15 +54,11 @@ data:
     {{- else }}
     auth:
         {{- if .Values.global.auth.oidcAuthority }}
-        oidcAuthority: {{ .Values.global.auth.oidcAuthority }}
         internalOidcAuthority: {{ .Values.global.auth.internalOidcAuthority }}
-        {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-        oidcAuthority: http://{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.keycloak }}/realms/flightctl
-        internalOidcAuthority: http://keycloak:8080/realms/flightctl
         {{- else }}
-        oidcAuthority: https://auth.{{ include "flightctl.getBaseDomain" . }}/realms/flightctl
         internalOidcAuthority: http://keycloak:8080/realms/flightctl
         {{- end }}
+        oidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
     {{- end }}
     {{- end }}
