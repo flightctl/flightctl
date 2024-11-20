@@ -1038,6 +1038,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/devices/{name}/decommission:
+    put:
+      tags:
+        - device
+      description: schedule the device to decommission
+      operationId: decommissionDevice
+      parameters:
+        - name: name
+          in: path
+          description: name of the Device
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDecommission'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -2426,6 +2470,17 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+    DeviceDecommission:
+      type: object
+      properties:
+        decommissionTarget:
+          type: string
+          enum:
+            - 'Unenroll'
+            - 'FactoryReset'
+          description: 'Specifies the desired decommissioning method of the device'
+      required:
+        - decommissionTarget
     SortOrder:
       type: string
       enum:

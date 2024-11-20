@@ -159,6 +159,11 @@ type ClientInterface interface {
 	// RequestConsole request
 	RequestConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DecommissionDeviceWithBody request with any body
+	DecommissionDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetRenderedDeviceSpec request
 	GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -600,6 +605,30 @@ func (c *Client) ReplaceDevice(ctx context.Context, name string, body ReplaceDev
 
 func (c *Client) RequestConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRequestConsoleRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DecommissionDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecommissionDeviceRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecommissionDeviceRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2201,6 +2230,53 @@ func NewRequestConsoleRequest(server string, name string) (*http.Request, error)
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewDecommissionDeviceRequest calls the generic DecommissionDevice builder with application/json body
+func NewDecommissionDeviceRequest(server string, name string, body DecommissionDeviceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDecommissionDeviceRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewDecommissionDeviceRequestWithBody generates requests for DecommissionDevice with any type of body
+func NewDecommissionDeviceRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/decommission", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -4404,6 +4480,11 @@ type ClientWithResponsesInterface interface {
 	// RequestConsoleWithResponse request
 	RequestConsoleWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*RequestConsoleResponse, error)
 
+	// DecommissionDeviceWithBodyWithResponse request with any body
+	DecommissionDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
+
+	DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
+
 	// GetRenderedDeviceSpecWithResponse request
 	GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error)
 
@@ -5020,6 +5101,31 @@ func (r RequestConsoleResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r RequestConsoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DecommissionDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Device
+	JSON400      *Error
+	JSON401      *Error
+	JSON404      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r DecommissionDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DecommissionDeviceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6228,6 +6334,23 @@ func (c *ClientWithResponses) RequestConsoleWithResponse(ctx context.Context, na
 		return nil, err
 	}
 	return ParseRequestConsoleResponse(rsp)
+}
+
+// DecommissionDeviceWithBodyWithResponse request with arbitrary body returning *DecommissionDeviceResponse
+func (c *ClientWithResponses) DecommissionDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error) {
+	rsp, err := c.DecommissionDeviceWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecommissionDeviceResponse(rsp)
+}
+
+func (c *ClientWithResponses) DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error) {
+	rsp, err := c.DecommissionDevice(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecommissionDeviceResponse(rsp)
 }
 
 // GetRenderedDeviceSpecWithResponse request returning *GetRenderedDeviceSpecResponse
@@ -7569,6 +7692,53 @@ func ParseRequestConsoleResponse(rsp *http.Response) (*RequestConsoleResponse, e
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDecommissionDeviceResponse parses an HTTP response from a DecommissionDeviceWithResponse call
+func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DecommissionDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	}
 
