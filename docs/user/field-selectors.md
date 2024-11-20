@@ -15,7 +15,8 @@ Each resource supports the following metadata fields:
 - `metadata.annotations`
 - `metadata.creationTimestamp`
 
-> ![NOTE] While `metadata.labels` can be selected using Field Selectors, for more extensive label querying options, consider using Label Selectors.
+> [!NOTE]
+> While `metadata.labels` can be selected using Field Selectors, for more extensive label querying options, consider using Label Selectors.
 
 ### List of Additional Supported Fields
 
