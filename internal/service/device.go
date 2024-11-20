@@ -336,3 +336,8 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		return nil, err
 	}
 }
+
+// (PUT /api/v1/devices/{name}/decommission)
+func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
+	return nil, fmt.Errorf("not yet implemented")
+}
