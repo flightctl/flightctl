@@ -177,14 +177,25 @@ func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.Read
 	return device
 }
 
+func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) v1alpha1.DeviceSummaryStatusType {
+	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	Expect(err).NotTo(HaveOccurred())
+	// we keep waiting for a 200 response, with filled in Status.SystemInfo
+	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.Summary.Status == "" {
+		return ""
+	}
+	return device.JSON200.Status.Summary.Status
+}
+
 func (h *Harness) ApiEndpoint() string {
 	ep := os.Getenv("API_ENDPOINT")
-	if ep == "" {
-		ep = "https://" + util.GetExtIP() + ":3443"
-		logrus.Infof("API_ENDPOINT not set, using default: %s", ep)
-		err := os.Setenv("API_ENDPOINT", ep)
-		Expect(err).ToNot(HaveOccurred())
-	}
+	Expect(ep).NotTo(BeEmpty(), "API_ENDPOINT environment variable must be set")
+	return ep
+}
+
+func (h *Harness) RegistryEndpoint() string {
+	ep := os.Getenv("REGISTRY_ENDPOINT")
+	Expect(ep).NotTo(BeEmpty(), "REGISTRY_ENDPOINT environment variable must be set")
 	return ep
 }
 
@@ -193,6 +204,14 @@ func (h *Harness) setArgsInCmd(cmd *exec.Cmd, args ...string) {
 		replacedArg := strings.ReplaceAll(arg, "${API_ENDPOINT}", h.ApiEndpoint())
 		cmd.Args = append(cmd.Args, replacedArg)
 	}
+}
+
+func (h *Harness) ReplaceVariableInString(s string, old string, new string) string {
+	if s == "" || old == "" {
+		replacedString := strings.ReplaceAll(s, old, new)
+		return replacedString
+	}
+	return ""
 }
 
 func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadCloser, error) {
@@ -329,4 +348,30 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		}
 		return errors.New("not updated")
 	}, timeout, "2s").Should(BeNil())
+}
+
+func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
+	deviceId := h.GetEnrollmentIDFromConsole()
+	logrus.Infof("Enrollment ID found in VM console output: %s", deviceId)
+	Expect(deviceId).NotTo(BeNil())
+
+	// Approve the enrollment and wait for the device details to be populated by the agent.
+	h.ApproveEnrollment(deviceId, util.TestEnrollmentApproval())
+
+	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeEmpty())
+	logrus.Infof("The device %s was approved", deviceId)
+
+	// Wait for the device to pickup enrollment and report measurements on device status.
+	Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeNil())
+	logrus.Infof("The device %s is reporting its status", deviceId)
+
+	// Check the device status.
+	response := h.GetDeviceWithStatusSystem(deviceId)
+	device := response.JSON200
+	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+	Expect(*device.Status.Summary.Info).To(Equal("Bootstrap complete"))
+	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+	return deviceId, device
 }
