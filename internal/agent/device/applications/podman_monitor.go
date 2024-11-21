@@ -73,14 +73,25 @@ type PodmanMonitor struct {
 	log *log.PrefixLogger
 }
 
+var podmanMonitor *PodmanMonitor
+var podmanMonitorMutex sync.Mutex
+
+// NewPodmanMonitor - initialize a podman monitor
+// Note: Only one podman monitor runs per agent. This is especially important in a case of device simulator
 func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman) *PodmanMonitor {
-	return &PodmanMonitor{
-		client:  podman,
-		boot:    client.NewBoot(exec),
-		compose: lifecycle.NewCompose(log, podman),
-		apps:    make(map[string]Application),
-		log:     log,
+	podmanMonitorMutex.Lock()
+	defer podmanMonitorMutex.Unlock()
+
+	if podmanMonitor == nil {
+		podmanMonitor = &PodmanMonitor{
+			client:  podman,
+			boot:    client.NewBoot(exec),
+			compose: lifecycle.NewCompose(log, podman),
+			apps:    make(map[string]Application),
+			log:     log,
+		}
 	}
+	return podmanMonitor
 }
 
 func (m *PodmanMonitor) Run(ctx context.Context) error {
