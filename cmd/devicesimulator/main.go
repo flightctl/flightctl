@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/agent/device"
+	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
@@ -72,6 +73,8 @@ func main() {
 	formattedLables := formatLabels(labels)
 
 	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile)
+
+	applications.UseSinglePodmanMonitor()
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
