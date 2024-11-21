@@ -142,8 +142,8 @@ func (o *GetOptions) Validate(args []string) error {
 			return fmt.Errorf("cannot specify summary when fetching a single resource")
 		}
 		if o.SummaryOnly {
-			if len(o.StatusFilter) > 0 || len(o.Continue) > 0 || o.Limit > 0 {
-				return fmt.Errorf("only the 'owner' and 'selector' flags are supported when 'summary-only' is specified")
+			if o.Limit > 0 || len(o.Continue) > 0 {
+				return fmt.Errorf("flags such as 'limit' and 'continue' are not supported when 'summary-only' is specified")
 			}
 		}
 	}
