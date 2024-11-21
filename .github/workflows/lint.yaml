@@ -33,8 +33,7 @@ jobs:
             notdocs:
               - '!.spelling'
               - '!README.md'
-              - '!docs/*.md'
-              - '!docs/*.svg'
+              - '!docs/**'
 
       - name: Check commit message
         if: ${{ steps.filter.outputs.notdocs == 'true' }}

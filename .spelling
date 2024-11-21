@@ -118,6 +118,11 @@ webhooks
 workflows
 X.509
 YAML
+timestamp
+substring
+timestamps
+boolean
+quay.io
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -171,3 +176,13 @@ usr
  - docs/user/registering-microshift-devices-acm.md
 Pre-requisite
 import.yaml
+ - docs/user/field-selectors.md
+DoesNotExist
+DoubleEquals
+GreaterThan
+GreaterThanOrEquals
+LessThan
+LessThanOrEquals
+NotContains
+NotEquals
+NotIn
