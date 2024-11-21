@@ -274,6 +274,11 @@ func ValidateCSR(csr []byte) []error {
 	return nil
 }
 
+func FormatInvalidError(input, path, errorMsg string) []error {
+	errors := field.ErrorList{field.Invalid(fieldPathFor(path), input, errorMsg)}
+	return asErrors(errors)
+}
+
 func fieldPathFor(path string) *field.Path {
 	fields := strings.Split(path, ".")
 	return field.NewPath(fields[0], fields[1:]...)
