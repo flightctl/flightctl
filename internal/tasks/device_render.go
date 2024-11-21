@@ -142,12 +142,6 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 		name, renderedApplication, renderErr := renderApplication(ctx, &application)
 		applicationName := util.DefaultIfNil(name, "<unknown>")
 
-		if paramErr := validateNoParametersInConfig(&application, t.ownerFleet != nil); paramErr != nil {
-			// An error message regarding invalid parameters should take precedence
-			// because it may be the cause of the render error
-			renderErr = paramErr
-		}
-
 		// Append invalid configs only if there's an error
 		if renderErr != nil {
 			invalidApplications = append(invalidApplications, applicationName)
@@ -196,16 +190,9 @@ func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_ty
 	for i := range *t.deviceConfig {
 		configItem := (*t.deviceConfig)[i]
 		name, repoName, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
-		paramErr := validateNoParametersInConfig(&configItem, t.ownerFleet != nil)
 
 		if repoName != nil {
 			referencedRepos = append(referencedRepos, *repoName)
-		}
-
-		// An error message regarding invalid parameters should take precedence
-		// because it may be the cause of the render error
-		if paramErr != nil {
-			err = paramErr
 		}
 
 		if err != nil {
@@ -231,24 +218,6 @@ func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_ty
 
 type RenderItem interface {
 	MarshalJSON() ([]byte, error)
-}
-
-func validateNoParametersInConfig(item RenderItem, deviceBelongsToFleet bool) error {
-	cfgJson, err := item.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("failed converting configuration to json: %w", err)
-	}
-
-	// If we're rendering the device config and it still has parameters, something went wrong
-	if ContainsParameter(cfgJson) {
-		if deviceBelongsToFleet {
-			return fmt.Errorf("configuration contains parameter, perhaps due to a missing device label")
-		} else {
-			return fmt.Errorf("configuration contains parameter, but parameters can only be used in fleet templates")
-		}
-	}
-
-	return nil
 }
 
 func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
