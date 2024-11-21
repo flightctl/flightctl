@@ -135,26 +135,26 @@ var _ = Describe("FleetRollout", func() {
 
 			BeforeEach(func() {
 				gitConfig = &api.GitConfigProviderSpec{
-					Name: "paramGitConfig",
+					Name: "param-git-config",
 				}
-				gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
+				gitConfig.GitRef.Path = "path-{{ index .metadata.labels \"key\" }}"
 				gitConfig.GitRef.Repository = "repo"
 				gitConfig.GitRef.TargetRevision = "rev"
 
 				inlineConfig = &api.InlineConfigProviderSpec{
-					Name: "paramInlineConfig",
+					Name: "param-inline-config",
 				}
 				enc := api.Base64
 				inlineConfig.Inline = []api.FileSpec{
-					// Unencoded: My version is {{ device.metadata.labels[version] }}
-					{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},
+					// Unencoded: My version is {{ index .metadata.labels "version" }}
+					{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBpbmRleCAubWV0YWRhdGEubGFiZWxzICJ2ZXJzaW9uIiB9fQ=="},
 				}
 
 				httpConfig = &api.HttpConfigProviderSpec{
-					Name: "paramHttpConfig",
+					Name: "param-http-config",
 				}
 				httpConfig.HttpRef.Repository = "http-repo"
-				httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
+				httpConfig.HttpRef.FilePath = "/var/http-path-{{ index .metadata.labels \"key\" }}"
 				httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
 			})
 
@@ -214,7 +214,7 @@ var _ = Describe("FleetRollout", func() {
 						case api.HttpConfigProviderType:
 							httpSpec, err := configItem.AsHttpConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
-							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("http-path-value-%d", i)))
+							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("/var/http-path-value-%d", i)))
 							Expect(httpSpec.HttpRef.Suffix).To(Equal(util.StrToPtr("/http-suffix")))
 						default:
 							Expect("").To(Equal("unexpected discriminator"))

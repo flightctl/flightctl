@@ -261,3 +261,119 @@ func TestValidateGraceDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateParametersInString(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name           string
+		paramString    string
+		containsParams bool
+		expectError    int
+	}{
+		{
+			name:           "no parameters",
+			paramString:    "hello world",
+			containsParams: false,
+			expectError:    0,
+		},
+		{
+			name:           "simple name access",
+			paramString:    "hello {{ .metadata.name }} world",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "name access using Go struct syntax fails",
+			paramString:    "hello {{ .Metadata.Name }} world",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "label access using Go struct syntax fails",
+			paramString:    "hello {{ .Metadata.Labels.key }} world",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "accessing non-exposed field fails",
+			paramString:    "hello {{ .metadata.annotations.key }} world",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "upper name",
+			paramString:    "{{ upper .metadata.name }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "upper label",
+			paramString:    "{{ upper .metadata.labels.key }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "lower name",
+			paramString:    "{{ lower .metadata.name }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "lower label",
+			paramString:    "{{ lower .metadata.labels.key }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "replace name",
+			paramString:    "{{ replace \"old\" \"new\" .metadata.name }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "replace label",
+			paramString:    "{{ replace \"old\" \"new\" .metadata.labels.key }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "index",
+			paramString:    "{{ index .metadata.labels \"key\" }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "missing function",
+			paramString:    "{{ badfunction .metadata.labels \"key\" }}",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "using range",
+			paramString:    "Labels: {{range $key, $value := .metadata.labels }} {{$key}}: {{$value}} {{ end }}",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "using if",
+			paramString:    "{{if .metadata.name }} Resource Name: {{ .metadata.name }} {{ else }} Resource Name is not set. {{ end }}",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "pipeline",
+			paramString:    "{{ .metadata.labels.key | lower | replace \" \" \"-\"}}",
+			containsParams: true,
+			expectError:    0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			containsParams, errs := validateParametersInString(&(tt.paramString), "path", true)
+			require.Len(errs, tt.expectError)
+			if len(errs) == 0 {
+				require.Equal(tt.containsParams, containsParams)
+			}
+		})
+	}
+}
