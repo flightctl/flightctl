@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
+	"text/template"
 
 	"github.com/samber/lo"
 )
@@ -269,4 +271,40 @@ func FleetSpecsAreEqual(f1, f2 FleetSpec) bool {
 	}
 
 	return DeviceSpecsAreEqual(f1.Template.Spec, f2.Template.Spec)
+}
+
+type MissingKeyGetOrError struct {
+	Key string
+}
+
+func (e *MissingKeyGetOrError) Error() string {
+	return fmt.Sprintf("key %s not defined", e.Key)
+}
+
+func GetGoTemplateFuncMap() template.FuncMap {
+	getOrDefault := func(m map[string]string, key string, defaultValue string) string {
+		if val, ok := m[key]; ok {
+			return val
+		}
+		return defaultValue
+	}
+
+	getOrError := func(m map[string]string, key string) (string, error) {
+		if val, ok := m[key]; ok {
+			return val, nil
+		}
+		return "", &MissingKeyGetOrError{Key: key}
+	}
+
+	replace := func(input, old, new string) string {
+		return strings.Replace(input, old, new, -1)
+	}
+
+	return template.FuncMap{
+		"toUpper":      strings.ToUpper,
+		"toLower":      strings.ToLower,
+		"replace":      replace,
+		"getOrDefault": getOrDefault,
+		"getOrError":   getOrError,
+	}
 }
