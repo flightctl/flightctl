@@ -78,10 +78,10 @@ var podmanMonitorMutex sync.Mutex
 // NewPodmanMonitor - initialize a podman monitor
 // Only one podman monitor runs per agent.
 // This is especially important in a case of device simulator!
-func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman) *PodmanMonitor {
+func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman, reset bool) *PodmanMonitor {
 	podmanMonitorMutex.Lock()
 	defer podmanMonitorMutex.Unlock()
-	if podmanMonitor == nil {
+	if podmanMonitor == nil || reset {
 		podmanMonitor = &PodmanMonitor{
 			client:  podman,
 			boot:    client.NewBoot(exec),

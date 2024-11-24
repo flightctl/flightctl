@@ -18,7 +18,7 @@ type manager struct {
 
 func NewManager(log *log.PrefixLogger, exec executer.Executer, podmanClient *client.Podman) Manager {
 	return &manager{
-		podmanMonitor: NewPodmanMonitor(log, exec, podmanClient),
+		podmanMonitor: NewPodmanMonitor(log, exec, podmanClient, false),
 		log:           log,
 	}
 }
