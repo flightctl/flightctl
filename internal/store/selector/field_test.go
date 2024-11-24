@@ -117,17 +117,17 @@ func TestOperations(t *testing.T) {
 		"model.field6 notin (text1,text2)": "OR(ISNULL(K(field6)),NOTIN(K(field6),V(text1),V(text2)))", //NotIn
 
 		// Timestamps
-		"model.field7":                                   "ISNOTNULL(K(field7))",                                                                                           //Exists
-		"!model.field7":                                  "ISNULL(K(field7))",                                                                                              //DoesNotExist
-		"model.field7=2024-10-14T22:47:31+03:00":         "EQ(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //Equals
-		"model.field7 in (2024-10-14T22:47:31+03:00)":    "IN(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //In
-		"model.field7!=2024-10-14T22:47:31+03:00":        "OR(ISNULL(K(field7)),NOTEQ(K(field7),V(2024-10-14T22:47:31+03:00)))",                                            //NotEquals
-		"model.field7 notin (2024-10-14T22:47:31+03:00)": "OR(ISNULL(K(field7)),NOTIN(K(field7),V(2024-10-14T22:47:31+03:00)))",                                            //NotIn
-		"model.field7>2024-10-14T22:47:31+03:00":         "GT(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //GreaterThan
-		"model.field7>=2024-10-14T22:47:31+03:00":        "GTE(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                    //GreaterThanOrEquals
-		"model.field7<2024-10-14T22:47:31+03:00":         "LT(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                     //LessThan
-		"model.field7<=2024-10-14T22:47:31+03:00":        "LTE(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                    //LessThanOrEquals
-		"customfield2!=2024-10-14T22:47:31+03:00":        "OR(ISNULL(K(goodfield ->> 'key')),NOTEQ(CAST(K(goodfield ->> 'key'), timestamp),V(2024-10-14T22:47:31+03:00)))", //NotEquals + JSONB cast
+		"model.field7":                                   "ISNOTNULL(K(field7))",                                                                                             //Exists
+		"!model.field7":                                  "ISNULL(K(field7))",                                                                                                //DoesNotExist
+		"model.field7=2024-10-14T22:47:31+03:00":         "EQ(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                       //Equals
+		"model.field7 in (2024-10-14T22:47:31+03:00)":    "IN(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                       //In
+		"model.field7!=2024-10-14T22:47:31+03:00":        "OR(ISNULL(K(field7)),NOTEQ(K(field7),V(2024-10-14T22:47:31+03:00)))",                                              //NotEquals
+		"model.field7 notin (2024-10-14T22:47:31+03:00)": "OR(ISNULL(K(field7)),NOTIN(K(field7),V(2024-10-14T22:47:31+03:00)))",                                              //NotIn
+		"model.field7>2024-10-14T22:47:31+03:00":         "GT(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                       //GreaterThan
+		"model.field7>=2024-10-14T22:47:31+03:00":        "GTE(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                      //GreaterThanOrEquals
+		"model.field7<2024-10-14T22:47:31+03:00":         "LT(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                       //LessThan
+		"model.field7<=2024-10-14T22:47:31+03:00":        "LTE(K(field7),V(2024-10-14T22:47:31+03:00))",                                                                      //LessThanOrEquals
+		"customfield2!=2024-10-14T22:47:31+03:00":        "OR(ISNULL(K(goodfield ->> 'key')),NOTEQ(CAST(K(goodfield ->> 'key'), timestamptz),V(2024-10-14T22:47:31+03:00)))", //NotEquals + JSONB cast
 
 		// Arrays
 		"model.field12[0]":                            "ISNOTNULL(K(field12[1]))",                                         //Exists
@@ -166,7 +166,7 @@ func TestOperations(t *testing.T) {
 		// Manual resolved selectors
 		"mappedselector=test":                    "OR(EQ(K(field6),V(test)),EQ(K(field17),V(test)))",
 		"customfield1=text":                      "EQ(K(goodfield),V(text))",
-		"customfield2=2024-10-14T22:47:31+03:00": "EQ(CAST(K(goodfield ->> 'key'), timestamp),V(2024-10-14T22:47:31+03:00))",
+		"customfield2=2024-10-14T22:47:31+03:00": "EQ(CAST(K(goodfield ->> 'key'), timestamptz),V(2024-10-14T22:47:31+03:00))",
 		"customfield3=\"text\"":                  "EQ(K(goodfield -> 'key'),V(\"text\"))",
 		"!customfield4.some.array[5]":            "ISNULL(K(goodfield -> 'some' -> 'array' ->> 5))",
 		"customfield5.approved = true":           "EQ(CAST(K(goodfield -> 'path' ->> 'approved'), boolean),V(true))",

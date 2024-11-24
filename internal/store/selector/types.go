@@ -145,7 +145,7 @@ func (t SelectorType) String() string {
 	case String:
 		return "text"
 	case Timestamp:
-		return "timestamp"
+		return "timestamptz"
 	case BoolArray:
 		return "boolean[]"
 	case IntArray:
@@ -159,7 +159,7 @@ func (t SelectorType) String() string {
 	case TextArray:
 		return "text[]"
 	case TimestampArray:
-		return "timestamp[]"
+		return "timestamptz[]"
 	case Jsonb:
 		return "jsonb"
 	default:

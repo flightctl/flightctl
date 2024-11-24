@@ -313,7 +313,7 @@ func (fs *fieldSelector) resolveValue(
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse timestamp value: %w", err)
 		}
-		return resolve(v), nil
+		return resolve(v.Round(time.Microsecond)), nil
 
 	case String, TextArray:
 		if !selectorField.IsJSONBCast() && selectorField.Type == String &&
