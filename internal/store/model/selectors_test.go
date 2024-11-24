@@ -24,9 +24,7 @@ func TestModelSchemaSelectors(t *testing.T) {
 		{"status", &api.CertificateSigningRequestStatus{}, certificateSigningRequestStatusSelectors},
 		{"spec", &api.FleetSpec{}, fleetSpecSelectors},
 		{"spec", &api.ResourceSyncSpec{}, resourceSyncSpecSelectors},
-
-		// TODO: cannot scan the API schema
-		// {"spec", &api.RepositorySpec{}, repositorySpecSelectors}
+		{"spec", &api.GenericRepoSpec{}, repositorySpecSelectors},
 	}
 
 	for _, test := range testSelectors {
