@@ -75,37 +75,23 @@ type PodmanMonitor struct {
 
 var podmanMonitor *PodmanMonitor
 var podmanMonitorMutex sync.Mutex
-var podmanMonitorSingle bool
-
-func newPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman) *PodmanMonitor {
-	return &PodmanMonitor{
-		client:  podman,
-		boot:    client.NewBoot(exec),
-		compose: lifecycle.NewCompose(log, podman),
-		apps:    make(map[string]Application),
-		log:     log,
-	}
-}
-
-func UseSinglePodmanMonitor() {
-	podmanMonitorMutex.Lock()
-	defer podmanMonitorMutex.Unlock()
-	podmanMonitorSingle = true
-}
 
 // NewPodmanMonitor - initialize a podman monitor
-// Only one podman monitor runs per agent (this is not true for tests).
-// This is especially important in a case of device simulator and UseSinglePodmanMonitor should be called
+// Only one podman monitor runs per agent.
+// This is especially important in a case of device simulator!
 func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman) *PodmanMonitor {
 	podmanMonitorMutex.Lock()
 	defer podmanMonitorMutex.Unlock()
-	if podmanMonitorSingle {
-		if podmanMonitor == nil {
-			podmanMonitor = newPodmanMonitor(log, exec, podman)
+	if podmanMonitor == nil {
+		podmanMonitor = &PodmanMonitor{
+			client:  podman,
+			boot:    client.NewBoot(exec),
+			compose: lifecycle.NewCompose(log, podman),
+			apps:    make(map[string]Application),
+			log:     log,
 		}
-		return podmanMonitor
 	}
-	return newPodmanMonitor(log, exec, podman)
+	return podmanMonitor
 }
 
 func (m *PodmanMonitor) Run(ctx context.Context) error {
@@ -138,24 +124,26 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 }
 
 func (m *PodmanMonitor) Stop(ctx context.Context) error {
-	var errs []error
-	m.once.Do(func() {
-		m.log.Info("Stopping podman monitor")
-		if err := m.drain(ctx); err != nil {
-			errs = append(errs, err)
-		}
-		m.log.Infof("Podman drain complete")
-		m.cancelFn()
+	podmanMonitorMutex.Lock()
+	defer podmanMonitorMutex.Unlock()
 
-		// its possible that we call stop before the monitor has been
-		// initialized
-		if m.cmd != nil {
-			if err := m.cmd.Wait(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
-			}
+	var errs []error
+	m.log.Info("Stopping podman monitor")
+	if err := m.drain(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	m.log.Infof("Podman drain complete")
+	m.cancelFn()
+
+	// it's possible that we call stop before the monitor has been
+	// initialized
+	if m.cmd != nil {
+		if err := m.cmd.Wait(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
 		}
-		m.log.Info("Podman monitor stopped")
-	})
+	}
+	podmanMonitor = nil
+	m.log.Info("Podman monitor stopped")
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
