@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -57,24 +59,30 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
-type listQuery struct {
+type list struct {
 	dest any
 }
 
-func ListQuery(model any) *listQuery {
-	return &listQuery{dest: model}
+type listQuery struct {
+	dest   any
+	query  *gorm.DB
+	params ListParams
 }
 
-func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+func List(model any) *list {
+	return &list{dest: model}
+}
+
+func (l *list) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*listQuery, error) {
 	var err error
-	query := db.Model(lq.dest)
-	query = query.Where("org_id = ?", orgId)
+	query := db.Model(l.dest)
+	query.Where("org_id = ?", orgId)
 
 	var invertLabels bool
 	if listParams.InvertLabels != nil && *listParams.InvertLabels {
 		invertLabels = true
 	}
-	query = LabelSelectionQuery(query, listParams.Labels, invertLabels)
+	LabelSelectionQuery(query, listParams.Labels, invertLabels)
 	if query, err = LabelMatchExpressionsQuery(query, listParams.LabelMatchExpressions); err != nil {
 		return nil, err
 	}
@@ -82,19 +90,19 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 		return nil, err
 	}
 
-	query = FieldFilterSelectionQuery(query, listParams.Filter)
+	FieldFilterSelectionQuery(query, listParams.Filter)
 
 	queryStr, args := createOrQuery("owner", listParams.Owners)
 	if len(queryStr) > 0 {
-		query = query.Where(queryStr, args...)
+		query.Where(queryStr, args...)
 	}
 
 	if listParams.FleetName != nil {
-		query = query.Where("fleet_name = ?", *listParams.FleetName)
+		query.Where("fleet_name = ?", *listParams.FleetName)
 	}
 
 	if listParams.FieldSelector != nil {
-		fs, err := selector.NewFieldSelector(lq.dest)
+		fs, err := selector.NewFieldSelector(l.dest)
 		if err != nil {
 			return nil, err
 		}
@@ -103,39 +111,225 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 		if err != nil {
 			return nil, err
 		}
-		query = query.Where(q, p...)
+		query.Where(q, p...)
 	}
 
-	resolver, err := selector.SelectorFieldResolver(lq.dest)
-	if err != nil {
-		return nil, err
+	if listParams.Continue != nil {
+		sortable, ok := l.dest.(model.Sortable)
+		if !ok {
+			return nil, fmt.Errorf("resource type %T is not sortable", l.dest)
+		}
+
+		sortSelectors := selector.NewSelectorFieldNameSet().Add("metadata.name")
+		if listParams.SortBy != nil {
+			sortSelectors.Add(listParams.SortBy.FieldName)
+		}
+
+		if sortSelectors.Size() != len(listParams.Continue.Cursor) {
+			return nil, fmt.Errorf(
+				"mismatch between continue cursor size (%d) and sort parameter size (%d)",
+				len(listParams.Continue.Cursor), sortSelectors.Size(),
+			)
+		}
+
+		var requirements []selector.SortRequirement
+		for _, cursor := range listParams.Continue.Cursor {
+			if !sortSelectors.Contains(cursor.Name) || !sortable.SortableSelectors().Contains(cursor.Name) {
+				return nil, fmt.Errorf(
+					"invalid selector '%s' in continue cursor; not part of the sort parameters",
+					cursor.Name,
+				)
+			}
+			requirements = append(requirements, cursor)
+		}
+
+		sortSelector, err := selector.NewSortSelector(l.dest)
+		if err != nil {
+			return nil, fmt.Errorf("error creating sort selector: %w", err)
+		}
+
+		q, v, err := sortSelector.Parse(ctx, requirements...)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sort requirements: %w", err)
+		}
+		query.Where(q, v...)
 	}
 
 	if listParams.SortBy != nil {
-		// Resolve name from the SortBy field, which might correspond to multiple fields.
+		sortable, ok := l.dest.(model.Sortable)
+		if !ok {
+			return nil, fmt.Errorf("resource type %T is not sortable", l.dest)
+		}
+
+		if !sortable.SortableSelectors().Contains(listParams.SortBy.FieldName) {
+			supportedFields := sortable.SortableSelectors().List()
+			sort.Slice(supportedFields, func(i, j int) bool {
+				return supportedFields[i] < supportedFields[j]
+			})
+
+			return nil, selector.NewSelectorError(flterrors.ErrFieldSelectorUnknownSelector,
+				fmt.Errorf("invalid sort selector '%s'; not supported for the resource. Supported selectors are: %v",
+					listParams.SortBy.FieldName, supportedFields))
+		}
+
+		resolver, err := selector.SelectorFieldResolver(l.dest)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving selector fields: %w", err)
+		}
+
 		fields, err := resolver.ResolveNames(listParams.SortBy.FieldName)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving field names for sort selector '%s': %w", listParams.SortBy.FieldName, err)
+		}
+
+		switch len(fields) {
+		case 0:
+			return nil, fmt.Errorf("no fields resolved for sort selector '%s'", listParams.SortBy.FieldName)
+		case 1:
+			if fields[0] != "name" {
+				query.Order(fmt.Sprintf("%s %s", createParamsFromKey(fields[0]),
+					strings.ToLower(string(listParams.SortBy.Order)))).Order("name")
+			} else {
+				query.Order(fmt.Sprintf("%s %s", createParamsFromKey(fields[0]),
+					strings.ToLower(string(listParams.SortBy.Order))))
+			}
+		default:
+			return nil, fmt.Errorf("multiple fields resolved for sort selector '%s'; expected exactly one", listParams.SortBy.FieldName)
+		}
+	} else {
+		query.Order("name")
+	}
+
+	return &listQuery{
+		dest:   l.dest,
+		query:  query,
+		params: listParams,
+	}, nil
+}
+
+func (lq *listQuery) Query() *gorm.DB {
+	return lq.query
+}
+
+func (lq *listQuery) Limit(limit int) *listQuery {
+	if limit > 0 {
+		lq.query.Limit(limit)
+	}
+	return lq
+}
+
+func (lq *listQuery) Find(ctx context.Context, dest any) (*Continue, error) {
+	// Validate that dest is a pointer to a slice
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+		return nil, fmt.Errorf("dest must be a pointer to a slice")
+	}
+
+	// Perform the database query
+	res := lq.query.WithContext(ctx).Find(dest)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+
+	// Handle Sortable resources if applicable
+	if _, ok := lq.dest.(model.Sortable); ok && res.RowsAffected > 0 {
+		// Ensure the slice is not empty
+		sliceValue := destValue.Elem()
+		if sliceValue.Len() == 0 {
+			return nil, fmt.Errorf("query returned rows, but slice is empty")
+		}
+
+		// Get the last item in the slice
+		lastItem := sliceValue.Index(sliceValue.Len() - 1)
+		if lastItem.Kind() != reflect.Ptr {
+			// Use Addr() to get the address of the last item
+			lastItem = lastItem.Addr()
+		}
+
+		sortable, ok := lastItem.Interface().(model.Sortable)
+		if !ok {
+			return nil, fmt.Errorf("result is not sortable")
+		}
+
+		// Create a SortSelector
+		sortSelector, err := selector.NewSortSelector(lq.dest)
 		if err != nil {
 			return nil, err
 		}
-		for _, name := range fields {
-			query = query.Order(fmt.Sprintf("%s %s", createParamsFromKey(name),
-				strings.ToLower(string(listParams.SortBy.Order))))
+
+		// Prepare SortRequirements
+		var requirements []selector.SortRequirement
+		if lq.params.SortBy != nil {
+			if lq.params.SortBy.FieldName != "metadata.name" {
+				requirements = []selector.SortRequirement{
+					NewResourceSelector(lq.params.SortBy.FieldName, selector.SortOrder(lq.params.SortBy.Order), sortable),
+					NewResourceSelector("metadata.name", selector.Ascending, sortable),
+				}
+			} else {
+				requirements = []selector.SortRequirement{
+					NewResourceSelector(lq.params.SortBy.FieldName, selector.SortOrder(lq.params.SortBy.Order), sortable),
+				}
+			}
+		} else {
+			requirements = []selector.SortRequirement{
+				NewResourceSelector("metadata.name", selector.Ascending, sortable),
+			}
+		}
+
+		// Parse the SortSelector
+		q, v, err := sortSelector.Parse(ctx, requirements...)
+		if err != nil {
+			return nil, err
+		}
+
+		// Count remaining items
+		var remain int64
+		res = lq.query.WithContext(ctx).Where(q, v...).Count(&remain)
+		if res.Error != nil {
+			return nil, res.Error
+		}
+
+		if remain > 0 {
+			// Create the ListContinue response
+			cont := &Continue{
+				Version: CurrentContinueVersion,
+				Count:   remain,
+			}
+
+			// Build the cursor selectors
+			cont.Cursor = make([]*CursorSelector, len(requirements))
+			for i, req := range requirements {
+				cont.Cursor[i] = &CursorSelector{
+					Name:      req.By(),
+					Val:       req.Value(),
+					SortOrder: req.Order(),
+				}
+			}
+			return cont, nil
 		}
 	}
-
-	return query, nil
+	return nil, nil
 }
 
-func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
-	if limit == 0 {
-		return query
-	}
-	query = query.Limit(limit)
-	if cont != nil {
-		query = query.Where("name >= ?", cont.Name)
-	}
+type ResourceSelector struct {
+	Name  selector.SelectorName
+	order selector.SortOrder
+	dest  model.Sortable
+}
 
-	return query
+func NewResourceSelector(name selector.SelectorName, order selector.SortOrder, dest model.Sortable) *ResourceSelector {
+	return &ResourceSelector{name, order, dest}
+}
+
+func (rs *ResourceSelector) By() selector.SelectorName {
+	return rs.Name
+}
+func (rs *ResourceSelector) Value() any {
+	return rs.dest.ValueOf(rs.Name)
+}
+
+func (rs *ResourceSelector) Order() selector.SortOrder {
+	return rs.order
 }
 
 func matchExpressionQueryAndArgs(matchExpression api.MatchExpression, colName string) (string, []any) {

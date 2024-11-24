@@ -145,10 +145,35 @@ type ListParams struct {
 	SortBy                      *SortField
 }
 
+type CursorSelector struct {
+	Name      selector.SelectorName `json:"s"`
+	SortOrder selector.SortOrder    `json:"o"`
+	Val       any                   `json:"v"`
+}
+
 type Continue struct {
-	Version int
-	Name    string
-	Count   int64
+	Version int               `json:"version"`
+	Cursor  []*CursorSelector `json:"cursor"`
+	Count   int64             `json:"count"`
+}
+
+func (cont *Continue) AsString() string {
+	if cont == nil {
+		return ""
+	}
+	contByte, _ := json.Marshal(cont)
+	return b64.StdEncoding.EncodeToString(contByte)
+}
+
+func (cs *CursorSelector) By() selector.SelectorName {
+	return cs.Name
+}
+func (cs *CursorSelector) Value() any {
+	return cs.Val
+}
+
+func (cs *CursorSelector) Order() selector.SortOrder {
+	return selector.SortOrder(cs.SortOrder)
 }
 
 type SortOrder string

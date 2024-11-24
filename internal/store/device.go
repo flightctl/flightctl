@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -156,61 +154,42 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	query, err := List(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
 
 	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query.Limit(listParams.Limit)
 	}
-	result := query.Find(&devices)
 
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(devices) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    devices[len(devices)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		devices = devices[:len(devices)-1]
+	nextContinueStruct, err := query.Find(ctx, &devices)
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
 
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
+	if nextContinueStruct != nil {
+		contStr := nextContinueStruct.AsString()
 		nextContinue = &contStr
-		numRemaining = &numRemainingVal
+		numRemaining = &nextContinueStruct.Count
 	}
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
-	return &apiDevicelist, ErrorFromGormError(result.Error)
+	return &apiDevicelist, nil
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
-	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	query, err := List(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
 
 	var devicesCount int64
-	if err := query.Count(&devicesCount).Error; err != nil {
+	if err := query.Query().Count(&devicesCount).Error; err != nil {
 		return nil, ErrorFromGormError(err)
 	}
 
-	statusCount, err := CountStatusList(ctx, query,
+	statusCount, err := CountStatusList(ctx, query.Query(),
 		"status.applicationsSummary.status",
 		"status.summary.status",
 		"status.updated.status")

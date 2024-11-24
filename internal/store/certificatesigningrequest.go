@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -65,47 +63,32 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	var nextContinue *string
 	var numRemaining *int64
 
-	query, err := ListQuery(&model.CertificateSigningRequest{}).Build(ctx, s.db, orgId, listParams)
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
+	query, err := List(&model.CertificateSigningRequest{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
 
 	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query.Limit(listParams.Limit)
 	}
-	result := query.Find(&certificateSigningRequests)
 
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(certificateSigningRequests) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    certificateSigningRequests[len(certificateSigningRequests)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		certificateSigningRequests = certificateSigningRequests[:len(certificateSigningRequests)-1]
+	nextContinueStruct, err := query.Find(ctx, &certificateSigningRequests)
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
 
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&model.CertificateSigningRequest{}).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
+	if nextContinueStruct != nil {
+		contStr := nextContinueStruct.AsString()
 		nextContinue = &contStr
-		numRemaining = &numRemainingVal
+		numRemaining = &nextContinueStruct.Count
 	}
 
 	apiCertificateSigningRequestList := certificateSigningRequests.ToApiResource(nextContinue, numRemaining)
-	return &apiCertificateSigningRequestList, ErrorFromGormError(result.Error)
+	return &apiCertificateSigningRequestList, nil
 }
 
 func (s *CertificateSigningRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {

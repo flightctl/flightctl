@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -105,45 +103,27 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	}
 
 	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })
-	query, err := ListQuery(&model.Fleet{}).Build(ctx, s.db, orgId, listParams)
+	query, err := List(&model.Fleet{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
-	query = query.Select(fleetSelectStr(options.withDeviceCount))
+	query.Query().Select(fleetSelectStr(options.withDeviceCount))
 
 	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query.Limit(listParams.Limit)
 	}
-	result := query.Scan(&fleetsWithCount)
 
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(fleetsWithCount) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    fleetsWithCount[len(fleetsWithCount)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		fleetsWithCount = fleetsWithCount[:len(fleetsWithCount)-1]
+	nextContinueStruct, err := query.Find(ctx, &fleetsWithCount)
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
 
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&model.Fleet{}).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
+	if nextContinueStruct != nil {
+		contStr := nextContinueStruct.AsString()
 		nextContinue = &contStr
-		numRemaining = &numRemainingVal
+		numRemaining = &nextContinueStruct.Count
 	}
+
 	fleets := model.FleetList(lo.Map(fleetsWithCount, func(f fleetWithCount, _ int) model.Fleet {
 		if options.withDeviceCount {
 			if f.Fleet.Status.Data.DevicesSummary == nil {
@@ -153,8 +133,9 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 		}
 		return f.Fleet
 	}))
+
 	apiFleetList := fleets.ToApiResource(nextContinue, numRemaining)
-	return &apiFleetList, ErrorFromGormError(result.Error)
+	return &apiFleetList, nil
 }
 
 // A method to get all Fleets regardless of ownership. Used internally by the DeviceUpdater.
@@ -210,13 +191,13 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		Total: fleet.DeviceCount,
 	}
 	if options.withSummary {
-		deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId,
+		deviceQuery, err := List(&model.Device{}).Build(ctx, s.db, orgId,
 			ListParams{Owners: []string{*util.SetResourceOwner(model.FleetKind, name)}})
 		if err != nil {
 			return nil, err
 		}
 
-		statusCount, err := CountStatusList(ctx, deviceQuery,
+		statusCount, err := CountStatusList(ctx, deviceQuery.Query(),
 			"status.applicationsSummary.status",
 			"status.summary.status",
 			"status.updated.status")

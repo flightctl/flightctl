@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -71,48 +69,29 @@ func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&model.Repository{}).Build(ctx, s.db, orgId, listParams)
+	query, err := List(&model.Repository{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
+	query.Query().Where("spec IS NOT NULL")
+
 	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query.Limit(listParams.Limit)
 	}
-	query = query.Where("spec IS NOT NULL")
-	result := query.Find(&repositories)
 
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(repositories) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    repositories[len(repositories)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		repositories = repositories[:len(repositories)-1]
+	nextContinueStruct, err := query.Find(ctx, &repositories)
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
 
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&model.Repository{}).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			countQuery = countQuery.Where("spec IS NOT NULL")
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
+	if nextContinueStruct != nil {
+		contStr := nextContinueStruct.AsString()
 		nextContinue = &contStr
-		numRemaining = &numRemainingVal
+		numRemaining = &nextContinueStruct.Count
 	}
 
 	apiRepositoryList, toApiErr := repositories.ToApiResource(nextContinue, numRemaining)
-	err = ErrorFromGormError(result.Error)
+	err = ErrorFromGormError(err)
 	if err == nil {
 		err = toApiErr
 	}

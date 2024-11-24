@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
 	"errors"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -73,47 +71,28 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&templateVersions).Build(ctx, s.db, orgId, listParams)
+	query, err := List(&model.TemplateVersion{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
 
 	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query.Limit(listParams.Limit)
 	}
-	result := query.Find(&templateVersions)
 
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(templateVersions) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    templateVersions[len(templateVersions)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		templateVersions = templateVersions[:len(templateVersions)-1]
+	nextContinueStruct, err := query.Find(ctx, &templateVersions)
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
 
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&templateVersions).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
+	if nextContinueStruct != nil {
+		contStr := nextContinueStruct.AsString()
 		nextContinue = &contStr
-		numRemaining = &numRemainingVal
+		numRemaining = &nextContinueStruct.Count
 	}
 
 	apiTemplateVersionList := templateVersions.ToApiResource(nextContinue, numRemaining)
-	return &apiTemplateVersionList, ErrorFromGormError(result.Error)
+	return &apiTemplateVersionList, nil
 }
 
 func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {

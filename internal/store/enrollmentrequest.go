@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
 	"errors"
 	"reflect"
 
@@ -65,47 +63,28 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&model.EnrollmentRequest{}).Build(ctx, s.db, orgId, listParams)
+	query, err := List(&model.EnrollmentRequest{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
 
 	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query.Limit(listParams.Limit)
 	}
-	result := query.Find(&enrollmentRequests)
 
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(enrollmentRequests) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    enrollmentRequests[len(enrollmentRequests)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		enrollmentRequests = enrollmentRequests[:len(enrollmentRequests)-1]
+	nextContinueStruct, err := query.Find(ctx, &enrollmentRequests)
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
 
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&model.EnrollmentRequest{}).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
+	if nextContinueStruct != nil {
+		contStr := nextContinueStruct.AsString()
 		nextContinue = &contStr
-		numRemaining = &numRemainingVal
+		numRemaining = &nextContinueStruct.Count
 	}
 
 	apiEnrollmentRequestList := enrollmentRequests.ToApiResource(nextContinue, numRemaining)
-	return &apiEnrollmentRequestList, ErrorFromGormError(result.Error)
+	return &apiEnrollmentRequestList, nil
 }
 
 func (s *EnrollmentRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
