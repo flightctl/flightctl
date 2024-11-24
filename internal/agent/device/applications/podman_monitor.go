@@ -59,7 +59,6 @@ type PodmanEvent struct {
 type PodmanMonitor struct {
 	mu          sync.Mutex
 	cmd         *exec.Cmd
-	once        sync.Once
 	cancelFn    context.CancelFunc
 	initialized bool
 
