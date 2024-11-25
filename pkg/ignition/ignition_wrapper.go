@@ -82,8 +82,8 @@ func (w *wrapper) SetFile(filePath string, contents []byte, mode int, base64 boo
 }
 
 func (w *wrapper) ChangeMountPath(mountPath string) {
-	for _, f := range w.config.Storage.Files {
-		f.Node.Path = filepath.Join(mountPath, f.Node.Path)
+	for i := range w.config.Storage.Files {
+		w.config.Storage.Files[i].Node.Path = filepath.Join(mountPath, w.config.Storage.Files[i].Node.Path)
 	}
 }
 
