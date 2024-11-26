@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
 )
@@ -21,4 +22,8 @@ func (a NilAuth) GetAuthConfig() common.AuthConfig {
 
 func (NilAuth) CheckPermission(ctx context.Context, resource string, op string) (bool, error) {
 	return true, nil
+}
+
+func (NilAuth) GetAuthToken(r *http.Request) (string, bool) {
+	return "", true
 }
