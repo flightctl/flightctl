@@ -10,8 +10,9 @@ import (
 )
 
 type OpenShiftAuthN struct {
-	OpenShiftApiUrl string
-	ClientTlsConfig *tls.Config
+	OpenShiftApiUrl         string
+	InternalOpenShiftApiUrl string
+	ClientTlsConfig         *tls.Config
 }
 
 type OauthServerResponse struct {
@@ -19,7 +20,11 @@ type OauthServerResponse struct {
 }
 
 func (o OpenShiftAuthN) ValidateToken(ctx context.Context, token string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/apis/user.openshift.io/v1/users/~", o.OpenShiftApiUrl), nil)
+	url := o.InternalOpenShiftApiUrl
+	if url == "" {
+		url = o.OpenShiftApiUrl
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/apis/user.openshift.io/v1/users/~", url), nil)
 	if err != nil {
 		return false, err
 	}
