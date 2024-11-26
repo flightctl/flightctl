@@ -69,7 +69,7 @@ func (f *FleetRolloutsLogic) SetItemsPerPage(items int) {
 func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	f.log.Infof("Rolling out fleet %s/%s", f.resourceRef.OrgID, f.resourceRef.Name)
 
-	templateVersion, err := f.tvStore.GetNewestValid(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
+	templateVersion, err := f.tvStore.GetLatest(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get templateVersion: %w", err)
 	}
@@ -141,7 +141,7 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	}
 	f.owner = *device.Metadata.Owner
 
-	templateVersion, err := f.tvStore.GetNewestValid(ctx, f.resourceRef.OrgID, ownerName)
+	templateVersion, err := f.tvStore.GetLatest(ctx, f.resourceRef.OrgID, ownerName)
 	if err != nil {
 		return fmt.Errorf("failed to get templateVersion: %w", err)
 	}
@@ -225,6 +225,10 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 }
 
 func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationSpec) (*api.ApplicationSpec, error) {
+	if app.EnvVars == nil {
+		return &app, nil
+	}
+
 	origEnvVars := *app.EnvVars
 	newEnvVars := make(map[string]string, len(origEnvVars))
 	for k, v := range origEnvVars {

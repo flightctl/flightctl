@@ -10,12 +10,22 @@
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
+ARG RPM_COPR=
+ARG RPM_PACKAGE=flightctl-agent
+
 COPY bin/e2e-certs/pki/CA/ca.pem /etc/pki/ca-trust/source/anchors/
 RUN update-ca-trust
 
 COPY bin/rpm/flightctl-agent-*.rpm /tmp/
-RUN dnf install -y /tmp/flightctl-agent-*.rpm && \
+
+RUN if [[ -z $RPM_COPR ]]; then \
+        dnf install -y /tmp/flightctl-agent-*.rpm ; \
+    else \
+        dnf copr -y enable ${RPM_COPR} &&  \
+        dnf install -y ${RPM_PACKAGE}; \
+    fi && \
     systemctl enable flightctl-agent.service
+
 
 RUN dnf install -y epel-release epel-next-release
 RUN dnf install -y greenboot greenboot-default-health-checks podman-compose && \

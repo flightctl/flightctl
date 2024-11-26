@@ -42,7 +42,6 @@ var _ = Describe("FleetRollout", func() {
 		dbName          string
 		numDevices      int
 		fleetName       string
-		callback        store.FleetStoreCallback
 		callbackManager tasks.CallbackManager
 		mockPublisher   *queues.MockPublisher
 		ctrl            *gomock.Controller
@@ -58,7 +57,6 @@ var _ = Describe("FleetRollout", func() {
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
 		fleetName = "myfleet"
-		callback = func(before *model.Fleet, after *model.Fleet) {}
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks.NewCallbackManager(mockPublisher, log)
@@ -73,23 +71,17 @@ var _ = Describe("FleetRollout", func() {
 	When("the fleet is valid", func() {
 		It("its devices are rolled out successfully", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.bad", "my bad OS", false)
-			Expect(err).ToNot(HaveOccurred())
 			testutil.CreateTestDevices(ctx, numDevices, deviceStore, orgId, util.StrToPtr("Fleet/myfleet"), true)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
-			devices, err := deviceStore.List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(devices.Items)).To(Equal(numDevices))
-
-			// First update
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 			logic.SetItemsPerPage(2)
 
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", "my first OS", true)
+			// First update
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 			err = logic.RolloutFleet(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -101,10 +93,7 @@ var _ = Describe("FleetRollout", func() {
 			}
 
 			// Second update
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.1", "my new OS", true)
-			Expect(err).ToNot(HaveOccurred())
-			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, callback)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			err = logic.RolloutFleet(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -118,8 +107,6 @@ var _ = Describe("FleetRollout", func() {
 
 		It("a new device is rolled out correctly", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.bad", "my bad OS", false)
-			Expect(err).ToNot(HaveOccurred())
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
@@ -129,7 +116,7 @@ var _ = Describe("FleetRollout", func() {
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			logic.SetItemsPerPage(2)
 
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", "my first OS", true)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 			err = logic.RolloutDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -172,16 +159,11 @@ var _ = Describe("FleetRollout", func() {
 			})
 
 			It("its devices are rolled out successfully", func() {
-				// Create fleet and TV
 				testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-				err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0", "myOS", true)
-				Expect(err).ToNot(HaveOccurred())
 
-				// Update the TV with git and inline configs, both with parameters
-				tv, err := storeInst.TemplateVersion().Get(ctx, orgId, fleetName, "1.0")
-				Expect(err).ToNot(HaveOccurred())
+				// Create the TV with git and inline configs, both with parameters
 				gitItem := api.ConfigProviderSpec{}
-				err = gitItem.FromGitConfigProviderSpec(*gitConfig)
+				err := gitItem.FromGitConfigProviderSpec(*gitConfig)
 				Expect(err).ToNot(HaveOccurred())
 				inlineItem := api.ConfigProviderSpec{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
@@ -189,9 +171,8 @@ var _ = Describe("FleetRollout", func() {
 				httpItem := api.ConfigProviderSpec{}
 				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem}
-				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
-				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
+				status := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem}}
+				err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0", &status)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Add devices to the fleet
@@ -243,16 +224,11 @@ var _ = Describe("FleetRollout", func() {
 			})
 
 			It("a new device is rolled out correctly", func() {
-				// Create fleet and TV
 				testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-				err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0", "myOS", true)
-				Expect(err).ToNot(HaveOccurred())
 
-				// Update the TV with git and inline configs, both with parameters
-				tv, err := storeInst.TemplateVersion().Get(ctx, orgId, fleetName, "1.0")
-				Expect(err).ToNot(HaveOccurred())
+				// Create the TV with git and inline configs, both with parameters
 				gitItem := api.ConfigProviderSpec{}
-				err = gitItem.FromGitConfigProviderSpec(*gitConfig)
+				err := gitItem.FromGitConfigProviderSpec(*gitConfig)
 				Expect(err).ToNot(HaveOccurred())
 				inlineItem := api.ConfigProviderSpec{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
@@ -260,9 +236,8 @@ var _ = Describe("FleetRollout", func() {
 				httpItem := api.ConfigProviderSpec{}
 				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem}
-				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
-				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
+				status := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{gitItem, inlineItem}}
+				err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0", &status)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Add a device to the fleet
@@ -308,8 +283,6 @@ var _ = Describe("FleetRollout", func() {
 	When("a resourceversion race occurs while rolling out a device", func() {
 		It("fails if the owner changed", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.bad", "my bad OS", false)
-			Expect(err).ToNot(HaveOccurred())
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
@@ -317,7 +290,7 @@ var _ = Describe("FleetRollout", func() {
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", "my first OS", true)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Somebody changed the owner just as it was being rolled out
@@ -354,8 +327,6 @@ var _ = Describe("FleetRollout", func() {
 
 		It("succeeds if the owner does not change", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.bad", "my bad OS", false)
-			Expect(err).ToNot(HaveOccurred())
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
@@ -363,7 +334,7 @@ var _ = Describe("FleetRollout", func() {
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
-			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", "my first OS", true)
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Somebody changed the owner just as it was being rolled out

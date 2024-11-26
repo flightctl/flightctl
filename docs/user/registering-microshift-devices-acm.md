@@ -11,6 +11,7 @@ Auto-registration of devices with MicroShift into ACM relies on a feature called
 As part of this setup, you will need to collect the following information:
 
 - Agent registration URL
+- ca.crt
 - Token
 
 ## Creating Repositories in Flight Control
@@ -24,15 +25,15 @@ apiVersion: v1alpha1
 kind: Repository
 metadata:
   labels: {}
-  name: acm-test
+  name: acm-registration
 spec:
   httpConfig:
     token: $token
+    ca.crt: <base64-encoded ca.crt>
   type: http
   url: https://$agent_registration_host
+  validationSuffix: /agent-registration/crds/v1
 ```
-
-**_NOTE:_** This repository will show as not accessible, because the root URL does not return a value directly. However, this endpoint will be used in the fleet spec configuration section with a set of suffixes that will return the required Kubernetes manifests for auto-registration.
 
 ## Fleet Definition Overview
 
@@ -52,36 +53,38 @@ spec:
     metadata:
       generation: 1
       labels:
-        fleet: acm-test
+        fleet: fleet-acm
     spec:
       os:
         image: quay.io/myorg/device-image-with-microshift:v1
       config:
-      - configType: HttpConfigProviderSpec
+      - name: acm-crd
         httpRef:
-          filePath: /var/local/crd.yaml
-          repository: acm-test
+          filePath: /var/local/acm-import/crd.yaml
+          repository: acm-registration
           suffix: /agent-registration/crds/v1
-        name: acm-crd
-      - configType: HttpConfigProviderSpec
+      - name: acm-import
         httpRef:
-          filePath: /var/local/import.yaml
-          repository: acm-test
+          filePath: /var/local/acm-import/import.yaml
+          repository: acm-registration
           suffix: /agent-registration/manifests/{{ device.metadata.name }}
-        name: acm-import
+      - name: pull-secret
+        inline:
+            - path: "/etc/crio/openshift-pull-secret"
+              content: "{\"auths\":{...}}"
       hooks:
         afterUpdating:
-          - path: "/var/local/crd.yaml"
+          - path: "/var/local/acm-import/crd.yaml"
             onFile: [Create]
             actions:
               - executable:
-                  run: "kubectl apply -f /var/local/crd.yaml"
+                  run: "kubectl apply -f /var/local/acm-import/crd.yaml"
                   envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
-          - path: "/var/local/import.yaml"
+          - path: "/var/local/acm-import/import.yaml"
             onFile: [Create]
             actions:
               - executable:
-                  run: "kubectl apply -f /var/local/import.yaml"
+                  run: "kubectl apply -f /var/local/acm-import/import.yaml"
                   envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
 ```
 
@@ -89,15 +92,14 @@ spec:
 
 As described in the user documentation, a fleet specification is composed of various sections. Let us deep dive in the config and hooks section of our sample fleet.
 
-1. **Configuration**: The configuration section uses the HTTP configuration provider to fetch information from an endpoint. The repository `acm-test` contains the registration URL for ACM's agent registration:
+1. **Configuration**: The configuration section uses the HTTP configuration provider to fetch information from an endpoint. The repository `acm-registration` contains the registration URL for ACM's agent registration:
 
     ```console
-    - configType: HttpConfigProviderSpec
+    - name: acm-crd
       httpRef:
-        filePath: /var/local/crd.yaml
-        repository: acm-test
+        filePath: /var/local/acm-import/crd.yaml
+        repository: acm-registration
         suffix: /agent-registration/crds/v1
-      name: acm-crd
     ```
 
     This retrieves the CRD from the ACM endpoint `https://$agent_registration_host/agent-registration/crds/v1` and stores it at the specified file path.
@@ -105,33 +107,41 @@ As described in the user documentation, a fleet specification is composed of var
     The next configuration retrieves the cluster import manifests. As shown below, the HttpConfigProviderSpec supports Flight Control template mechanism, so the device name can be used as part of the suffix.
 
     ```console
-    - configType: HttpConfigProviderSpec
+    - name: acm-import
       httpRef:
-        filePath: /var/local/import.yaml
-        repository: acm-test
+        filePath: /var/local/acm-import/import.yaml
+        repository: acm-registration
         suffix: /agent-registration/manifests/{{ device.metadata.name }}
-      name: acm-import
     ```
 
     This API call to ACM's agent registration endpoint will retrieve a set of Kubernetes manifests to deploy the Klusterlet. Once we have both the Klusterlet CRD and deployment manifests, we will use Flight Control hooks to apply them.
+
+    ```console
+    - name: pull-secret
+      inline:
+          - path: "/etc/crio/openshift-pull-secret"
+            content: "{\"auths\":{...}}"
+    ```
+
+    This adds your OpenShift pull secret to the device.  You can download your pull secret [here](https://cloud.redhat.com/openshift/install/pull-secret).  If you do not wish to have your pull secret available via the Flight Control API, you may store it in a private Git repository or a Kubernetes Secret, and change the fleet specification accordingly.
 
 1. **Hooks**: Once the configuration is fetched, the hooks apply the Kubernetes manifests to the device:
 
 ```console
 hooks:
   afterUpdating:
-    - path: "/var/local/crd.yaml"
+    - path: "/var/local/acm-import/crd.yaml"
       onFile: [Create]
       actions:
         - executable:
-            run: "kubectl apply -f /var/local/crd.yaml"
+            run: "kubectl apply -f /var/local/acm-import/crd.yaml"
             envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
             workDir: "/usr/bin/"
     - path: "/var/local/import.yaml"
       onFile: [Create]
       actions:
         - executable:
-            run: "kubectl apply -f /var/local/import.yaml"
+            run: "kubectl apply -f /var/local/acm-import/import.yaml"
             envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
             workDir: "/usr/bin/"
 ```

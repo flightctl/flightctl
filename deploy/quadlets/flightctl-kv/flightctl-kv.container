@@ -1,0 +1,21 @@
+[Unit]
+Description=FlightCtl Key Value service
+After=flightctl-db.service
+Requires=flightctl-db.service
+
+[Container]
+ContainerName=flightctl-kv
+Image=docker.io/valkey/valkey:latest
+Network=flightctl.network
+Environment=HOME=/root
+
+PublishPort=6379:6379
+Volume=flightctl-kv:/data
+
+[Service]
+Restart=always
+RestartSec=30
+Slice=flightctl.slice
+
+[Install]
+WantedBy=flightctl.slice

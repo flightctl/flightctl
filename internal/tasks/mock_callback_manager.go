@@ -147,15 +147,3 @@ func (mr *MockCallbackManagerMockRecorder) TemplateVersionCreatedCallback(templa
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TemplateVersionCreatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).TemplateVersionCreatedCallback), templateVersion)
 }
-
-// TemplateVersionValidatedCallback mocks base method.
-func (m *MockCallbackManager) TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "TemplateVersionValidatedCallback", templateVersion)
-}
-
-// TemplateVersionValidatedCallback indicates an expected call of TemplateVersionValidatedCallback.
-func (mr *MockCallbackManagerMockRecorder) TemplateVersionValidatedCallback(templateVersion any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TemplateVersionValidatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).TemplateVersionValidatedCallback), templateVersion)
-}

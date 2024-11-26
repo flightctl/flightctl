@@ -150,7 +150,7 @@ func TestListenForEvents(t *testing.T) {
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
-				err = podmanMonitor.add(testApp)
+				err = podmanMonitor.ensure(testApp)
 				require.NoError(err)
 			}
 
@@ -160,16 +160,7 @@ func TestListenForEvents(t *testing.T) {
 
 			go podmanMonitor.listenForEvents(context.Background(), reader)
 
-			inspectCount := 0
-			for i := range tc.events {
-				event := tc.events[i]
-				if event.Status != "remove" {
-					inspectCount++
-				}
-			}
-
-			// inspect is called except where the event is a remove in which case we can't inspect a removed container
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(inspectCount)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
 
 			// simulate events being written to the pipe
 			go func() {
@@ -241,13 +232,11 @@ func writeEvent(writer io.WriteCloser, event *PodmanEvent) error {
 
 func mockPodmanEvent(name, service, status string) PodmanEvent {
 	return PodmanEvent{
-		ID:       "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
-		Image:    "docker.io/library/alpine:latest",
-		Name:     fmt.Sprintf("%s-container", service),
-		Status:   status,
-		Time:     1727811620,
-		TimeNano: 1727811620360195353,
-		Type:     "container",
+		ID:     "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
+		Image:  "docker.io/library/alpine:latest",
+		Name:   fmt.Sprintf("%s-container", service),
+		Status: status,
+		Type:   "container",
 		Attributes: map[string]string{
 			"PODMAN_SYSTEMD_UNIT":                     "podman-compose@user.service",
 			"com.docker.compose.container-number":     "1",

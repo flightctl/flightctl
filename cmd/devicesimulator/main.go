@@ -44,8 +44,10 @@ func main() {
 	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
 	numDevices := pflag.Int("count", 1, "number of devices to simulate")
+	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
 	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
+	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
 	pflag.Usage = func() {
 		fmt.Fprintf(pflag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
@@ -53,6 +55,14 @@ func main() {
 		pflag.PrintDefaults()
 	}
 	pflag.Parse()
+
+	logLvl, err := logrus.ParseLevel(*logLevel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
+		pflag.Usage()
+		os.Exit(1)
+	}
+	log.SetLevel(logLvl)
 
 	log.Infoln("command line flags:")
 	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
@@ -77,7 +87,7 @@ func main() {
 	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	agents, agentsFolders := createAgents(log, *numDevices, agentConfigTemplate)
+	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate)
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
@@ -147,12 +157,12 @@ func createAgentConfigTemplate(dataDir string, configFile string) *agent.Config 
 	return agentConfigTemplate
 }
 
-func createAgents(log *logrus.Logger, numDevices int, agentConfigTemplate *agent.Config) ([]*agent.Agent, []string) {
+func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, agentConfigTemplate *agent.Config) ([]*agent.Agent, []string) {
 	log.Infoln("creating agents")
 	agents := make([]*agent.Agent, numDevices)
 	agentsFolders := make([]string, numDevices)
 	for i := 0; i < numDevices; i++ {
-		agentName := fmt.Sprintf("device-%04d", i)
+		agentName := fmt.Sprintf("device-%05d", initialDeviceIndex+i)
 		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
 		agentDir := filepath.Join(agentConfigTemplate.DataDir, agentName)
 		// Cleanup if exists and initialize the agent's expected
@@ -172,6 +182,7 @@ func createAgents(log *logrus.Logger, numDevices int, agentConfigTemplate *agent
 		}
 
 		cfg := agent.NewDefault()
+		cfg.DefaultLabels["alias"] = agentName
 		cfg.ConfigDir = agent.DefaultConfigDir
 		cfg.DataDir = agent.DefaultConfigDir
 		cfg.EnrollmentService = agent.EnrollmentService{}

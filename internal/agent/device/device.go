@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -16,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -31,6 +33,7 @@ type Agent struct {
 	specManager            spec.Manager
 	hookManager            hook.Manager
 	appManager             applications.Manager
+	systemdManager         systemd.Manager
 	applicationsController *applications.Controller
 	configController       *config.Controller
 	osImageController      *OSImageController
@@ -42,8 +45,10 @@ type Agent struct {
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
 
-	backoff wait.Backoff
-	log     *log.PrefixLogger
+	once     sync.Once
+	cancelFn context.CancelFunc
+	backoff  wait.Backoff
+	log      *log.PrefixLogger
 }
 
 // NewAgent creates a new device agent.
@@ -53,6 +58,7 @@ func NewAgent(
 	statusManager status.Manager,
 	specManager spec.Manager,
 	appManager applications.Manager,
+	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
@@ -73,6 +79,7 @@ func NewAgent(
 		specManager:            specManager,
 		hookManager:            hookManager,
 		appManager:             appManager,
+		systemdManager:         systemdManager,
 		fetchSpecInterval:      fetchSpecInterval,
 		fetchStatusInterval:    fetchStatusInterval,
 		applicationsController: applicationsController,
@@ -82,6 +89,7 @@ func NewAgent(
 		consoleController:      consoleController,
 		bootcClient:            bootcClient,
 		podmanClient:           podmanClient,
+		cancelFn:               func() {},
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -89,6 +97,8 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
+	ctx, a.cancelFn = context.WithCancel(ctx)
+
 	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
 	defer specTicker.Stop()
 	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
@@ -106,7 +116,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
+// Stop ensures that the device agent stops reconciling during graceful shutdown.
+func (a *Agent) Stop(ctx context.Context) error {
+	a.once.Do(func() {
+		if a.cancelFn != nil {
+			a.cancelFn()
+		}
+	})
+	return nil
+}
+
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+	// TODO: handle ReadyToUpdate
 	if err := a.beforeUpdate(ctx, current, desired); err != nil {
 		return fmt.Errorf("before update: %w", err)
 	}
@@ -117,7 +138,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 	}
 
 	if err := a.afterUpdate(ctx); err != nil {
-		return fmt.Errorf("after update: %w: %w", errors.ErrNoRetry, err)
+		return fmt.Errorf("after update: %w", err)
 	}
 
 	return nil
@@ -165,12 +186,12 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 		return nil
 	}
 
-	if spec.IsUpgrading(current, desired) {
+	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  "Update",
-			Message: fmt.Sprintf("The device is upgrading to renderedVersion: %s", desired.RenderedVersion),
+			Reason:  string(status.UpdateStatePreparing),
+			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.RenderedVersion),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
@@ -185,14 +206,14 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 		return err
 	}
 
-	return a.upgradeStatus(ctx, desired)
+	return a.updatedStatus(ctx, desired)
 }
 
-func (a *Agent) upgradeStatus(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.DeviceUpdating,
 		Status:  v1alpha1.ConditionStatusFalse,
-		Reason:  "Updated",
+		Reason:  string(status.UpdateStateUpdated),
 		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.RenderedVersion),
 	})
 	if updateErr != nil {
@@ -306,6 +327,18 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 }
 
 func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+	if a.specManager.IsUpgrading() {
+		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+			Type:    v1alpha1.DeviceUpdating,
+			Status:  v1alpha1.ConditionStatusTrue,
+			Reason:  string(status.UpdateStateApplyingUpdate),
+			Message: fmt.Sprintf("The device is applying renderedVersion: %s", desired.RenderedVersion),
+		})
+		if updateErr != nil {
+			a.log.Warnf("Failed setting status: %v", updateErr)
+		}
+	}
+
 	if err := a.consoleController.Sync(ctx, desired); err != nil {
 		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
@@ -330,8 +363,22 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 		return fmt.Errorf("os image: %w", err)
 	}
 
-	// set status collector properties based on new desired spec
-	a.statusManager.SetProperties(desired)
+	if err := a.systemdControllerSync(ctx, desired); err != nil {
+		return fmt.Errorf("systemd: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+	var matchPatterns []string
+	if desired.Systemd != nil {
+		matchPatterns = util.FromPtr(desired.Systemd.MatchPatterns)
+	}
+
+	if err := a.systemdManager.EnsurePatterns(matchPatterns); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -362,7 +409,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
 
-		conditionUpdate.Reason = "Failed"
+		conditionUpdate.Reason = string(status.UpdateStateError)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
 
@@ -371,7 +418,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
 
-		conditionUpdate.Reason = "Retry"
+		conditionUpdate.Reason = string(status.UpdateStateRetrying)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
 	}
