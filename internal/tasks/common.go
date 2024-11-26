@@ -32,7 +32,10 @@ type ResourceReference struct {
 	Owner    string
 }
 
-var ErrUnknownConfigName = errors.New("failed to find configuration item name")
+var (
+	ErrUnknownConfigName      = errors.New("failed to find configuration item name")
+	ErrUnknownApplicationType = errors.New("unknown application type")
+)
 
 func getOwnerFleet(device *api.Device) (string, bool, error) {
 	if device.Metadata.Owner == nil {

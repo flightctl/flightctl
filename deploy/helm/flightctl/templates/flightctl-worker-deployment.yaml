@@ -1,11 +1,11 @@
-{{ if .Values.flightctl.worker.enabled }}
+{{ if .Values.worker.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-worker
   name: flightctl-worker
-  namespace: {{ .Values.flightctl.worker.namespace }}
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
   replicas: 1
   selector:
@@ -21,8 +21,8 @@ spec:
       serviceAccountName: flightctl-worker
       containers:
         - name: flightctl-worker
-          image: {{ .Values.flightctl.worker.image }}:{{ default .Chart.AppVersion .Values.flightctl.worker.imageTag }}
-          imagePullPolicy: {{ .Values.flightctl.worker.imagePullPolicy }}
+          image: {{ .Values.worker.image.image }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
           env:
             - name: HOME
               value: "/root"

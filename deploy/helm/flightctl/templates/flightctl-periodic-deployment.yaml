@@ -1,11 +1,11 @@
-{{ if .Values.flightctl.periodic.enabled }}
+{{ if .Values.periodic.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-periodic
   name: flightctl-periodic
-  namespace: {{ .Values.flightctl.periodic.namespace }}
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
   replicas: 1
   selector:
@@ -20,8 +20,8 @@ spec:
     spec:
       containers:
         - name: periodic
-          image: {{ .Values.flightctl.periodic.image }}:{{ default .Chart.AppVersion .Values.flightctl.periodic.imageTag }}
-          imagePullPolicy: {{ .Values.flightctl.periodic.imagePullPolicy }}
+          image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
+          imagePullPolicy: {{ .Values.periodic.image.pullPolicy }}
           env:
             - name: HOME
               value: "/root"

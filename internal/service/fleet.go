@@ -14,7 +14,10 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -71,11 +74,28 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector k8sselector.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var sortField *store.SortField
+	if request.Params.SortBy != nil {
+		sortField = &store.SortField{
+			FieldName: selector.SelectorName(*request.Params.SortBy),
+			Order:     *request.Params.SortOrder,
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
-		Owners:   util.OwnerQueryParamsToArray(request.Params.Owner),
+		Labels:        labelMap,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
+		FieldSelector: fieldSelector,
+		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -84,10 +104,16 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
-	result, err := h.store.Fleet().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.WithDeviceCount(util.DefaultBoolIfNil(request.Params.AddDevicesCount, false)))
+	if err == nil {
 		return server.ListFleets200JSONResponse(*result), nil
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return server.ListFleets400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -110,7 +136,7 @@ func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.Delete
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.WithSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
 	switch err {
 	case nil:
 		return server.ReadFleet200JSONResponse(*result), nil
@@ -153,7 +179,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceFleet404JSONResponse{}, nil
-	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed, flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -237,6 +263,9 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	}
 
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return server.PatchFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
 		return server.PatchFleet400JSONResponse{Message: "metadata.name is immutable"}, nil
 	}
@@ -258,7 +287,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
-	result, _, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, updateCallback)
 
 	switch err {
 	case nil:
@@ -267,6 +296,8 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchFleet404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.PatchFleet409JSONResponse{}, nil
 	default:
 		return nil, err
 	}

@@ -12,6 +12,9 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -58,10 +61,27 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector k8sselector.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var sortField *store.SortField
+	if request.Params.SortBy != nil {
+		sortField = &store.SortField{
+			FieldName: selector.SelectorName(*request.Params.SortBy),
+			Order:     *request.Params.SortOrder,
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
+		Labels:        labelMap,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		FieldSelector: fieldSelector,
+		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -71,9 +91,15 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 	}
 
 	result, err := h.store.Repository().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListRepositories200JSONResponse(*result), nil
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return server.ListRepositories400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -136,6 +162,8 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 		return server.ReplaceRepository400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceRepository404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.ReplaceRepository409JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -200,7 +228,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.RepositoryUpdatedCallback
 	}
-	result, _, err := h.store.Repository().CreateOrUpdate(ctx, orgId, newObj, updateCallback)
+	result, err := h.store.Repository().Update(ctx, orgId, newObj, updateCallback)
 
 	switch err {
 	case nil:
@@ -209,6 +237,8 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchRepository404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.PatchRepository409JSONResponse{}, nil
 	default:
 		return nil, err
 	}

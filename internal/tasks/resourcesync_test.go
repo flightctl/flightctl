@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -182,7 +183,7 @@ func TestParseFleet(t *testing.T) {
 	require.Len(fleets, 1)
 	require.Equal(fleets[0].Kind, model.FleetKind)
 	require.Equal(*fleets[0].Metadata.Name, "default")
-	require.Equal(fleets[0].Spec.Selector.MatchLabels["fleet"], "default")
+	require.Equal(lo.FromPtr(fleets[0].Spec.Selector.MatchLabels)["fleet"], "default")
 	require.NotNil(fleets[0].Metadata.Owner)
 	require.Equal(*fleets[0].Metadata.Owner, *owner)
 }

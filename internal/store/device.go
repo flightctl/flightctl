@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -24,7 +23,9 @@ import (
 
 type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -32,7 +33,7 @@ type Device interface {
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
@@ -81,6 +82,28 @@ func (s *DeviceStore) InitialMigration() error {
 		}
 	}
 
+	// Create indexes for device 'Alias' column
+	if !s.db.Migrator().HasIndex(&model.Device{}, "device_alias") {
+		if s.db.Dialector.Name() == "postgres" {
+			// Enable pg_trgm extension if not already enabled
+			if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+				return err
+			}
+			// Create a B-Tree index for exact matches on the 'Alias' field
+			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS device_alias_btree ON devices USING BTREE (alias)").Error; err != nil {
+				return err
+			}
+			// Create a GIN index for substring matches on the 'Alias' field
+			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "device_alias"); err != nil {
+				return err
+			}
+		}
+	}
+
 	// TODO: generalize this for fleet, enrollmentrequest, etc. Make part of the base resource
 	if !s.db.Migrator().HasIndex(&model.Device{}, "device_labels") {
 		// see https://github.com/go-gorm/gorm/discussions/6695
@@ -113,17 +136,15 @@ func (s *DeviceStore) InitialMigration() error {
 }
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback) (*api.Device, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	device, err := model.NewDeviceFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	device.OrgID = orgId
-	_, err = s.createDevice(device)
-	callback(nil, device)
-	return resource, err
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, nil, true, ModeCreateOnly, callback)
+	return updatedResource, err
+}
+
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, callback)
+	})
+	return updatedResource, err
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
@@ -131,7 +152,15 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	var nextContinue *string
 	var numRemaining *int64
 
-	query := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams)
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -153,7 +182,10 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&devices), orgId, listParams)
+			countQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -164,7 +196,37 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	}
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
-	return &apiDevicelist, flterrors.ErrorFromGormError(result.Error)
+	return &apiDevicelist, ErrorFromGormError(result.Error)
+}
+
+func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
+	var devicesCount int64
+	if err := query.Count(&devicesCount).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	statusCount, err := CountStatusList(ctx, query,
+		"status.applicationsSummary.status",
+		"status.summary.status",
+		"status.updated.status")
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	applicationStatus := statusCount.List("status.applicationsSummary.status")
+	summaryStatus := statusCount.List("status.summary.status")
+	updateStatus := statusCount.List("status.updated.status")
+	return &api.DevicesSummary{
+		Total:             devicesCount,
+		ApplicationStatus: applicationStatus,
+		SummaryStatus:     summaryStatus,
+		UpdateStatus:      updateStatus,
+	}, nil
 }
 
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
@@ -172,7 +234,7 @@ func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback D
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
 
 	if result.Error != nil {
-		return flterrors.ErrorFromGormError(result.Error)
+		return ErrorFromGormError(result.Error)
 	}
 	callback(orgId)
 
@@ -185,7 +247,7 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	}
 	result := s.db.First(&device)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiDevice := device.ToApiResource()
 	return &apiDevice, nil
@@ -195,19 +257,30 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 	device.Generation = lo.ToPtr[int64](1)
 	device.ResourceVersion = lo.ToPtr[int64](1)
 	if result := s.db.Create(device); result.Error != nil {
-		err := flterrors.ErrorFromGormError(result.Error)
+		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
 	}
 	return false, nil
 }
 
 func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
-	sameSpec := reflect.DeepEqual(existingRecord.Spec, device.Spec)
+	sameSpec := api.DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
 	if !sameSpec {
-		if fromAPI && len(lo.FromPtr(existingRecord.Owner)) != 0 {
-			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		if fromAPI {
+			if len(lo.FromPtr(existingRecord.Owner)) != 0 {
+				// Don't let the user update the device spec if it's part of a fleet
+				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+			} else {
+				// If the device isn't part of a fleet, make sure it doesn't have the TV annotation
+				existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+				if existingAnnotations[model.DeviceAnnotationTemplateVersion] != "" {
+					delete(existingAnnotations, model.DeviceAnnotationTemplateVersion)
+					annotationsArray := util.LabelMapToArray(&existingAnnotations)
+					device.Annotations = pq.StringArray(annotationsArray)
+				}
+			}
 		}
 
 		device.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
@@ -219,13 +292,13 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
 	query := s.db.Model(where).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion))
 
-	selectFields := []string{"spec"}
+	selectFields := []string{"spec", "alias"}
 	selectFields = append(selectFields, GetNonNilFieldsFromResource(device.Resource)...)
 	selectFields = append(selectFields, fieldsToUnset...)
 	query = query.Select(selectFields)
 	result := query.Updates(&device)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -233,7 +306,7 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 	return false, nil
 }
 
-func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
+func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -255,6 +328,14 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	s.IntegrationTestCreateOrUpdateCallback()
 	if !exists {
 		if retry, err := s.createDevice(device); err != nil {
@@ -274,7 +355,7 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
 	return retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, callback)
+		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, callback)
 	})
 }
 
@@ -322,7 +403,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 		"status":           model.MakeJSONField(resource.Status),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	return resource, ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
@@ -332,13 +413,13 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 		existingRecord = model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
+			return ErrorFromGormError(result.Error)
 		}
 
 		associatedRecord := model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
 
 		if err := innerTx.Unscoped().Delete(&existingRecord).Error; err != nil {
-			return flterrors.ErrorFromGormError(err)
+			return ErrorFromGormError(err)
 		}
 
 		if err := innerTx.Unscoped().Delete(&associatedRecord).Error; err != nil {
@@ -363,14 +444,28 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+
+	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
 	}
+	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, model.DeviceAnnotationConsole, "")
+
+	// Changing the console annotation requires bumping the renderedVersion annotation
+	if existingConsoleAnnotation != newConsoleAnnotation {
+		nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+		if err != nil {
+			return false, err
+		}
+
+		existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+	}
+
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -378,7 +473,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 
-	err := flterrors.ErrorFromGormError(result.Error)
+	err := ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
@@ -394,34 +489,35 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	})
 }
 
-func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered string) (retry bool, err error) {
+func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
 
-	var currentRenderedVersion int64 = 0
-	renderedVersionString, ok := existingAnnotations[model.DeviceAnnotationRenderedVersion]
-	if ok {
-		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
-		if err != nil {
-			return false, err
-		}
+	nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+	if err != nil {
+		return false, err
 	}
 
-	currentRenderedVersion++
-	existingAnnotations[model.DeviceAnnotationRenderedVersion] = strconv.FormatInt(currentRenderedVersion, 10)
+	existingAnnotations[model.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
+	renderedApplicationsJSON := renderedApplications
+	if strings.TrimSpace(renderedApplications) == "" {
+		renderedApplicationsJSON = "[]"
+	}
+
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"annotations":      pq.StringArray(annotationsArray),
-		"rendered_config":  &rendered,
-		"resource_version": gorm.Expr("resource_version + 1"),
+		"annotations":           pq.StringArray(annotationsArray),
+		"rendered_config":       &renderedConfig,
+		"rendered_applications": &renderedApplicationsJSON,
+		"resource_version":      gorm.Expr("resource_version + 1"),
 	})
 
-	err = flterrors.ErrorFromGormError(result.Error)
+	err = ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
@@ -431,9 +527,24 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name string, rendered stri
 	return false, nil
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name string, rendered string) error {
+func getNextRenderedVersion(annotations map[string]string) (string, error) {
+	var currentRenderedVersion int64 = 0
+	var err error
+	renderedVersionString, ok := annotations[model.DeviceAnnotationRenderedVersion]
+	if ok {
+		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	currentRenderedVersion++
+	return strconv.FormatInt(currentRenderedVersion, 10), nil
+}
+
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateRendered(orgId, name, rendered)
+		return s.updateRendered(orgId, name, renderedConfig, renderedApplications)
 	})
 }
 
@@ -443,7 +554,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	}
 	result := s.db.First(&device)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 
 	annotations := util.LabelArrayToMap(device.Annotations)
@@ -454,7 +565,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 
 	var console *api.DeviceConsole
 
-	if val, ok := annotations["flightctl.io/console"]; ok {
+	if val, ok := annotations[model.DeviceAnnotationConsole]; ok {
 		console = &api.DeviceConsole{
 			GRPCEndpoint: consoleGrpcEndpoint,
 			SessionID:    val,
@@ -470,11 +581,12 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	renderedConfig := api.RenderedDeviceSpec{
 		RenderedVersion: renderedVersion,
 		Config:          device.RenderedConfig,
-		Containers:      device.Spec.Data.Containers,
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,
 		Resources:       device.Spec.Data.Resources,
+		Hooks:           device.Spec.Data.Hooks,
 		Console:         console,
+		Applications:    device.RenderedApplications.Data,
 	}
 
 	return &renderedConfig, nil
@@ -484,7 +596,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.db.First(&existingRecord)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 
 	if existingRecord.ServiceConditions == nil {
@@ -502,7 +614,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 		"service_conditions": existingRecord.ServiceConditions,
 		"resource_version":   gorm.Expr("resource_version + 1"),
 	})
-	err = flterrors.ErrorFromGormError(result.Error)
+	err = ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
@@ -526,7 +638,7 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 	return s.db.Transaction(func(innerTx *gorm.DB) error {
 		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		if err := innerTx.Model(&device).Association("Repositories").Replace(repos); err != nil {
-			return flterrors.ErrorFromGormError(err)
+			return ErrorFromGormError(err)
 		}
 		return nil
 	})
@@ -537,7 +649,7 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 	var repos model.RepositoryList
 	err := s.db.Model(&device).Association("Repositories").Find(&repos)
 	if err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 	repositories, err := repos.ToApiResource(nil, nil)
 	if err != nil {

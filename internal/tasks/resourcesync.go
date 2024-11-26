@@ -212,7 +212,7 @@ func (r *ResourceSync) extractResourcesFromDir(mfs billy.Filesystem, path string
 		return nil, err
 	}
 	for _, file := range files {
-		if !file.IsDir() && isValidFile(file.Name()) { // Not going recursivly into subfolders
+		if !file.IsDir() && isValidFile(file.Name()) { // Not going recursively into subfolders
 			resources, err := r.extractResourcesFromFile(mfs, mfs.Join(path, file.Name()))
 			if err != nil {
 				return nil, err

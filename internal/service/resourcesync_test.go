@@ -34,6 +34,10 @@ func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name strin
 	return nil, flterrors.ErrResourceNotFound
 }
 
+func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, error) {
+	return resourceSync, nil
+}
+
 func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, bool, error) {
 	return resourceSync, false, nil
 }
@@ -65,6 +69,35 @@ func testResourceSyncPatch(require *require.Assertions, patch v1alpha1.PatchRequ
 	require.NoError(err)
 	return resp, resourceSync
 }
+
+func TestResourceSyncCreateWithLongNames(t *testing.T) {
+	require := require.New(t)
+
+	resourceSync := v1alpha1.ResourceSync{
+		ApiVersion: "v1",
+		Kind:       "ResourceSync",
+		Metadata: v1alpha1.ObjectMeta{
+			Name:   util.StrToPtr("01234567890123456789012345678901234567890123456789012345678901234567890123456789"),
+			Labels: &map[string]string{"labelKey": "labelValue"},
+		},
+		Spec: v1alpha1.ResourceSyncSpec{
+			Repository:     "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
+			TargetRevision: "main",
+			Path:           "/foo",
+		},
+	}
+
+	serviceHandler := ServiceHandler{
+		store: &ResourceSyncStore{ResourceSyncVal: resourceSync},
+	}
+	resp, err := serviceHandler.ReplaceResourceSync(context.Background(), server.ReplaceResourceSyncRequestObject{
+		Name: "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
+		Body: &resourceSync,
+	})
+	require.NoError(err)
+	require.Equal(server.ReplaceResourceSync200JSONResponse(resourceSync), resp)
+}
+
 func TestResourceSyncPatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"

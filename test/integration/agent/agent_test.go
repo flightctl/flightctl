@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -135,47 +137,14 @@ var _ = Describe("Device Agent behavior", func() {
 
 				dev := enrollAndWaitForDevice(h, approval)
 
-				GinkgoWriter.Printf(
-					"Waiting for /var/lib/flightctl/certs/agent.crt file to be created on the device %s, with testDirPath: %s\n",
-					*dev.Metadata.Name, h.TestDirPath)
-
-				var fileInfo fs.FileInfo
-				Eventually(func() bool {
-					var err error
-					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/var/lib/flightctl/certs/agent.crt"))
-					if err != nil && os.IsNotExist(err) {
-						return false
-					}
-					return true
-				}, TIMEOUT, POLLING).Should(BeTrue())
-
-				GinkgoWriter.Printf(
-					"Waiting for /etc/motd file to be created on the device %s, with testDirPath: %s\n",
-					*dev.Metadata.Name, h.TestDirPath)
-				Eventually(func() bool {
-					fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, "/etc/motd"))
-					if err != nil && os.IsNotExist(err) {
-						return false
-					}
-					return true
-				}, TIMEOUT, POLLING).Should(BeTrue())
-
-				Expect(fileInfo.Mode()).To(Equal(os.FileMode(0600)))
+				waitForFile("/var/lib/flightctl/certs/agent.crt", *dev.Metadata.Name, h.TestDirPath, nil, nil)
+				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This system is managed by flightctl."), util.IntToPtr(0o0600))
+				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This text is encoded."), util.IntToPtr(0o1775))
 
 				for key, value := range secrets {
+					value := value
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
-					GinkgoWriter.Printf(
-						"Waiting for %s file to be created on the device %s, with testDirPath: %s\n",
-						fname, *dev.Metadata.Name, h.TestDirPath)
-					Eventually(func() bool {
-						fileInfo, err = os.Stat(filepath.Join(h.TestDirPath, fname))
-						if err != nil && os.IsNotExist(err) {
-							return false
-						}
-						return true
-					}, TIMEOUT, POLLING).Should(BeTrue())
-					Expect(os.ReadFile(filepath.Join(h.TestDirPath, fname))).To(Equal([]byte(value)))
-					Expect(fileInfo.Mode()).To(Equal(os.FileMode(0o644)))
+					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644))
 				}
 			})
 		})
@@ -217,7 +186,7 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
-	_, err := h.Client.CreateEnrollmentRequestApprovalWithResponse(h.Context, deviceName, *approval)
+	_, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, deviceName, *approval)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -256,4 +225,43 @@ func mockSecret(mockK8sClient *k8sclient.MockK8SClient, secrets map[string]strin
 				return []byte(v)
 			}),
 		}, nil).AnyTimes()
+}
+
+func waitForFile(path, devName, testDirPath string, contents *string, mode *int) {
+	var fileInfo fs.FileInfo
+	var err error
+
+	GinkgoWriter.Printf(
+		"Waiting for file %s to be created on the device %s, with testDirPath: %s\n", path, devName, testDirPath)
+	Eventually(func() bool {
+		fileInfo, err = os.Stat(filepath.Join(testDirPath, path))
+		if err != nil && os.IsNotExist(err) {
+			return false
+		}
+		return true
+	}, TIMEOUT, POLLING).Should(BeTrue())
+
+	Expect(fileInfo.IsDir()).To(Equal(false))
+
+	if mode != nil {
+		filemode, err := safecast.ToUint32(*mode)
+		Expect(err).To(BeNil())
+		Expect(fileInfo.Mode().Perm()).To(Equal(os.FileMode(filemode).Perm()))
+		fmt.Printf("FILE: %s, MODE: %d\n", path, *mode)
+		fmt.Printf("MODE1: %d\n", *mode&0o1000)
+		fmt.Printf("MODE2: %d\n", *mode&0o2000)
+		fmt.Printf("MODE4: %d\n", *mode&0o4000)
+		if *mode&0o1000 != 0 {
+			Expect(fileInfo.Mode() & os.ModeSticky).ToNot(Equal(0))
+		}
+		if *mode&0o2000 != 0 {
+			Expect(fileInfo.Mode() & os.ModeSetgid).ToNot(Equal(0))
+		}
+		if *mode&0o4000 != 0 {
+			Expect(fileInfo.Mode() & os.ModeSetuid).ToNot(Equal(0))
+		}
+	}
+	if contents != nil {
+		Expect(os.ReadFile(filepath.Join(testDirPath, path))).To(Equal([]byte(*contents)))
+	}
 }

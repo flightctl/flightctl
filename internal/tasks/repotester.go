@@ -28,9 +28,8 @@ type RepoTester struct {
 
 func NewRepoTester(log logrus.FieldLogger, store store.Store) *RepoTester {
 	return &RepoTester{
-		log:                    log,
-		repoStore:              store.Repository(),
-		TypeSpecificRepoTester: &GitRepoTester{},
+		log:       log,
+		repoStore: store.Repository(),
 	}
 }
 
@@ -50,6 +49,19 @@ func (r *RepoTester) TestRepositories() {
 
 	for i := range repositories {
 		repository := repositories[i]
+
+		repoSpec, _ := repository.Spec.Data.GetGenericRepoSpec()
+		switch repoSpec.Type {
+		case "http":
+			log.Info("Detected HTTP repository type")
+			r.TypeSpecificRepoTester = &HttpRepoTester{}
+		case "git":
+			log.Info("Defaulting to Git repository type")
+			r.TypeSpecificRepoTester = &GitRepoTester{}
+		default:
+			log.Errorf("unsupported repository type: %s", repoSpec.Type)
+		}
+
 		accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
 
 		err := r.SetAccessCondition(repository, accessErr)
@@ -64,6 +76,9 @@ type TypeSpecificRepoTester interface {
 }
 
 type GitRepoTester struct {
+}
+
+type HttpRepoTester struct {
 }
 
 func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
@@ -88,6 +103,27 @@ func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
 
 	listOps.Auth = auth
 	_, err = remote.List(listOps)
+	return err
+}
+
+func (r *HttpRepoTester) TestAccess(repository *model.Repository) error {
+	if repository.Spec == nil {
+		return fmt.Errorf("repository has no spec")
+	}
+
+	repoHttpSpec, err := repository.Spec.Data.GetHttpRepoSpec()
+	if err != nil {
+		return fmt.Errorf("failed to get HTTP repo spec: %w", err)
+	}
+
+	repoURL := repoHttpSpec.Url
+	// Append the validationSuffix if it exists
+	if repoHttpSpec.ValidationSuffix != nil {
+		repoURL += *repoHttpSpec.ValidationSuffix
+	}
+
+	repoSpec := repository.Spec.Data
+	_, err = sendHTTPrequest(repoSpec, repoURL)
 	return err
 }
 

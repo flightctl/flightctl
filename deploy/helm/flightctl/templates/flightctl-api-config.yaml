@@ -1,54 +1,71 @@
-{{ if .Values.flightctl.api.enabled }}
+{{ if .Values.api.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-api-config
-  namespace: {{ .Values.flightctl.api.namespace }}
+  namespace: {{ .Release.Namespace }}
 data:
   config.yaml: |-
     database:
-        hostname: flightctl-db.{{ .Values.flightctl.db.namespace }}.svc.cluster.local
+        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         type: pgsql
         port: 5432
         name: flightctl
-        user: {{ .Values.flightctl.db.masterUser }}
-        password: {{ .Values.flightctl.db.masterPassword }}   # we should funnel this via secrets instead
+        user: {{ .Values.db.masterUser }}
+        password: {{ .Values.db.masterPassword }}   # we should funnel this via secrets instead
     service:
         address: :3443
         agentEndpointAddress: :7443
         agentGrpcAddress: :7444
-        baseUrl: https://{{ .Values.flightctl.api.hostName }}:3443/
-        {{ if .Values.flightctl.api.agentAPIHostName }}
-        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.agentAPIHostName }}:7443/
-        {{ else }}
-        baseAgentEndpointUrl:  https://{{ .Values.flightctl.api.hostName }}:7443/
-        {{ end }}
-        {{ if .Values.flightctl.api.agentGrpcBaseURL }}
-        baseAgentGrpcUrl:  {{ .Values.flightctl.api.agentGrpcBaseURL }}
-        {{ end }}
+        {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
+        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.grpc }}
+        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq .Values.global.gatewayPorts.tls 443)) }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
+        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}
+        {{- else }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
+        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}
+        {{- end }}
+        baseUIUrl: {{ include "flightctl.getUIUrl" . }}
         altNames:
-          - {{ .Values.flightctl.api.hostName }}
-          {{ if .Values.flightctl.api.agentAPIHostName }}
-          - {{ .Values.flightctl.api.agentAPIHostName }}
-          {{ end }}
-          {{ if .Values.flightctl.api.agentGrpcHostName }}
-          - {{ .Values.flightctl.api.agentGrpcHostName }}
-          {{ end }} 
+          - api.{{ include "flightctl.getBaseDomain" . }}
+          - agent-api.{{ include "flightctl.getBaseDomain" . }}
+          - agent-grpc.{{ include "flightctl.getBaseDomain" . }}
           - flightctl-api
-          - flightctl-api.{{ .Values.flightctl.api.namespace }}
-          - flightctl-api.{{ .Values.flightctl.api.namespace }}.svc.cluster.local
+          - flightctl-api.{{ .Release.Namespace }}
+          - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
+          - flightctl-api-agent-grpc
+          - flightctl-api-agent-grpc.{{ .Release.Namespace }}
+          - flightctl-api-agent-grpc.{{ .Release.Namespace }}.svc.cluster.local
     queue:
-        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@{{ .Values.flightctl.rabbitmq.name }}.{{ .Values.flightctl.rabbitmq.namespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
-    {{ if .Values.flightctl.api.auth.enabled }}
+        amqpUrl: amqp://{{ .Values.rabbitmq.auth.username }}:{{ .Values.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:{{ .Values.rabbitmq.ports.amqp }}/
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
+    {{- if not (eq .Values.global.auth.type "none")  }}
+    {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:
-        {{ if .Values.flightctl.api.auth.oidcAuthority }}
-        oidcAuthority: {{ .Values.flightctl.api.auth.oidcAuthority }}
-        {{ end }}
-        {{ if .Values.flightctl.api.auth.internalOidcAuthority }}
-        internalOidcAuthority: {{ .Values.flightctl.api.auth.internalOidcAuthority }}
-        {{ end }}
-        {{ if .Values.flightctl.api.auth.openShiftApiUrl }}
-        openShiftApiUrl: {{ .Values.flightctl.api.auth.openShiftApiUrl }}
-        {{ end }}
-    {{ end }}
+        openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
+        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
+    {{- else }}
+    auth:
+        {{- if .Values.global.auth.oidcAuthority }}
+        internalOidcAuthority: {{ .Values.global.auth.internalOidcAuthority }}
+        {{- else }}
+        internalOidcAuthority: http://keycloak:8080/realms/flightctl
+        {{- end }}
+        oidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
+        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
+    {{- end }}
+    {{- end }}
+    {{- if .Values.prometheus.enabled }}
+    prometheus:
+        address: ":15690"
+        sloMax: 4.0
+        apiLatencyBins: [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1]
+    {{- end }}
 {{ end }}

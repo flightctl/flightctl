@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -613,7 +614,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, _, err := f.devStore.CreateOrUpdate(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.callbackManager.DeviceUpdatedCallback)
+	_, err := f.devStore.Update(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.callbackManager.DeviceUpdatedCallback)
 	return err
 }
 
@@ -665,7 +666,7 @@ func createOverlappingConditionMessage(matchingFleets []string) string {
 
 func getMatchLabelsSafe(fleet *api.Fleet) map[string]string {
 	if fleet.Spec.Selector != nil {
-		return fleet.Spec.Selector.MatchLabels
+		return lo.FromPtr(fleet.Spec.Selector.MatchLabels)
 	}
 	return map[string]string{}
 }

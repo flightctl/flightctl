@@ -3,12 +3,14 @@ kind: PersistentVolumeClaim
 metadata:
   annotations:
     kubernetes.io/reclaimPolicy: Delete
+  {{- if .Values.global.appCode }}
   labels:
-    paas.redhat.com/appcode: {{ .Values.appCode }}
+    paas.redhat.com/appcode: {{ .Values.global.appCode }}
+  {{- end }}
   name: flightctl-db
-  namespace: {{ .Values.flightctl.db.namespace }}
+  namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
-  storageClassName: {{ .Values.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName }}
   accessModes:
     - ReadWriteOnce
   resources:

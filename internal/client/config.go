@@ -148,7 +148,7 @@ func (c *Config) HasCredentials() bool {
 }
 
 func (c *Config) GetClientKeyPath() string {
-	return resolvePath(c.AuthInfo.ClientCertificate, c.baseDir)
+	return resolvePath(c.AuthInfo.ClientKey, c.baseDir)
 }
 
 func (c *Config) GetClientCertificatePath() string {
@@ -284,7 +284,7 @@ func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.Route
 
 // DefaultFlightctlClientConfigPath returns the default path to the FlightCtl client config file.
 func DefaultFlightctlClientConfigPath() string {
-	return filepath.Join(homedir.HomeDir(), ".flightctl", "client.yaml")
+	return filepath.Join(homedir.HomeDir(), ".config", "flightctl", "client.yaml")
 }
 
 func ParseConfigFile(filename string) (*Config, error) {

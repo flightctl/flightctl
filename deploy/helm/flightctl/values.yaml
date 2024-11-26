@@ -1,71 +1,138 @@
-flightctl:
-  db:
-    namespace: flightctl-internal
-    image: quay.io/sclorg/postgresql-12-c8s:latest
-    imagePullPolicy: Always
-    password: adminpass
-    masterPassword: adminpass
-    masterUser: admin
-    user: demouser
-    userPassword: demopass
-  api:
-    enabled: true
-    namespace: flightctl-external
-    image: quay.io/flightctl/flightctl-api
-    imagePullPolicy: Always
-    hostName: api.flightctl.example.com
-    agentAPIHostName: agent-api.flightctl.example.com
-    agentGrpcHostName: agent-grpc.flightctl.example.com
-    agentGrpcBaseURL: grpcs://agent-grpc.flightctl.example.com
-  worker:
-    enabled: true
-    namespace: flightctl-internal
-    image: quay.io/flightctl/flightctl-worker
-    imagePullPolicy: Always
-    enableSecretsClusterRoleBinding: true
-  periodic:
-    enabled: true
-    namespace: flightctl-internal
-    image: quay.io/flightctl/flightctl-periodic
-    imagePullPolicy: Always
-  rabbitmq:
-    enabled: true
-    name: flightctl-rabbitmq
-    namespace: flightctl-internal
-    replicaCount: 1
-    image: docker.io/library/rabbitmq:3.13-management
-    imagePullPolicy: IfNotPresent
-    ports:
-      amqp: 5672
-      management: 15672
-    persistence:
-      enabled: true
-      accessMode: ReadWriteOnce
-      size: 10Gi
-    auth:
-      username: user
-      password: password
-    service:
-      type: ClusterIP
-      amqpPort: 5672
-      managementPort: 15672
+
+## @section Global parameters
+## @descriptionStart This section contains parameters common to all the
+## components in the deployment, including sub-charts, ui charts, etc.
+## @descriptionEnd
+
+## @param global.target The type of Flightctl to deploy - either 'standalone' or 'acm'.
+## @param global.baseDomain Base domain to construct the FQDN for the service endpoints.
+## @param.global.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
+## @param.global.baseDomainTls.key Key for the base domain wildcard certificate.
+## @param global.storageClassName Storage class name for the PVCs.
+## @param global.auth.type Type of the auth to use. Can be one of 'builtin', 'openshift', 'oidc', or 'none'
+## @param global.auth.openShiftApiUrl API URL of OpenShift cluster that will be used as authentication authority
+## @param global.auth.oidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
+## @param global.auth.internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
+## @param global.auth.caCert The custom CA cert.
+## @param global.auth.insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
+## @param global.metrics.enabled Enable metrics exporting and service
+## @param global.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
+## @param global.internalNamespace Namespace where internal components are deployed
+## @param global.clusterLevelSecretAccess Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
+## @param global.appCode This is only related to deployment in Red Hat's PAAS.
+## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
+## @param global.nodePorts Node port numbers for FCTL services
+
+
+global:
+  target: "standalone" # standalone, acm
+  baseDomain: ""
+  baseDomainTls:
+    cert: ""
+    key: ""
+  storageClassName: ""
   auth:
-    ## @param enabled True if auth should be enabled. One of 'openShiftApiUrl' or 'oidcAuthority' params will be required.
-    enabled: false
-    ## @param openShiftApiUrl the API URL of OpenShift cluster. This will enable OCP auth. Example: https://api.foo.openshiftapps.com:6443/
-    openShiftApiUrl: "" 
-    ## @param oidcAuthority The base URL for the Keycloak realm that is reachable by clients. This will enable OIDC auth. Example: https://keycloak.foo.net/realms/flightctl
+    type: "builtin" # builtin, openshift, oidc, none
+    openShiftApiUrl: ""
+    caCert: ""
+    insecureSkipTlsVerify: false
     oidcAuthority: ""
-    ## @param internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl-api. Example: https://keycloak.foo.internal/realms/flightctl
-    internalOidcAuthority: "" 
+    internalOidcAuthority: ""
+  metrics:
+    enabled: true
+  internalNamespace: ""
+  clusterLevelSecretAccess: false
+  appCode: ""
+  exposeServicesMethod: "route" # route, nodePort, gateway
+  gatewayClass: ""
+  nodePorts:
+    api: 3443
+    agent: 7443
+    grpc: 7444
+    ui: 9000
+    keycloak: 8080
+  gatewayPorts:
+    tls: 443
+    http: 80
 
 
-storageClassName: aws-ebs
-storageClassNameRWM: aws-efs-tier-c4
+## @section Compoment specific parameters
+## @descriptionStart This section provides individual parameters for each component
+## @descriptionEnd
 
+db:
+  image:
+    image: quay.io/sclorg/postgresql-12-c8s
+    tag: latest
+    pullPolicy: Always
+  password: adminpass
+  masterPassword: adminpass
+  masterUser: admin
+  user: demouser
+  userPassword: demopass
+  ## @param db.resources the request/limit resource requests for the DB deployment pod
+  resources:
+    requests:
+      cpu: "512m"
+      memory: "512Mi"
+    limit:
+      cpu: "2000m"
+      memory: "2Gi"
 
-# This is only related to deployment in Red Hat's PAAS
-appCode: MYAPP
-
-keycloak:
+kv:
+  enabled: true
+  image:
+    image: valkey/valkey
+    tag: latest
+    pullPolicy: Always
+  # Save a snapshot of the DB every 60 seconds if at least 1 write operation was performed.
+  # Each snapshot replaces the previous one.
+  flags: '--save 60 1 --loglevel warning'
+api:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-api
+    pullPolicy: Always
+    tag: ""
+  agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
+  baseUIUrl: "" # ui.flightctl.example.com
+worker:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-worker
+    pullPolicy: Always
+    tag: ""
+  enableSecretsClusterRoleBinding: true
+periodic:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-periodic
+    tag: ""
+    pullPolicy: Always
+rabbitmq:
+  enabled: true
+  replicaCount: 1
+  image:
+    image: docker.io/library/rabbitmq
+    tag: 3.13-management
+    pullPolicy: IfNotPresent
+  ports:
+    amqp: 5672
+    management: 15672
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  auth:
+    username: user
+    password: password
+  service:
+    type: ClusterIP
+    amqpPort: 5672
+    managementPort: 15672
+prometheus:
   enabled: false
+ui:
+  enabled: true
+  api:
+    insecureSkipTlsVerify: true

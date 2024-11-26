@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -13,6 +14,7 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	service "github.com/flightctl/flightctl/internal/service/agent"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -32,6 +34,7 @@ type AgentServer struct {
 	store    store.Store
 	ca       *crypto.CA
 	listener net.Listener
+	metrics  *instrumentation.ApiMetrics
 }
 
 // New returns a new instance of a flightctl server.
@@ -41,6 +44,7 @@ func New(
 	store store.Store,
 	ca *crypto.CA,
 	listener net.Listener,
+	metrics *instrumentation.ApiMetrics,
 ) *AgentServer {
 	return &AgentServer{
 		log:      log,
@@ -48,6 +52,7 @@ func New(
 		store:    store,
 		ca:       ca,
 		listener: listener,
+		metrics:  metrics,
 	}
 }
 
@@ -68,13 +73,18 @@ func (s *AgentServer) Run(ctx context.Context) error {
 		ErrorHandler: oapiErrorHandler,
 	}
 
-	router := chi.NewRouter()
-	router.Use(
+	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	)
+	}
+
+	if s.metrics != nil {
+		middlewares = slices.Insert(middlewares, 0, s.metrics.AgentServerMiddleware)
+	}
+	router := chi.NewRouter()
+	router.Use(middlewares...)
 
 	h := service.NewAgentServiceHandler(s.store, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)

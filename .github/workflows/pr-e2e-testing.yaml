@@ -1,4 +1,5 @@
 name: "E2E testing"
+
 on:
   workflow_dispatch:
   push:
@@ -18,39 +19,58 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            notdocs:
+              - '!.spelling'
+              - '!README.md'
+              - '!docs/**'
+
       - name: Free Disk Space (Ubuntu)
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: false
 
       - name: Setup all dependencies
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
         with:
           setup_podman4: yes
           setup_kvm: yes
 
       - name: Fix swtpm in qemu/libvirt (broken apparmor profile and swtpm permissions)
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           sudo apparmor_status
           sudo aa-complain /usr/bin/swtpm
           sudo apparmor_parser -r /etc/apparmor.d/usr.bin.swtpm
           sudo mkdir -p /var/lib/swtpm-localca
           sudo chmod a+rwx /var/lib/swtpm-localca
-          
 
       - name: Create kind cluster
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make cluster
 
       - name: Deploy the flightctl server
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make deploy
 
+      - name: Deploy the E2E side services, registry and git
+        run: make deploy-e2e-extras
+
       - name: Make rpm, and agent images
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           make e2e-agent-images
 
       - name: Make sure the images are owned by the runner user
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           sudo chown -R runner:runner bin/output|| true
 
       - name: Run E2E Tests
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run:  make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output

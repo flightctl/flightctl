@@ -9,18 +9,29 @@ on:
 permissions:
   contents: read
   pull-requests: read
-jobs:
 
+jobs:
   unit-tests:
     runs-on: "ubuntu-latest"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            notdocs:
+              - '!.spelling'
+              - '!README.md'
+              - '!docs/**'
+
       - name: Setup all dependencies
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
         with:
           setup_podman4: yes
 
       - name: Running Unit tests
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make unit-test

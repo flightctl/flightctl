@@ -37,7 +37,7 @@ func (h *ServiceHandler) AuthValidate(ctx context.Context, request server.AuthVa
 	}
 	valid, err := authn.ValidateToken(ctx, token)
 	if err != nil {
-		return nil, err
+		return server.AuthValidate500JSONResponse{Message: err.Error()}, nil
 	}
 	if !valid {
 		return server.AuthValidate401Response{}, nil

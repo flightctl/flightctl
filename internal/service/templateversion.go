@@ -10,6 +10,10 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tasks"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -40,11 +44,28 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector k8sselector.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var sortField *store.SortField
+	if request.Params.SortBy != nil {
+		sortField = &store.SortField{
+			FieldName: selector.SelectorName(*request.Params.SortBy),
+			Order:     *request.Params.SortOrder,
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:    labelMap,
-		Limit:     int(swag.Int32Value(request.Params.Limit)),
-		Continue:  cont,
-		FleetName: &request.Fleet,
+		Labels:        labelMap,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		FleetName:     &request.Fleet,
+		FieldSelector: fieldSelector,
+		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -54,9 +75,15 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	}
 
 	result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListTemplateVersions200JSONResponse(*result), nil
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return server.ListTemplateVersions400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -65,6 +92,28 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 // (DELETE /api/v1/api/v1/fleets/{fleet}/templateVersions)
 func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request server.DeleteTemplateVersionsRequestObject) (server.DeleteTemplateVersionsResponseObject, error) {
 	orgId := store.NullOrgId
+	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's config storage
+	listParams := store.ListParams{Limit: 100, FleetName: &request.Fleet}
+	for {
+		result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
+		if err != nil {
+			h.log.Warnf("failed deleting config storage for templateVersions in org %s", orgId)
+			break
+		}
+		for _, tv := range result.Items {
+			tvkey := tasks.TemplateVersionKey{OrgID: orgId, Fleet: tv.Spec.Fleet, TemplateVersion: *tv.Metadata.Name}
+			err := h.configStorage.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+			if err != nil {
+				h.log.Warnf("failed deleting config storage for templateVersion %s/%s/%s", orgId, tv.Spec.Fleet, *tv.Metadata.Name)
+			}
+		}
+		if result.Metadata.Continue != nil {
+			cont, _ := store.ParseContinueString(result.Metadata.Continue)
+			listParams.Continue = cont
+		} else {
+			break
+		}
+	}
 
 	err := h.store.TemplateVersion().DeleteAll(ctx, orgId, &request.Fleet)
 	switch err {
@@ -94,7 +143,13 @@ func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server
 func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request server.DeleteTemplateVersionRequestObject) (server.DeleteTemplateVersionResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.TemplateVersion().Delete(ctx, orgId, request.Fleet, request.Name)
+	tvkey := tasks.TemplateVersionKey{OrgID: orgId, Fleet: request.Fleet, TemplateVersion: request.Name}
+	err := h.configStorage.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+	if err != nil {
+		h.log.Warnf("failed deleting config storage for templateVersion %s/%s/%s", orgId, request.Fleet, request.Name)
+	}
+
+	err = h.store.TemplateVersion().Delete(ctx, orgId, request.Fleet, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteTemplateVersion200JSONResponse{}, nil

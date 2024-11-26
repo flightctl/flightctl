@@ -17,13 +17,17 @@ var (
 
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	DeviceAnnotationConsole         = "device-controller/console"
 )
 
 type Device struct {
 	Resource
 
+	// The alias for the device.
+	Alias *string `selector:"metadata.alias"`
+
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.DeviceSpec]
+	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
 	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
@@ -33,6 +37,9 @@ type Device struct {
 
 	// The rendered ignition config, exposed in a separate endpoint.
 	RenderedConfig *string
+
+	// The rendered application provided by the service.
+	RenderedApplications *JSONField[*[]api.RenderedApplicationSpec] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
@@ -54,7 +61,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 		return &Device{}, nil
 	}
 
-	var spec api.DeviceSpec
+	spec := api.DeviceSpec{}
 	if resource.Spec != nil {
 		spec = *resource.Spec
 	}
@@ -62,9 +69,6 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	status := api.NewDeviceStatus()
 	if resource.Status != nil {
 		status = *resource.Status
-	}
-	if status.Applications.Data == nil {
-		status.Applications.Data = make(map[string]api.ApplicationStatus)
 	}
 	if status.Conditions == nil {
 		status.Conditions = []api.Condition{}
@@ -77,6 +81,12 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 		}
 		resourceVersion = &i
 	}
+	var alias *string
+	if labels := resource.Metadata.Labels; labels != nil {
+		if l, ok := (*labels)["alias"]; ok {
+			alias = &l
+		}
+	}
 
 	return &Device{
 		Resource: Resource{
@@ -87,6 +97,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
+		Alias:  alias,
 		Spec:   MakeJSONField(spec),
 		Status: MakeJSONField(status),
 	}, nil
@@ -97,7 +108,7 @@ func (d *Device) ToApiResource() api.Device {
 		return api.Device{}
 	}
 
-	var spec api.DeviceSpec
+	spec := api.DeviceSpec{}
 	if d.Spec != nil {
 		spec = d.Spec.Data
 	}
@@ -148,14 +159,29 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 	}
 
 	deviceList := make([]api.Device, len(dl))
+	applicationStatuses := make(map[string]int64)
+	summaryStatuses := make(map[string]int64)
+	updateStatuses := make(map[string]int64)
 	for i, device := range dl {
 		deviceList[i] = device.ToApiResource()
+		applicationStatus := string(deviceList[i].Status.ApplicationsSummary.Status)
+		applicationStatuses[applicationStatus] = applicationStatuses[applicationStatus] + 1
+		summaryStatus := string(deviceList[i].Status.Summary.Status)
+		summaryStatuses[summaryStatus] = summaryStatuses[summaryStatus] + 1
+		updateStatus := string(deviceList[i].Status.Updated.Status)
+		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 	}
 	ret := api.DeviceList{
 		ApiVersion: DeviceAPI,
 		Kind:       DeviceListKind,
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
+		Summary: &api.DevicesSummary{
+			ApplicationStatus: applicationStatuses,
+			SummaryStatus:     summaryStatuses,
+			UpdateStatus:      updateStatuses,
+			Total:             int64(len(dl)),
+		},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont

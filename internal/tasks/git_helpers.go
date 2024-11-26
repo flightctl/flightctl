@@ -12,10 +12,10 @@ import (
 	"regexp"
 	"strings"
 
-	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
@@ -84,6 +84,7 @@ func CloneGitRepo(repo *model.Repository, revision *string, depth *int) (billy.F
 		}
 		hash = head.Hash().String()
 	}
+
 	return mfs, hash, nil
 }
 
@@ -201,33 +202,58 @@ func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
 	return nil
 }
 
-func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_latest_types.Config, error) {
+// ConvertFileSystemToIgnition converts a filesystem to an ignition config
+// The filesystem is expected to be a git repo, and the path is the root of the repo
+// The function will recursively walk the filesystem and add all files to the ignition config
+// In case user provides file path we will add file as "/file-name"
+// In case user provides folder we will drop folder path add all files and subfolder with subfolder paths, like
+// Example: ConvertFileSystemToIgnition(mfs, "/test-path) will go through all subfolder and files and build ignition paths like
+// /etc/motd, /etc/config/file.yaml
+// The function will return an error if the path does not exist or if there is an error reading the filesystem
+func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string, mountPath string) (*config_latest_types.Config, error) {
 	fileInfo, err := mfs.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed accessing path %s: %w", path, err)
 	}
-	ignitionConfig, _, _ := config_latest.ParseCompatibleVersion([]byte("{\"ignition\": {\"version\": \"3.4.0\"}"))
+
+	wrapper, err := ignition.NewWrapper()
+	if err != nil {
+		return nil, fmt.Errorf("failed initializing ignition wrapper: %w", err)
+	}
 
 	if fileInfo.IsDir() {
 		files, err := mfs.ReadDir(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed reading directory %s: %w", path, err)
 		}
-		err = addGitDirToIgnitionConfig(mfs, path, "/", files, &ignitionConfig)
+		err = addGitDirToIgnitionConfig(mfs, path, mountPath, files, wrapper)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting directory %s to ignition: %w", path, err)
 		}
 	} else {
-		err = addGitFileToIgnitionConfig(mfs, path, "/", fileInfo, &ignitionConfig)
+		err = addGitFileToIgnitionConfig(mfs, path, filepath.Join(mountPath, fileInfo.Name()), fileInfo, wrapper)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting file %s to ignition: %w", path, err)
 		}
 	}
 
-	return &ignitionConfig, nil
+	ignition := wrapper.AsIgnitionConfig()
+	return &ignition, nil
 }
 
-func addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix string, fileInfos []fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
+func CloneGitRepoToIgnition(repo *model.Repository, revision string, path string, mountPath string) (*config_latest_types.Config, string, error) {
+	mfs, hash, err := CloneGitRepo(repo, &revision, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	ign, err := ConvertFileSystemToIgnition(mfs, path, mountPath)
+	if err != nil {
+		return nil, "", err
+	}
+	return ign, hash, nil
+}
+
+func addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix string, fileInfos []fs.FileInfo, wrapper ignition.Wrapper) error {
 	for _, fileInfo := range fileInfos {
 		if fileInfo.IsDir() {
 			subdirFiles, err := mfs.ReadDir(filepath.Join(fullPrefix, fileInfo.Name()))
@@ -235,12 +261,12 @@ func addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix strin
 				return fmt.Errorf("failed reading directory %s: %w", fileInfo.Name(), err)
 			}
 			// recursion!
-			err = addGitDirToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), subdirFiles, ignitionConfig)
+			err = addGitDirToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), subdirFiles, wrapper)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := addGitFileToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), fileInfo, ignitionConfig)
+			err := addGitFileToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), fileInfo, wrapper)
 			if err != nil {
 				return err
 			}
@@ -249,7 +275,7 @@ func addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix strin
 	return nil
 }
 
-func addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, fileInfo fs.FileInfo, ignitionConfig *config_latest_types.Config) error {
+func addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, fileInfo fs.FileInfo, wrapper ignition.Wrapper) error {
 	openFile, err := mfs.Open(fullPath)
 	if err != nil {
 		return err
@@ -261,27 +287,6 @@ func addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, 
 		return err
 	}
 
-	setFileInIgnition(ignitionConfig, ignPath, fileContents, int(fileInfo.Mode()), true)
+	wrapper.SetFile(ignPath, fileContents, int(fileInfo.Mode()), false, nil, nil)
 	return nil
-}
-
-func setFileInIgnition(ignitionConfig *config_latest_types.Config, filePath string, fileBytes []byte, mode int, overwrite bool) {
-	fileContents := "data:text/plain;charset=utf-8;base64," + base64.StdEncoding.EncodeToString(fileBytes)
-	rootUser := "root"
-	file := config_latest_types.File{
-		Node: config_latest_types.Node{
-			Path:      filePath,
-			Overwrite: &overwrite,
-			Group:     config_latest_types.NodeGroup{},
-			User:      config_latest_types.NodeUser{Name: &rootUser},
-		},
-		FileEmbedded1: config_latest_types.FileEmbedded1{
-			Append: []config_latest_types.Resource{},
-			Contents: config_latest_types.Resource{
-				Source: &fileContents,
-			},
-			Mode: &mode,
-		},
-	}
-	ignitionConfig.Storage.Files = append(ignitionConfig.Storage.Files, file)
 }

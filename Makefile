@@ -10,13 +10,14 @@ GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell git describe --always --long --tags --exclude latest --abbrev=7 --match 'v[0-9]*' || echo 'v0.0.0-unknown-$(SOURCE_GIT_COMMIT)')
+SOURCE_GIT_TAG ?=$(shell git describe --tags --exclude latest)
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null)
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
-MAJOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$1}')
-MINOR := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$2}')
-PATCH := $(shell echo $(SOURCE_GIT_TAG) | awk -F'[._~-]' '{print $$3}')
+SOURCE_GIT_TAG_NO_V := $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
+MAJOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
+MINOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$2}')
+PATCH := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
 
 GO_LD_FLAGS := -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.majorFromGit=$(MAJOR) \
@@ -49,9 +50,11 @@ help:
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
 	@echo "    deploy-db:       deploy only the database as a container, for testing"
 	@echo "    deploy-mq:       deploy only the message queue broker as a container"
+	@echo "    deploy-quadlets: deploy FlightCtl using Quadlets"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
+	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 
 publish: build-containers
@@ -72,8 +75,16 @@ tidy:
 lint: tools
 	$(GOBIN)/golangci-lint run -v
 
-build: bin
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
+build: bin build-cli
+	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
+		./cmd/devicesimulator \
+		./cmd/flightctl-agent \
+		./cmd/flightctl-api \
+		./cmd/flightctl-periodic \
+		./cmd/flightctl-worker
+
+build-cli:
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
 build-api: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
@@ -165,11 +176,17 @@ clean: clean-agent-vm clean-e2e-agent-images
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
 
+clean-quadlets:
+	- sudo systemctl stop flightctl.slice
+	- sudo rm -rf /etc/containers/systemd/flightctl*
+	- sudo podman volume rm flightctl-db flightctl-api-certs rabbitmq-data
+	- sudo podman network rm flightctl
+
 .PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container
 tools: $(GOBIN)/golangci-lint
 
 $(GOBIN)/golangci-lint:
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.54.0
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.61.0
 
 .PHONY: lint-docs
 lint-docs:
@@ -195,12 +212,12 @@ lint-diagrams:
 .PHONY: spellcheck-docs
 spellcheck-docs:
 	@echo "Checking user documentation for spelling issues"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --report "docs/user/**/*.md"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
 
 .PHONY: fix-spelling
 fix-spelling:
 	@echo "Running markdown-spellcheck interactively to allow fixing spelling issues"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us "docs/user/**/*.md"
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers "docs/user/**/*.md"
 
 # include the deployment targets
 include deploy/deploy.mk

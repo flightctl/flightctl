@@ -1,8 +1,9 @@
+{{ if and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin") }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: keycloak-db
-  namespace: {{ .Values.db.namespace | quote }}
+  namespace: {{ .Release.Namespace | quote }}
   labels:
     app: keycloak-db
 spec:
@@ -21,7 +22,6 @@ spec:
           image: {{ .Values.db.image }}
           imagePullPolicy: {{ .Values.db.imagePullPolicy }}
           env:
-            {{- if .Values.db.auth.adminAccess }}
             - name: POSTGRESQL_MASTER_USER
               valueFrom:
                 secretKeyRef:
@@ -37,7 +37,6 @@ spec:
                 secretKeyRef:
                   name: keycloak-db-pgadmin
                   key: password
-            {{- end }}
             - name: POSTGRESQL_DATABASE
               valueFrom:
                 secretKeyRef:
@@ -64,3 +63,4 @@ spec:
         - name: keycloak-db
           persistentVolumeClaim:
             claimName: keycloak-db
+{{ end }}

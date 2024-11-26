@@ -1,0 +1,24 @@
+{{ if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-flightctl
+  namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+          - {{ .Release.Namespace }}
+          - {{ default .Release.Namespace .Values.global.internalNamespace }}
+          {{- if eq .Values.global.target "acm"  }}
+          - openshift-console
+          {{- end  }}
+      podSelector: {}
+  podSelector: {}
+  policyTypes:
+  - Ingress
+{{ end }}

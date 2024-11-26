@@ -27,11 +27,15 @@ type DummyFleet struct {
 	FleetVal v1alpha1.Fleet
 }
 
-func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.Fleet, error) {
+func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*v1alpha1.Fleet, error) {
 	if name == *s.FleetVal.Metadata.Name {
 		return &s.FleetVal, nil
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, callback store.FleetStoreCallback) (*v1alpha1.Fleet, error) {
+	return fleet, nil
 }
 
 func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, callback store.FleetStoreCallback) (*v1alpha1.Fleet, bool, error) {
@@ -53,7 +57,7 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 		},
 		Spec: v1alpha1.FleetSpec{
 			Selector: &v1alpha1.LabelSelector{
-				MatchLabels: map[string]string{"devKey": "devValue"},
+				MatchLabels: &map[string]string{"devKey": "devValue"},
 			},
 			Template: struct {
 				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
@@ -140,7 +144,7 @@ func TestFleetPatchSpec(t *testing.T) {
 		{Op: "replace", Path: "/spec/selector/matchLabels/devKey", Value: &value},
 	}
 	resp, device := testFleetPatch(require, pr)
-	device.Spec.Selector.MatchLabels = map[string]string{"devKey": "newValue"}
+	device.Spec.Selector.MatchLabels = &map[string]string{"devKey": "newValue"}
 	require.Equal(server.PatchFleet200JSONResponse(device), resp)
 
 	value = 1234

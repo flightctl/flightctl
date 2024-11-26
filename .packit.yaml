@@ -9,6 +9,7 @@ packages:
 
     upstream_package_name: flightctl
     downstream_package_name: flightctl
+    upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
 
 jobs:
   - job: copr_build
@@ -35,6 +36,8 @@ jobs:
       - centos-stream-9-aarch64
       - rhel-9-aarch64
       - rhel-9-x86_64
+      - epel-9-aarch64
+      - epel-9-x86_64
 
 
   - job: copr_build
@@ -54,3 +57,5 @@ jobs:
       - centos-stream-9-aarch64
       - rhel-9-aarch64
       - rhel-9-x86_64
+      - epel-9-aarch64
+      - epel-9-x86_64

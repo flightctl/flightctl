@@ -11,6 +11,9 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -58,10 +61,27 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector k8sselector.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var sortField *store.SortField
+	if request.Params.SortBy != nil {
+		sortField = &store.SortField{
+			FieldName: selector.SelectorName(*request.Params.SortBy),
+			Order:     *request.Params.SortOrder,
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
+		Labels:        labelMap,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		FieldSelector: fieldSelector,
+		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -70,10 +90,25 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
+	if request.Params.Repository != nil {
+		specFilter := []string{fmt.Sprintf("spec.repository=%s", *request.Params.Repository)}
+		filterMap, err := ConvertFieldFilterParamsToMap(specFilter)
+		if err != nil {
+			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to convert repository filter: %v", err)}, nil
+		}
+		listParams.Filter = filterMap
+	}
+
 	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListResourceSync200JSONResponse(*result), nil
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return server.ListResourceSync400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -135,6 +170,8 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ReplaceResourceSync404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.ReplaceResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err
 	}
@@ -192,7 +229,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-	result, _, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, newObj)
+	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
 
 	switch err {
 	case nil:
@@ -201,6 +238,8 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.PatchResourceSync404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+		return server.PatchResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err
 	}
