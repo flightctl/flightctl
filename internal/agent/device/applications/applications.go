@@ -26,8 +26,10 @@ type ContainerStatusType string
 const (
 	ContainerStatusInit    ContainerStatusType = "init"
 	ContainerStatusRunning ContainerStatusType = "start"
-	ContainerStatusDie     ContainerStatusType = "die"
+	ContainerStatusDie     ContainerStatusType = "die" // docker only
+	ContainerStatusDied    ContainerStatusType = "died"
 	ContainerStatusRemove  ContainerStatusType = "remove"
+	ContainerStatusExited  ContainerStatusType = "exited"
 )
 
 func (c ContainerStatusType) String() string {
@@ -36,7 +38,12 @@ func (c ContainerStatusType) String() string {
 
 func (c ContainerStatusType) Vaild() bool {
 	switch c {
-	case ContainerStatusInit, ContainerStatusRunning, ContainerStatusDie, ContainerStatusRemove:
+	case ContainerStatusInit,
+		ContainerStatusRunning,
+		ContainerStatusDie,
+		ContainerStatusDied,
+		ContainerStatusRemove,
+		ContainerStatusExited:
 		return true
 	default:
 		return false
@@ -55,11 +62,12 @@ type Monitor interface {
 }
 
 type Manager interface {
-	Add(app Application) error
+	Ensure(app Application) error
 	Remove(app Application) error
 	Update(app Application) error
 	ExecuteActions(ctx context.Context) error
 	Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
+	Stop(ctx context.Context) error
 }
 
 type Application interface {
@@ -71,6 +79,7 @@ type Application interface {
 	Container(name string) (*Container, bool)
 	AddContainer(container Container)
 	RemoveContainer(name string) bool
+	IsEmbedded() bool
 	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 }
 
@@ -170,18 +179,25 @@ func (a *application[T]) RemoveContainer(name string) bool {
 	return false
 }
 
+func (a *application[T]) IsEmbedded() bool {
+	return a.embedded
+}
+
 func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
 	restarts := 0
+	exited := 0
 	for _, container := range a.containers {
 		restarts += container.Restarts
-		if container.Status == ContainerStatusRunning {
-			healthy++
-		}
-		if container.Status == ContainerStatusInit {
+		switch container.Status {
+		case ContainerStatusInit:
 			initializing++
+		case ContainerStatusRunning:
+			healthy++
+		case ContainerStatusExited:
+			exited++
 		}
 	}
 
@@ -191,6 +207,7 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.D
 
 	var newStatus v1alpha1.ApplicationStatusType
 
+	// order is important
 	switch {
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusUnknown
@@ -201,15 +218,18 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.D
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusPreparing
 		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+	case isCompleted(total, exited):
+		newStatus = v1alpha1.ApplicationStatusCompleted
+		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+	case isRunningHealthy(total, healthy, initializing, exited):
+		newStatus = v1alpha1.ApplicationStatusRunning
+		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusRunning
 		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
 	case isErrored(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusError
 		summary.Status = v1alpha1.ApplicationsSummaryStatusError
-	case isRunningHealthy(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusRunning
-		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
 	default:
 		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
 		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
@@ -236,6 +256,10 @@ func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
 }
 
+func isCompleted(total, completed int) bool {
+	return total > 0 && completed == total
+}
+
 func isPreparing(total, healthy, initializing int) bool {
 	return total > 0 && healthy == 0 && initializing > 0
 }
@@ -244,8 +268,8 @@ func isRunningDegraded(total, healthy, initializing int) bool {
 	return total != healthy && healthy > 0 && initializing == 0
 }
 
-func isRunningHealthy(total, healthy, initializing int) bool {
-	return total > 0 && healthy == total && initializing == 0
+func isRunningHealthy(total, healthy, initializing, exited int) bool {
+	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 
 func isErrored(total, healthy, initializing int) bool {
@@ -306,6 +330,7 @@ func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.Image
 	return providers, nil
 }
 
+// TypeFromImage returns the app type from the image label.
 func TypeFromImage(ctx context.Context, podman *client.Podman, image string) (AppType, error) {
 	labels, err := podman.InspectLabels(ctx, image)
 	if err != nil {
@@ -318,6 +343,7 @@ func TypeFromImage(ctx context.Context, podman *client.Podman, image string) (Ap
 	return ParseAppType(appTypeLabel)
 }
 
+// EnsureDependenciesFromType ensures that the dependencies required for the given app type are available.
 func EnsureDependenciesFromType(appType AppType) error {
 	var deps []string
 	switch appType {
@@ -336,7 +362,7 @@ func EnsureDependenciesFromType(appType AppType) error {
 	return fmt.Errorf("%w: %v", errors.ErrAppDependency, deps)
 }
 
-func CopyImageManifests(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman, image, destPath string) (err error) {
+func copyImageManifests(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman, image, destPath string) (err error) {
 	var mountPoint string
 
 	rootless := client.IsPodmanRootless()

@@ -88,7 +88,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 
 	fs.StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
 	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, as a comma-separated list of key=value.")
-	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supports '=', '==', and '!='.(e.g. --field-selector key1=value1,key2=value2).")
+	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '==', and '!=' (e.g., --field-selector='key1=value1,key2=value2').")
 	fs.StringSliceVar(&o.StatusFilter, "status-filter", o.StatusFilter, "Filter the results by status field path using key-value pairs. Example: --status-filter=updated.status=UpToDate")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
 	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
@@ -142,8 +142,8 @@ func (o *GetOptions) Validate(args []string) error {
 			return fmt.Errorf("cannot specify summary when fetching a single resource")
 		}
 		if o.SummaryOnly {
-			if len(o.StatusFilter) > 0 || len(o.Continue) > 0 || o.Limit > 0 {
-				return fmt.Errorf("only the 'owner' and 'selector' flags are supported when 'summary-only' is specified")
+			if o.Limit > 0 || len(o.Continue) > 0 {
+				return fmt.Errorf("flags such as 'limit' and 'continue' are not supported when 'summary-only' is specified")
 			}
 		}
 	}

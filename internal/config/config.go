@@ -18,6 +18,7 @@ type Config struct {
 	Database   *dbConfig         `json:"database,omitempty"`
 	Service    *svcConfig        `json:"service,omitempty"`
 	Queue      *queueConfig      `json:"queue,omitempty"`
+	KV         *kvConfig         `json:"kv,omitempty"`
 	Auth       *authConfig       `json:"auth,omitempty"`
 	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
 }
@@ -50,6 +51,11 @@ type svcConfig struct {
 
 type queueConfig struct {
 	AmqpURL string `json:"amqpUrl,omitempty"`
+}
+
+type kvConfig struct {
+	Hostname string `json:"hostname,omitempty"`
+	Port     uint   `json:"port,omitempty"`
 }
 
 type authConfig struct {
@@ -105,6 +111,10 @@ func NewDefault() *Config {
 		},
 		Queue: &queueConfig{
 			AmqpURL: "amqp://localhost:5672",
+		},
+		KV: &kvConfig{
+			Hostname: "localhost",
+			Port:     6379,
 		},
 		Prometheus: &prometheusConfig{
 			Address:        ":15690",

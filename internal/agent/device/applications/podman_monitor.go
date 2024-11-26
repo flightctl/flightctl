@@ -52,8 +52,6 @@ type PodmanEvent struct {
 	Image      string            `json:"Image"`
 	Name       string            `json:"Name"`
 	Status     string            `json:"Status"`
-	Time       int64             `json:"time"`
-	TimeNano   int64             `json:"timeNano"`
 	Type       string            `json:"Type"`
 	Attributes map[string]string `json:"Attributes"`
 }
@@ -97,7 +95,7 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	m.log.Debugf("Boot time: %s", bootTime)
 
 	// list of podman events to listen for
-	events := []string{"init", "start", "die", "sync", "remove"}
+	events := []string{"init", "start", "die", "sync", "remove", "exited"}
 	m.cmd = m.client.EventsSinceCmd(ctx, events, bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
@@ -114,19 +112,70 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	return nil
 }
 
-func (m *PodmanMonitor) Stop() {
+func (m *PodmanMonitor) Stop(ctx context.Context) error {
+	var errs []error
 	m.once.Do(func() {
-		m.cancelFn()
-		if err := m.cmd.Wait(); err != nil {
-			m.log.Errorf("Failed to wait for podman events: %v", err)
+		m.log.Info("Stopping podman monitor")
+		if err := m.drain(ctx); err != nil {
+			errs = append(errs, err)
 		}
+		m.log.Infof("Podman drain complete")
+		m.cancelFn()
+
+		// its possible that we call stop before the monitor has been
+		// initialized
+		if m.cmd != nil {
+			if err := m.cmd.Wait(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
+			}
+		}
+		m.log.Info("Podman monitor stopped")
 	})
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
 
-// add ensures that and application is added to the monitor. if the application
+func (m *PodmanMonitor) getApps() []Application {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	apps := make([]Application, 0, len(m.apps))
+	for _, app := range m.apps {
+		apps = append(apps, app)
+	}
+	return apps
+}
+
+func (m *PodmanMonitor) drain(ctx context.Context) error {
+	var errs []error
+
+	apps := m.getApps()
+	m.log.Infof("Draining %d applications", len(apps))
+	for _, app := range apps {
+		if err := m.remove(app); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if err := m.ExecuteActions(ctx); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+// ensures that and application is added to the monitor. if the application
 // is added for the first time an Add action is queued to be executed by the
 // lifecycle manager. so additional adds for the same app will be idempotent.
-func (m *PodmanMonitor) add(app Application) error {
+func (m *PodmanMonitor) ensure(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -144,9 +193,10 @@ func (m *PodmanMonitor) add(app Application) error {
 	}
 
 	action := lifecycle.Action{
-		Handler: handler,
-		Type:    lifecycle.ActionAdd,
-		Name:    appName,
+		Handler:  handler,
+		Type:     lifecycle.ActionAdd,
+		Name:     appName,
+		Embedded: app.IsEmbedded(),
 	}
 
 	m.actions = append(m.actions, action)
@@ -170,6 +220,7 @@ func (m *PodmanMonitor) remove(app Application) error {
 
 	delete(m.apps, appName)
 
+	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
 		Handler: handler,
 		Type:    lifecycle.ActionRemove,
@@ -199,6 +250,7 @@ func (m *PodmanMonitor) update(app Application) error {
 		return err
 	}
 
+	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
 		Handler: handler,
 		Type:    lifecycle.ActionUpdate,
@@ -327,7 +379,6 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
 	defer func() {
-		m.log.Info("Podman application monitor stopped")
 		stdoutPipe.Close()
 	}()
 
@@ -378,7 +429,12 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	status := ContainerStatusType(event.Status)
+	inspectData, err := m.inspectContainer(ctx, event.ID)
+	if err != nil {
+		m.log.Errorf("Failed to inspect container: %v", err)
+	}
+
+	status := m.resolveStatus(event.Status, inspectData)
 	if status == ContainerStatusRemove {
 		// remove existing container
 		if removed := app.RemoveContainer(event.Name); removed {
@@ -387,14 +443,10 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 		return
 	}
 
-	m.log.Debugf("Updating application status for event: %v", event)
-
-	restarts, err := m.getContainerRestarts(ctx, event.ID)
+	restarts, err := m.getContainerRestarts(inspectData)
 	if err != nil {
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
-
-	// init ok
 
 	container, exists := app.Container(event.Name)
 	if exists {
@@ -417,21 +469,35 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	})
 }
 
-func (m *PodmanMonitor) getContainerRestarts(ctx context.Context, containerID string) (int, error) {
-	resp, err := m.client.Inspect(ctx, containerID)
-	if err != nil {
-		return 0, err
-	}
-
-	var inspectData []PodmanInspect
-	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
-		return 0, fmt.Errorf("unmarshal podman inspect output: %v", err)
-	}
-
+func (m *PodmanMonitor) getContainerRestarts(inspectData []PodmanInspect) (int, error) {
 	var restarts int
 	if len(inspectData) > 0 {
 		restarts = inspectData[0].Restarts
 	}
 
 	return restarts, nil
+}
+
+func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string) ([]PodmanInspect, error) {
+	resp, err := m.client.Inspect(ctx, containerID)
+	if err != nil {
+		return nil, err
+	}
+
+	var inspectData []PodmanInspect
+	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
+		return nil, fmt.Errorf("unmarshal podman inspect output: %v", err)
+	}
+	return inspectData, nil
+}
+
+func (m *PodmanMonitor) resolveStatus(status string, inspectData []PodmanInspect) ContainerStatusType {
+	initialStatus := ContainerStatusType(status)
+	// podman events don't properly event exited in the case where the container exits 0.
+	if initialStatus == ContainerStatusDie || initialStatus == ContainerStatusDied {
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+			return ContainerStatusExited
+		}
+	}
+	return initialStatus
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -22,10 +23,11 @@ func NewManager(
 	resourceManager resource.Manager,
 	hookManager hook.Manager,
 	applicationManager applications.Manager,
+	systemdManager systemd.Manager,
 	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	exporters := newExporters(resourceManager, hookManager, applicationManager, executer, log)
+	exporters := newExporters(resourceManager, hookManager, applicationManager, systemdManager, executer, log)
 	status := v1alpha1.NewDeviceStatus()
 	return &StatusManager{
 		deviceName: deviceName,
@@ -52,8 +54,6 @@ type StatusManager struct {
 type Exporter interface {
 	// Export collects status information and updates the device status.
 	Export(ctx context.Context, device *v1alpha1.DeviceStatus) error
-	// SetProperties sets the properties for the exporter.
-	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
 
 type Collector interface {
@@ -73,9 +73,41 @@ type Manager interface {
 	UpdateCondition(context.Context, v1alpha1.Condition) error
 	// SetClient sets the management client for the status manager.
 	SetClient(client.Management)
-	// SetProperties sets the properties for the exporters.
-	SetProperties(*v1alpha1.RenderedDeviceSpec)
 }
+
+type UpdateState string
+
+const (
+	// The agent is validating the desired device spec and downloading
+	// dependencies. No changes have been made to the device's configuration
+	// yet.
+	UpdateStatePreparing UpdateState = "Preparing"
+	//  The agent has validated the desired spec, downloaded all dependencies,
+	//  and is ready to update. No changes have been made to the device's
+	//  configuration yet.
+	UpdateStateReadyToUpdate UpdateState = "ReadyToUpdate"
+	// The agent has started the update transaction and is writing the update to
+	// disk.
+	UpdateStateApplyingUpdate UpdateState = "ApplyingUpdate"
+	// The agent initiated a reboot required to activate the new OS image and configuration.
+	UpdateStateRebooting UpdateState = "Rebooting"
+	// The agent has successfully completed the update and the device is
+	// conforming to its device spec. Note that the device's update status may
+	// still be reported as `OutOfDate` if the device spec is not yet at the
+	// same version as the fleet's device template
+	UpdateStateUpdated UpdateState = "Updated"
+	// The agent has canceled the update because the desired spec was reverted
+	// to the current spec before the update process started.
+	UpdateStateCanceled UpdateState = "Canceled"
+	// The agent failed to apply the desired spec and will not retry. The
+	// device's OS image and configuration have been rolled back to the
+	// pre-update version and have been activated
+	UpdateStateError UpdateState = "Error"
+	// The agent failed to apply the desired spec and will retry. The device's
+	// OS image and configuration have been rolled back to the pre-update
+	// version and have been activated.
+	UpdateStateRetrying UpdateState = "Retrying"
+)
 
 func (m *StatusManager) SetClient(managementClient client.Management) {
 	m.managementClient = managementClient
@@ -135,12 +167,6 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return fmt.Errorf("failed to update device status: %w", err)
 	}
 	return nil
-}
-
-func (m *StatusManager) SetProperties(spec *v1alpha1.RenderedDeviceSpec) {
-	for _, exporter := range m.exporters {
-		exporter.SetProperties(spec)
-	}
 }
 
 type UpdateStatusFn func(status *v1alpha1.DeviceStatus) error

@@ -17,7 +17,7 @@ var (
 	ErrLimitParamOutOfBounds               = errors.New("the limit parameter is out of the valid bounds")
 	ErrFieldSelectorSyntax                 = errors.New("invalid field selector syntax")
 	ErrFieldSelectorParseFailed            = errors.New("failed to parse field selector")
-	ErrFieldSelectorUnknownField           = errors.New("unknown or unsupported field")
+	ErrFieldSelectorUnknownSelector        = errors.New("unknown or unsupported selector")
 
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")

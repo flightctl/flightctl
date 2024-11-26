@@ -23,7 +23,7 @@ type Repository struct {
 	Spec *JSONField[api.RepositorySpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.RepositoryStatus] `gorm:"type:jsonb" selector:"status"`
+	Status *JSONField[api.RepositoryStatus] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of repository to fleets
 	Fleets []Fleet `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`

@@ -122,19 +122,19 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 		stdout.Close()
 		// finally this should end the other forward function
 		_ = stream.CloseSend()
-		c.log.Infof("startForwarding: closing stream for console")
+		c.log.Info("startForwarding: closing stream for console")
 
 	}()
 	g, _ := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		defer stdout.Close() // close the other side to make the other forward function leave
-		defer c.log.Infof("stream > bash: leaving forward loop")
-		c.log.Infof("stream > bash: entering forward loop")
+		defer c.log.Debug("stream > bash: leaving forward loop")
+		c.log.Debug("stream > bash: entering forward loop")
 		for {
 			msg, err := stream.Recv()
 			if err == io.EOF || msg != nil && msg.Closed {
-				c.log.Infof("stream > bash: connection closed")
+				c.log.Info("stream > bash: connection closed")
 				return nil
 			}
 			if err != nil {
@@ -142,14 +142,14 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 				return fmt.Errorf("stream > bash:error receiving message for stdin: %w", err)
 			}
 			payload := msg.GetPayload()
-			c.log.Infof("stream > bash: received: %s", (string)(payload))
+			c.log.Debugf("stream > bash: received: %s", (string)(payload))
 			_, err = stdin.Write(payload)
 			if errors.Is(err, io.ErrClosedPipe) {
-				c.log.Infof("stream > bash: stdin closed")
+				c.log.Error("stream > bash: stdin closed")
 				return nil
 			}
 			if err != nil {
-				c.log.Infof("stream > bash: error writing to stdin: %s", err)
+				c.log.Errorf("stream > bash: error writing to stdin: %s", err)
 				return fmt.Errorf("stream > bash: error writing to stdin: %w", err)
 			}
 		}
@@ -167,8 +167,8 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 			// finally this should end the other forward function
 			_ = stream.CloseSend()
 		}()
-		defer c.log.Infof("bash > stream: leaving forward loop")
-		c.log.Infof("bash > stream: entering forward loop")
+		defer c.log.Debug("bash > stream: leaving forward loop")
+		c.log.Debug("bash > stream: entering forward loop")
 		for {
 			buffer := make([]byte, 4096)
 			n, readErr := stdout.Read(buffer)
@@ -186,15 +186,15 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 			}
 
 			if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrClosedPipe) {
-				c.log.Infof("bash > stream: stdout from bash ended")
+				c.log.Debug("bash > stream: stdout from bash ended")
 				return nil
 			}
 			if readErr != nil {
-				c.log.Infof("bash > stream: error reading from bash stdout: %s", readErr)
+				c.log.Errorf("bash > stream: error reading from bash stdout: %s", readErr)
 				return fmt.Errorf("bash > stream: error reading from stdout: %w", readErr)
 			}
 
-			c.log.Infof("bash > stream: sent: %q", (string)(buffer[:n]))
+			c.log.Debugf("bash > stream: sent: %q", (string)(buffer[:n]))
 
 		}
 	})

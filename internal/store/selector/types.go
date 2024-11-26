@@ -1,20 +1,23 @@
 package selector
 
 import (
-	"reflect"
+	"regexp"
+	"strings"
 
+	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
+	"github.com/flightctl/flightctl/pkg/queryparser"
 	gormschema "gorm.io/gorm/schema"
-	"k8s.io/apimachinery/pkg/selection"
 )
 
 const (
-	Bool = iota
+	Unknown = iota
+	Bool
 	Int
 	SmallInt
 	BigInt
 	Float
 	String
-	Time
+	Timestamp
 	BoolArray
 	IntArray
 	SmallIntArray
@@ -25,24 +28,75 @@ const (
 	Jsonb
 )
 
-var operatorsMap = map[selection.Operator]string{
-	selection.Exists:       "ISNOTNULL",
-	selection.DoesNotExist: "ISNULL",
-	selection.Equals:       "EQ",
-	selection.DoubleEquals: "EQ",
-	selection.NotEquals:    "NOTEQ",
-	selection.In:           "IN",
-	selection.NotIn:        "NOTIN",
-	selection.LessThan:     "LT",
-	selection.GreaterThan:  "GT",
+var schemaTypeResolution = map[gormschema.DataType]SelectorType{
+	gormschema.Bool:   Bool,
+	gormschema.Int:    Int,
+	gormschema.Float:  Float,
+	gormschema.String: String,
+	gormschema.Time:   Timestamp,
+	"boolean[]":       BoolArray,
+	"integer[]":       IntArray,
+	"smallint[]":      SmallIntArray,
+	"bigint[]":        BigIntArray,
+	"real[]":          FloatArray,
+	"text[]":          TextArray,
+	"timestamp[]":     TimestampArray,
+	"jsonb":           Jsonb,
 }
 
-// SelectorFieldName represents the name of a field used in a selector.
-type SelectorFieldName string
+var operatorsMap = map[selection.Operator]string{
+	selection.Exists:              "ISNOTNULL",
+	selection.DoesNotExist:        "ISNULL",
+	selection.Equals:              "EQ",
+	selection.DoubleEquals:        "EQ",
+	selection.NotEquals:           "NOTEQ",
+	selection.Contains:            "LIKE",
+	selection.NotContains:         "NOTLIKE",
+	selection.In:                  "IN",
+	selection.NotIn:               "NOTIN",
+	selection.LessThan:            "LT",
+	selection.LessThanOrEquals:    "LTE",
+	selection.GreaterThan:         "GT",
+	selection.GreaterThanOrEquals: "GTE",
+}
 
-type SelectorFieldType int
+var arrayPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+\[\d+\]$`)
 
-func (t SelectorFieldType) IsArray() bool {
+// SelectorNameMapping defines an interface for mapping a custom selector
+// to one or more selectors defined for the model.
+type SelectorNameMapping interface {
+	// MapSelectorName maps a custom selector to one or more selectors.
+	MapSelectorName(selector SelectorName) []SelectorName
+
+	// ListSelectors returns all custom selectors.
+	ListSelectors() SelectorNameSet
+}
+
+// SelectorResolver defines an interface for manually resolving a selector to specific
+// SelectorField instances, enabling direct use of fields.
+type SelectorResolver interface {
+	// ResolveSelector manually resolves a selector to a SelectorField instance.
+	ResolveSelector(selector SelectorName) (*SelectorField, error)
+
+	// ListSelectors returns all custom selectors.
+	ListSelectors() SelectorNameSet
+}
+
+// SelectorName represents the name of a selector.
+type SelectorName string
+
+func (sf SelectorName) TrimSpace() SelectorName {
+	return SelectorName(strings.TrimSpace(sf.String()))
+}
+
+func (sf SelectorName) String() string {
+	return string(sf)
+}
+
+// SelectorType represents the type of a selector.
+type SelectorType int
+
+func (t SelectorType) IsArray() bool {
 	switch t {
 	case BoolArray, IntArray, SmallIntArray, BigIntArray, FloatArray, TextArray, TimestampArray:
 		return true
@@ -51,7 +105,32 @@ func (t SelectorFieldType) IsArray() bool {
 	}
 }
 
-func (t SelectorFieldType) String() string {
+func (t SelectorType) ArrayType() SelectorType {
+	if !t.IsArray() {
+		return Unknown
+	}
+
+	switch t {
+	case BoolArray:
+		return Bool
+	case IntArray:
+		return Int
+	case SmallIntArray:
+		return SmallInt
+	case BigIntArray:
+		return BigInt
+	case FloatArray:
+		return Float
+	case TextArray:
+		return String
+	case TimestampArray:
+		return Timestamp
+	default:
+		return Unknown
+	}
+}
+
+func (t SelectorType) String() string {
 	switch t {
 	case Bool:
 		return "boolean"
@@ -65,7 +144,7 @@ func (t SelectorFieldType) String() string {
 		return "real"
 	case String:
 		return "text"
-	case Time:
+	case Timestamp:
 		return "timestamp"
 	case BoolArray:
 		return "boolean[]"
@@ -89,13 +168,40 @@ func (t SelectorFieldType) String() string {
 }
 
 type SelectorField struct {
-	DBName      string
-	Type        SelectorFieldType
-	DataType    gormschema.DataType
-	StructField reflect.StructField
+	Name      SelectorName
+	Type      SelectorType
+	FieldName string
+	FieldType gormschema.DataType
 }
 
-// IsJSONBCast returns true if the field's data type is 'jsonb' in the database and the expected type is not Jsonb.
+// IsJSONBCast returns true if the field's data type is 'jsonb' and the expected type is not Jsonb.
 func (sf *SelectorField) IsJSONBCast() bool {
-	return sf.DataType == "jsonb" && sf.Type != Jsonb
+	return sf.FieldType == "jsonb" && sf.Type != Jsonb
+}
+
+// IsArrayElement returns true if the selector is an element within an array.
+func (sf *SelectorField) IsArrayElement() bool {
+	// Check if the schema type exists in the resolution map
+	t, exists := schemaTypeResolution[sf.FieldType]
+	if !exists {
+		return false
+	}
+
+	// Check if the schema type is an array and the array type matches the selector's type
+	return t.IsArray() && t.ArrayType() == sf.Type
+}
+
+type SelectorNameSet struct {
+	*queryparser.Set[SelectorName]
+}
+
+// NewSelectorFieldNameSet initializes a new SelectorNameSet.
+func NewSelectorFieldNameSet() SelectorNameSet {
+	return SelectorNameSet{queryparser.NewSet[SelectorName]()}
+}
+
+// Add is a wrapper for the embedded Set's Add method that returns SelectorNameSet.
+func (s SelectorNameSet) Add(items ...SelectorName) SelectorNameSet {
+	s.Set.Add(items...)
+	return s
 }

@@ -89,18 +89,18 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
-// Add mocks base method.
-func (m *MockManager) Add(app Application) error {
+// Ensure mocks base method.
+func (m *MockManager) Ensure(app Application) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Add", app)
+	ret := m.ctrl.Call(m, "Ensure", app)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Add indicates an expected call of Add.
-func (mr *MockManagerMockRecorder) Add(app any) *gomock.Call {
+// Ensure indicates an expected call of Ensure.
+func (mr *MockManagerMockRecorder) Ensure(app any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockManager)(nil).Add), app)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ensure", reflect.TypeOf((*MockManager)(nil).Ensure), app)
 }
 
 // ExecuteActions mocks base method.
@@ -145,6 +145,20 @@ func (m *MockManager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.Dev
 func (mr *MockManagerMockRecorder) Status() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status))
+}
+
+// Stop mocks base method.
+func (m *MockManager) Stop(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Stop", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Stop indicates an expected call of Stop.
+func (mr *MockManagerMockRecorder) Stop(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockManager)(nil).Stop), ctx)
 }
 
 // Update mocks base method.
@@ -223,6 +237,20 @@ func (m *MockApplication) EnvVars() map[string]string {
 func (mr *MockApplicationMockRecorder) EnvVars() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnvVars", reflect.TypeOf((*MockApplication)(nil).EnvVars))
+}
+
+// IsEmbedded mocks base method.
+func (m *MockApplication) IsEmbedded() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsEmbedded")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsEmbedded indicates an expected call of IsEmbedded.
+func (mr *MockApplicationMockRecorder) IsEmbedded() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsEmbedded", reflect.TypeOf((*MockApplication)(nil).IsEmbedded))
 }
 
 // Name mocks base method.

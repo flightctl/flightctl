@@ -46,8 +46,13 @@ func (s *Server) Run() error {
 		s.log.WithError(err).Error("failed to create fleet queue publisher")
 		return err
 	}
+	configStorage, err := tasks.NewConfigStorage(s.cfg.KV.Hostname, s.cfg.KV.Port)
+	if err != nil {
+		s.log.WithError(err).Error("failed to create configstorage")
+		return err
+	}
 	callbackManager := tasks.NewCallbackManager(publisher, s.log)
-	if err = tasks.LaunchConsumers(context.Background(), s.provider, s.store, callbackManager, s.k8sClient, 1, 1); err != nil {
+	if err = tasks.LaunchConsumers(context.Background(), s.provider, s.store, callbackManager, s.k8sClient, configStorage, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}
@@ -57,6 +62,7 @@ func (s *Server) Run() error {
 		<-sigShutdown
 		s.log.Println("Shutdown signal received")
 		s.provider.Stop()
+		configStorage.Close()
 	}()
 	s.provider.Wait()
 

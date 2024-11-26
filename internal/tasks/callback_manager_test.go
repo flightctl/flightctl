@@ -371,30 +371,9 @@ var _ = Describe("TemplateVersionCreatedCallback", func() {
 		orgId = uuid.New()
 	})
 
-	It("submits TemplateVersionPopulateTask", func() {
-		templateVersion := CreateTestingTemplateVersion(orgId, "name", "template")
-		callbacksManager.TemplateVersionCreatedCallback(templateVersion)
-
-		Expect(mockPublisher.publishedResources).To(HaveLen(1))
-
-		publishedResource := mockPublisher.publishedResources[0]
-		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.TemplateVersionKind))
-		Expect(publishedResource.TaskName).To(Equal(TemplateVersionPopulateTask))
-		Expect(publishedResource.Op).To(Equal(TemplateVersionPopulateOpCreated))
-	})
-})
-
-var _ = Describe("TemplateVersionValidatedCallback", func() {
-	BeforeEach(func() {
-		mockPublisher = &MockPublisher{}
-		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
-		orgId = uuid.New()
-	})
-
 	It("submits FleetRolloutTask", func() {
 		templateVersion := CreateTestingTemplateVersion(orgId, "name", "template")
-		callbacksManager.TemplateVersionValidatedCallback(templateVersion)
+		callbacksManager.TemplateVersionCreatedCallback(templateVersion)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 

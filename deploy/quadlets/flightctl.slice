@@ -1,0 +1,20 @@
+[Unit]
+Description=Flightctl Services Group
+
+After=flightctl-network.service
+After=flightctl-db.service
+After=flightctl-rabbitmq.service
+After=flightctl-api.service
+After=flightctl-kv.service
+After=flightctl-worker.service
+After=flightctl-periodic.service
+After=flightctl-ui.service
+
+Requires=flightctl-network.service
+Requires=flightctl-db.service
+Requires=flightctl-rabbitmq.service
+Requires=flightctl-api.service
+Requires=flightctl-kv.service
+Requires=flightctl-worker.service
+Requires=flightctl-periodic.service
+Requires=flightctl-ui.service

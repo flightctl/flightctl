@@ -20,9 +20,6 @@ const (
 	// Task to set devices' owners
 	FleetSelectorMatchTask = "fleet-selector-match"
 
-	// Task to populate a template version
-	TemplateVersionPopulateTask = "template-version-populate"
-
 	// Task to validate a fleet template
 	FleetValidateTask = "fleet-template-validate"
 
@@ -41,7 +38,6 @@ type CallbackManager interface {
 	AllDevicesDeletedCallback(orgId uuid.UUID)
 	DeviceUpdatedCallback(before *model.Device, after *model.Device)
 	TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion)
-	TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion)
 	FleetSourceUpdated(orgId uuid.UUID, name string)
 	DeviceSourceUpdated(orgId uuid.UUID, name string)
 }
@@ -201,16 +197,6 @@ func (t *callbackManager) DeviceSourceUpdated(orgId uuid.UUID, name string) {
 }
 
 func (t *callbackManager) TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion) {
-	resourceRef := ResourceReference{
-		OrgID: templateVersion.OrgID,
-		Kind:  model.TemplateVersionKind,
-		Name:  templateVersion.Name,
-		Owner: *util.SetResourceOwner(model.FleetKind, templateVersion.FleetName),
-	}
-	t.submitTask(TemplateVersionPopulateTask, resourceRef, TemplateVersionPopulateOpCreated)
-}
-
-func (t *callbackManager) TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion) {
 	resourceRef := ResourceReference{
 		OrgID: templateVersion.OrgID,
 		Kind:  model.FleetKind,

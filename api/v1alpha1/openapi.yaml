@@ -63,7 +63,7 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2"). For a full list of operators and examples, refer to the documentation.
           schema:
             type: string
         - name: limit
@@ -2515,6 +2515,9 @@ components:
           $ref: "#/components/schemas/RepoSpecType"
         httpConfig:
           $ref: "#/components/schemas/HttpConfig"
+        validationSuffix:
+          type: string
+          description: 'URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.'
       required:
         - url
         - type
@@ -4057,7 +4060,6 @@ components:
       - 'Updating'             # Device
       - 'SpecValid'            # Device (service condition)
       - 'MultipleOwners'       # Device (service condition)
-      - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
       - CertificateSigningRequestApproved
@@ -4072,7 +4074,6 @@ components:
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
-      - TemplateVersionValid
     ConditionStatus:
       type: string
       enum:

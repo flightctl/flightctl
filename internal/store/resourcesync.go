@@ -70,7 +70,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 		return nil, flterrors.ErrLimitParamOutOfBounds
 	}
 
-	query, err := ListQuery(&resourceSyncs).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.ResourceSync{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&resourceSyncs).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&model.ResourceSync{}).Build(ctx, s.db, orgId, listParams)
 			if err != nil {
 				return nil, err
 			}

@@ -16,8 +16,9 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
+	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
+	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -74,19 +75,41 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	}
 
+	statusFilter := []string{}
+	if request.Params.StatusFilter != nil {
+		for _, filter := range *request.Params.StatusFilter {
+			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
+		}
+	}
+
+	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
+	if err != nil {
+		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
+	}
+
+	var fieldSelector k8sselector.Selector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
 	// Check if SummaryOnly is true
 	if request.Params.SummaryOnly != nil && *request.Params.SummaryOnly {
 		// Check for unsupported parameters
-		if request.Params.StatusFilter != nil ||
-			request.Params.Limit != nil ||
-			request.Params.Continue != nil {
+		if request.Params.Limit != nil ||
+			request.Params.Continue != nil ||
+			request.Params.SortBy != nil {
 			return server.ListDevices400JSONResponse{
-				Message: "Only 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true",
+				Message: "parameters such as 'limit', 'continue', and 'sortBy' are not supported when 'summaryOnly' is true",
 			}, nil
 		}
+
 		result, err := h.store.Device().Summary(ctx, orgId, store.ListParams{
-			Labels: labelMap,
-			Owners: util.OwnerQueryParamsToArray(request.Params.Owner),
+			Labels:        labelMap,
+			Filter:        filterMap,
+			Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
+			FieldSelector: fieldSelector,
 		})
 
 		switch err {
@@ -100,34 +123,15 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		}
 	}
 
-	statusFilter := []string{}
-	if request.Params.StatusFilter != nil {
-		for _, filter := range *request.Params.StatusFilter {
-			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
-		}
-	}
-
-	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
-	}
-
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector fields.Selector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
-		}
-	}
-
 	var sortField *store.SortField
 	if request.Params.SortBy != nil {
 		sortField = &store.SortField{
-			FieldName: selector.SelectorFieldName(*request.Params.SortBy),
+			FieldName: selector.SelectorName(*request.Params.SortBy),
 			Order:     *request.Params.SortOrder,
 		}
 	}

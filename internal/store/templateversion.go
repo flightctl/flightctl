@@ -22,8 +22,7 @@ type TemplateVersion interface {
 	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error
-	GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
+	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
 	InitialMigration() error
 }
 
@@ -57,13 +56,6 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	templateVersion.OrgID = orgId
 	templateVersion.Generation = lo.ToPtr[int64](1)
 	templateVersion.ResourceVersion = lo.ToPtr[int64](1)
-	status := api.TemplateVersionStatus{}
-	api.SetStatusCondition(&status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
-	templateVersion.Status = model.MakeJSONField(status)
-	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: resource.Spec.Fleet}}
-	if err = s.db.First(&fleet).Error; err != nil {
-		return nil, ErrorFromGormError(err)
-	}
 
 	if err = s.db.Create(templateVersion).Error; err != nil {
 		return nil, ErrorFromGormError(err)
@@ -124,9 +116,9 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	return &apiTemplateVersionList, ErrorFromGormError(result.Error)
 }
 
-func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
+func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
 	var templateVersion model.TemplateVersion
-	result := s.db.Model(&templateVersion).Where("org_id = ? AND fleet_name = ? AND valid = ?", orgId, fleet, true).Order("created_at DESC").First(&templateVersion)
+	result := s.db.Model(&templateVersion).Where("org_id = ? AND fleet_name = ?", orgId, fleet).Order("created_at DESC").First(&templateVersion)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}

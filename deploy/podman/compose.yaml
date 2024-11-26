@@ -86,10 +86,18 @@ services:
       - flightctl-network
     restart: unless-stopped
 
+  flightctl-kv:
+    container_name: flightctl-kv
+    image: valkey/valkey:latest
+    command: valkey-server
+    ports:
+      - 6379:6379
+
 volumes:
   flightctl-db:
   flightctl-auth-db:
   flightctl-auth:
+  flightctl-kv:
   config:
     external: true
 networks:
