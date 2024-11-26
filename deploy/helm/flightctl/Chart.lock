@@ -2,8 +2,8 @@ dependencies:
 - name: keycloak
   repository: ""
   version: 0.0.1
-- name: flightctl-ui
-  repository: oci://quay.io/flightctl/charts
-  version: 0.3.0
-digest: sha256:cd3374909326da73628eb1d10baedb2dccf1c8d2857a4f27e211d5a2104ae891
-generated: "2024-11-11T17:04:45.601165267+01:00"
+- name: ui
+  repository: ""
+  version: 0.0.1
+digest: sha256:a96b793b9f1d0f0d6caab5d977319bc61278d5c1a7e62745c45e5f2d2b33ecc3
+generated: "2024-11-26T10:15:49.093396111+01:00"
