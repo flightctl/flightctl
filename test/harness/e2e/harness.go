@@ -375,3 +375,37 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 	return deviceId, device
 }
+
+func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1alpha1.Device, string) {
+	// Check the device status right after bootstrap
+	response := h.GetDeviceWithStatusSystem(deviceId)
+	device := response.JSON200
+	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+	//Expect(*device.Status.Summary.Info).To(Equal("Bootstrap complete"))
+	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+	var newImageReference string
+
+	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+		currentImage := device.Status.Os.Image
+		logrus.Infof("current image for %s is %s", deviceId, currentImage)
+		repo, _ := h.parseImageReference(currentImage)
+		newImageReference = repo + version
+		device.Spec.Os = &v1alpha1.DeviceOSSpec{Image: newImageReference}
+		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
+	})
+
+	return device, newImageReference
+}
+
+func (h *Harness) parseImageReference(image string) (string, string) {
+	// Split the image string by the colon to separate the repository and the tag.
+	parts := strings.Split(image, ":")
+
+	// The tag is the last part after the last colon.
+	tag := parts[len(parts)-1]
+
+	// The repository is composed of all parts before the last colon, joined back together with colons.
+	repo := strings.Join(parts[:len(parts)-1], ":")
+
+	return repo, tag
+}
