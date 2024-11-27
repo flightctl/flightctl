@@ -54,6 +54,12 @@ const (
 	ResourceSyncSynced                ConditionType = "Synced"
 )
 
+// Defines values for DeviceDecommissionDecommissionTarget.
+const (
+	FactoryReset DeviceDecommissionDecommissionTarget = "FactoryReset"
+	Unenroll     DeviceDecommissionDecommissionTarget = "Unenroll"
+)
+
 // Defines values for DeviceIntegrityStatusSummaryType.
 const (
 	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
@@ -357,6 +363,15 @@ type DeviceConsole struct {
 	GRPCEndpoint string `json:"gRPCEndpoint"`
 	SessionID    string `json:"sessionID"`
 }
+
+// DeviceDecommission defines model for DeviceDecommission.
+type DeviceDecommission struct {
+	// DecommissionTarget Specifies the desired decommissioning method of the device
+	DecommissionTarget DeviceDecommissionDecommissionTarget `json:"decommissionTarget"`
+}
+
+// DeviceDecommissionDecommissionTarget Specifies the desired decommissioning method of the device
+type DeviceDecommissionDecommissionTarget string
 
 // DeviceHooksSpec defines model for DeviceHooksSpec.
 type DeviceHooksSpec struct {
@@ -1508,6 +1523,9 @@ type PatchDeviceApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceDeviceJSONRequestBody defines body for ReplaceDevice for application/json ContentType.
 type ReplaceDeviceJSONRequestBody = Device
+
+// DecommissionDeviceJSONRequestBody defines body for DecommissionDevice for application/json ContentType.
+type DecommissionDeviceJSONRequestBody = DeviceDecommission
 
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = Device
