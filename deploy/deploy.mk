@@ -1,3 +1,6 @@
+ifeq ($(DB_VERSION_PARAMS),)
+	DB_VERSION_PARAMS := e2e
+endif
 
 cluster: bin/e2e-certs/ca.pem
 	test/scripts/install_kind.sh
@@ -11,7 +14,7 @@ deploy: cluster build deploy-helm deploy-e2e-extras prepare-agent-config
 deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
-	test/scripts/deploy_with_helm.sh
+	test/scripts/deploy_with_helm.sh --db-version $(DB_VERSION_PARAMS)
 
 prepare-agent-config:
 	test/scripts/agent-images/prepare_agent_config.sh
