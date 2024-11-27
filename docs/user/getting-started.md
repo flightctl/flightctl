@@ -47,14 +47,41 @@ NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 
 ## Deploying the Flight Control Service
 
+### Standalone Flight Control on k8s/KIND
+
+Start your k8s/KIND cluster. For KIND cluster you can use [example config](../../deploy/kind.yaml).
+
+```console
+$ kind create cluster --config kind.yaml
+
+[...]
+```
+
 Install a released version of the Flight Control Service into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=0.0.1 \
-    -n flightctl --create-namespace \
-    flightctl oci://quay.io/flightctl/flightctl-helm
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --set global.baseDomain=${YOUR_IP}.nip.io \
+    --set global.exposeServicesMethod=nodePort
 
-[...]
+```
+
+Optionally, you may change the deployed UI version adding `--set ui.image.tag=<ui-version-to-install>`.
+Available versions can be found in [quay.io](https://quay.io/repository/flightctl/flightctl-ui?tab=tags)
+
+### Flight Control on OpenShift
+
+#### Standalone Flight Control with built-in Keycloak
+
+Install a released version of the Flight Control Service into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl
+
 ```
 
 Verify your Flight Control Service is up and running:
@@ -64,6 +91,62 @@ $ kubectl get pods -n flightctl
 
 [...]
 ```
+
+#### Standalone Flight Control with external OIDC
+
+Create a values.yaml file with the following content
+
+```yaml
+global:
+  auth:
+    type: oidc
+    oidcAuthority: https://oidc/realms/your_realm 
+    internalOidcAuthority: https://internal.oidc/realms/your_realm
+
+```
+
+Install a released version of the Flight Control Service into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --values values.yaml
+
+```
+
+Verify your Flight Control Service is up and running:
+
+```console
+$ kubectl get pods -n flightctl
+
+[...]
+```
+
+#### Flight Control in ACM
+
+Install a released version of the Flight Control Service into the cluster by running:
+
+```console
+$ helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --set global.target=acm
+
+```
+
+Optionally, you may change the deployed UI version adding `--set ui.image.tag=<ui-version-to-install>`.
+Available versions can be found in [quay.io](https://quay.io/repository/flightctl/flightctl-ocp-ui?tab=tags)
+Verify your Flight Control Service is up and running:
+
+```console
+$ kubectl get pods -n flightctl
+
+[...]
+```
+
+After deploying the Flight Control ACM UI plugin, it needs to be manually enabled. Open your OpenShift Console -> Home -> Overview -> Status card -> Dynamic plugins and enable the Flight Control ACM UI plugin.
+After enabling the plugin, you will need to wait for the Console operator to rollout a new deployment.
 
 ## Installing the Flight Control CLI
 
@@ -106,6 +189,8 @@ Finally, move it into a location within your shell's search path.
 
 ## Logging into the Flight Control Service from the CLI
 
+### Standalone deployment
+
 Retrieve the password for the "demouser" account that's been automatically generated for you during installation:
 
 ```console
@@ -132,6 +217,30 @@ $ flightctl get devices
 NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
 ```
 
+### ACM deployment
+
+Use the CLI to log into the Flight Control Service:
+
+```console
+$ flightctl login https://api.flightctl.127.0.0.1.nip.io/ --web --insecure-skip-tls-verify
+
+[...]
+```
+
+In the web browser that opens, use your ACM login credentials.
+
+Verify you can now access the service via the CLI:
+
+```console
+$ flightctl get devices
+
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
+```
+
+## Login into the Flight Control Service from the standalone UI
+
+Browse to `ui.flightctl.MY.DOMAIN` and use the login "demouser" and the password you retrieved in the previous step.
+
 ## Building a Bootable Container Image including the Flight Control Agent
 
 Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
@@ -139,8 +248,7 @@ Next, we will use [Podman](https://github.com/containers/podman) to build a [boo
 Retrieve the agent configuration with enrollment credentials by running:
 
 ```console
-$ flightctl certificate request --scope=enrollment --validity=1y -o agent-config > config.yaml
-
+$ flightctl certificate request --cert-type=enrollment --name=client-enrollment --expiration=365d --output-format=embedded > config.yaml
 [...]
 ```
 
@@ -148,7 +256,6 @@ The returned `config.yaml` should look similar to this:
 
 ```console
 $ cat config.yaml
-
 enrollment-service:
   service:
     server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
@@ -171,7 +278,12 @@ RUN dnf -y copr enable @redhat-et/flightctl-dev centos-stream-9-x86_64 && \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
 
-ADD config.yaml /etc/flightctl/
+# Optional: to enable podman-compose application support uncomment below”
+# RUN dnf -y install epel-release epel-next-release && \
+#    dnf -y install podman-compose && \
+#    systemctl enable podman.service
+
+ADD agentconfig.yaml /etc/flightctl/config.yaml
 ```
 
 Note this is a regular `Containerfile` that you're used to from Docker/Podman, with the difference that the base image referenced in the `FROM` directive is bootable. This means you can use standard container build tools and workflows.
@@ -179,7 +291,7 @@ Note this is a regular `Containerfile` that you're used to from Docker/Podman, w
 For example, as a user of Quay who has the privileges to push images into the `quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl` repository, build the bootc image like this:
 
 ```console
-$ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
+$ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
 
 [...]
 ```
@@ -236,7 +348,7 @@ NAME                                                  APPROVAL  APPROVER  APPROV
 You can approve an enrollment request and optionally add labels to the device:
 
 ```console
-$ flightctl approve -l region=eu-west-1 -l site=factory-berlin 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+$ flightctl approve -l region=eu-west-1 -l site=factory-berlin er/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
 
 Success.
 

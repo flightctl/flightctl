@@ -58,7 +58,7 @@ func (m *CPUMonitor) Run(ctx context.Context) {
 		case newInterval := <-m.updateIntervalCh:
 			ticker.Reset(newInterval)
 		case <-ticker.C:
-			m.log.Debug("Checking disk usage")
+			m.log.Debug("Checking CPU usage")
 			usage := CPUUsage{}
 			m.sync(ctx, &usage)
 		}
@@ -110,7 +110,7 @@ func (m *CPUMonitor) CollectUsage(ctx context.Context, usage *CPUUsage) error {
 
 func (m *CPUMonitor) sync(ctx context.Context, usage *CPUUsage) {
 	if !m.hasAlertRules() {
-		m.log.Debug("Skipping CPU usage sync as there are no alert rules")
+		m.log.Debug("Skipping CPU usage sync: no alert rules")
 		return
 	}
 

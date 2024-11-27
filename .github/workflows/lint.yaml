@@ -1,4 +1,5 @@
 name: "Code Quality"
+
 on:
   workflow_dispatch:
   push:
@@ -9,6 +10,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+
 jobs:
   lint:
     runs-on: "ubuntu-latest"
@@ -24,17 +26,30 @@ jobs:
             git fetch --depth="$(( commits + 1 ))"
           fi
 
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            notdocs:
+              - '!.spelling'
+              - '!README.md'
+              - '!docs/**'
+
       - name: Check commit message
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: hack/check-commits.sh
 
       - name: Setup all dependencies
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
       - name: Check that generated files have been updated and that go.mod is tidy
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           make generate
           go mod tidy -v
           git diff --exit-code
 
       - name: Running Linter
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make lint

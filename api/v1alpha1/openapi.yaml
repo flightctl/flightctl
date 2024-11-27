@@ -37,6 +37,12 @@ paths:
           description: Token invalid
         "418":
           description: Auth not configured
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/resourcesyncs:
     get:
       tags:
@@ -55,6 +61,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2"). For a full list of operators and examples, refer to the documentation.
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -62,6 +73,26 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: repository
+          in: query
+          description: The name of the repository to filter results by.
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -216,6 +247,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       tags:
         - resourcesync
@@ -254,6 +291,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -307,6 +350,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -314,6 +362,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -468,6 +531,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - repository
@@ -541,6 +610,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices:
     get:
       tags:
@@ -557,6 +632,11 @@ paths:
         - name: labelSelector
           in: query
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
           schema:
             type: string
         - name: statusFilter
@@ -579,6 +659,27 @@ paths:
           required: false
           schema:
             type: string
+        - name: summaryOnly
+          in: query
+          description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+          required: false
+          schema:
+            type: boolean
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -818,6 +919,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/status:
     get:
       tags:
@@ -925,6 +1032,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -972,6 +1085,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/enrollmentconfig/{name}:
+    get:
+      tags:
+        - enrollmentconfig
+      description: Get config for enrolling devices
+      operationId: enrollmentConfig
+      parameters:
+        - name: name
+          in: path
+          description: the name of approved CSR
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentConfig'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -990,6 +1141,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -997,6 +1153,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1157,6 +1328,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -1262,7 +1439,7 @@ paths:
       tags:
         - enrollmentrequest
       description: create approval of the specified EnrollmentRequest
-      operationId: createEnrollmentRequestApproval
+      operationId: approveEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -1307,6 +1484,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests:
     get:
       tags:
@@ -1325,6 +1508,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1332,6 +1520,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -1339,6 +1542,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequestList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1397,7 +1606,7 @@ paths:
       tags:
         - certificatesigningrequest
       description: delete a collection of CertificateSigningRequest
-      operationId: deleteCollectionCertificateSigningRequest
+      operationId: deleteCertificateSigningRequests
       responses:
         "200":
           description: OK
@@ -1456,6 +1665,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -1541,6 +1756,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - certificatesigningrequest
@@ -1560,124 +1781,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
-        "202":
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-  /api/v1/certificatesigningrequests/{name}/status:
-    patch:
-      description: partially update status of the specified CertificateSigningRequest
-      operationId: patchCertificateSigningRequestStatus
-      tags:
-        - certificatesigningrequest
-      parameters:
-        - name: name
-          in: path
-          description: name of the certificatesigningrequest
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json-patch+json:
-            schema:
-              $ref: '#/components/schemas/PatchRequest'
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: NotFound
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    get:
-      tags:
-        - certificatesigningrequest
-      description: read status of the specified CertificateSigningRequest
-      operationId: readCertificateSigningRequestStatus
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-            uniqueItems: true # differs from enrollmentRequest
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    put:
-      tags:
-        - certificatesigningrequest
-      description: replace status of the specified CertificateSigningRequest
-      operationId: replaceCertificateSigningRequestStatus
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CertificateSigningRequest'
-        required: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
         "401":
           description: Unauthorized
           content:
@@ -1691,32 +1794,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests/{name}/approval:
-    patch:
-      description: partially update approval of the specified CertificateSigningRequest
-      operationId: patchCertificateSigningRequestApproval
-      tags:
-        - certificatesigningrequest
+    post:
+      description: approve the specified CertificateSigningRequest
+      operationId: approveCertificateSigningRequest
       parameters:
         - name: name
           in: path
-          description: name of the certificatesigningrequest
+          description: name of the CertificateSigningRequest
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json-patch+json:
-            schema:
-              $ref: '#/components/schemas/PatchRequest'
       responses:
         "200":
           description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
           content:
             application/json:
               schema:
@@ -1739,51 +1829,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    put:
-      description: replace approval of the specified CertificateSigningRequest
-      operationId: replaceCertificateSigningRequestApproval
-      parameters:
-        - name: name
-          in: path
-          description: name of the CertificateSigningRequest
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
+        "409":
+          description: StatusConflict
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    get:
-      description: read approval of the specified CertificateSigningRequest
-      operationId: readCertificateSigningRequestApproval
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
+        "500":
+          description: InternalServerError
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    delete:
+      description: deny the specified CertificateSigningRequest
+      operationId: denyCertificateSigningRequest
       parameters:
         - name: name
           in: path
@@ -1792,6 +1852,31 @@ paths:
           schema:
             type: string
             uniqueItems: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets:
     get:
       tags:
@@ -1810,6 +1895,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1823,6 +1913,27 @@ paths:
           required: false
           schema:
             type: string
+        - name: addDevicesCount
+          in: query
+          description: include the number of devices in each fleet
+          required: false
+          schema:
+            type: boolean
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -2031,6 +2142,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - fleet
@@ -2161,6 +2278,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supports '=', '==', and '!='.(e.g. key1=value1,key2!=value2).
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -2168,6 +2290,21 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: sortBy
+          in: query
+          description: Specifies the field to sort by.
+          required: false
+          schema:
+            type: string
+          example: 'metadata.name'
+        - name: sortOrder
+          in: query
+          description: Specifies the sort order.
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+            default: 'Asc'
+          example: 'Asc'
       responses:
         "200":
           description: OK
@@ -2289,6 +2426,13 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+    SortOrder:
+      type: string
+      enum:
+        - 'Asc'
+        - 'Desc'
+      description: Specifies the sort order.
+      default: 'Asc'
     PatchRequest:
       type: array
       items:
@@ -2371,6 +2515,9 @@ components:
           $ref: "#/components/schemas/RepoSpecType"
         httpConfig:
           $ref: "#/components/schemas/HttpConfig"
+        validationSuffix:
+          type: string
+          description: 'URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.'
       required:
         - url
         - type
@@ -2496,96 +2643,171 @@ components:
       required:
         - gRPCEndpoint
         - sessionID
-    GenericConfigSpec:
+    ConfigProviderSpec:
+      oneOf:
+        - $ref: "#/components/schemas/GitConfigProviderSpec"
+        - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
+        - $ref: "#/components/schemas/InlineConfigProviderSpec"
+        - $ref: "#/components/schemas/HttpConfigProviderSpec"
+    GitConfigProviderSpec:
       type: object
       properties:
-        configType:
-          type: string
         name:
           type: string
-      discriminator:
-        propertyName: configType
+          description: "The name of the config provider"
+        gitRef:
+          type: object
+          properties:
+            repository:
+              type: string
+              description: |
+                The name of the repository resource to use as the sync source
+            targetRevision:
+              type: string
+            path:
+              type: string
+            mountPath:
+              description: Path to config in device
+              type: string
+              default: "/"
+          required:
+            - repository
+            - targetRevision
+            - path
       required:
-        - configType
-        - name
-    GitConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            gitRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                targetRevision:
-                  type: string
-                path:
-                  type: string
-              required:
-                - repository
-                - targetRevision
-                - path
-          required:
-          - gitRef
+      - name
+      - gitRef
     KubernetesSecretProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the config provider"
+        secretRef:
+          type: object
           properties:
-            secretRef:
-              type: object
-              properties:
-                name:
-                  type: string
-                namespace:
-                  type: string
-                mountPath:
-                  type: string
-              required:
-                - name
-                - namespace
-                - mountPath
+            name:
+              type: string
+            namespace:
+              type: string
+            mountPath:
+              type: string
           required:
-          - secretRef
+            - name
+            - namespace
+            - mountPath
+      required:
+      - name
+      - secretRef
     InlineConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            inline:
-              type: object
-              additionalProperties: true
-          required:
-          - inline
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the config provider"
+        inline:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileSpec'
+      required:
+      - name
+      - inline
+    FileSpec:
+      type: object
+      properties:
+        path:
+          type: string
+          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+        content:
+          type: string
+          description: The plain text (UTF-8) or base64-encoded content of the file.
+        contentEncoding:
+          type: string
+          description: How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+          enum:
+          - plain
+          - base64
+        mode:
+          type: integer
+          description: |
+            The file’s permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as
+            a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified,
+            the permission mode for files defaults to 0644.
+        user:
+          type: string
+          description: The file's owner, specified either as a name or numeric ID. Defaults to "root".
+        group:
+          type: string
+          description: The file's group, specified either as a name or numeric ID. Defaults to "root".
+      required:
+      - path
+      - content
     HttpConfigProviderSpec:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "The name of the config provider"
+        httpRef:
+          type: object
+          properties:
+            repository:
+              type: string
+              description: |
+                The name of the repository resource to use as the sync source
+            suffix:
+              type: string
+              description: |
+                Part of the URL that comes after the base URL. It can include query parameters such as:
+                /path/to/endpoint?query=param
+            filePath:
+              type: string
+              description: |
+                The path of the file where the response is stored in the filesystem of the device.
+          required:
+          - repository
+          - filePath
+      required:
+      - name
+      - httpRef
+    ApplicationSpec:
+      type: object
       allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
+        - $ref: '#/components/schemas/ApplicationEnvVars'
         - type: object
           properties:
-            httpRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                suffix:
-                  type: string
-                  description: |
-                    Part of the URL that comes after the base URL. It can include query parameters such as:
-                    /path/to/endpoint?query=param
-                filePath:
-                  type: string
-                  description: |
-                    The path of the file where the response is stored in the filesystem of the device.
-              required:
-              - repository
-              - filePath
-          required:
-          - httpRef
+            name:
+              type: string
+              description: "The name of the application"
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
+            # extend application providers
+    ImageApplicationProvider:
+      type: object
+      properties:
+        image:
+          type: string
+          description: "Reference to the container image for the application package"
+      required:
+        - image
+    ApplicationEnvVars:
+      type: object
+      properties:
+        envVars:
+          type: object
+          description: "Environment variable key-value pairs, injected during runtime"
+          additionalProperties:
+            type: string
+    RenderedApplicationSpec:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - type: object
+          properties:
+            name:
+              type: string
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CPUResourceMonitorSpec'
@@ -2609,8 +2831,8 @@ components:
           description: "Array of alert rules. Only one alert per severity is allowed."
         samplingInterval:
           type: string
-          pattern: '^[1-9]\d*[smhd]$'
-          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer."
+          pattern: '^[1-9]\d*[smh]$'
+          description: "Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours."
       required:
         - monitorType
         - alertRules
@@ -2649,8 +2871,8 @@ components:
           description: "Severity of the alert."
         duration:
           type: string
-          pattern: '^\d+[smhd]$'
-          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+          pattern: '^\d+[smh]$'
+          description: "Duration is the time over which the average usage is observed before alerting. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours."
         percentage:
           type: number
           description: 'The percentage of usage that triggers the alert.'
@@ -2714,10 +2936,12 @@ components:
         - "Create"
         - "Remove"
         - "Update"
+        - "Reboot"
       x-enum-varnames:
         - "FileOperationCreate"
         - "FileOperationRemove" # by convention remove is fired before the file is removed.
         - "FileOperationUpdate"
+        - "FileOperationReboot"
     HookAction:
       type: object
       oneOf:
@@ -2823,6 +3047,8 @@ components:
           description: 'List of Devices.'
           items:
             $ref: '#/components/schemas/Device'
+        summary:
+          $ref: '#/components/schemas/DevicesSummary'
       description: DeviceList is a list of Devices.
       required:
         - apiVersion
@@ -2843,6 +3069,7 @@ components:
         - conditions
         - systemInfo
         - applications
+        - applicationsSummary
         - resources
         - integrity
         - config
@@ -2859,8 +3086,13 @@ components:
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
         applications:
-          $ref: "#/components/schemas/DeviceApplicationsStatus"
-          description: "Current status of the system applications."
+          type: array
+          description: "List of device application status."
+          items:
+            $ref: "#/components/schemas/DeviceApplicationStatus"
+        applicationsSummary:
+          $ref: "#/components/schemas/DeviceApplicationsSummaryStatus"
+          description: "Summary status of the device applications."
         resources:
           $ref: "#/components/schemas/DeviceResourceStatus"
           description: "Current status of the resources of the device."
@@ -2900,21 +3132,7 @@ components:
           type: string
           description: The Operating System reported by the device.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
-    DeviceApplicationsStatus:
-      type: object
-      required:
-        - data
-        - summary
-      properties:
-        data:
-          type: object
-          description: "Map of system application statuses."
-          additionalProperties:
-            $ref: "#/components/schemas/ApplicationStatus"
-        summary:
-          $ref: "#/components/schemas/ApplicationsSummaryStatus"
-          description: "Summary status of system applications."
-    ApplicationStatus:
+    DeviceApplicationStatus:
       type: object
       required:
         - name
@@ -2934,7 +3152,7 @@ components:
         status:
           $ref: "#/components/schemas/ApplicationStatusType"
           description: "Status of the application."
-    ApplicationsSummaryStatus:
+    DeviceApplicationsSummaryStatus:
       type: object
       required:
         - status
@@ -2977,10 +3195,14 @@ components:
       type: object
       required:
         - image
+        - imageDigest
       properties:
         image:
           type: string
           description: "Version of the OS image."
+        imageDigest:
+          type: string
+          description: "The digest of the OS image (e.g. sha256:a0...)"
     DeviceConfigStatus:
       type: object
       required:
@@ -3121,6 +3343,49 @@ components:
           description: 'approvedAt is the time at which the request was approved.'
       required:
         - approved
+    EnrollmentServiceAuth:
+      type: object
+      properties:
+        client-certificate-data:
+          type: string
+        client-key-data:
+          type: string
+      required:
+        - client-certificate-data
+        - client-key-data
+    EnrollmentServiceService:
+      type: object
+      properties:
+        certificate-authority-data:
+          type: string
+        server:
+          type: string
+      required:
+        - certificate-authority-data
+        - server
+    EnrollmentService:
+      type: object
+      properties:
+        authentication:
+          $ref: '#/components/schemas/EnrollmentServiceAuth'
+        service:
+          $ref: '#/components/schemas/EnrollmentServiceService'
+        enrollment-ui-endpoint:
+          type: string
+      required:
+        - authentication
+        - service
+        - enrollment-ui-endpoint
+    EnrollmentConfig:
+      type: object
+      properties:
+        enrollment-service:
+          $ref: '#/components/schemas/EnrollmentService'
+        grpc-management-endpoint:
+          type: string
+      required:
+        - enrollment-service
+        - grpc-management-endpoint
     EnrollmentRequest:
       type: object
       properties:
@@ -3323,11 +3588,95 @@ components:
         - metadata
         - items
       description: FleetList is a list of Fleets.
+
+    DisruptionAllowance:
+      type: object
+      properties:
+        groupBy:
+          type: array
+          items:
+            type: string
+          description: List of label keys to perform grouping for the disruption allowance.
+        minAvailable:
+          type: integer
+          description: The maximum number of unavailable devices allowed during rollout.
+        maxUnavailable:
+          type: integer
+          description: The minimum number of required available devices during rollout.
+      description: DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+
+    Percentage:
+      type: string
+      format: '^(100|[1-9]?[0-9])%$'
+      description: Percentage is the string format representing percentage string.
+
+    Batch:
+      type: object
+      properties:
+        selector:
+          $ref: '#/components/schemas/LabelSelector'
+        successThreshold:
+          $ref: '#/components/schemas/Percentage'
+        limit:
+          oneOf:
+            - $ref: '#/components/schemas/Percentage'
+            - type: integer
+              minimum: 1
+      description: Batch is an element in batch sequence.
+    Duration:
+      type: string
+      pattern: '^[1-9]\d*[smhd]$'
+      description: |
+        The maximum duration allowed for the action to complete. 
+        The duration should be specified as a positive integer 
+        followed by a time unit. Supported time units are:
+        - 's' for seconds
+        - 'm' for minutes
+        - 'h' for hours
+        - 'd' for days
+
+    BatchSequence:
+      type: object
+      properties:
+        sequence:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Batch'
+      description: BatchSequence defines the list of batches to be executed in sequence.
+
+    RolloutDeviceSelection:
+      type: object
+      required:
+        - strategy
+      properties:
+        strategy:
+          type: string
+      oneOf:
+        - $ref: '#/components/schemas/BatchSequence'
+      discriminator:
+        propertyName: strategy
+
+    RolloutPolicy:
+      type: object
+      properties:
+        disruptionAllowance:
+          $ref: '#/components/schemas/DisruptionAllowance'
+        deviceSelection:
+          $ref: '#/components/schemas/RolloutDeviceSelection'
+        successThreshold:
+          $ref: '#/components/schemas/Percentage'
+        defaultUpdateTimeout:
+          $ref: '#/components/schemas/Duration'
+      description: RolloutPolicy is the rollout policy of the fleet.
+
     FleetSpec:
       type: object
       properties:
         selector:
           $ref: '#/components/schemas/LabelSelector'
+        rolloutPolicy:
+          $ref: '#/components/schemas/RolloutPolicy'
         template:
           type: object
           properties:
@@ -3347,15 +3696,12 @@ components:
           type: string
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
-        containers:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
         config:
           type: string
+        applications:
+          type: array
+          items:
+            $ref: '#/components/schemas/RenderedApplicationSpec'
         hooks:
           $ref: '#/components/schemas/DeviceHooksSpec'
         systemd:
@@ -3413,26 +3759,16 @@ components:
           $ref: '#/components/schemas/DeviceOSSpec'
         config:
           type: array
-          description: List of config resources.
+          description: List of config providers.
           items:
-            type: object
-            oneOf:
-              - $ref: "#/components/schemas/GitConfigProviderSpec"
-              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
-              - $ref: "#/components/schemas/InlineConfigProviderSpec"
-              - $ref: "#/components/schemas/HttpConfigProviderSpec"
-            discriminator:
-              propertyName: configType
+            $ref: '#/components/schemas/ConfigProviderSpec'
         hooks:
-          $ref: '#/components/schemas/DeviceHooksSpec' 
-        containers:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
-                pattern: '^[a-z][a-z0-9-_.]*$'
+          $ref: '#/components/schemas/DeviceHooksSpec'
+        applications:
+          type: array
+          description: List of applications.
+          items:
+            $ref: '#/components/schemas/ApplicationSpec'
         systemd:
           type: object
           properties:
@@ -3447,9 +3783,16 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+    FleetRolloutStatus:
+      type: object
+      properties:
+        currentBatch:
+          type: integer
     FleetStatus:
       type: object
       properties:
+        rollout:
+          $ref: '#/components/schemas/FleetRolloutStatus'
         conditions:
           type: array
           description: 'Current state of the fleet.'
@@ -3465,21 +3808,34 @@ components:
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
       - total
+      - applicationStatus
       - summaryStatus
       - updateStatus
       properties:
         total:
           type: integer
+          format: int64
           description: The total number of devices in the fleet.
-        summaryStatus:
+        applicationStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
+            format: int64
+          description: A breakdown of the devices in the fleet by "application" status.
+        summaryStatus:
+          type: object
+          default: {}
+          additionalProperties:
+            type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "summary" status.
         updateStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object
@@ -3605,6 +3961,28 @@ components:
           type: string
           description: An opaque string that identifies the server's internal version of an object.
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+
+    MatchExpression:
+      properties:
+        key:
+          type: string
+        operator:
+          type: string
+          enum: [In, NotIn, Exists, DoesNotExist]
+        values:
+          type: array
+          items:
+            type: string
+      required:
+        - key
+        - operator
+
+    MatchExpressions:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/components/schemas/MatchExpression'
+
     LabelSelector:
       type: object
       properties:
@@ -3612,8 +3990,9 @@ components:
           type: object
           additionalProperties:
             type: string
-      required:
-        - matchLabels
+        matchExpressions:
+          $ref: '#/components/schemas/MatchExpressions'
+
       description: A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
     Status:
       type: object
@@ -3681,7 +4060,6 @@ components:
       - 'Updating'             # Device
       - 'SpecValid'            # Device (service condition)
       - 'MultipleOwners'       # Device (service condition)
-      - 'Valid'                # TemplateVersion
       x-enum-varnames:
       - EnrollmentRequestApproved
       - CertificateSigningRequestApproved
@@ -3696,7 +4074,6 @@ components:
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
-      - TemplateVersionValid
     ConditionStatus:
       type: string
       enum:
@@ -3707,18 +4084,6 @@ components:
       - 'ConditionStatusTrue'
       - 'ConditionStatusFalse'
       - 'ConditionStatusUnknown'
-    TemplateDiscriminators:
-      type: string
-      enum:
-      - 'GitConfigProviderSpec'
-      - 'KubernetesSecretProviderSpec'
-      - 'InlineConfigProviderSpec'
-      - 'HttpConfigProviderSpec'
-      x-enum-varnames:
-      - 'TemplateDiscriminatorGitConfig'
-      - 'TemplateDiscriminatorKubernetesSec'
-      - 'TemplateDiscriminatorInlineConfig'
-      - 'TemplateDiscriminatorHttpConfig'
     CertificateSigningRequest:
       type: object
       properties:

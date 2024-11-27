@@ -1,4 +1,5 @@
 name: "Smoke tests"
+
 on:
   workflow_dispatch:
   push:
@@ -18,36 +19,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            notdocs:
+              - '!.spelling'
+              - '!README.md'
+              - '!docs/**'
+
       - name: Setup all dependencies
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
       - name: Create cluster
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make cluster
       
       - name: Deploy
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make deploy
 
       - name: Check
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           kubectl get pods --all-namespaces
 
       - name: Make the cmdline tool
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make build
 
-      - name: Login
-        run: bin/flightctl login $(cat ~/.flightctl/client.yaml | awk '/server:/ {print $2}') --certificate-authority ~/.flightctl/certs/ca.crt
-
       - name: Apply device
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: bin/flightctl apply -f examples/device.yaml
 
       - name: Apply fleet
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: bin/flightctl apply -f examples/fleet.yaml
 
       - name: Apply enrollmentrequest
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: bin/flightctl apply -f examples/enrollmentrequest.yaml
 
       - name: Apply repository
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: bin/flightctl apply -f examples/repository-flightctl.yaml
 
       - name: Apply resourcesync
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: bin/flightctl apply -f examples/resourcesync.yaml
+
+      - name: Simulator run
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m

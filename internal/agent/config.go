@@ -85,7 +85,7 @@ type Config struct {
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
 
-	reader *fileio.Reader
+	reader fileio.Reader
 }
 
 type EnrollmentService struct {
@@ -129,8 +129,9 @@ func NewDefault() *Config {
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
 		klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
 		c.testRootDir = filepath.Clean(value)
-		c.reader.SetRootdir(c.testRootDir)
 	}
+
+	c.reader = fileio.NewReadWriter(fileio.WithTestRootDir(c.testRootDir))
 
 	return c
 }
@@ -203,8 +204,12 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("%s is required", field.name)
 		}
 		if field.checkPath {
-			if err := cfg.reader.CheckPathExists(field.value); err != nil {
+			exists, err := cfg.reader.PathExists(field.value)
+			if err != nil {
 				return fmt.Errorf("%s: %w", field.name, err)
+			}
+			if !exists {
+				return fmt.Errorf("%s does not exist: %s", field.name, field.value)
 			}
 		}
 	}

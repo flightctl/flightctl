@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -14,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -35,6 +37,7 @@ type Server struct {
 	ca       *crypto.CA
 	listener net.Listener
 	provider queues.Provider
+	metrics  *instrumentation.ApiMetrics
 }
 
 // New returns a new instance of a flightctl server.
@@ -45,6 +48,7 @@ func New(
 	ca *crypto.CA,
 	listener net.Listener,
 	provider queues.Provider,
+	metrics *instrumentation.ApiMetrics,
 ) *Server {
 	return &Server{
 		log:      log,
@@ -53,6 +57,7 @@ func New(
 		ca:       ca,
 		listener: listener,
 		provider: provider,
+		metrics:  metrics,
 	}
 }
 
@@ -63,6 +68,10 @@ func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
 	publisher, err := tasks.TaskQueuePublisher(s.provider)
+	if err != nil {
+		return err
+	}
+	configStorage, err := tasks.NewConfigStorage(s.cfg.KV.Hostname, s.cfg.KV.Port)
 	if err != nil {
 		return err
 	}
@@ -86,15 +95,22 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	router := chi.NewRouter()
-	router.Use(
+
+	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	)
+	}
 
-	h := service.NewServiceHandler(s.store, callbackManager, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl)
+	if s.metrics != nil {
+		middlewares = slices.Insert(middlewares, 0, s.metrics.ApiServerMiddleware)
+	}
+
+	router.Use(middlewares...)
+
+	h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
@@ -107,6 +123,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+		configStorage.Close()
 		s.provider.Stop()
 		s.provider.Wait()
 	}()

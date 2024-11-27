@@ -12,6 +12,7 @@ package executer
 import (
 	context "context"
 	os "os"
+	exec "os/exec"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
@@ -38,6 +39,25 @@ func NewMockExecuter(ctrl *gomock.Controller) *MockExecuter {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockExecuter) EXPECT() *MockExecuterMockRecorder {
 	return m.recorder
+}
+
+// CommandContext mocks base method.
+func (m *MockExecuter) CommandContext(ctx context.Context, command string, args ...string) *exec.Cmd {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, command}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CommandContext", varargs...)
+	ret0, _ := ret[0].(*exec.Cmd)
+	return ret0
+}
+
+// CommandContext indicates an expected call of CommandContext.
+func (mr *MockExecuterMockRecorder) CommandContext(ctx, command any, args ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, command}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CommandContext", reflect.TypeOf((*MockExecuter)(nil).CommandContext), varargs...)
 }
 
 // Execute mocks base method.
@@ -80,6 +100,27 @@ func (mr *MockExecuterMockRecorder) ExecuteWithContext(ctx, command any, args ..
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, command}, args...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithContext", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithContext), varargs...)
+}
+
+// ExecuteWithContextFromDir mocks base method.
+func (m *MockExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir, command string, args []string, env ...string) (string, string, int) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, workingDir, command, args}
+	for _, a := range env {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ExecuteWithContextFromDir", varargs...)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(int)
+	return ret0, ret1, ret2
+}
+
+// ExecuteWithContextFromDir indicates an expected call of ExecuteWithContextFromDir.
+func (mr *MockExecuterMockRecorder) ExecuteWithContextFromDir(ctx, workingDir, command, args any, env ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, workingDir, command, args}, env...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithContextFromDir", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithContextFromDir), varargs...)
 }
 
 // LookPath mocks base method.

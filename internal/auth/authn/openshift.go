@@ -2,6 +2,7 @@ package authn
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -9,7 +10,9 @@ import (
 )
 
 type OpenShiftAuthN struct {
-	OpenShiftApiUrl string
+	OpenShiftApiUrl         string
+	InternalOpenShiftApiUrl string
+	ClientTlsConfig         *tls.Config
 }
 
 type OauthServerResponse struct {
@@ -17,7 +20,11 @@ type OauthServerResponse struct {
 }
 
 func (o OpenShiftAuthN) ValidateToken(ctx context.Context, token string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/apis/user.openshift.io/v1/users/~", o.OpenShiftApiUrl), nil)
+	url := o.InternalOpenShiftApiUrl
+	if url == "" {
+		url = o.OpenShiftApiUrl
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/apis/user.openshift.io/v1/users/~", url), nil)
 	if err != nil {
 		return false, err
 	}
@@ -27,7 +34,10 @@ func (o OpenShiftAuthN) ValidateToken(ctx context.Context, token string) (bool, 
 		"Content-Type":  {"application/json"},
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: o.ClientTlsConfig,
+	}}
+	res, err := client.Do(req)
 	if err != nil {
 		return false, err
 	}

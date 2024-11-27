@@ -13,18 +13,23 @@ type ServiceHandler struct {
 	ca                  *crypto.CA
 	log                 logrus.FieldLogger
 	callbackManager     tasks.CallbackManager
+	configStorage       tasks.ConfigStorage
 	consoleGrpcEndpoint string
+	agentEndpoint       string
+	uiUrl               string
 }
 
 // Make sure we conform to servers Service interface
 var _ server.Service = (*ServiceHandler)(nil)
 
-func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager, ca *crypto.CA, log logrus.FieldLogger, consoleGrpcEndpoint string) *ServiceHandler {
+func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager, configStorage tasks.ConfigStorage, ca *crypto.CA, log logrus.FieldLogger, consoleGrpcEndpoint string, agentEndpoint string, uiUrl string) *ServiceHandler {
 	return &ServiceHandler{
 		store:               store,
 		ca:                  ca,
 		log:                 log,
 		callbackManager:     callbackManager,
 		consoleGrpcEndpoint: consoleGrpcEndpoint,
+		agentEndpoint:       agentEndpoint,
+		uiUrl:               uiUrl,
 	}
 }

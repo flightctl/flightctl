@@ -12,9 +12,39 @@ import (
 	"github.com/google/uuid"
 )
 
-func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
+func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) api.Device {
 	deviceStatus := api.NewDeviceStatus()
 	deviceStatus.Os.Image = "quay.io/flightctl/test-osimage:latest"
+
+	gitConfig := &api.GitConfigProviderSpec{
+		Name: "paramGitConfig",
+	}
+	gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
+	gitConfig.GitRef.Repository = "repo"
+	gitConfig.GitRef.TargetRevision = "rev"
+	gitItem := api.ConfigProviderSpec{}
+	_ = gitItem.FromGitConfigProviderSpec(*gitConfig)
+
+	inlineConfig := &api.InlineConfigProviderSpec{
+		Name: "paramInlineConfig",
+	}
+	enc := api.Base64
+	inlineConfig.Inline = []api.FileSpec{
+		// Unencoded: My version is {{ device.metadata.labels[version] }}
+		{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},
+	}
+	inlineItem := api.ConfigProviderSpec{}
+	_ = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
+
+	httpConfig := &api.HttpConfigProviderSpec{
+		Name: "paramHttpConfig",
+	}
+	httpConfig.HttpRef.Repository = "http-repo"
+	httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
+	httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
+	httpItem := api.ConfigProviderSpec{}
+	_ = httpItem.FromHttpConfigProviderSpec(*httpConfig)
+
 	resource := api.Device{
 		Metadata: api.ObjectMeta{
 			Name:   &name,
@@ -25,6 +55,7 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 			Os: &api.DeviceOSSpec{
 				Image: "os",
 			},
+			Config: &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
 		},
 		Status: &deviceStatus,
 	}
@@ -38,22 +69,32 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 		deviceStatus.Config.RenderedVersion = rv
 	}
 
+	return resource
+}
+
+func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
+	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
 	callback := store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {})
-	_, err := deviceStore.Create(ctx, orgId, &resource, callback)
+	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, callback)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
 }
 
 func CreateTestDevices(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool) {
+	CreateTestDevicesWithOffset(ctx, numDevices, deviceStore, orgId, owner, sameVals, 0)
+}
+
+func CreateTestDevicesWithOffset(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool, offset int) {
 	for i := 1; i <= numDevices; i++ {
-		labels := map[string]string{"key": fmt.Sprintf("value-%d", i), "otherkey": "othervalue", "version": fmt.Sprintf("%d", i)}
+		num := i + offset
+		labels := map[string]string{"key": fmt.Sprintf("value-%d", num), "otherkey": "othervalue", "version": fmt.Sprintf("%d", num)}
 		if sameVals {
 			labels["key"] = "value"
 			labels["version"] = "1"
 		}
 
-		CreateTestDevice(ctx, deviceStore, orgId, fmt.Sprintf("mydevice-%d", i), owner, nil, &labels)
+		CreateTestDevice(ctx, deviceStore, orgId, fmt.Sprintf("mydevice-%d", num), owner, nil, &labels)
 	}
 }
 
@@ -64,11 +105,10 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 			Labels: selector,
 			Owner:  owner,
 		},
-		Spec: api.FleetSpec{},
 	}
 
 	if selector != nil {
-		resource.Spec.Selector = &api.LabelSelector{MatchLabels: *selector}
+		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
 	callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
 	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
@@ -87,7 +127,7 @@ func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet
 	}
 }
 
-func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name, osImage string, valid bool) error {
+func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name string, status *api.TemplateVersionStatus) error {
 	owner := util.SetResourceOwner(model.FleetKind, fleet)
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
@@ -97,23 +137,22 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		Spec: api.TemplateVersionSpec{
 			Fleet: fleet,
 		},
+		Status: &api.TemplateVersionStatus{},
+	}
+	if status != nil {
+		resource.Status = status
 	}
 
 	callback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
-	tv, err := tvStore.Create(ctx, orgId, &resource, callback)
-	if err != nil {
-		return err
-	}
+	_, err := tvStore.Create(ctx, orgId, &resource, callback)
 
-	tv.Status = &api.TemplateVersionStatus{}
-	tv.Status.Os = &api.DeviceOSSpec{Image: osImage}
-	err = tvStore.UpdateStatus(ctx, orgId, tv, &valid, callback)
 	return err
 }
 
 func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tvStore store.TemplateVersion, orgId uuid.UUID, fleet string) error {
 	for i := 1; i <= numTemplateVersions; i++ {
-		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), "myimage", true)
+		status := api.TemplateVersionStatus{Os: &api.DeviceOSSpec{Image: "myimage"}}
+		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), &status)
 		if err != nil {
 			return err
 		}

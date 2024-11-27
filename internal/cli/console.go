@@ -10,9 +10,9 @@ import (
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
@@ -78,7 +78,7 @@ func (o *ConsoleOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
+func (o *ConsoleOptions) Run(ctx context.Context, args []string) error {
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("parsing config file: %w", err)
@@ -123,8 +123,8 @@ func (o *ConsoleOptions) connectViaGRPC(ctx context.Context, grpcEndpoint, sessi
 		return fmt.Errorf("creating grpc client: %w", err)
 	}
 	// add key-value pairs of metadata to context
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.SessionIDKey, sessionID)
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.ClientNameKey, "flightctl-cli")
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, sessionID)
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcClientNameKey, "flightctl-cli")
 	ctx = metadata.AppendToOutgoingContext(ctx, common.AuthHeader, fmt.Sprintf("Bearer %s", token))
 
 	stream, err := client.Stream(ctx)
@@ -186,7 +186,7 @@ func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient
 			stdout.Close()
 			_ = stream.CloseSend()
 			// we need to allow some time for gRPC to complete
-			// the send close before reset console will exit proccess.
+			// the send close before reset console will exit process.
 			time.Sleep(1 * time.Second)
 			resetConsole()
 		}()

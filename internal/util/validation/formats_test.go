@@ -26,7 +26,7 @@ func TestValidateGenericName(t *testing.T) {
 		"-starts-with-dash",
 		"with.dots",
 		"with_underscores",
-		"WITH-CAPTIAL-LETTERS",
+		"WITH-CAPITAL-LETTERS",
 		strings.Repeat("long", 16),
 	}
 	for _, val := range badValues {
@@ -76,7 +76,7 @@ func TestValidateGitRevision(t *testing.T) {
 		"latest",
 		"v1.0.0",
 		"9fac431b7f4f319ead0195034064012e732bbb0c",
-		"wierd__but--valid..branch//name",
+		"weird__but--valid..branch//name",
 		strings.Repeat("a", 244),
 	}
 	for _, val := range goodValues {

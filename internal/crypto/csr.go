@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
@@ -35,11 +36,8 @@ func MakeCSR(privateKey crypto.Signer, subjectName string) ([]byte, error) {
 
 func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 	block, rest := pem.Decode(csrPEM)
-	switch {
-	case block == nil:
-		return nil, fmt.Errorf("not a valid PEM encoded block")
-	case len(bytes.TrimSpace(rest)) > 0:
-		return nil, fmt.Errorf("not a valid PEM encoded block")
+	if block == nil || len(bytes.TrimSpace(rest)) > 0 {
+		return nil, flterrors.ErrInvalidPEMBlock
 	}
 
 	var csr *x509.CertificateRequest
@@ -48,15 +46,19 @@ func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 	case "CERTIFICATE REQUEST":
 		csr, err = x509.ParseCertificateRequest(block.Bytes)
 	default:
-		return nil, fmt.Errorf("unknown PEM type: %s", block.Type)
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrUnknownPEMType, block.Type)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error parsing CSR: %v", err)
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrCSRParse, err.Error())
 	}
 	return csr, nil
 }
 
-func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expiryDays int) ([]byte, error) {
+// IssueRequestedClientCertificate issues a client certificate based on the provided
+// Certificate Signing Request (CSR) and the desired expiration time in seconds.
+// This currently processes both enrollment cert and management cert signing requests, which both are signed
+// by the FC service's internal CA instance named 'ca'.
+func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
 	now := time.Now()
 	template := &x509.Certificate{
 		Subject: csr.Subject,
@@ -70,7 +72,7 @@ func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expi
 		Issuer: ca.Config.Certs[0].Subject,
 
 		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
+		NotAfter:     now.Add(time.Duration(expirySeconds) * time.Second),
 		SerialNumber: big.NewInt(1),
 
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
@@ -81,11 +83,11 @@ func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expi
 	}
 	cert, err := ca.signCertificate(template, csr.PublicKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
 	}
 	certData, err := oscrypto.EncodeCertificates(cert)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
 	}
 
 	return certData, nil

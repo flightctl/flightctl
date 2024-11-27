@@ -4,13 +4,15 @@ metadata:
   labels:
     flightctl.service: e2e-container-registry
   name: e2e-container-registry
-  namespace: {{ .Values.registry.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   type: NodePort
   ports:
     - name: "registry"
       port: 5000
       targetPort: 5000
-      nodePort: {{ .Values.registry.nodePort }}
+      {{ if .Values.global.nodePorts.registry }}
+      nodePort: {{ .Values.global.nodePorts.registry }}
+      {{ end }}
   selector:
     flightctl.service: e2e-container-registry

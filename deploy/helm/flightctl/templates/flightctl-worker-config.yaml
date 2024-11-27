@@ -1,19 +1,22 @@
-{{ if .Values.flightctl.worker.enabled }}
+{{ if .Values.worker.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-worker-config
-  namespace: {{.Values.flightctl.worker.namespace }}
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 data:
   config.yaml: |-
     database:
-        hostname: flightctl-db.{{ .Values.flightctl.db.namespace }}.svc.cluster.local
+        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         type: pgsql
         port: 5432
         name: flightctl
-        user: {{ .Values.flightctl.db.masterUser }}
-        password: {{ .Values.flightctl.db.masterPassword }}   # we should funnel this via secrets instead
+        user: {{ .Values.db.masterUser }}
+        password: {{ .Values.db.masterPassword }}   # we should funnel this via secrets instead
     service: {}
     queue:
-        amqpUrl: amqp://{{ .Values.flightctl.rabbitmq.auth.username }}:{{ .Values.flightctl.rabbitmq.auth.password }}@{{ .Values.flightctl.rabbitmq.name }}.{{ .Values.flightctl.rabbitmq.namespace }}.svc.cluster.local:{{ .Values.flightctl.rabbitmq.ports.amqp }}/
+        amqpUrl: amqp://{{ .Values.rabbitmq.auth.username }}:{{ .Values.rabbitmq.auth.password }}@flightctl-rabbitmq.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:{{ .Values.rabbitmq.ports.amqp }}/
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
 {{ end }}

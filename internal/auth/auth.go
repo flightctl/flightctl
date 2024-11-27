@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +20,8 @@ import (
 const (
 	// DisableAuthEnvKey is the environment variable key used to disable auth when developing.
 	DisableAuthEnvKey = "FLIGHTCTL_DISABLE_AUTH"
+	k8sCACertPath     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	k8sApiService     = "https://kubernetes.default.svc"
 )
 
 type AuthNMiddleware interface {
@@ -65,17 +69,43 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		log.Warnln("Auth disabled")
 		authZ = NilAuth{}
 		authN = authZ.(AuthNMiddleware)
-	} else if cfg.Auth != nil && cfg.Auth.OpenShiftApiUrl != "" {
-		log.Println("OpenShift auth enabled")
-		authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: cfg.Auth.OpenShiftApiUrl}}
-		authN = authn.OpenShiftAuthN{OpenShiftApiUrl: cfg.Auth.OpenShiftApiUrl}
-	} else if cfg.Auth != nil && cfg.Auth.OIDCAuthority != "" {
-		log.Println("OIDC auth enabled")
-		authZ = NilAuth{}
-		var err error
-		authN, err = authn.NewJWTAuth(cfg.Auth.OIDCAuthority, cfg.Auth.InternalOIDCAuthority)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
+	} else if cfg.Auth != nil {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
+		}
+		if cfg.Auth.CACert != "" {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
+			tlsConfig.RootCAs = caCertPool
+		}
+		if cfg.Auth.OpenShiftApiUrl != "" {
+			if cfg.Auth.InternalOpenShiftApiUrl == k8sApiService {
+				_, err := os.Stat(k8sCACertPath)
+				if err == nil {
+					k8sCert, err := os.ReadFile(k8sCACertPath)
+					if err != nil {
+						return nil, fmt.Errorf("failed to read k8s ca.crt: %w", err)
+					}
+					if tlsConfig.RootCAs == nil {
+						tlsConfig.RootCAs = x509.NewCertPool()
+					}
+					tlsConfig.RootCAs.AppendCertsFromPEM(k8sCert)
+				}
+			}
+			apiUrl := strings.TrimSuffix(cfg.Auth.OpenShiftApiUrl, "/")
+			log.Println(fmt.Sprintf("OpenShift auth enabled: %s", apiUrl))
+			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: apiUrl, ClientTlsConfig: tlsConfig}}
+			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: apiUrl, InternalOpenShiftApiUrl: cfg.Auth.InternalOpenShiftApiUrl, ClientTlsConfig: tlsConfig}
+		} else if cfg.Auth.OIDCAuthority != "" {
+			oidcUrl := strings.TrimSuffix(cfg.Auth.OIDCAuthority, "/")
+			internalOidcUrl := strings.TrimSuffix(cfg.Auth.InternalOIDCAuthority, "/")
+			log.Println(fmt.Sprintf("OIDC auth enabled: %s", oidcUrl))
+			authZ = NilAuth{}
+			var err error
+			authN, err = authn.NewJWTAuth(oidcUrl, internalOidcUrl, tlsConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
+			}
 		}
 	}
 

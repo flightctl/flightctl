@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
@@ -13,7 +14,6 @@ import (
 )
 
 const (
-	RebootingReason           = "Rebooting"
 	OsImageDegradedReason     = "OSImageControllerDegraded"
 	BootedWithUnexpectedImage = "BootedWithUnexpectedImage"
 )
@@ -21,17 +21,20 @@ const (
 type OSImageController struct {
 	bootc         *container.BootcCmd
 	statusManager status.Manager
+	specManager   spec.Manager
 	log           *log.PrefixLogger
 }
 
 func NewOSImageController(
 	executer executer.Executer,
 	statusManager status.Manager,
+	specManager spec.Manager,
 	log *log.PrefixLogger,
 ) *OSImageController {
 	return &OSImageController{
 		bootc:         container.NewBootcCmd(executer),
 		statusManager: statusManager,
+		specManager:   specManager,
 		log:           log,
 	}
 }
@@ -60,7 +63,11 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	// TODO: handle the case where the host is reconciled but also in a dirty state (staged).
-	if container.IsOsImageReconciled(host, desired) {
+	reconciled, err := container.IsOsImageReconciled(host, desired)
+	if err != nil {
+		return err
+	}
+	if reconciled {
 		c.log.Debugf("Host is reconciled to os image %s", desired.Os.Image)
 		return nil
 	}
@@ -83,7 +90,7 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	updateErr = c.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.DeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  "Rebooting",
+		Reason:  string(status.UpdateStateRebooting),
 		Message: infoMsg,
 	})
 	if updateErr != nil {
@@ -91,5 +98,10 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	c.log.Info(infoMsg)
+
+	if err := c.specManager.PrepareRollback(ctx); err != nil {
+		return err
+	}
+
 	return c.bootc.Apply(ctx)
 }

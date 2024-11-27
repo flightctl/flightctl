@@ -22,25 +22,23 @@ import (
 
 type LoginOptions struct {
 	GlobalOptions
-	Token                  string
-	Web                    bool
-	ClientId               string
-	InsecureSkipVerify     bool
-	CAFile                 string
-	AuthInsecureSkipVerify bool
-	AuthCAFile             string
+	Token              string
+	Web                bool
+	ClientId           string
+	InsecureSkipVerify bool
+	CAFile             string
+	AuthCAFile         string
 }
 
 func DefaultLoginOptions() *LoginOptions {
 	return &LoginOptions{
-		GlobalOptions:          DefaultGlobalOptions(),
-		Token:                  "",
-		Web:                    false,
-		ClientId:               "",
-		InsecureSkipVerify:     false,
-		CAFile:                 "",
-		AuthInsecureSkipVerify: false,
-		AuthCAFile:             "",
+		GlobalOptions:      DefaultGlobalOptions(),
+		Token:              "",
+		Web:                false,
+		ClientId:           "",
+		InsecureSkipVerify: false,
+		CAFile:             "",
+		AuthCAFile:         "",
 	}
 }
 
@@ -73,9 +71,8 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&o.Web, "web", "w", o.Web, "Login via browser")
 	fs.StringVarP(&o.ClientId, "client-id", "", o.ClientId, "ClientId to be used for Oauth2 requests")
 	fs.StringVarP(&o.CAFile, "certificate-authority", "", o.CAFile, "Path to a cert file for the certificate authority")
-	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	fs.StringVarP(&o.AuthCAFile, "auth-certificate-authority", "", o.AuthCAFile, "Path to a cert file for the auth certificate authority")
-	fs.BoolVarP(&o.AuthInsecureSkipVerify, "auth-insecure-skip-tls-verify", "", o.AuthInsecureSkipVerify, "If true, the auth's certificate will not be checked for validity. This will make your HTTPS connections insecure")
+	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -97,50 +94,67 @@ type OauthServerResponse struct {
 	AuthEndpoint  string `json:"authorization_endpoint"`
 }
 
-func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, scope string) (string, error) {
-	token := ""
-
-	req, err := http.NewRequest(http.MethodGet, oauthConfigUrl, nil)
-	if err != nil {
-		return token, fmt.Errorf("failed to create http request: %w", err)
-	}
-
+func (o *LoginOptions) getAuthClientTransport() (*http.Transport, error) {
 	authTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: o.AuthInsecureSkipVerify, //nolint:gosec
+			InsecureSkipVerify: o.InsecureSkipVerify, //nolint:gosec
 		},
 	}
 
 	if o.AuthCAFile != "" {
-		caData, err := os.ReadFile(o.CAFile)
+		caData, err := os.ReadFile(o.AuthCAFile)
 		if err != nil {
-			return token, fmt.Errorf("failed to read Auth CA file: %w", err)
+			return nil, fmt.Errorf("failed to read Auth CA file: %w", err)
 		}
 		caPool, err := certutil.NewPoolFromBytes(caData)
 		if err != nil {
-			return token, fmt.Errorf("failed parsing Auth CA certs: %w", err)
+			return nil, fmt.Errorf("failed parsing Auth CA certs: %w", err)
 		}
 
 		authTransport.TLSClientConfig.RootCAs = caPool
 	}
 
-	httpClient := &http.Client{
-		Transport: authTransport,
+	return authTransport, nil
+}
+
+func (o *LoginOptions) getOauthConfig(oauthConfigUrl string) (OauthServerResponse, error) {
+	oauthResponse := OauthServerResponse{}
+	req, err := http.NewRequest(http.MethodGet, oauthConfigUrl, nil)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to create http request: %w", err)
+	}
+
+	transport, err := o.getAuthClientTransport()
+	if err != nil {
+		return oauthResponse, err
+	}
+
+	httpClient := http.Client{
+		Transport: transport,
 	}
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return token, fmt.Errorf("failed to fetch oidc config: %w", err)
+		return oauthResponse, fmt.Errorf("failed to fetch oidc config: %w", err)
 	}
 
-	oauthResponse := OauthServerResponse{}
 	defer res.Body.Close()
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return token, fmt.Errorf("failed to read oidc config: %w", err)
+		return oauthResponse, fmt.Errorf("failed to read oidc config: %w", err)
 	}
 	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
-		return token, fmt.Errorf("failed to parse oidc config: %w", err)
+		return oauthResponse, fmt.Errorf("failed to parse oidc config: %w", err)
+	}
+	return oauthResponse, nil
+}
+
+func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, scope string) (string, error) {
+	token := ""
+
+	oauthResponse, err := o.getOauthConfig(oauthConfigUrl)
+	if err != nil {
+		return token, err
 	}
 
 	// find free port
@@ -201,7 +215,12 @@ func (o *LoginOptions) getOauth2Token(oauthConfigUrl string, clientId string, sc
 	}
 
 	client, err = osincli.NewClient(config)
-	client.Transport = authTransport
+
+	transport, err := o.getAuthClientTransport()
+	if err != nil {
+		return token, err
+	}
+	client.Transport = transport
 	if err != nil {
 		return token, fmt.Errorf("failed to create oauth2 client: %w", err)
 	}
@@ -248,12 +267,19 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to get auth info: %w", err)
 	}
 
-	if resp.StatusCode() == http.StatusTeapot {
+	respCode := resp.StatusCode()
+
+	if respCode == http.StatusTeapot {
 		fmt.Println("Auth is disabled")
 		err = config.Persist(o.ConfigFilePath)
 		if err != nil {
 			return fmt.Errorf("persisting client config: %w", err)
 		}
+		return nil
+	}
+
+	if respCode != http.StatusOK {
+		fmt.Printf("Unexpected response code: %v\n", respCode)
 		return nil
 	}
 
@@ -276,20 +302,26 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			token = o.Token
 		}
 	} else if resp.JSON200.AuthType == "OpenShift" {
+		oauthConfigUrl := fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL)
 		if o.Web {
 			clientId := "openshift-cli-client"
 			if o.ClientId != "" {
 				clientId = o.ClientId
 			}
-			token, err = o.getOauth2Token(fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL), clientId, "")
+			token, err = o.getOauth2Token(oauthConfigUrl, clientId, "")
 			if err != nil {
 				return err
 			}
 		} else if o.Token == "" {
-			fmt.Printf("You must obtain an API token by visiting %s\n", resp.JSON200.AuthURL)
+			oauthConfig, err := o.getOauthConfig(oauthConfigUrl)
+			if err != nil {
+				return fmt.Errorf("could not get oauth config: %w", err)
+			}
+
+			fmt.Printf("You must obtain an API token by visiting %s/request\n", oauthConfig.TokenEndpoint)
 			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n", config.Service.Server)
 			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
-			return nil
+			return fmt.Errorf("no token provided")
 		} else {
 			token = o.Token
 		}
@@ -298,7 +330,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			token = o.Token
 		} else {
 			fmt.Printf("Unknown auth provider. You can try logging in using \"flightctl login %s --token=<token>\"\n", config.Service.Server)
-			return nil
+			return fmt.Errorf("unknown auth provider")
 		}
 	}
 	c, err = client.NewFromConfig(config)
@@ -312,8 +344,18 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("validating token: %w", err)
 	}
 
-	if res.StatusCode() != http.StatusOK {
+	statusCode := res.StatusCode()
+
+	if statusCode == http.StatusUnauthorized {
 		return fmt.Errorf("the token provided is invalid or expired")
+	}
+
+	if statusCode == http.StatusInternalServerError && res.JSON500 != nil {
+		return fmt.Errorf("%v: %v", statusCode, res.JSON500.Message)
+	}
+
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %v", res.StatusCode())
 	}
 
 	config.AuthInfo.Token = token

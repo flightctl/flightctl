@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
@@ -78,42 +79,42 @@ var _ = Describe("RepoUpdate", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		gitConfig1 := &api.GitConfigProviderSpec{
-			ConfigType: string(api.TemplateDiscriminatorGitConfig),
-			Name:       "gitConfig1",
+			Name: "gitConfig1",
 		}
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-1"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitItem1 := api.DeviceSpec_Config_Item{}
+		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
+		gitItem1 := api.ConfigProviderSpec{}
 		err = gitItem1.FromGitConfigProviderSpec(*gitConfig1)
 		Expect(err).ToNot(HaveOccurred())
 
 		gitConfig2 := &api.GitConfigProviderSpec{
-			ConfigType: string(api.TemplateDiscriminatorGitConfig),
-			Name:       "gitConfig2",
+			Name: "gitConfig2",
 		}
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-2"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitItem2 := api.DeviceSpec_Config_Item{}
+		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
+		gitItem2 := api.ConfigProviderSpec{}
 		err = gitItem2.FromGitConfigProviderSpec(*gitConfig2)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create an inline config item
 		inlineConfig := &api.InlineConfigProviderSpec{
-			ConfigType: string(api.TemplateDiscriminatorInlineConfig),
-			Name:       "inlineConfig",
+			Name: "inlineConfig",
 		}
-		var goodInline map[string]interface{}
-		err = json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.0\"}}"), &goodInline)
-		Expect(err).ToNot(HaveOccurred())
-		inlineConfig.Inline = goodInline
-		inlineItem := api.DeviceSpec_Config_Item{}
+		base64 := api.Base64
+		inlineConfig.Inline = []api.FileSpec{
+			{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
+			{Path: "/etc/notencoded", Content: "Hello world, what's up?"},
+		}
+		inlineItem := api.ConfigProviderSpec{}
 		err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		config1 := []api.DeviceSpec_Config_Item{gitItem1, inlineItem}
-		config2 := []api.DeviceSpec_Config_Item{gitItem2, inlineItem}
+		config1 := []api.ConfigProviderSpec{gitItem1, inlineItem}
+		config2 := []api.ConfigProviderSpec{gitItem2, inlineItem}
 
 		// Create fleet1 referencing repo1, fleet2 referencing repo2
 		fleet1 := api.Fleet{
@@ -124,7 +125,6 @@ var _ = Describe("RepoUpdate", func() {
 
 		fleet2 := api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet2")},
-			Spec:     api.FleetSpec{},
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 

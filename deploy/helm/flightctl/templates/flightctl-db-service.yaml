@@ -4,17 +4,17 @@ metadata:
   labels:
     flightctl.service: flightctl-db
   name: flightctl-db
-  namespace: {{ .Values.flightctl.db.namespace }}
+  namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
-  {{ if .Values.flightctl.db.nodePort }}
+  {{- if and .Values.global.nodePorts.db (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
   type: NodePort
-  {{ end }}
+  {{- end }}
   ports:
     - name: "5432"
       port: 5432
       targetPort: 5432
-      {{ if .Values.flightctl.db.nodePort }}
-      nodePort: {{ .Values.flightctl.db.nodePort }}
-      {{ end }}
+      {{- if and .Values.global.nodePorts.db (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+      nodePort: {{ .Values.global.nodePorts.db }}
+      {{- end }}
   selector:
     flightctl.service: flightctl-db

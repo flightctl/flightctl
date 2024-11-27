@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -18,12 +19,14 @@ import (
 
 type CertificateSigningRequest interface {
 	Create(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
+	Update(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	InitialMigration() error
 }
 
@@ -43,17 +46,18 @@ func (s *CertificateSigningRequestStore) InitialMigration() error {
 	return s.db.AutoMigrate(&model.CertificateSigningRequest{})
 }
 
+// Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	certificatesigningrequest, err := model.NewCertificateSigningRequestFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	certificatesigningrequest.OrgID = orgId
-	_, err = s.createCertificateSigningRequest(certificatesigningrequest)
-	return resource, err
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, ModeCreateOnly)
+	return updatedResource, err
+}
+
+// Warning: this is a user-facing function and will set the Status to nil
+func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.CertificateSigningRequest, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, ModeUpdateOnly)
+	})
+	return updatedResource, err
 }
 
 func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error) {
@@ -61,7 +65,11 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	var nextContinue *string
 	var numRemaining *int64
 
-	query := BuildBaseListQuery(s.db.Model(&certificateSigningRequests), orgId, listParams)
+	query, err := ListQuery(&model.CertificateSigningRequest{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -83,7 +91,10 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&certificateSigningRequests), orgId, listParams)
+			countQuery, err := ListQuery(&model.CertificateSigningRequest{}).Build(ctx, s.db, orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -94,13 +105,13 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	}
 
 	apiCertificateSigningRequestList := certificateSigningRequests.ToApiResource(nextContinue, numRemaining)
-	return &apiCertificateSigningRequestList, flterrors.ErrorFromGormError(result.Error)
+	return &apiCertificateSigningRequestList, ErrorFromGormError(result.Error)
 }
 
 func (s *CertificateSigningRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
 	condition := model.CertificateSigningRequest{}
 	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error) {
@@ -109,7 +120,7 @@ func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUI
 	}
 	result := s.db.First(&certificateSigningRequest)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiCertificateSigningRequest := certificateSigningRequest.ToApiResource()
 	return &apiCertificateSigningRequest, nil
@@ -119,7 +130,7 @@ func (s *CertificateSigningRequestStore) createCertificateSigningRequest(certifi
 	certificateSigningRequest.Generation = lo.ToPtr[int64](1)
 	certificateSigningRequest.ResourceVersion = lo.ToPtr[int64](1)
 	if result := s.db.Create(certificateSigningRequest); result.Error != nil {
-		err := flterrors.ErrorFromGormError(result.Error)
+		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
 	}
 	return false, nil
@@ -141,7 +152,7 @@ func (s *CertificateSigningRequestStore) updateCertificateSigningRequest(existin
 
 	result := query.Updates(&certificateSigningRequest)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -149,7 +160,8 @@ func (s *CertificateSigningRequestStore) updateCertificateSigningRequest(existin
 	return false, nil
 }
 
-func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, bool, error) {
+// Warning: this is a user-facing function and will set the Status to nil
+func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.CertificateSigningRequest, mode CreateOrUpdateMode) (*api.CertificateSigningRequest, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -169,6 +181,14 @@ func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resourc
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	if !exists {
 		if retry, err := s.createCertificateSigningRequest(certificatesigningrequest); err != nil {
 			return nil, false, retry, err
@@ -185,7 +205,7 @@ func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resourc
 
 func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error) {
 	return retryCreateOrUpdate(func() (*api.CertificateSigningRequest, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource)
+		return s.createOrUpdate(orgId, resource, ModeCreateOrUpdate)
 	})
 }
 
@@ -203,7 +223,7 @@ func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId
 		"status":           model.MakeJSONField(resource.Status),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
-	return resource, flterrors.ErrorFromGormError(result.Error)
+	return resource, ErrorFromGormError(result.Error)
 }
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
@@ -214,5 +234,46 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil
 	}
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
+}
+
+func (s *CertificateSigningRequestStore) updateConditions(orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
+	existingRecord := model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return false, ErrorFromGormError(result.Error)
+	}
+
+	if existingRecord.Status == nil {
+		existingRecord.Status = model.MakeJSONField(api.CertificateSigningRequestStatus{})
+	}
+	if existingRecord.Status.Data.Conditions == nil {
+		existingRecord.Status.Data.Conditions = []api.Condition{}
+	}
+	changed := false
+	for _, condition := range conditions {
+		changed = api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
+	}
+	if !changed {
+		return false, nil
+	}
+
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"status":           existingRecord.Status,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	err := ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+	return retryUpdate(func() (bool, error) {
+		return s.updateConditions(orgId, name, conditions)
+	})
 }

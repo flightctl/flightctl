@@ -22,10 +22,10 @@ type Fleet struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.FleetSpec]
+	Spec *JSONField[api.FleetSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.FleetStatus]
+	Status *JSONField[api.FleetStatus] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of fleets to repositories
 	Repositories []Repository `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`
@@ -128,7 +128,11 @@ func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetLi
 
 	fleetList := make([]api.Fleet, len(dl))
 	for i, fleet := range dl {
-		fleetList[i] = fleet.ToApiResource()
+		var opts []APIResourceOption
+		if fleet.Status.Data.DevicesSummary != nil {
+			opts = append(opts, WithSummary(fleet.Status.Data.DevicesSummary))
+		}
+		fleetList[i] = fleet.ToApiResource(opts...)
 	}
 	ret := api.FleetList{
 		ApiVersion: FleetAPI,

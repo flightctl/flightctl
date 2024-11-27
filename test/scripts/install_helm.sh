@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -x -euo pipefail
 
-which helm 2>/dev/null 1>/dev/null
-if [ $? -eq 0 ]; then
+if which helm 2>/dev/null 1>/dev/null; then
     echo "Helm already installed"
     exit 0
 fi

@@ -1,28 +1,22 @@
+{{ if and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin") }}
 kind: Service
 apiVersion: v1
 metadata:
   name: keycloak
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     app: keycloak
 spec:
-  {{- if .Values.service.nodePorts }}
+  {{- if and .Values.global.nodePorts.keycloak (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
   type: NodePort
-  {{- else }}
-  type: LoadBalancer
   {{- end }}
   ports:
-    - name: {{ .Values.service.ports.http }}-tcp
-      port: {{ .Values.service.ports.http }}
+    - name: 8080-tcp
+      port: 8080
       targetPort: 8080
-      {{ if .Values.service.nodePorts }}
-      nodePort: {{ .Values.service.nodePorts.http }}
-      {{ end }}
-    - name: {{ .Values.service.ports.https }}-tcp
-      port: {{ .Values.service.ports.https }}
-      targetPort: 8443
-      {{ if .Values.service.nodePorts }}
-      nodePort: {{ .Values.service.nodePorts.https }}
-      {{ end }}
+      {{- if and .Values.global.nodePorts.keycloak (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+      nodePort: {{ .Values.global.nodePorts.keycloak }}
+      {{- end }}
   selector:
     app: keycloak
+  {{ end }}
