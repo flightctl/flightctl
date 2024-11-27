@@ -68,7 +68,7 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("Get fleet with device summary", func() {
-			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
+			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(api.FleetKind, "myfleet-1"), true)
 			device := api.Device{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("mydevice-1"),
@@ -112,7 +112,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// A device in another org that shouldn't be included
-			testutil.CreateTestDevice(ctx, storeInst.Device(), uuid.New(), "other-org-dev", util.SetResourceOwner(model.FleetKind, "myfleet-1"), nil, nil)
+			testutil.CreateTestDevice(ctx, storeInst.Device(), uuid.New(), "other-org-dev", util.SetResourceOwner(api.FleetKind, "myfleet-1"), nil, nil)
 
 			//				App:        Device:     updated:
 			// mydevice-1 | Healthy   | Online    | UpToDate
@@ -335,8 +335,8 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("List with device count", func() {
-			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-1"), true)
-			testutil.CreateTestDevicesWithOffset(ctx, 3, storeInst.Device(), orgId, util.SetResourceOwner(model.FleetKind, "myfleet-2"), true, 5)
+			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(api.FleetKind, "myfleet-1"), true)
+			testutil.CreateTestDevicesWithOffset(ctx, 3, storeInst.Device(), orgId, util.SetResourceOwner(api.FleetKind, "myfleet-2"), true, 5)
 			fleets, err := storeInst.Fleet().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
@@ -383,8 +383,8 @@ var _ = Describe("FleetStore create", func() {
 
 			createdFleet, err := storeInst.Fleet().Get(ctx, orgId, "newresourcename")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPI))
-			Expect(createdFleet.Kind).To(Equal(model.FleetKind))
+			Expect(createdFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(createdFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(createdFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
 			Expect(createdFleet.Status.Conditions).To(BeEmpty())
@@ -426,8 +426,8 @@ var _ = Describe("FleetStore create", func() {
 
 			updatedFleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
-			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
+			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
 			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
@@ -452,8 +452,8 @@ var _ = Describe("FleetStore create", func() {
 
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
-			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
+			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
 			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
@@ -479,8 +479,8 @@ var _ = Describe("FleetStore create", func() {
 
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
-			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
+			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
 			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
@@ -577,8 +577,8 @@ var _ = Describe("FleetStore create", func() {
 
 			createdFleet, err := storeInst.Fleet().Get(ctx, orgId, "newresourcename")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPI))
-			Expect(createdFleet.Kind).To(Equal(model.FleetKind))
+			Expect(createdFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(createdFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(createdFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
 			Expect(createdFleet.Status.Conditions).To(BeEmpty())
@@ -587,8 +587,8 @@ var _ = Describe("FleetStore create", func() {
 
 			createdFleet2, err := storeInst.Fleet().Get(ctx, orgId, "newresourcename_2")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(createdFleet2.ApiVersion).To(Equal(model.FleetAPI))
-			Expect(createdFleet2.Kind).To(Equal(model.FleetKind))
+			Expect(createdFleet2.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(createdFleet2.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(createdFleet2.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
 			Expect(createdFleet2.Status.Conditions).To(BeEmpty())
@@ -644,8 +644,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPI))
-			Expect(updatedFleet.Kind).To(Equal(model.FleetKind))
+			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
 			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))

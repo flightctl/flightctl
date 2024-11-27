@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -63,7 +64,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	if tv != nil {
 		rv := *tv
 		annotations := map[string]string{
-			model.DeviceAnnotationTemplateVersion: rv,
+			v1alpha1.DeviceAnnotationTemplateVersion: rv,
 		}
 		resource.Metadata.Annotations = &annotations
 		deviceStatus.Config.RenderedVersion = rv
@@ -128,7 +129,7 @@ func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet
 }
 
 func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name string, status *api.TemplateVersionStatus) error {
-	owner := util.SetResourceOwner(model.FleetKind, fleet)
+	owner := util.SetResourceOwner(v1alpha1.FleetKind, fleet)
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
 			Name:  &name,

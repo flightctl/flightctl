@@ -6,7 +6,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -44,7 +43,7 @@ var _ = Describe("FleetSelector", func() {
 		publisher := queues.NewMockPublisher(ctrl)
 		publisher.EXPECT().Publish(gomock.Any()).Return(nil).AnyTimes()
 		callbackManager = tasks.NewCallbackManager(publisher, log)
-		logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "fleet", Kind: model.FleetKind})
+		logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "fleet", Kind: api.FleetKind})
 		logic.SetItemsPerPage(2)
 	})
 
@@ -257,7 +256,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(5))
 			for _, device := range devices.Items {
-				resourceRef := tasks.ResourceReference{OrgID: orgId, Name: *device.Metadata.Name, Kind: model.DeviceKind}
+				resourceRef := tasks.ResourceReference{OrgID: orgId, Name: *device.Metadata.Name, Kind: api.DeviceKind}
 				logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, storeInst, resourceRef)
 				logic.SetItemsPerPage(2)
 

@@ -31,7 +31,7 @@ type ResourceSync struct {
 type genericResourceMap map[string]interface{}
 
 var validFileExtensions = []string{"json", "yaml", "yml"}
-var supportedResources = []string{model.FleetKind}
+var supportedResources = []string{api.FleetKind}
 
 func NewResourceSync(callbackManager CallbackManager, store store.Store, log logrus.FieldLogger) *ResourceSync {
 	return &ResourceSync{
@@ -81,7 +81,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		return nil
 	}
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, rs.Name)
+	owner := util.SetResourceOwner(api.ResourceSyncKind, rs.Name)
 	fleets, err := r.parseFleets(resources, owner)
 	if err != nil {
 		err := fmt.Errorf("resourcesync/%s: error: %w", rs.Name, err)
@@ -282,7 +282,7 @@ func (r ResourceSync) parseFleets(resources []genericResourceMap, owner *string)
 		}
 
 		switch kind {
-		case model.FleetKind:
+		case api.FleetKind:
 			var fleet api.Fleet
 			err := yamlutil.Unmarshal(buf, &fleet)
 			if err != nil {

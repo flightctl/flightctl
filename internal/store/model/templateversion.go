@@ -14,12 +14,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var (
-	TemplateVersionAPI      = "v1alpha1"
-	TemplateVersionKind     = "TemplateVersion"
-	TemplateVersionListKind = "TemplateVersionList"
-)
-
 type TemplateVersion struct {
 	OrgID           uuid.UUID      `gorm:"type:uuid;primary_key;"`
 	Name            string         `gorm:"primary_key;" selector:"metadata.name"`
@@ -97,13 +91,13 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 	metadataAnnotations := util.LabelArrayToMap(t.Annotations)
 
 	return api.TemplateVersion{
-		ApiVersion: TemplateVersionAPI,
-		Kind:       TemplateVersionKind,
+		ApiVersion: api.TemplateVersionAPIVersion,
+		Kind:       api.TemplateVersionKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(t.Name),
 			CreationTimestamp: util.TimeToPtr(t.CreatedAt.UTC()),
 			Generation:        t.Generation,
-			Owner:             util.SetResourceOwner(FleetKind, t.FleetName),
+			Owner:             util.SetResourceOwner(api.FleetKind, t.FleetName),
 			Annotations:       &metadataAnnotations,
 			ResourceVersion:   lo.Ternary(t.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(t.ResourceVersion), 10)), nil),
 		},
@@ -116,8 +110,8 @@ func (tl TemplateVersionList) ToApiResource(cont *string, numRemaining *int64) a
 	// Shouldn't happen, but just to be safe
 	if tl == nil {
 		return api.TemplateVersionList{
-			ApiVersion: TemplateVersionAPI,
-			Kind:       TemplateVersionListKind,
+			ApiVersion: api.TemplateVersionAPIVersion,
+			Kind:       api.TemplateVersionListKind,
 		}
 	}
 
@@ -126,8 +120,8 @@ func (tl TemplateVersionList) ToApiResource(cont *string, numRemaining *int64) a
 		deviceList[i] = device.ToApiResource()
 	}
 	ret := api.TemplateVersionList{
-		ApiVersion: TemplateVersionAPI,
-		Kind:       TemplateVersionListKind,
+		ApiVersion: api.TemplateVersionAPIVersion,
+		Kind:       api.TemplateVersionListKind,
 		Items:      deviceList,
 	}
 	if cont != nil {
