@@ -89,7 +89,7 @@ var _ = Describe("FleetRollout", func() {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(dev.Metadata.Annotations).ToNot(BeNil())
-				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
+				Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
 			}
 
 			// Second update
@@ -101,7 +101,7 @@ var _ = Describe("FleetRollout", func() {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(dev.Metadata.Annotations).ToNot(BeNil())
-				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.1"))
+				Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0.1"))
 			}
 		})
 
@@ -123,7 +123,7 @@ var _ = Describe("FleetRollout", func() {
 			dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.Metadata.Annotations).ToNot(BeNil())
-			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
+			Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
 		})
 
 		When("the fleet is valid and contains parameters", func() {
@@ -194,7 +194,7 @@ var _ = Describe("FleetRollout", func() {
 					dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 					Expect(err).ToNot(HaveOccurred())
 					Expect(dev.Metadata.Annotations).ToNot(BeNil())
-					Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
+					Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 					Expect(dev.Spec.Config).ToNot(BeNil())
 					Expect(*dev.Spec.Config).To(HaveLen(3))
 					for _, configItem := range *dev.Spec.Config {
@@ -255,7 +255,7 @@ var _ = Describe("FleetRollout", func() {
 				dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
 				Expect(err).ToNot(HaveOccurred())
 				Expect(dev.Metadata.Annotations).ToNot(BeNil())
-				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
+				Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 				Expect(dev.Spec.Config).ToNot(BeNil())
 				Expect(*dev.Spec.Config).To(HaveLen(2))
 				for _, configItem := range *dev.Spec.Config {
@@ -303,7 +303,7 @@ var _ = Describe("FleetRollout", func() {
 				otherupdate := api.Device{
 					Metadata: api.ObjectMeta{
 						Name:            util.StrToPtr("mydevice-1"),
-						Owner:           util.SetResourceOwner(model.FleetKind, "some-other-owner"),
+						Owner:           util.SetResourceOwner(api.FleetKind, "some-other-owner"),
 						ResourceVersion: util.StrToPtr("0"),
 					},
 					Spec:   &api.DeviceSpec{},

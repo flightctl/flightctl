@@ -10,12 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	CertificateSigningRequestAPI      = "v1alpha1"
-	CertificateSigningRequestKind     = "CertificateSigningRequest"
-	CertificateSigningRequestListKind = "CertificateSigningRequestList"
-)
-
 type CertificateSigningRequest struct {
 	Resource
 
@@ -74,8 +68,8 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 	metadataLabels := util.LabelArrayToMap(csr.Resource.Labels)
 
 	return api.CertificateSigningRequest{
-		ApiVersion: CertificateSigningRequestAPI,
-		Kind:       CertificateSigningRequestKind,
+		ApiVersion: api.CertificateSigningRequestAPI,
+		Kind:       api.CertificateSigningRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(csr.Name),
 			CreationTimestamp: util.TimeToPtr(csr.CreatedAt.UTC()),
@@ -90,8 +84,8 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaining *int64) api.CertificateSigningRequestList {
 	if csrl == nil {
 		return api.CertificateSigningRequestList{
-			ApiVersion: CertificateSigningRequestAPI,
-			Kind:       CertificateSigningRequestListKind,
+			ApiVersion: api.CertificateSigningRequestAPI,
+			Kind:       api.CertificateSigningRequestListKind,
 			Items:      []api.CertificateSigningRequest{},
 		}
 	}
@@ -101,8 +95,8 @@ func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaini
 		certificateSigningRequestList[i] = certificateSigningRequest.ToApiResource()
 	}
 	ret := api.CertificateSigningRequestList{
-		ApiVersion: CertificateSigningRequestAPI,
-		Kind:       CertificateSigningRequestListKind,
+		ApiVersion: api.CertificateSigningRequestAPI,
+		Kind:       api.CertificateSigningRequestListKind,
 		Items:      certificateSigningRequestList,
 		Metadata:   api.ListMeta{},
 	}

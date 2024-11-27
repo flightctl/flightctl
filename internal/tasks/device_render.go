@@ -75,7 +75,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		if device.Metadata.Annotations == nil {
 			return fmt.Errorf("device has no templateversion annotation")
 		}
-		tvString := (*device.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]
+		tvString := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
 		t.templateVersion = &tvString
 	}
 

@@ -5,16 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	// TODO: make configurable
-	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
-	DeviceDisconnectedTimeout = 5 * time.Minute
 	// DeviceDisconnectedPollingInterval is the interval at which the device liveness task runs.
 	DeviceDisconnectedPollingInterval = 2 * time.Minute
 )
@@ -37,7 +34,7 @@ func (t *DeviceDisconnected) Poll() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	statusInfoMessage := fmt.Sprintf("Did not check in for more than %d minutes", int(DeviceDisconnectedTimeout.Minutes()))
+	statusInfoMessage := fmt.Sprintf("Did not check in for more than %d minutes", int(api.DeviceDisconnectedTimeout.Minutes()))
 	// TODO: one thread per org?
 	orgID := uuid.UUID{}
 	// batch of 1000 devices
@@ -51,8 +48,8 @@ func (t *DeviceDisconnected) Poll() {
 
 		var batch []string
 		for _, device := range devices.Items {
-			if device.Status != nil && device.Status.Summary.Status != v1alpha1.DeviceSummaryStatusUnknown {
-				if device.Status.LastSeen.Add(DeviceDisconnectedTimeout).Before(time.Now()) {
+			if device.Status != nil && device.Status.Summary.Status != api.DeviceSummaryStatusUnknown {
+				if device.Status.LastSeen.Add(api.DeviceDisconnectedTimeout).Before(time.Now()) {
 					batch = append(batch, *device.Metadata.Name)
 				}
 			}
@@ -60,7 +57,7 @@ func (t *DeviceDisconnected) Poll() {
 
 		t.log.Infof("Updating %d devices to unknown status", len(batch))
 		// TODO: This is MVP and needs to be properly evaluated for performance and race conditions
-		if err := t.deviceStore.UpdateSummaryStatusBatch(ctx, orgID, batch, v1alpha1.DeviceSummaryStatusUnknown, statusInfoMessage); err != nil {
+		if err := t.deviceStore.UpdateSummaryStatusBatch(ctx, orgID, batch, api.DeviceSummaryStatusUnknown, statusInfoMessage); err != nil {
 			t.log.WithError(err).Error("failed to update device summary status")
 			return
 		}
