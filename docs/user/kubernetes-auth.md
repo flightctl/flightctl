@@ -5,9 +5,17 @@ Some `helm` configuration values are needed to be modified (see [values.yaml](ht
 
 The following variables need to be set:
 
-* Set **global.auth.type** to **openshift**
-* Set **global.auth.openShiftApiUrl** to the openshift API URL
-* Optionally set **caCert**, **insecureSkipTlsVerify**, **internalOpenShiftApiUrl**
+* Set **global.auth.type** to **k8s**
+* Optionally set **global.auth.caCert**, **global.auth.insecureSkipTlsVerify**
+
+With these settings, the k8s cluster on which Flight Control will be deployed, will be used as auth authority.
+
+If you want to use a different cluster as auth authority, the following variables need to be set too:
+
+* Set **global.auth.k8s.apiUrl** to API URL of the external k8s cluster
+* Set **global.auth.k8s.externalApiToken** to a token which has permission to CREATE `authentication.k8s.io/tokenreview` resource in the external k8s cluster
+
+If the k8s cluster is an OpenShift cluster, you can also set **global.auth.k8s.externalOpenShiftApiUrl** which enables interactive login for the CLI (`flightctl login <fctl_url> --web`)
 
 If deploying on ACM  (by global.target: acm), the k8s auth values are automatically calculated.
 

@@ -1,7 +1,8 @@
 global:
   auth:
     type: "none"
-    internalOidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8081/realms/flightctl
+    oidc:
+      oidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8081/realms/flightctl
   internalNamespace: flightctl-internal
   storageClassName: standard
   exposeServicesMethod: "nodePort"
