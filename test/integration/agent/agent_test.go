@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -117,7 +118,7 @@ var _ = Describe("Device Agent behavior", func() {
 		})
 
 		When("updating the agent device spec", func() {
-			It("should write any files to the device", func() {
+			It("should write any files to the device", func(ctx context.Context) {
 				const (
 					firstSecretKey    = "first-secret"
 					firstSecretValue  = "This is the first secret"
@@ -128,7 +129,7 @@ var _ = Describe("Device Agent behavior", func() {
 					firstSecretKey:  firstSecretValue,
 					secondSecretKey: secondSecretValue,
 				}
-				mockSecret(h.GetMockK8sClient(), secrets)
+				mockSecret(ctx, h.GetMockK8sClient(), secrets)
 				resp, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resp.HTTPResponse.StatusCode).To(Equal(http.StatusCreated))
@@ -214,8 +215,8 @@ func getTestFleet(fleetYaml string) v1alpha1.Fleet {
 	return fleet
 }
 
-func mockSecret(mockK8sClient *k8sclient.MockK8SClient, secrets map[string]string) {
-	mockK8sClient.EXPECT().GetSecret("secret-namespace", "secret").
+func mockSecret(ctx context.Context, mockK8sClient *k8sclient.MockK8SClient, secrets map[string]string) {
+	mockK8sClient.EXPECT().GetSecret(ctx, "secret-namespace", "secret").
 		Return(&v1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "secret",

@@ -32,13 +32,16 @@ global:
     key: ""
   storageClassName: ""
   auth:
-    type: "builtin" # builtin, openshift, oidc, none
-    openShiftApiUrl: ""
-    internalOpenShiftApiUrl: https://kubernetes.default.svc
+    type: "builtin" # builtin, k8s, oidc, none
     caCert: ""
     insecureSkipTlsVerify: false
-    oidcAuthority: ""
-    internalOidcAuthority: ""
+    k8s:
+      apiUrl: https://kubernetes.default.svc
+      externalOpenshiftApiUrl: ""
+      externalApiToken: ""
+    oidc:
+      oidcAuthority: http://keycloak:8080/realms/flightctl
+      externalOidcAuthority: ""
   metrics:
     enabled: true
   internalNamespace: ""
