@@ -59,12 +59,20 @@ type kvConfig struct {
 }
 
 type authConfig struct {
-	OpenShiftApiUrl         string `json:"openShiftApiUrl,omitempty"`
-	InternalOpenShiftApiUrl string `json:"internalOpenShiftApiUrl,omitempty"`
-	OIDCAuthority           string `json:"oidcAuthority,omitempty"`
-	InternalOIDCAuthority   string `json:"internalOidcAuthority,omitempty"`
-	CACert                  string `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify   bool   `json:"insecureSkipTlsVerify,omitempty"`
+	K8s                   *k8sAuth  `json:"k8s,omitempty"`
+	OIDC                  *oidcAuth `json:"oidc,omitempty"`
+	CACert                string    `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
+}
+
+type k8sAuth struct {
+	ApiUrl                  string `json:"apiUrl,omitempty"`
+	ExternalOpenshiftApiUrl string `json:"externalOpenshiftApiUrl,omitempty"`
+}
+
+type oidcAuth struct {
+	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
+	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
 }
 
 type prometheusConfig struct {
