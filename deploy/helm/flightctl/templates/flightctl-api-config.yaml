@@ -50,6 +50,7 @@ data:
     {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:
         openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
+        internalOpenShiftApiUrl: {{ .Values.global.auth.internalOpenShiftApiUrl }}
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
     {{- else }}
     auth:
