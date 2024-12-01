@@ -27,7 +27,8 @@ while true; do
       if [ "$db_version" == "e2e" ]; then
         DB_VERSION_PARAMS=""
       elif [ "$db_version" == "demo-small" ]; then
-        DB_VERSION_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
+        DB_VERSION_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limitsza2124
+        .cpu=8 --set db.resources.limits.memory=64Gi"
       elif [ "$db_version" == "demo-large" ]; then
         DB_VERSION_PARAMS="--set db.resources.requests.cpu=2 --set db.resources.requests.memory=4Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
       else
