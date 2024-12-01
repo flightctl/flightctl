@@ -63,15 +63,15 @@ this only works on a Linux host.
 
 You can deploy a DB container of different sizes using a DB_VERSION variable for make command:
 * e2e (default) - minimal footprint for e2e testing
-* demo-small - recommended setting for a demo environment 1000 devices max
-* demo-large - recommended setting for a demo environment 10k devices max
+* small - recommended setting for a demo environment 1000 devices max
+* demo-10k - recommended setting for a demo environment 10k devices max
 
 ```
 # will create the cluster, and the agent config files in bin/agent which will be embedded in the image
 # this one will create a defailt `e2e DB container
 make deploy
-# to create a demo-small DB container use
-# make deploy DB_VERSION=demo-small
+# to create a small DB container use
+# make deploy DB_VERSION=small
 make agent-vm agent-vm-console # user/password is user/user
 ```
 

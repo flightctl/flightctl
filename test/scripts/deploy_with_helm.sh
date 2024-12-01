@@ -3,7 +3,7 @@ set -x -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 METHOD=install
 ONLY_DB=
-DB_VERSION_PARAMS=
+DB_SIZE_PARAMS=
 RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
 VALKEY_VERSION=${VALKEY_VERSION:-"8.0.1"}
@@ -13,28 +13,27 @@ source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,db-version:,auth,help -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,db-size:,auth,help -n "$0" -- "$@")
 eval set -- "$options"
 
-usage="[--only-db] [db-version=e2e|demo-small|demo-large]"
+usage="[--only-db] [db-size=e2e|small|prod]"
 
 while true; do
   case "$1" in
     -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false --set flightctl.kv.enabled=false" ; shift ;;
     -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
-    --db-version)
-      db_version=$2
-      if [ "$db_version" == "e2e" ]; then
-        DB_VERSION_PARAMS=""
-      elif [ "$db_version" == "demo-small" ]; then
-        DB_VERSION_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limitsza2124
-        .cpu=8 --set db.resources.limits.memory=64Gi"
-      elif [ "$db_version" == "demo-large" ]; then
-        DB_VERSION_PARAMS="--set db.resources.requests.cpu=2 --set db.resources.requests.memory=4Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
+    --db-size)
+      db_size=$2
+      if [ "$db_size" == "e2e" ]; then
+        DB_SIZE_PARAMS=""
+      elif [ "$db_size" == "small" ]; then
+        DB_SIZE_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
+      elif [ "$db_size" == "prod" ]; then
+        DB_SIZE_PARAMS="--set db.resources.requests.cpu=4 --set db.resources.requests.memory=8Gi --set db.resources.limits.cpu=20 --set db.resources.limits.memory=128Gi"
       else
-        echo "Wrong parameter to --db-version flag: $db_version"
+        echo "Wrong parameter to --db-size flag: $db_size"
         echo "Usage: $0 $usage"
-        exit 0
+        exit 1
       fi
       shift 2
       ;;
@@ -94,7 +93,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_VERSION_PARAMS} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${VALKEY_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${VALKEY_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s

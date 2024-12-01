@@ -1,5 +1,5 @@
-ifeq ($(DB_VERSION),)
-	DB_VERSION := e2e
+ifeq ($(DB_SIZE),)
+	DB_SIZE := e2e
 endif
 
 cluster: bin/e2e-certs/ca.pem
@@ -14,7 +14,7 @@ deploy: cluster build deploy-helm deploy-e2e-extras prepare-agent-config
 deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
-	test/scripts/deploy_with_helm.sh --db-version $(DB_VERSION)
+	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
 
 prepare-agent-config:
 	test/scripts/agent-images/prepare_agent_config.sh
