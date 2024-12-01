@@ -71,7 +71,7 @@ You can deploy a DB container of different sizes using a DB_VERSION variable for
 # this one will create a defailt `e2e DB container
 make deploy
 # to create a demo-small DB container use
-# make deploy DB_VERSION_PARAMS=demo-small
+# make deploy DB_VERSION=demo-small
 make agent-vm agent-vm-console # user/password is user/user
 ```
 
