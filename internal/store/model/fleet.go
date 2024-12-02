@@ -10,14 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	FleetAPI      = "v1alpha1"
-	FleetKind     = "Fleet"
-	FleetListKind = "FleetList"
-
-	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
-)
-
 type Fleet struct {
 	Resource
 
@@ -101,8 +93,8 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 	metadataAnnotations := util.LabelArrayToMap(f.Resource.Annotations)
 
 	return api.Fleet{
-		ApiVersion: FleetAPI,
-		Kind:       FleetKind,
+		ApiVersion: api.FleetAPIVersion,
+		Kind:       api.FleetKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
@@ -120,8 +112,8 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetList {
 	if dl == nil {
 		return api.FleetList{
-			ApiVersion: FleetAPI,
-			Kind:       FleetListKind,
+			ApiVersion: api.FleetAPIVersion,
+			Kind:       api.FleetListKind,
 			Items:      []api.Fleet{},
 		}
 	}
@@ -135,8 +127,8 @@ func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetLi
 		fleetList[i] = fleet.ToApiResource(opts...)
 	}
 	ret := api.FleetList{
-		ApiVersion: FleetAPI,
-		Kind:       FleetListKind,
+		ApiVersion: api.FleetAPIVersion,
+		Kind:       api.FleetListKind,
 		Items:      fleetList,
 		Metadata:   api.ListMeta{},
 	}

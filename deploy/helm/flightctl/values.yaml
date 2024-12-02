@@ -34,6 +34,7 @@ global:
   auth:
     type: "builtin" # builtin, openshift, oidc, none
     openShiftApiUrl: ""
+    internalOpenShiftApiUrl: https://kubernetes.default.svc
     caCert: ""
     insecureSkipTlsVerify: false
     oidcAuthority: ""

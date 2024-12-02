@@ -72,10 +72,11 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 		t.ownerFleet = &owner
 
-		if device.Metadata.Annotations != nil {
-			tvString := (*device.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]
-			t.templateVersion = &tvString
+		if device.Metadata.Annotations == nil {
+			return fmt.Errorf("device has no templateversion annotation")
 		}
+		tvString := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
+		t.templateVersion = &tvString
 	}
 
 	ignitionConfig, referencedRepos, renderErr := t.renderConfig(ctx)
@@ -316,79 +317,21 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
-	repoURL, err := repo.Spec.Data.GetRepoURL()
-	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
+	var ignition *config_latest_types.Config
 
-	var gitHash string
-
-	// If the device is part of a fleet, we need to make sure the repo and targetRevision are frozen
-	if t.ownerFleet != nil && t.templateVersion != nil {
-		repoKey := ConfigStorageRepositoryUrlKey{
-			OrgID:           t.resourceRef.OrgID,
-			Fleet:           *t.ownerFleet,
-			TemplateVersion: *t.templateVersion,
-			Repository:      gitSpec.GitRef.Repository,
-		}
-		origRepoURL, err := t.configStorage.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
+	// If the device is not part of a fleet, just clone from git into ignition
+	if t.ownerFleet == nil {
+		ignition, _, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
 		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
-		if repoURL != string(origRepoURL) {
-			t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
-			err = repo.Spec.Data.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
-			if err != nil {
-				return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-			}
-		}
-
-		gitRevisionKey := ConfigStorageGitRevisionKey{
-			OrgID:           t.resourceRef.OrgID,
-			Fleet:           *t.ownerFleet,
-			TemplateVersion: *t.templateVersion,
-			Repository:      gitSpec.GitRef.Repository,
-			TargetRevision:  gitSpec.GitRef.TargetRevision,
-		}
-		hashBytes, err := t.configStorage.Get(ctx, gitRevisionKey.ComposeKey())
+	} else {
+		ignition, err = t.cloneCachedGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
 		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-		}
-		gitHash = string(hashBytes)
-	}
-
-	gitRevision := gitSpec.GitRef.TargetRevision
-	if gitHash != "" {
-		gitRevision = gitHash
-	}
-
-	mfs, clonedHash, err := CloneGitRepo(repo, &gitRevision, nil)
-	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
-
-	if gitHash == "" && t.ownerFleet != nil && t.templateVersion != nil {
-		gitRevisionKey := ConfigStorageGitRevisionKey{
-			OrgID:           t.resourceRef.OrgID,
-			Fleet:           *t.ownerFleet,
-			TemplateVersion: *t.templateVersion,
-			Repository:      gitSpec.GitRef.Repository,
-			TargetRevision:  gitSpec.GitRef.TargetRevision,
-		}
-		updated, err := t.configStorage.SetNX(ctx, gitRevisionKey.ComposeKey(), []byte(clonedHash))
-		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed storing frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-		}
-		if !updated {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed freezing git revision %s/%s: unexpectedly changed", t.resourceRef.OrgID, gitSpec.GitRef.Repository)
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
 	}
 
-	// Create an ignition from the git subtree and merge it into the rendered config
-	ignition, err := ConvertFileSystemToIgnition(mfs, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
-	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
-	}
 	mergedConfig := config_latest.Merge(**ignitionConfig, *ignition)
 	*ignitionConfig = &mergedConfig
 
@@ -408,7 +351,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	var configStoreKey ConfigStorageK8sSecretKey
 	needToStoreData := false
 
-	if t.ownerFleet != nil && t.templateVersion != nil {
+	if t.ownerFleet != nil {
 		configStoreKey = ConfigStorageK8sSecretKey{
 			OrgID:           t.resourceRef.OrgID,
 			Fleet:           *t.ownerFleet,
@@ -505,6 +448,13 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	if repo.Spec == nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
 	}
+
+	if t.ownerFleet != nil {
+		err = t.getFrozenRepositoryURL(ctx, repo)
+		if err != nil {
+			return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
+		}
+	}
 	repoURL, err := repo.Spec.Data.GetRepoURL()
 	if err != nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
@@ -519,7 +469,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	var configStoreKey ConfigStorageHttpKey
 	needToStoreData := false
 
-	if t.ownerFleet != nil && t.templateVersion != nil {
+	if t.ownerFleet != nil {
 		configStoreKey = ConfigStorageHttpKey{
 			OrgID:           t.resourceRef.OrgID,
 			Fleet:           *t.ownerFleet,
@@ -564,4 +514,117 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
 
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
+}
+
+func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *model.Repository) error {
+	repoURL, err := repo.Spec.Data.GetRepoURL()
+	if err != nil {
+		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+	}
+
+	repoKey := ConfigStorageRepositoryUrlKey{
+		OrgID:           t.resourceRef.OrgID,
+		Fleet:           *t.ownerFleet,
+		TemplateVersion: *t.templateVersion,
+		Repository:      repo.Name,
+	}
+	origRepoURL, err := t.configStorage.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
+	if err != nil {
+		return fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+	}
+	if repoURL != string(origRepoURL) {
+		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, repo.Name)
+		err = repo.Spec.Data.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
+		if err != nil {
+			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *model.Repository, targetRevision string, path, mountPath string) (*config_latest_types.Config, error) {
+	// 1. Get the frozen repository URL
+	err := t.getFrozenRepositoryURL(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Do we have the mapping of targetRevision -> frozenHash cached?
+	gitRevisionKey := ConfigStorageGitRevisionKey{
+		OrgID:           t.resourceRef.OrgID,
+		Fleet:           *t.ownerFleet,
+		TemplateVersion: *t.templateVersion,
+		Repository:      repo.Name,
+		TargetRevision:  targetRevision,
+	}
+	frozenHashBytes, err := t.configStorage.Get(ctx, gitRevisionKey.ComposeKey())
+	if err != nil {
+		return nil, fmt.Errorf("failed fetching frozen git revision: %w", err)
+	}
+
+	// 3. If we have the frozen hash, try to get the git data from the cache
+	gitContentsKey := ConfigStorageGitContentsKey{
+		OrgID:           t.resourceRef.OrgID,
+		Fleet:           *t.ownerFleet,
+		TemplateVersion: *t.templateVersion,
+		Repository:      repo.Name,
+		TargetRevision:  targetRevision,
+		Path:            path,
+	}
+
+	if frozenHashBytes != nil {
+		cachedGitData, err := t.configStorage.Get(ctx, gitContentsKey.ComposeKey())
+		if err != nil {
+			return nil, fmt.Errorf("failed fetching cached git data: %w", err)
+		}
+
+		// If we got the git data from cache, change the mount path and return
+		if cachedGitData != nil {
+			wrapper, err := ignition.NewWrapperFromJson(cachedGitData)
+			if err != nil {
+				return nil, fmt.Errorf("fetched invalid json-encoded ignition from config storage: %w", err)
+			}
+
+			wrapper.ChangeMountPath(mountPath)
+			ign := wrapper.AsIgnitionConfig()
+			return &ign, nil
+		}
+	}
+
+	// 4. We didn't get the data from the cache, so we need to clone from git
+	revisionToClone := targetRevision
+	if frozenHashBytes != nil {
+		revisionToClone = string(frozenHashBytes)
+	}
+
+	// We clone from git and get ignition with no mount path prefix (i.e., set to "/")
+	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path, "/")
+	if err != nil {
+		return nil, fmt.Errorf("failed cloning git: %w", err)
+	}
+
+	// 5. If we didn't freeze the hash yet, do it now
+	if frozenHashBytes == nil {
+		_, err = t.configStorage.SetNX(ctx, gitRevisionKey.ComposeKey(), []byte(hash))
+		if err != nil {
+			return nil, fmt.Errorf("failed freezing git hash: %w", err)
+		}
+	}
+
+	// 6. Cache the git data
+	wrapper := ignition.NewWrapperFromIgnition(*ign)
+	jsonData, err := wrapper.AsJson()
+	if err != nil {
+		return nil, fmt.Errorf("failed converting git ignition to json: %w", err)
+	}
+	_, err = t.configStorage.SetNX(ctx, gitContentsKey.ComposeKey(), jsonData)
+	if err != nil {
+		return nil, fmt.Errorf("failed caching git data: %w", err)
+	}
+
+	// 7. Change the mount path to what was requested and return
+	wrapper.ChangeMountPath(mountPath)
+	ignToReturn := wrapper.AsIgnitionConfig()
+	return &ignToReturn, nil
 }

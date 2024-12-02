@@ -119,7 +119,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Retrying",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", "Retry")
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRetrying))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(

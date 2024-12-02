@@ -10,12 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	EnrollmentRequestAPI      = "v1alpha1"
-	EnrollmentRequestKind     = "EnrollmentRequest"
-	EnrollmentRequestListKind = "EnrollmentRequestList"
-)
-
 type EnrollmentRequest struct {
 	Resource
 
@@ -74,8 +68,8 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 	metadataLabels := util.LabelArrayToMap(e.Resource.Labels)
 
 	return api.EnrollmentRequest{
-		ApiVersion: EnrollmentRequestAPI,
-		Kind:       EnrollmentRequestKind,
+		ApiVersion: api.EnrollmentRequestAPIVersion,
+		Kind:       api.EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(e.Name),
 			CreationTimestamp: util.TimeToPtr(e.CreatedAt.UTC()),
@@ -90,8 +84,8 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 func (el EnrollmentRequestList) ToApiResource(cont *string, numRemaining *int64) api.EnrollmentRequestList {
 	if el == nil {
 		return api.EnrollmentRequestList{
-			ApiVersion: EnrollmentRequestAPI,
-			Kind:       EnrollmentRequestListKind,
+			ApiVersion: api.EnrollmentRequestAPIVersion,
+			Kind:       api.EnrollmentRequestListKind,
 			Items:      []api.EnrollmentRequest{},
 		}
 	}
@@ -101,8 +95,8 @@ func (el EnrollmentRequestList) ToApiResource(cont *string, numRemaining *int64)
 		enrollmentRequestList[i] = enrollmentRequest.ToApiResource()
 	}
 	ret := api.EnrollmentRequestList{
-		ApiVersion: EnrollmentRequestAPI,
-		Kind:       EnrollmentRequestListKind,
+		ApiVersion: api.EnrollmentRequestAPIVersion,
+		Kind:       api.EnrollmentRequestListKind,
 		Items:      enrollmentRequestList,
 		Metadata:   api.ListMeta{},
 	}

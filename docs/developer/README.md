@@ -114,7 +114,7 @@ make clean-agent-vm VMNAME=flightctl-device-2
 make clean-agent-vm VMNAME=flightctl-device-3
 ```
 
-Use the `devicesimulator` to simulate load from devices:
+Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices
 
 ```
 bin/devicesimulator --count=100
