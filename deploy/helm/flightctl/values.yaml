@@ -76,7 +76,7 @@ db:
     requests:
       cpu: "512m"
       memory: "512Mi"
-    limit:
+    limits:
       cpu: "2000m"
       memory: "2Gi"
 
