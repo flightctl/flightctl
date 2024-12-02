@@ -53,6 +53,9 @@ spec:
               name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: /usr/share/zoneinfo
+              name: tzdata
+              readOnly: true
 
       restartPolicy: Always
       volumes:
@@ -62,4 +65,7 @@ spec:
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
+        - name: tzdata
+          hostPath:
+            path: /usr/share/zoneinfo
 {{ end }}
