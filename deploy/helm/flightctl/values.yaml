@@ -70,6 +70,9 @@ db:
   masterUser: admin
   user: demouser
   userPassword: demopass
+  maxConnections: 200
+  storage:
+    size: "60Gi"
   ## @param db.resources the request/limit resource requests for the DB deployment pod
   resources:
     requests:
