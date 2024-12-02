@@ -16,7 +16,7 @@ IP=$(get_ext_ip)
 options=$(getopt -o adh --long only-db,db-size:,auth,help -n "$0" -- "$@")
 eval set -- "$options"
 
-usage="[--only-db] [db-size=e2e|small|prod]"
+usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
 
 while true; do
   case "$1" in
@@ -26,9 +26,9 @@ while true; do
       db_size=$2
       if [ "$db_size" == "e2e" ]; then
         DB_SIZE_PARAMS=""
-      elif [ "$db_size" == "small" ]; then
+      elif [ "$db_size" == "small-1k" ]; then
         DB_SIZE_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
-      elif [ "$db_size" == "prod" ]; then
+      elif [ "$db_size" == "medium-10k" ]; then
         DB_SIZE_PARAMS="--set db.resources.requests.cpu=4 --set db.resources.requests.memory=8Gi --set db.resources.limits.cpu=20 --set db.resources.limits.memory=128Gi"
       else
         echo "Wrong parameter to --db-size flag: $db_size"
