@@ -42,10 +42,12 @@ mkdir -p %{buildroot}/usr/bin
 cp bin/flightctl %{buildroot}/usr/bin
 mkdir -p %{buildroot}/usr/lib/systemd/system
 mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
+mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
 mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
 install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
 cp bin/flightctl-agent %{buildroot}/usr/bin
 cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
+cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
 cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
 bin/flightctl completion bash > flightctl-completion.bash
 install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions/flightctl-completion.bash
@@ -63,6 +65,7 @@ install -Dpm 0644 _flightctl-completion -t %{buildroot}/%{_datadir}/zsh/site-fun
 %files agent
 /usr/bin/flightctl-agent
 /usr/bin/flightctl-must-gather
+/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
 /usr/lib/systemd/system/flightctl-agent.service
 %{_sharedstatedir}/flightctl
 /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
