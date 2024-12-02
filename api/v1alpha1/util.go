@@ -18,7 +18,7 @@ const (
 type HookConditionType string
 
 const (
-	HookConditionTypePathOp     HookConditionType = "pathOp"
+	HookConditionTypePathOp     HookConditionType = "path"
 	HookConditionTypeExpression HookConditionType = "expression"
 )
 

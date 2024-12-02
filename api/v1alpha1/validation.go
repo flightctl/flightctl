@@ -123,8 +123,7 @@ func (a HookAction) Validate(path string) []error {
 		allErrs = append(allErrs, validation.ValidateString(&runAction.Run, path+".run", 1, 2048, nil, "")...)
 		// TODO: pull the extra validation done by the agent up here
 		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, "")...)
-		// TODO: validate path is clean and absolute
-		allErrs = append(allErrs, validation.ValidateString(runAction.WorkDir, path+".workDir", 1, 256, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(runAction.WorkDir, path+".workDir")...)
 	default:
 		// if we hit this case, it means that the type should be added to the switch statement above
 		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook action type: %s", path, t))
@@ -160,8 +159,7 @@ func (c HookCondition) Validate(path string) []error {
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
-		// TODO: validate path is clean and absolute
-		allErrs = append(allErrs, validation.ValidateString(&pathOpCondition.Path, path+".path", 1, 2048, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(&pathOpCondition.Path, path+".path")...)
 	default:
 		// if we hit this case, it means that the type should be added to the switch statement above
 		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook condition type: %s", path, t))
