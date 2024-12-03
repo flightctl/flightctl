@@ -10,7 +10,6 @@ import (
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -18,19 +17,16 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	hookManager  hook.Manager
 	deviceWriter fileio.Writer
 	log          *log.PrefixLogger
 }
 
 // NewController creates a new config controller.
 func NewController(
-	hookManager hook.Manager,
 	deviceWriter fileio.Writer,
 	log *log.PrefixLogger,
 ) *Controller {
 	return &Controller{
-		hookManager:  hookManager,
 		deviceWriter: deviceWriter,
 		log:          log,
 	}
@@ -100,7 +96,7 @@ func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredD
 		return nil
 	}
 
-	// write ignition files to disk and trigger pre hooks
+	// write ignition files to disk
 	c.log.Debug("Writing ignition files")
 	err = c.writeIgnitionFiles(ctx, desiredIgnition.Storage.Files)
 	if err != nil {
@@ -114,13 +110,10 @@ func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredD
 func (c *Controller) removeObsoleteFiles(ctx context.Context, currentFiles, desiredFiles []ignv3types.File) error {
 	removeFiles := computeRemoval(currentFiles, desiredFiles)
 	for _, file := range removeFiles {
-		c.log.Infof("Deleting file: %s", file)
-		// trigger delete pre hook and wait for it to complete
-		c.hookManager.OnBeforeRemove(ctx, file)
+		c.log.Debugf("Deleting file: %s", file)
 		if err := c.deviceWriter.RemoveFile(file); err != nil {
 			return fmt.Errorf("deleting files failed: %w", err)
 		}
-		c.hookManager.OnAfterRemove(ctx, file)
 	}
 	return nil
 }
@@ -138,14 +131,8 @@ func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.
 		if upToDate {
 			continue
 		}
-		exists, err := managedFile.Exists()
-		if err != nil {
+		if _, err = managedFile.Exists(); err != nil {
 			return err
-		}
-		if !exists {
-			c.hookManager.OnBeforeCreate(ctx, file.Path)
-		} else {
-			c.hookManager.OnBeforeUpdate(ctx, file.Path)
 		}
 		if err := managedFile.Write(); err != nil {
 			c.log.Warnf("Failed to write file %s: %v", file.Path, err)
@@ -156,11 +143,6 @@ func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.
 				return fmt.Errorf("failed to write file %s: %w", file.Path, err2.Err)
 			}
 			return err
-		}
-		if !exists {
-			c.hookManager.OnAfterCreate(ctx, file.Path)
-		} else {
-			c.hookManager.OnAfterUpdate(ctx, file.Path)
 		}
 	}
 	return nil

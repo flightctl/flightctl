@@ -104,6 +104,70 @@ func (c ConfigProviderSpec) Validate() []error {
 	return allErrs
 }
 
+func (a HookAction) Validate(path string) []error {
+	allErrs := []error{}
+
+	t, err := a.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case HookActionTypeRun:
+		runAction, err := a.AsHookActionRun()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			return allErrs
+		}
+		allErrs = append(allErrs, validation.ValidateString(&runAction.Run, path+".run", 1, 2048, nil, "")...)
+		// TODO: pull the extra validation done by the agent up here
+		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(runAction.WorkDir, path+".workDir")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook action type: %s", path, t))
+	}
+
+	if a.If != nil {
+		for i, condition := range *a.If {
+			allErrs = append(allErrs, condition.Validate(fmt.Sprintf("%s.if[%d]", path, i))...)
+		}
+	}
+
+	return allErrs
+}
+
+func (c HookCondition) Validate(path string) []error {
+	allErrs := []error{}
+
+	t, err := c.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case HookConditionTypeExpression:
+		expression, err := c.AsHookConditionExpression()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateString(&expression, path, 1, 2048, nil, "")...)
+	case HookConditionTypePathOp:
+		pathOpCondition, err := c.AsHookConditionPathOp()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(&pathOpCondition.Path, path+".path")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook condition type: %s", path, t))
+	}
+
+	return allErrs
+}
+
 func (r ResourceMonitor) Validate() []error {
 	allErrs := []error{}
 

@@ -12,8 +12,14 @@ import (
 type HookActionType string
 
 const (
-	SystemdActionType    HookActionType = "systemd"
-	ExecutableActionType HookActionType = "executable"
+	HookActionTypeRun HookActionType = "run"
+)
+
+type HookConditionType string
+
+const (
+	HookConditionTypePathOp     HookConditionType = "path"
+	HookConditionTypeExpression HookConditionType = "expression"
 )
 
 type ConfigProviderType string
@@ -33,20 +39,44 @@ const (
 
 // Type returns the type of the action.
 func (t HookAction) Type() (HookActionType, error) {
-	var data map[HookActionType]struct{}
+	var data map[HookActionType]interface{}
 	if err := json.Unmarshal(t.union, &data); err != nil {
 		return "", err
 	}
 
-	if _, exists := data[ExecutableActionType]; exists {
-		return ExecutableActionType, nil
+	types := []HookActionType{
+		HookActionTypeRun,
+	}
+	for _, t := range types {
+		if _, exists := data[t]; exists {
+			return t, nil
+		}
 	}
 
-	if _, exists := data[SystemdActionType]; exists {
-		return SystemdActionType, nil
+	return "", fmt.Errorf("unable to determine hook action type: %+v", data)
+}
+
+// Type returns the type of the condition.
+func (t HookCondition) Type() (HookConditionType, error) {
+	var data map[string]interface{}
+	if err := json.Unmarshal(t.union, &data); err != nil {
+		var data HookConditionExpression
+		if err := json.Unmarshal(t.union, &data); err != nil {
+			return "", err
+		}
+		return HookConditionTypeExpression, nil
 	}
 
-	return "", fmt.Errorf("unable to determine action type: %+v", data)
+	types := []HookConditionType{
+		HookConditionTypePathOp,
+	}
+	for _, t := range types {
+		if _, exists := data[string(t)]; exists {
+			return t, nil
+		}
+	}
+
+	return "", fmt.Errorf("unable to determine hook condition type: %+v", data)
 }
 
 // Type returns the type of the config provider.
@@ -208,11 +238,6 @@ func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
 
 	// Check Config
 	if !configsAreEqual(d1.Config, d2.Config) {
-		return false
-	}
-
-	// Check Hooks
-	if !reflect.DeepEqual(d1.Hooks, d2.Hooks) {
 		return false
 	}
 

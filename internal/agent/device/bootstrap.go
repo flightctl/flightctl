@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -171,15 +170,8 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 		return nil
 	}
 
-	currentIgnition, err := config.ParseAndConvertConfigFromStr(*currentSpec.Config)
-	if err != nil {
-		return fmt.Errorf("parsing current ignition: %w", err)
-	}
-	b.log.Info("Executing after reboot hooks")
-	defer b.log.Info("Finished executing after reboot hooks")
-	for _, f := range currentIgnition.Storage.Files {
-		b.hookManager.OnAfterReboot(ctx, f.Path)
-	}
+	// TODO: call if device has rebooted, rather than just agent restarted
+	// b.hookManager.OnAfterRebooting(ctx)
 
 	return nil
 }

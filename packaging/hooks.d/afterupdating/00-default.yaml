@@ -1,0 +1,12 @@
+- if:
+  - path: /etc/systemd/system/
+    op: [created, updated, removed]
+  run: systemctl daemon-reload
+- if:
+  - path: /etc/NetworkManager/system-connections/
+    op: [created, updated, removed]
+  run: nmcli conn reload
+- if:
+  - path: /etc/firewalld/
+    op: [created, updated, removed]
+  run: firewall-cmd --reload
