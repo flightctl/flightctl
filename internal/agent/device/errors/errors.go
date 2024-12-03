@@ -50,6 +50,7 @@ var (
 
 	// io
 	ErrReadingPath = errors.New("failed reading path")
+	ErrPathIsDir   = errors.New("provided path is a directory")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
