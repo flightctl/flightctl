@@ -29,6 +29,8 @@ type Manager interface {
 	Initialize() error
 	// Ensure ensures that spec files exist on disk and re initializes them if they do not.
 	Ensure() error
+	// RenderedVersion returns the rendered version of the specified spec type.
+	RenderedVersion(specType Type) string
 	// Read returns the rendered device spec of the specified type from disk.
 	Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error)
 	// Upgrade updates the current rendered spec to the desired rendered spec
