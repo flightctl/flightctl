@@ -128,7 +128,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(executer, a.log)
+	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
 	// create application manager
 	applicationManager := applications.NewManager(a.log, executer, podmanClient)
@@ -152,7 +152,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create config controller
 	configController := config.NewController(
-		hookManager,
 		deviceReadWriter,
 		a.log,
 	)
@@ -239,7 +238,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager.Register("agent", agent.Stop)
 
 	go shutdownManager.Run(ctx)
-	go hookManager.Run(ctx)
 	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)

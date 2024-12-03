@@ -8,7 +8,6 @@ import (
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -87,21 +86,19 @@ func TestSync(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockHookManager := hook.NewMockManager(ctrl)
 			mockWriter := fileio.NewMockWriter(ctrl)
 			mockManagedFile := fileio.NewMockManagedFile(ctrl)
 			controller := NewController(
-				mockHookManager,
 				mockWriter,
 				log.NewPrefixLogger("test"),
 			)
 
 			for _, f := range tt.createdFiles {
-				expectCreateFile(ctx, mockWriter, mockManagedFile, mockHookManager, f)
+				expectCreateFile(mockWriter, mockManagedFile, f)
 			}
 
 			for _, f := range tt.removedFiles {
-				expectRemoveFile(ctx, mockWriter, mockHookManager, f)
+				expectRemoveFile(mockWriter, f)
 			}
 
 			err := controller.Sync(ctx, tt.current, tt.desired)
@@ -172,18 +169,14 @@ func TestComputeRemoval(t *testing.T) {
 	}
 }
 
-func expectCreateFile(ctx context.Context, mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, mockHookManager *hook.MockManager, f string) {
+func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, f string) {
 	mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile, nil)
 	mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
 	mockManagedFile.EXPECT().Exists().Return(false, nil)
 	mockManagedFile.EXPECT().Write().Return(nil)
-	mockHookManager.EXPECT().OnBeforeCreate(ctx, f)
-	mockHookManager.EXPECT().OnAfterCreate(ctx, f)
 }
 
-func expectRemoveFile(ctx context.Context, mockWriter *fileio.MockWriter, mockHookManager *hook.MockManager, f string) {
-	mockHookManager.EXPECT().OnBeforeRemove(ctx, f)
-	mockHookManager.EXPECT().OnAfterRemove(ctx, f)
+func expectRemoveFile(mockWriter *fileio.MockWriter, f string) {
 	mockWriter.EXPECT().RemoveFile(f).Return(nil)
 }
 

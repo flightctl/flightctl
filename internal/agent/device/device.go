@@ -137,7 +137,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 		return fmt.Errorf("sync device: %w", err)
 	}
 
-	if err := a.afterUpdate(ctx); err != nil {
+	if err := a.afterUpdate(ctx, current, desired); err != nil {
 		return fmt.Errorf("after update: %w", err)
 	}
 
@@ -272,6 +272,10 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Ren
 		return fmt.Errorf("applications: %w", err)
 	}
 
+	if err := a.hookManager.OnBeforeUpdating(ctx, current, desired); err != nil {
+		return fmt.Errorf("hooks: %w", err)
+	}
+
 	return nil
 }
 
@@ -383,9 +387,15 @@ func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.Rende
 	return nil
 }
 
-func (a *Agent) afterUpdate(ctx context.Context) error {
+func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	a.log.Debug("Executing post actions")
 	defer a.log.Debug("Finished executing post actions")
+
+	rebooted := false
+	if err := a.hookManager.OnAfterUpdating(ctx, current, desired, rebooted); err != nil {
+		a.log.Errorf("Error executing AfterUpdating hook: %v", err)
+		return err
+	}
 
 	// execute post actions for applications
 	if err := a.appManager.ExecuteActions(ctx); err != nil {
