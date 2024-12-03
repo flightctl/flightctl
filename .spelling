@@ -11,6 +11,7 @@ APIs
 apiVersion
 arm64
 base64
+boolean
 bootable
 bootc
 bootloader
@@ -34,6 +35,7 @@ EnrollmentRequest
 EnrollmentRequests
 FIDO
 filesystem
+firewalld
 fleetless
 flightctl
 frontend
@@ -78,6 +80,7 @@ qcow2
 QEMU
 Quadlet
 Quadlets
+quay.io
 RabbitMQ
 RBAC
 resource-unintensive
@@ -95,10 +98,13 @@ Skopeo
 spec
 specs
 SpiceDB
+substring
 systemd
 TBD
 TemplateVersion
 TemplateVersions
+timestamp
+timestamps
 TLS
 TODO
 toolchains
@@ -119,11 +125,6 @@ webhooks
 workflows
 X.509
 YAML
-timestamp
-substring
-timestamps
-boolean
-quay.io
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -147,12 +148,8 @@ openShiftApiUrl
 PVs
 k8s
  - docs/user/managing-devices.md
-afterRebooting
-afterUpdating
 AlertRules
 base32-encoded
-beforeRebooting
-beforeUpdating
 ClusterRole
 ClusterRoleBinding
 ContentEncoding
