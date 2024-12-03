@@ -262,7 +262,8 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 			approveResp, _ := h.ApproveCertificateSigningRequest(ctx, approveReq)
 			_, ok := approveResp.(server.ApproveCertificateSigningRequest200JSONResponse)
 			if !ok {
-				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: "CSR created but could not be approved"}, nil
+				msg := fmt.Sprintf("enrollment CSR for %s could not be auto-approved: %s", request.Name, approveResp)
+				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: msg}, nil
 			}
 		}
 		if created {
