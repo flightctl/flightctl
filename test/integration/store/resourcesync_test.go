@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -110,7 +109,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 		It("Delete resourcesync success", func() {
 			rsName := "myresourcesync-1"
-			fleetowner := util.SetResourceOwner(model.ResourceSyncKind, rsName)
+			fleetowner := util.SetResourceOwner(api.ResourceSyncKind, rsName)
 			listParams := store.ListParams{
 				Limit:  100,
 				Owners: []string{*fleetowner},
@@ -144,14 +143,14 @@ var _ = Describe("ResourceSyncStore create", func() {
 		})
 
 		It("Delete all resourcesyncs in org", func() {
-			owner := util.SetResourceOwner(model.ResourceSyncKind, "myresourcesync-1")
+			owner := util.SetResourceOwner(api.ResourceSyncKind, "myresourcesync-1")
 			otherOrgId, _ := uuid.NewUUID()
 			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), orgId, "myfleet", true, owner)
 			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), otherOrgId, "myfleet", true, owner)
 			callbackCalled := false
 			err := storeInst.ResourceSync().DeleteAll(ctx, otherOrgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
 				callbackCalled = true
-				Expect(kind).To(Equal(model.ResourceSyncKind))
+				Expect(kind).To(Equal(api.ResourceSyncKind))
 				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -170,7 +169,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 			err = storeInst.ResourceSync().DeleteAll(ctx, orgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
 				callbackCalled = true
-				Expect(kind).To(Equal(model.ResourceSyncKind))
+				Expect(kind).To(Equal(api.ResourceSyncKind))
 				return storeInst.Fleet().UnsetOwnerByKind(ctx, tx, orgId, kind)
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -256,8 +255,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPI))
-			Expect(rs.Kind).To(Equal(model.ResourceSyncKind))
+			Expect(rs.ApiVersion).To(Equal(api.ResourceSyncAPIVersion))
+			Expect(rs.Kind).To(Equal(api.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/path"))
 			Expect(rs.Status.Conditions).ToNot(BeNil())
@@ -278,8 +277,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPI))
-			Expect(rs.Kind).To(Equal(model.ResourceSyncKind))
+			Expect(rs.ApiVersion).To(Equal(api.ResourceSyncAPIVersion))
+			Expect(rs.Kind).To(Equal(api.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myotherrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/other/path"))
 			Expect(rs.Status.Conditions).ToNot(BeNil())

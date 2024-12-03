@@ -54,6 +54,12 @@ const (
 	ResourceSyncSynced                ConditionType = "Synced"
 )
 
+// Defines values for DeviceDecommissionDecommissionTarget.
+const (
+	FactoryReset DeviceDecommissionDecommissionTarget = "FactoryReset"
+	Unenroll     DeviceDecommissionDecommissionTarget = "Unenroll"
+)
+
 // Defines values for DeviceIntegrityStatusSummaryType.
 const (
 	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
@@ -300,6 +306,10 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
+// CronExpression "Cron expression format for scheduling times. The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6."
+// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute)." example: "* 0-8,16-23 * * *"
+type CronExpression = string
+
 // CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
 type CustomResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
@@ -357,6 +367,15 @@ type DeviceConsole struct {
 	GRPCEndpoint string `json:"gRPCEndpoint"`
 	SessionID    string `json:"sessionID"`
 }
+
+// DeviceDecommission defines model for DeviceDecommission.
+type DeviceDecommission struct {
+	// DecommissionTarget Specifies the desired decommissioning method of the device
+	DecommissionTarget DeviceDecommissionDecommissionTarget `json:"decommissionTarget"`
+}
+
+// DeviceDecommissionDecommissionTarget Specifies the desired decommissioning method of the device
+type DeviceDecommissionDecommissionTarget string
 
 // DeviceHooksSpec defines model for DeviceHooksSpec.
 type DeviceHooksSpec struct {
@@ -458,6 +477,9 @@ type DeviceSpec struct {
 	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
+
+	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
 }
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -512,6 +534,15 @@ type DeviceUpdateHookSpec struct {
 
 	// Path The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
 	Path *string `json:"path,omitempty"`
+}
+
+// DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+type DeviceUpdatePolicySpec struct {
+	// DownloadSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+	DownloadSchedule *UpdateSchedule `json:"downloadSchedule,omitempty"`
+
+	// UpdateSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+	UpdateSchedule *UpdateSchedule `json:"updateSchedule,omitempty"`
 }
 
 // DeviceUpdatedStatus defines model for DeviceUpdatedStatus.
@@ -1054,6 +1085,9 @@ type RenderedDeviceSpec struct {
 	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
+
+	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
 }
 
 // RepoSpecType RepoSpecType is the type of the repository
@@ -1306,7 +1340,32 @@ type TemplateVersionStatus struct {
 	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
-	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
+
+	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
+	UpdatedAt    *time.Time              `json:"updatedAt,omitempty"`
+}
+
+// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area.  e.g., America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
+type TimeZone = string
+
+// UpdateSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+type UpdateSchedule struct {
+	// At "Cron expression format for scheduling times. The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6."
+	// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute)." example: "* 0-8,16-23 * * *"
+	At CronExpression `json:"at"`
+
+	// StartGraceDuration The maximum duration allowed for the action to complete.
+	// The duration should be specified as a positive integer
+	// followed by a time unit. Supported time units are:
+	// - 's' for seconds
+	// - 'm' for minutes
+	// - 'h' for hours
+	// - 'd' for days
+	StartGraceDuration *Duration `json:"startGraceDuration,omitempty"`
+
+	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area.  e.g., America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
+	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
 // AuthValidateParams defines parameters for AuthValidate.
@@ -1508,6 +1567,9 @@ type PatchDeviceApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceDeviceJSONRequestBody defines body for ReplaceDevice for application/json ContentType.
 type ReplaceDeviceJSONRequestBody = Device
+
+// DecommissionDeviceJSONRequestBody defines body for DecommissionDevice for application/json ContentType.
+type DecommissionDeviceJSONRequestBody = DeviceDecommission
 
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = Device

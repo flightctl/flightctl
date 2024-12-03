@@ -46,21 +46,29 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 			})
 
-			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
+			harness.WaitForDeviceContents(deviceId, "the device is applying update renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", "Update")
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "1m")
+
+			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", "Rebooting")
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
 				}, "2m")
+
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
 
 			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
 				func(device *v1alpha1.Device) bool {
 					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", "Updated")
+						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
 				}, "2m")
+
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
 			// related to: https://issues.redhat.com/browse/EDM-679

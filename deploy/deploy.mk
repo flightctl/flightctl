@@ -1,3 +1,14 @@
+ifeq ($(DB_SIZE),)
+	DB_SIZE := e2e
+endif
+
+ifeq ($(STATUS_UPDATE_INTERVAL),)
+	STATUS_UPDATE_INTERVAL := 0m2s
+endif
+
+ifeq ($(SPEC_FETCH_INTERVAL),)
+	SPEC_FETCH_INTERVAL := 0m2s
+endif
 
 cluster: bin/e2e-certs/ca.pem
 	test/scripts/install_kind.sh
@@ -11,10 +22,10 @@ deploy: cluster build deploy-helm deploy-e2e-extras prepare-agent-config
 deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
-	test/scripts/deploy_with_helm.sh
+	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
 
 prepare-agent-config:
-	test/scripts/agent-images/prepare_agent_config.sh
+	test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
 
 deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db

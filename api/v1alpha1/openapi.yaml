@@ -1038,6 +1038,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/devices/{name}/decommission:
+    put:
+      tags:
+        - device
+      description: schedule the device to decommission
+      operationId: decommissionDevice
+      parameters:
+        - name: name
+          in: path
+          description: name of the Device
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDecommission'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -2426,6 +2470,17 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+    DeviceDecommission:
+      type: object
+      properties:
+        decommissionTarget:
+          type: string
+          enum:
+            - 'Unenroll'
+            - 'FactoryReset'
+          description: 'Specifies the desired decommissioning method of the device'
+      required:
+        - decommissionTarget
     SortOrder:
       type: string
       enum:
@@ -2900,7 +2955,7 @@ components:
         name:
           type: string
         description:
-          type: string 
+          type: string
         actions:
           type: array
           items:
@@ -2921,7 +2976,7 @@ components:
         name:
           type: string
         description:
-          type: string 
+          type: string
         actions:
           type: array
           items:
@@ -2962,8 +3017,8 @@ components:
              type: string
              pattern: '^[1-9]\d*[smhd]$'
              description: |
-              The maximum duration allowed for the action to complete. 
-              The duration should be specified as a positive integer 
+              The maximum duration allowed for the action to complete.
+              The duration should be specified as a positive integer
               followed by a time unit. Supported time units are:
               - 's' for seconds
               - 'm' for minutes
@@ -3010,7 +3065,7 @@ components:
             description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
       required:
         - name
-        - operations 
+        - operations
     HookActionExecutableSpec:
       allOf:
         - $ref: '#/components/schemas/HookActionSpec'
@@ -3021,7 +3076,7 @@ components:
             run:
               type: string
               description: 'The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.'
-            envVars: 
+            envVars:
               type: array
               items:
                 type: string
@@ -3031,6 +3086,53 @@ components:
               description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
           required:
             - run
+    DeviceUpdatePolicySpec:
+      type: object
+      description: 'Specifies the policy for managing device updates, including when updates should be downloaded and applied.'
+      properties:
+        downloadSchedule:
+          $ref: '#/components/schemas/UpdateSchedule'
+          description: 'Defines the schedule for downloading updates.'
+        updateSchedule:
+          $ref: '#/components/schemas/UpdateSchedule'
+          description: 'Defines the schedule for applying updates.'
+    UpdateSchedule:
+      type: object
+      description: 'Defines the schedule for automatic updates, including timing and optional timeout.'
+      properties:
+        timeZone:
+          $ref: '#/components/schemas/TimeZone'
+        at:
+          $ref: '#/components/schemas/CronExpression'
+        startGraceDuration:
+          $ref: '#/components/schemas/Duration'
+      required:
+        - at
+    TimeZone:
+      type: string
+      description: >
+        Time zone identifiers follow the IANA format AREA/LOCATION, where AREA
+        represents a continent or ocean, and LOCATION specifies a particular
+        site within that area.  e.g., America/New_York, Europe/Paris.
+        Only unambiguous 3-character time zones are supported ("GMT", "UTC").
+      default: "Local"
+    CronExpression:
+      type: string
+      description: >
+        "Cron expression format for scheduling times. The format is `* * * * *`:
+        - Minutes: `*` matches 0-59.
+        - Hours: `*` matches 0-23.
+        - Day of Month: `*` matches 1-31.
+        - Month: `*` matches 1-12.
+        - Day of Week: `*` matches 0-6."
+
+        Supported operators:
+        - `*`: Matches any value (e.g., `*` in hours matches every hour).
+        - `-`: Range (e.g., `0-8` for 12 AM to 8 AM).
+        - `,`: List (e.g., `1,12` for 1st and 12th minute).
+        - `/`: Step (e.g., `*/12` for every 12th minute).
+        - Single value (e.g., `8` matches the 8th minute)."
+        example: "* 0-8,16-23 * * *"
     DeviceList:
       type: object
       properties:
@@ -3442,7 +3544,7 @@ components:
         labels:
           type: object
           additionalProperties:
-            type: string 
+            type: string
           description: 'A set of labels that the service will apply to this device when its enrollment is approved'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
@@ -3627,13 +3729,14 @@ components:
       type: string
       pattern: '^[1-9]\d*[smhd]$'
       description: |
-        The maximum duration allowed for the action to complete. 
-        The duration should be specified as a positive integer 
+        The maximum duration allowed for the action to complete.
+        The duration should be specified as a positive integer
         followed by a time unit. Supported time units are:
         - 's' for seconds
         - 'm' for minutes
         - 'h' for hours
         - 'd' for days
+      default: "0s"
 
     BatchSequence:
       type: object
@@ -3694,6 +3797,8 @@ components:
       properties:
         renderedVersion:
           type: string
+        updatePolicy:
+          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
         config:
@@ -3755,6 +3860,8 @@ components:
     DeviceSpec:
       type: object
       properties:
+        updatePolicy:
+          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
         config:

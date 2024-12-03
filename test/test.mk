@@ -48,8 +48,10 @@ integration-test: deploy-db deploy-kv run-integration-test kill-kv kill-db
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
-in-cluster-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
+prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
 	./test/scripts/prepare_cli.sh
+
+in-cluster-e2e-test: prepare-e2e-test
 	$(MAKE) _e2e_test
 
 e2e-test: deploy bin/output/qcow2/disk.qcow2
@@ -85,4 +87,4 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
-.PHONY: unit-test integration-test run-integration-test view-coverage
+.PHONY: unit-test integration-test run-integration-test view-coverage prepare-e2e-test
