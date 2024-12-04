@@ -28,6 +28,13 @@ func GetScriptPath(script string) string {
 	return scriptsDir
 }
 
+func GetExamplesYamlPath(yamlName string) string {
+	if yamlName == "" {
+		return ""
+	}
+	return GetTopLevelDir() + "/examples/" + yamlName
+}
+
 func GetExtIP() string {
 	// execute the test/scripts/get_ext_ip.sh script to get the external IP
 	// of the host machine
