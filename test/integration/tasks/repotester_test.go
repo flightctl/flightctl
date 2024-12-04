@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/gliderlabs/ssh"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
@@ -45,7 +46,22 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	require := require.New(t)
 
 	testDirPath := t.TempDir()
-	ca, _, err := crypto.EnsureCA(filepath.Join(testDirPath, "ca.crt"), filepath.Join(testDirPath, "ca.key"), "", "ca", 1)
+	cfg := config.NewDefault()
+
+	ca_entry := &config.CryptographyConfigEntry{
+		CAType:config.InternalCA,
+		InternalCAcfg: &config.InternalCAConfig{
+			Cert: filepath.Join(testDirPath, "ca.crt"),
+			Key: filepath.Join(testDirPath, "ca.key"),
+			Serial: "",
+			SignerName: "ca",
+			ExpireDays: 1,
+		},
+	}
+
+	cfg.Cryptography = &config.CryptographyConfig{CA:ca_entry,}
+
+	ca, _, err := crypto.EnsureCA(cfg.Cryptography)
 	require.NoError(err)
 
 	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(testDirPath, "server.crt"), filepath.Join(testDirPath, "server.key"), []string{"localhost"}, 1)
@@ -54,7 +70,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), crypto.AdminCommonName, 1)
 	require.NoError(err)
 
-	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetConfig(), serverCerts)
 	require.NoError(err)
 
 	go startHttpsMTLSRepo(tlsConfig, require)
@@ -62,7 +78,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 
 	clientCertPEM, clientKeyPEM, err := adminCert.GetPEMBytes()
 	require.NoError(err)
-	caCertPEM, _, err := ca.Config.GetPEMBytes()
+	caCertPEM, _, err := ca.GetConfig().GetPEMBytes()
 	require.NoError(err)
 
 	clientCrtB64 := b64.StdEncoding.EncodeToString(clientCertPEM)

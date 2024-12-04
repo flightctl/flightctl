@@ -120,13 +120,13 @@ func TestClientConfig(t *testing.T) {
 			configFile := filepath.Join(testDirPath, "client.yaml")
 
 			// generate the CA and client certs
-			ca, _, err := crypto.EnsureCA(filepath.Join(testDirPath, "ca.crt"), filepath.Join(testDirPath, "ca.key"), "", signerCertName, caCertValidityDays)
+			ca, _, err := crypto.EnsureCA(nil)
 			require.NoError(err)
 			clientCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), clientBootstrapCertName, clientBootStrapValidityDays)
 			require.NoError(err)
 
 			// write client config to disk
-			err = WriteConfig(configFile, tt.server, tt.serverName, ca.Config, clientCert)
+			err = WriteConfig(configFile, tt.server, tt.serverName, ca.GetConfig(), clientCert)
 			require.NoError(err)
 
 			// read client config from disk and create API client from it
@@ -149,7 +149,7 @@ func TestClientConfig(t *testing.T) {
 			require.ElementsMatch(clientCert.Certs[0].Raw, httpTransport.TLSClientConfig.Certificates[0].Certificate[0])
 			require.NotNil(httpTransport.TLSClientConfig.RootCAs)
 			caPool := x509.NewCertPool()
-			for _, caCert := range ca.Config.Certs {
+			for _, caCert := range ca.GetConfig().Certs {
 				caPool.AddCert(caCert)
 			}
 			require.True(caPool.Equal(httpTransport.TLSClientConfig.RootCAs))

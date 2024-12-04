@@ -16,7 +16,7 @@ import (
 
 type AgentServiceHandler struct {
 	store             store.Store
-	ca                *crypto.CA
+	ca                crypto.CA
 	log               logrus.FieldLogger
 	agentGrpcEndpoint string
 }
@@ -54,7 +54,7 @@ func ValidateEnrollmentAccessFromContext(ctx context.Context, log logrus.FieldLo
 	return nil
 }
 
-func NewAgentServiceHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger, agentGrpcEndpoint string) *AgentServiceHandler {
+func NewAgentServiceHandler(store store.Store, ca crypto.CA, log logrus.FieldLogger, agentGrpcEndpoint string) *AgentServiceHandler {
 	return &AgentServiceHandler{
 		store:             store,
 		ca:                ca,

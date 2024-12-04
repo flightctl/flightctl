@@ -15,12 +15,20 @@ const (
 )
 
 type Config struct {
-	Database   *dbConfig         `json:"database,omitempty"`
-	Service    *svcConfig        `json:"service,omitempty"`
-	Queue      *queueConfig      `json:"queue,omitempty"`
-	KV         *kvConfig         `json:"kv,omitempty"`
-	Auth       *authConfig       `json:"auth,omitempty"`
-	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
+	Database   	*dbConfig         `json:"database,omitempty"`
+	Service    	*svcConfig        `json:"service,omitempty"`
+	Queue      	*queueConfig      `json:"queue,omitempty"`
+	KV         	*kvConfig         `json:"kv,omitempty"`
+	Auth       	*authConfig       `json:"auth,omitempty"`
+	Prometheus 	*prometheusConfig `json:"prometheus,omitempty"`
+	Cryptography 	*CryptographyConfig	`json:"cryptography,omitempty"`
+}
+
+type CryptographyConfig struct {
+	// leaving it two level after removing multiple CA support to
+	// allow moving expiry times and other common options to the
+	// config
+	CA		*CryptographyConfigEntry `json:"calist,oemitempty"`
 }
 
 type dbConfig struct {
@@ -58,6 +66,37 @@ type kvConfig struct {
 	Port     uint   `json:"port,omitempty"`
 }
 
+type InternalCAConfig struct {
+	Cert		string	`json:"cert"`
+	Key        	string	`json:"key"`
+	Serial		string	`json:"serial"`
+	SignerName	string	`json:"signername"`
+	ExpireDays	uint	`json:"expiry"`
+}
+
+type HashiCAConfig struct {
+	AppRole		string	`json:"approle"`
+	SecretID	string	`json:"secretid"`
+	CAURL		string	`json:"caUrl"`
+	AppRoleURL	string	`json:"approleUrl"`
+	Signer		string	`json:"signer"`
+	Role		string	`json:"role"`
+}
+
+type CAIdType int
+
+const (
+	InternalCA CAIdType = iota + 1
+	HashiVault
+)
+
+type CryptographyConfigEntry struct {
+	CAType                  CAIdType `json:"catype,omitempty"`
+	Id                      string   `json:"id,omitempty"`
+	HashiCAcfg	        *HashiCAConfig	`json:"hashicaconfig,omitempty"`
+	InternalCAcfg		*InternalCAConfig	`json:"internalcaconfig,omitempty"`
+}
+
 type authConfig struct {
 	OpenShiftApiUrl         string `json:"openShiftApiUrl,omitempty"`
 	InternalOpenShiftApiUrl string `json:"internalOpenShiftApiUrl,omitempty"`
@@ -90,6 +129,7 @@ func CertificateDir() string {
 }
 
 func NewDefault() *Config {
+
 	c := &Config{
 		Database: &dbConfig{
 			Type:     "pgsql",

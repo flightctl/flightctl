@@ -7,12 +7,12 @@ import (
 	"crypto/x509/pkix"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/config"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -22,6 +22,15 @@ const ClientBootstrapCommonName = "client-enrollment"
 const ClientBootstrapCommonNamePrefix = "client-enrollment-"
 const AdminCommonName = "flightctl-admin"
 const DeviceCommonNamePrefix = "device:"
+
+const (
+	CaCertValidityDays          = 365 * 10
+	ServerCertValidityDays      = 365 * 1
+	ClientBootStrapValidityDays = 365 * 1
+	SignerCertName              = "ca"
+	ServerCertName              = "server"
+	ClientBootstrapCertName     = "client-enrollment"
+)
 
 func BootstrapCNFromName(name string) (string, error) {
 	if len(name) < 16 {
@@ -37,32 +46,82 @@ func CNFromDeviceFingerprint(fingerprint string) (string, error) {
 	return DeviceCommonNamePrefix + fingerprint, nil
 }
 
+func CertFile(name string) string {
+	return filepath.Join(config.CertificateDir(), name+".crt")
+}
+
+func KeyFile(name string) string {
+	return filepath.Join(config.CertificateDir(), name+".key")
+}
+
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
-type CA struct {
-	Config *TLSCertificateConfig
-
-	SerialGenerator oscrypto.SerialGenerator
+type CA interface {
+	// Return TLSCertificateConfig which uses this CA as root for authentication
+	GetConfig() *TLSCertificateConfig
+	// Load server certificate and key given by filename if present. If that fails genereate one if supported by CA
+	EnsureServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error)
+	// Create a server cert, sign it using this CA and write it out to file
+	MakeAndWriteServerCert(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error)
+	// Create a server cert, sign it using this CA (in memory only)
+	MakeServerCert(hostnames []string, expiryDays int, fns ...CertificateExtensionFunc) (*TLSCertificateConfig, error)
+	// Sign supplied certificate
+	signCertificate(template *x509.Certificate, requestKey crypto.PublicKey) (*x509.Certificate, error)
+	// Load client certificate from the supplied location. If that fails - generate it.
+	EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error)
+	// Create a client (cli) cert, sign it using this CA and write it out to file
+	MakeClientCertificate(certFile, keyFile string, subject string, expiryDays int) (*TLSCertificateConfig, error)
+	// Sign supplied CSR and issue a certificate
+	IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error)
 }
 
-func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CA, bool, error) {
-	if ca, err := GetCA(certFile, keyFile, serialFile); err == nil {
-		return ca, false, err
+
+
+func EnsureCA(cfg *config.CryptographyConfig) (CA, bool, error) {
+	if cfg == nil || cfg.CA == nil {
+		cfg = &config.CryptographyConfig{
+			CA: &config.CryptographyConfigEntry{
+					CAType:config.InternalCA,
+					InternalCAcfg: &config.InternalCAConfig{
+						Cert: CertFile(SignerCertName),
+						Key: KeyFile(SignerCertName),
+						Serial: "",
+						SignerName: SignerCertName,
+						ExpireDays: CaCertValidityDays,
+					},
+				},
+			}
 	}
-	ca, err := MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName, expireDays)
-	return ca, true, err
+	return configureCA(cfg.CA)
 }
 
-func GetCA(certFile, keyFile, serialFile string) (*CA, error) {
+func configureCA(configData *config.CryptographyConfigEntry) (CA, bool, error) {
+	switch configData.CAType {
+		case config.InternalCA: {
+			if ca, err := GetCA(configData.InternalCAcfg.Cert, configData.InternalCAcfg.Key, configData.InternalCAcfg.Serial); err == nil {
+				return ca, false, err
+			}
+			ca, err := MakeSelfSignedCA(configData.InternalCAcfg.Cert, configData.InternalCAcfg.Key, configData.InternalCAcfg.Serial, configData.InternalCAcfg.SignerName, int(configData.InternalCAcfg.ExpireDays))
+			return ca, true, err
+		}
+		default:
+			return nil, false, fmt.Errorf("unsupported CA type: %d", configData.CAType)
+	}
+}
+
+func GetCA(certFile, keyFile, serialFile string) (CA, error) {
+	var loaded CA
+
 	ca, err := oscrypto.GetCA(certFile, keyFile, serialFile)
 	if err != nil {
 		return nil, err
 	}
 	config := TLSCertificateConfig(*ca.Config)
-	return &CA{Config: &config, SerialGenerator: ca.SerialGenerator}, err
+	loaded = &internalCA{Config: &config, SerialGenerator: ca.SerialGenerator,}
+	return loaded, err
 }
 
-func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryDays int) (*CA, error) {
+func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryDays int) (CA, error) {
 	caConfig, err := makeSelfSignedCAConfig(
 		pkix.Name{CommonName: subjectName},
 		time.Duration(expiryDays)*24*time.Hour,
@@ -89,10 +148,11 @@ func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryD
 	}
 
 	config := TLSCertificateConfig(*caConfig)
-	return &CA{
+	ca := &internalCA{
 		SerialGenerator: serialGenerator,
 		Config:          &config,
-	}, nil
+	}
+	return ca, nil
 }
 
 func makeSelfSignedCAConfig(subject pkix.Name, caLifetime time.Duration) (*oscrypto.TLSCertificateConfig, error) {
@@ -153,16 +213,6 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 // 	return subCA, true, err
 // }
 
-func (ca *CA) EnsureServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := GetServerCert(certFile, keyFile, hostnames)
-	if err != nil {
-		certConfig, err = ca.MakeAndWriteServerCert(certFile, keyFile, hostnames, expireDays)
-		return certConfig, true, err
-	}
-
-	return certConfig, false, nil
-}
-
 func GetServerCert(certFile, keyFile string, hostnames []string) (*TLSCertificateConfig, error) {
 	internalServer, err := oscrypto.GetServerCert(certFile, keyFile, sets.NewString(hostnames...))
 	if err != nil {
@@ -172,79 +222,8 @@ func GetServerCert(certFile, keyFile string, hostnames []string) (*TLSCertificat
 	return &server, nil
 }
 
-func (ca *CA) MakeAndWriteServerCert(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error) {
-	server, err := ca.MakeServerCert(hostnames, expireDays)
-	if err != nil {
-		return nil, err
-	}
-	if err := server.WriteCertConfigFile(certFile, keyFile); err != nil {
-		return server, err
-	}
-	return server, nil
-}
-
 type CertificateExtensionFunc func(*x509.Certificate) error
 
-func (ca *CA) MakeServerCert(hostnames []string, expiryDays int, fns ...CertificateExtensionFunc) (*TLSCertificateConfig, error) {
-	if len(hostnames) < 1 {
-		return nil, fmt.Errorf("at least one hostname must be provided")
-	}
-
-	serverPublicKey, serverPrivateKey, publicKeyHash, _ := NewKeyPairWithHash()
-
-	now := time.Now()
-	serverTemplate := &x509.Certificate{
-		Subject: pkix.Name{CommonName: hostnames[0]},
-
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
-		SerialNumber: big.NewInt(1),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
-		SubjectKeyId:   publicKeyHash,
-	}
-	serverTemplate.IPAddresses, serverTemplate.DNSNames = oscrypto.IPAddressesDNSNames(hostnames)
-	for _, fn := range fns {
-		if err := fn(serverTemplate); err != nil {
-			return nil, err
-		}
-	}
-
-	serverCrt, err := ca.signCertificate(serverTemplate, serverPublicKey)
-	if err != nil {
-		return nil, err
-	}
-	server := &TLSCertificateConfig{
-		Certs: append([]*x509.Certificate{serverCrt}, ca.Config.Certs...),
-		Key:   serverPrivateKey,
-	}
-	return server, nil
-}
-
-func (ca *CA) signCertificate(template *x509.Certificate, requestKey crypto.PublicKey) (*x509.Certificate, error) {
-	// Increment and persist serial
-	serial, err := ca.SerialGenerator.Next(template)
-	if err != nil {
-		return nil, err
-	}
-	template.SerialNumber = big.NewInt(serial)
-	return signCertificate(template, requestKey, ca.Config.Certs[0], ca.Config.Key)
-}
-
-func (ca *CA) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := GetClientCertificate(certFile, keyFile, subjectName)
-	if err != nil {
-		certConfig, err = ca.MakeClientCertificate(certFile, keyFile, subjectName, expireDays)
-		return certConfig, true, err // true indicates we wrote the files.
-	}
-	return certConfig, false, nil
-}
 
 func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCertificateConfig, error) {
 	internalConfig, err := oscrypto.GetTLSCertificateConfig(certFile, keyFile)
@@ -259,68 +238,6 @@ func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCer
 
 	client := TLSCertificateConfig(*internalConfig)
 	return &client, nil
-}
-
-func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, expiryDays int) (*TLSCertificateConfig, error) {
-	if err := os.MkdirAll(filepath.Dir(certFile), os.FileMode(0755)); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(keyFile), os.FileMode(0755)); err != nil {
-		return nil, err
-	}
-
-	clientPublicKey, clientPrivateKey, isNewKey, err := EnsureKey(keyFile)
-	if err != nil {
-		return nil, err
-	}
-	clientPublicKeyHash, err := HashPublicKey(clientPublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	clientTemplate := &x509.Certificate{
-
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
-		SerialNumber: big.NewInt(1),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
-		SubjectKeyId:   clientPublicKeyHash,
-	}
-	if subject != "" {
-		clientTemplate.Subject = pkix.Name{CommonName: subject}
-	}
-	clientCrt, err := ca.signCertificate(clientTemplate, clientPublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	certData, err := oscrypto.EncodeCertificates(clientCrt)
-	if err != nil {
-		return nil, err
-	}
-	keyData, err := PEMEncodeKey(clientPrivateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = os.WriteFile(certFile, certData, os.FileMode(0644)); err != nil {
-		return nil, err
-	}
-	if isNewKey {
-		if err = os.WriteFile(keyFile, keyData, os.FileMode(0600)); err != nil {
-			return nil, err
-		}
-	}
-
-	return GetTLSCertificateConfig(certFile, keyFile)
 }
 
 func GetTLSCertificateConfig(certFile, keyFile string) (*TLSCertificateConfig, error) {

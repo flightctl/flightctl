@@ -8,7 +8,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -16,46 +15,10 @@ import (
 	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
 	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
 const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
-
-func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.CertificateSigningRequest) ([]byte, error) {
-
-	csr, err := crypto.ParseCSR(request.Spec.Request)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := csr.CheckSignature(); err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignature, err)
-	}
-
-	// the CN will need the enrollment prefix applied;
-	// if a CN is not specified in the CSR, generate a UUID to represent the future device
-	u := csr.Subject.CommonName
-	if u == "" {
-		u = uuid.NewString()
-	}
-	csr.Subject.CommonName, err = crypto.BootstrapCNFromName(u)
-	if err != nil {
-		return nil, fmt.Errorf("cn: %s does not meet requirement: %w", u, err)
-	}
-
-	expiry := DefaultEnrollmentCertExpirySeconds
-	if request.Spec.ExpirationSeconds != nil {
-		expiry = *request.Spec.ExpirationSeconds
-	}
-
-	certData, err := ca.IssueRequestedClientCertificate(csr, int(expiry))
-	if err != nil {
-		return nil, err
-	}
-
-	return certData, nil
-}
 
 // (DELETE /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, request server.DeleteCertificateSigningRequestsRequestObject) (server.DeleteCertificateSigningRequestsResponseObject, error) {
@@ -132,6 +95,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 	}
 }
 
+
 // (POST /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, request server.CreateCertificateSigningRequestRequestObject) (server.CreateCertificateSigningRequestResponseObject, error) {
 	orgId := store.NullOrgId
@@ -147,6 +111,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, re
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, request.Body)
 	switch err {
 	case nil:
+		h.callbackManager.CSRApproved(orgId)
 		return server.CreateCertificateSigningRequest201JSONResponse(*result), nil
 	case flterrors.ErrResourceIsNil:
 		return server.CreateCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
@@ -268,6 +233,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: "CSR created but could not be approved"}, nil
 			}
 		}
+		h.callbackManager.CSRApproved(orgId)
 		if created {
 			return server.ReplaceCertificateSigningRequest201JSONResponse(*result), nil
 		} else {
@@ -311,21 +277,6 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been approved"}, nil
 	}
 
-	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
-	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrCNLength) ||
-			errors.Is(err, flterrors.ErrInvalidPEMBlock) ||
-			errors.Is(err, flterrors.ErrSignature) ||
-			errors.Is(err, flterrors.ErrCSRParse) ||
-			errors.Is(err, flterrors.ErrSignCert) ||
-			errors.Is(err, flterrors.ErrEncodeCert):
-			return server.ApproveCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-		default:
-			return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
-		}
-	}
-
 	approvedCondition := api.Condition{
 		Type:    api.CertificateSigningRequestApproved,
 		Status:  api.ConditionStatusTrue,
@@ -333,12 +284,12 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		Message: "Approved",
 	}
 
-	csr.Status.Certificate = &signedCert
 	api.SetStatusCondition(&csr.Status.Conditions, approvedCondition)
 	_, err = storeCsr.UpdateStatus(ctx, orgId, csr)
 
 	switch err {
 	case nil:
+		h.callbackManager.EnrollmentApproved(orgId)
 		return server.ApproveCertificateSigningRequest200JSONResponse{}, nil
 	case flterrors.ErrResourceNotFound:
 		return server.ApproveCertificateSigningRequest404JSONResponse{Message: err.Error()}, nil

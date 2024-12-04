@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/crypto"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -36,13 +37,18 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
+	ca, _, err := crypto.EnsureCA(cfg.Cryptography)
+	if err != nil {
+		log.Fatalf("ensuring CA cert: %v", err)
+	}
+
 	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
 	k8sClient, err := k8sclient.NewK8SClient()
 	if err != nil {
 		log.WithError(err).Warning("initializing k8s client, assuming k8s is not supported")
 		k8sClient = nil
 	}
-	server := workerserver.New(cfg, log, store, provider, k8sClient)
+	server := workerserver.New(cfg, log, store, provider, k8sClient, ca)
 	if err := server.Run(); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

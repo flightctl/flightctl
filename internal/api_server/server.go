@@ -34,7 +34,7 @@ type Server struct {
 	log      logrus.FieldLogger
 	cfg      *config.Config
 	store    store.Store
-	ca       *crypto.CA
+	ca       crypto.CA
 	listener net.Listener
 	provider queues.Provider
 	metrics  *instrumentation.ApiMetrics
@@ -45,7 +45,7 @@ func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
 	store store.Store,
-	ca *crypto.CA,
+	ca crypto.CA,
 	listener net.Listener,
 	provider queues.Provider,
 	metrics *instrumentation.ApiMetrics,
