@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	agent "github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,7 +33,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			response := harness.GetDeviceWithStatusSystem(deviceId)
 			device := response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-			Expect(*device.Status.Summary.Info).To(Equal("Bootstrap complete"))
+			Expect(*device.Status.Summary.Info).To(Equal(agent.BootstrapComplete))
 			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 
 			var newImageReference string

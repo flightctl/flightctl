@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	agent "github.com/flightctl/flightctl/internal/agent/device"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	client "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
@@ -371,7 +372,7 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	response := h.GetDeviceWithStatusSystem(deviceId)
 	device := response.JSON200
 	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-	Expect(*device.Status.Summary.Info).To(Equal("Bootstrap complete"))
+	Expect(*device.Status.Summary.Info).To(Equal(agent.BootstrapComplete))
 	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 	return deviceId, device
 }
