@@ -103,6 +103,7 @@ systemd
 TBD
 TemplateVersion
 TemplateVersions
+templating
 timestamp
 timestamps
 TLS
@@ -172,8 +173,7 @@ OverlappingSelectors
  - docs/user/building-images.md
 usr
  - docs/user/registering-microshift-devices-acm.md
-Pre-requisite
-import.yaml
+klusterlet
  - docs/user/field-selectors.md
 DoesNotExist
 DoubleEquals
