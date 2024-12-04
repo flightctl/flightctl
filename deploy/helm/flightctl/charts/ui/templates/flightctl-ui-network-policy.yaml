@@ -1,0 +1,19 @@
+{{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ui-from-router
+  namespace: {{ .Release.Namespace }}
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          policy-group.network.openshift.io/ingress: ""
+      podSelector: {}
+  podSelector:
+    matchLabels:
+      role: frontend
+  policyTypes:
+  - Ingress
+{{ end }}

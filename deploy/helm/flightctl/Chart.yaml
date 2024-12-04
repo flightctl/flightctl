@@ -8,8 +8,6 @@ appVersion: "latest" # this is replaced at packaging with the hash of the image 
 dependencies:
   - name: keycloak
     version: "0.0.1"
-  - name: flightctl-ui
+  - name: ui
     condition: ui.enabled
-    version: "0.3.0"
-    repository: "oci://quay.io/flightctl/charts"
-    alias: ui
+    version: "0.0.1"

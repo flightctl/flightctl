@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-ui
+  namespace: {{ .Release.Namespace }}
+data:
+  FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
+  FLIGHTCTL_GRPC_SERVER: {{ .Values.api.grpcUrl | quote }}
+  FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.api.insecureSkipTlsVerify | quote }}
+  {{- if not (eq (.Values.global).target "acm") }}
+  {{- if .Values.baseURL }}
+  BASE_UI_URL:  {{ .Values.baseURL | quote }}
+  {{- else }}
+  BASE_UI_URL:  {{ include "flightctl.getUIUrl" . }}
+  {{- end }}
+  {{- if eq (.Values.global).target "standalone" }}
+  {{- if eq ((.Values.global).auth).type "builtin" }}
+  INTERNAL_OIDC_URL: http://keycloak:8080/realms/flightctl
+  {{- else }}
+  INTERNAL_OIDC_URL: {{ default ((.Values.global).auth).internalOidcAuthority .Values.auth.internalOidcAuthority | quote }}
+  {{- end }}
+  {{- end }}
+  OIDC_INSECURE_SKIP_VERIFY: {{ default ((.Values.global).auth).insecureSkipTlsVerify .Values.auth.insecureSkipTlsVerify | quote }}
+  {{- end }}
