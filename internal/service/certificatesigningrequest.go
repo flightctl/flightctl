@@ -54,6 +54,38 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 	return certData, nil
 }
 
+// this does not work because we can't access a.Message
+/*func convertApproveErrorstoCreateOrUpdateErrors (a server.ApproveCertificateSigningRequestResponseObject) server.ReplaceCertificateSigningRequestResponseObject {
+	switch a.(type) {
+	case server.ApproveCertificateSigningRequest400JSONResponse:
+		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest401JSONResponse:
+		return server.ReplaceCertificateSigningRequest401JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest404JSONResponse:
+		return server.ReplaceCertificateSigningRequest404JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest409JSONResponse:
+		return server.ReplaceCertificateSigningRequest409JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest500JSONResponse:
+		return server.ReplaceCertificateSigningRequest500JSONResponse{Message: a.Message} 
+	}
+}
+
+// the difference between converting to Create vs. CreateorUpdate errors is that Create does not have 404 or 409 status codes available
+func convertApproveErrorstoCreateErrors (a server.ApproveCertificateSigningRequestResponseObject) server.ReplaceCertificateSigningRequestResponseObject {
+	switch a.(type) {
+	case server.ApproveCertificateSigningRequest400JSONResponse:
+		return server.CreateCertificateSigningRequest400JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest401JSONResponse:
+		return server.CreateCertificateSigningRequest401JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest404JSONResponse:
+		return server.CreateertificateSigningRequest500JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest409JSONResponse:
+		return server.CreateCertificateSigningRequest500JSONResponse{Message: a.Message}
+	case server.ApproveCertificateSigningRequest500JSONResponse:
+		return server.CreateCertificateSigningRequest500JSONResponse{Message: a.Message}
+	}
+}*/
+
 // (DELETE /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, request server.DeleteCertificateSigningRequestsRequestObject) (server.DeleteCertificateSigningRequestsResponseObject, error) {
 	orgId := store.NullOrgId
@@ -263,6 +295,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 			_, ok := approveResp.(server.ApproveCertificateSigningRequest200JSONResponse)
 			if !ok {
 				msg := fmt.Sprintf("enrollment CSR for %s could not be auto-approved: %s", request.Name, approveResp)
+				// todo - what status code makes sense here?
 				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: msg}, nil
 			}
 		}
@@ -298,7 +331,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
 	}
 	if csr == nil {
-		return server.ApproveCertificateSigningRequest500JSONResponse{Message: "CertificateSigningRequest is nil"}, nil
+		return server.ApproveCertificateSigningRequest400JSONResponse{Message: "CertificateSigningRequest is nil"}, nil
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
@@ -306,7 +339,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been denied"}, nil
 	}
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
-		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been approved"}, nil
+		return server.ApproveCertificateSigningRequest200JSONResponse{}, nil
 	}
 
 	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
