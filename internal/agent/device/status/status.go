@@ -114,7 +114,7 @@ func (m *StatusManager) Sync(ctx context.Context) error {
 		return nil
 	}
 	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
-		return fmt.Errorf("failed to update device status: %w", err)
+		m.log.Warnf("Failed to update device status: %v", err)
 	}
 	return nil
 }
