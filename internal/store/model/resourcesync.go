@@ -10,12 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	ResourceSyncAPI      = "v1alpha1"
-	ResourceSyncKind     = "ResourceSync"
-	ResourceSyncListKind = "ResourceSyncList"
-)
-
 type ResourceSync struct {
 	Resource
 
@@ -79,8 +73,8 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 	metadataLabels := util.LabelArrayToMap(r.Resource.Labels)
 
 	return api.ResourceSync{
-		ApiVersion: ResourceSyncAPI,
-		Kind:       ResourceSyncKind,
+		ApiVersion: api.ResourceSyncAPIVersion,
+		Kind:       api.ResourceSyncKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(r.Name),
 			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
@@ -96,8 +90,8 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.ResourceSyncList {
 	if rl == nil {
 		return api.ResourceSyncList{
-			ApiVersion: ResourceSyncAPI,
-			Kind:       ResourceSyncListKind,
+			ApiVersion: api.ResourceSyncAPIVersion,
+			Kind:       api.ResourceSyncListKind,
 			Items:      []api.ResourceSync{},
 		}
 	}
@@ -107,8 +101,8 @@ func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.
 		resourceSyncList[i] = resourceSync.ToApiResource()
 	}
 	ret := api.ResourceSyncList{
-		ApiVersion: ResourceSyncAPI,
-		Kind:       ResourceSyncListKind,
+		ApiVersion: api.ResourceSyncAPIVersion,
+		Kind:       api.ResourceSyncListKind,
 		Items:      resourceSyncList,
 		Metadata:   api.ListMeta{},
 	}

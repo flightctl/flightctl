@@ -75,6 +75,9 @@ type ServerInterface interface {
 	// (GET /api/v1/devices/{name}/console)
 	RequestConsole(w http.ResponseWriter, r *http.Request, name string)
 
+	// (PUT /api/v1/devices/{name}/decommission)
+	DecommissionDevice(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams)
 
@@ -292,6 +295,11 @@ func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, nam
 
 // (GET /api/v1/devices/{name}/console)
 func (_ Unimplemented) RequestConsole(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/v1/devices/{name}/decommission)
+func (_ Unimplemented) DecommissionDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1057,6 +1065,32 @@ func (siw *ServerInterfaceWrapper) RequestConsole(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RequestConsole(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DecommissionDevice operation middleware
+func (siw *ServerInterfaceWrapper) DecommissionDevice(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecommissionDevice(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2472,6 +2506,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/console", wrapper.RequestConsole)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/devices/{name}/decommission", wrapper.DecommissionDevice)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDeviceSpec)
 	})
 	r.Group(func(r chi.Router) {
@@ -3424,6 +3461,51 @@ type RequestConsole409JSONResponse Error
 func (response RequestConsole409JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DecommissionDeviceRequestObject struct {
+	Name string `json:"name"`
+	Body *DecommissionDeviceJSONRequestBody
+}
+
+type DecommissionDeviceResponseObject interface {
+	VisitDecommissionDeviceResponse(w http.ResponseWriter) error
+}
+
+type DecommissionDevice200JSONResponse Device
+
+func (response DecommissionDevice200JSONResponse) VisitDecommissionDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DecommissionDevice400JSONResponse Error
+
+func (response DecommissionDevice400JSONResponse) VisitDecommissionDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DecommissionDevice401JSONResponse Error
+
+func (response DecommissionDevice401JSONResponse) VisitDecommissionDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DecommissionDevice404JSONResponse Error
+
+func (response DecommissionDevice404JSONResponse) VisitDecommissionDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -5133,6 +5215,9 @@ type StrictServerInterface interface {
 	// (GET /api/v1/devices/{name}/console)
 	RequestConsole(ctx context.Context, request RequestConsoleRequestObject) (RequestConsoleResponseObject, error)
 
+	// (PUT /api/v1/devices/{name}/decommission)
+	DecommissionDevice(ctx context.Context, request DecommissionDeviceRequestObject) (DecommissionDeviceResponseObject, error)
+
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDeviceSpec(ctx context.Context, request GetRenderedDeviceSpecRequestObject) (GetRenderedDeviceSpecResponseObject, error)
 
@@ -5802,6 +5887,39 @@ func (sh *strictHandler) RequestConsole(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RequestConsoleResponseObject); ok {
 		if err := validResponse.VisitRequestConsoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DecommissionDevice operation middleware
+func (sh *strictHandler) DecommissionDevice(w http.ResponseWriter, r *http.Request, name string) {
+	var request DecommissionDeviceRequestObject
+
+	request.Name = name
+
+	var body DecommissionDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DecommissionDevice(ctx, request.(DecommissionDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DecommissionDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DecommissionDeviceResponseObject); ok {
+		if err := validResponse.VisitDecommissionDeviceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

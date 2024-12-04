@@ -118,7 +118,7 @@ func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, call
 		if err := tx.Unscoped().Where("org_id = ?", orgId).Delete(&model.ResourceSync{}).Error; err != nil {
 			return ErrorFromGormError(err)
 		}
-		return callback(ctx, tx, orgId, model.ResourceSyncKind)
+		return callback(ctx, tx, orgId, api.ResourceSyncKind)
 	})
 }
 
@@ -239,7 +239,7 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 		if result.Error != nil {
 			return ErrorFromGormError(result.Error)
 		}
-		owner := util.SetResourceOwner(model.ResourceSyncKind, name)
+		owner := util.SetResourceOwner(api.ResourceSyncKind, name)
 		return callback(ctx, innerTx, orgId, *owner)
 	})
 

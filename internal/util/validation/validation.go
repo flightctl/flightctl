@@ -113,6 +113,14 @@ func ValidateFilePath(s *string, path string) []error {
 	return asErrors(errs)
 }
 
+func ValidateFileOrDirectoryPath(s *string, path string) []error {
+	if s == nil {
+		return []error{}
+	}
+	cleanS := strings.TrimSuffix(*s, "/")
+	return ValidateFilePath(&cleanS, path)
+}
+
 func ValidateLinuxUserGroup(s *string, path string) []error {
 	if s == nil {
 		return []error{}

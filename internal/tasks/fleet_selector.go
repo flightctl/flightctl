@@ -9,7 +9,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -47,17 +46,17 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, 
 	var err error
 
 	switch {
-	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.FleetKind:
+	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == api.FleetKind:
 		err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.FleetKind:
+	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.FleetKind:
 		err = logic.HandleOrgwideUpdate(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.FleetKind:
+	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.FleetKind:
 		err = logic.HandleDeleteAllFleets(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == model.DeviceKind:
+	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == api.DeviceKind:
 		err = logic.CompareFleetsAndSetDeviceOwner(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == model.DeviceKind:
+	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.DeviceKind:
 		err = logic.HandleOrgwideUpdate(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == model.DeviceKind:
+	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.DeviceKind:
 		err = logic.HandleDeleteAllDevices(ctx)
 	default:
 		err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
@@ -152,7 +151,7 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 				errors++
 				continue
 			}
-			if ownerType != model.FleetKind {
+			if ownerType != api.FleetKind {
 				continue
 			}
 			currentOwnerFleetName := ownerName
@@ -234,7 +233,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx context.Context) error {
 	// Remove the owner from devices that have this owner
 	listParams := store.ListParams{
-		Owners: []string{*util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)},
+		Owners: []string{*util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)},
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
 }
@@ -244,7 +243,7 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.C
 	listParams := store.ListParams{
 		Labels:       getMatchLabelsSafe(fleet),
 		InvertLabels: util.BoolToPtr(true),
-		Owners:       []string{*util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name)},
+		Owners:       []string{*util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)},
 		Limit:        ItemsPerPage,
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
@@ -606,7 +605,7 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) e
 // Update a device's owner, which in effect updates the fleet (may require rollout to the device)
 func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, device *api.Device, newOwnerFleet string) error {
 	fieldsToNil := []string{}
-	newOwnerRef := util.SetResourceOwner(model.FleetKind, newOwnerFleet)
+	newOwnerRef := util.SetResourceOwner(api.FleetKind, newOwnerFleet)
 	if len(newOwnerFleet) == 0 {
 		newOwnerRef = nil
 		fieldsToNil = append(fieldsToNil, "owner")

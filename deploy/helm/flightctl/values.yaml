@@ -34,6 +34,7 @@ global:
   auth:
     type: "builtin" # builtin, openshift, oidc, none
     openShiftApiUrl: ""
+    internalOpenShiftApiUrl: https://kubernetes.default.svc
     caCert: ""
     insecureSkipTlsVerify: false
     oidcAuthority: ""
@@ -56,7 +57,7 @@ global:
     http: 80
 
 
-## @section Compoment specific parameters
+## @section Component specific parameters
 ## @descriptionStart This section provides individual parameters for each component
 ## @descriptionEnd
 
@@ -70,12 +71,15 @@ db:
   masterUser: admin
   user: demouser
   userPassword: demopass
+  maxConnections: 200
+  storage:
+    size: "60Gi"
   ## @param db.resources the request/limit resource requests for the DB deployment pod
   resources:
     requests:
       cpu: "512m"
       memory: "512Mi"
-    limit:
+    limits:
       cpu: "2000m"
       memory: "2Gi"
 

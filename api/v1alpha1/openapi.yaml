@@ -1038,6 +1038,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/devices/{name}/decommission:
+    put:
+      tags:
+        - device
+      description: schedule the device to decommission
+      operationId: decommissionDevice
+      parameters:
+        - name: name
+          in: path
+          description: name of the Device
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDecommission'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -2426,6 +2470,17 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+    DeviceDecommission:
+      type: object
+      properties:
+        decommissionTarget:
+          type: string
+          enum:
+            - 'Unenroll'
+            - 'FactoryReset'
+          description: 'Specifies the desired decommissioning method of the device'
+      required:
+        - decommissionTarget
     SortOrder:
       type: string
       enum:
@@ -2894,143 +2949,136 @@ components:
         - "ResourceAlertSeverityTypeWarning"
         - "ResourceAlertSeverityTypeCritical"
         - "ResourceAlertSeverityTypeInfo"
-    DeviceUpdateHookSpec:
-      type: object
-      properties:
-        name:
-          type: string
-        description:
-          type: string 
-        actions:
-          type: array
-          items:
-            $ref: '#/components/schemas/HookAction'
-          description: 'The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.'
-        onFile:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileOperation'
-        path:
-          type: string
-          description: 'The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.'
-      required:
-        - actions
-    DeviceRebootHookSpec:
-      type: object
-      properties:
-        name:
-          type: string
-        description:
-          type: string 
-        actions:
-          type: array
-          items:
-            $ref: '#/components/schemas/HookAction'
-          description: 'The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.'
-      required:
-        - actions
-    FileOperation:
+    DeviceLifecycleHookType:
       type: string
-      description: 'The type of operation that was observed on the file.'
       enum:
-        - "Create"
-        - "Remove"
-        - "Update"
-        - "Reboot"
+      - 'BeforeUpdating'
+      - 'AfterUpdating'
+      - 'BeforeRebooting'
+      - 'AfterRebooting'
       x-enum-varnames:
-        - "FileOperationCreate"
-        - "FileOperationRemove" # by convention remove is fired before the file is removed.
-        - "FileOperationUpdate"
-        - "FileOperationReboot"
+        - "DeviceLifecycleHookBeforeUpdating"
+        - "DeviceLifecycleHookAfterUpdating"
+        - "DeviceLifecycleHookBeforeRebooting"
+        - "DeviceLifecycleHookAfterRebooting"
     HookAction:
-      type: object
-      oneOf:
-        - properties:
-            executable:
-              $ref: '#/components/schemas/HookActionExecutableSpec'
-          required:
-           - "executable"
-        - properties:
-            systemd:
-              $ref: '#/components/schemas/HookActionSystemdSpec'
-          required:
-           - "systemd"
-    HookActionSpec:
-      type: object
-      properties:
-        timeout:
-             type: string
-             pattern: '^[1-9]\d*[smhd]$'
-             description: |
-              The maximum duration allowed for the action to complete. 
-              The duration should be specified as a positive integer 
+      allOf:
+      - type: object
+        properties:
+          if:
+            type: array
+            description: "Conditions that must be met for the action to be executed."
+            items:
+              $ref: '#/components/schemas/HookCondition'
+          timeout:
+            type: string
+            pattern: '^[1-9]\d*[smh]$'
+            description: |
+              The maximum duration allowed for the action to complete.
+              The duration should be specified as a positive integer
               followed by a time unit. Supported time units are:
               - 's' for seconds
               - 'm' for minutes
               - 'h' for hours
-              - 'd' for days
-    HookActionSystemdSpec:
-       allOf:
-        - $ref: '#/components/schemas/HookActionSpec'
-        - type: object
-          properties:
-            unit:
-              $ref: '#/components/schemas/HookActionSystemdUnit'
-          required:
-            - unit
-    HookActionSystemdUnit:
+      - oneOf:
+          - $ref: '#/components/schemas/HookActionRun'
+          # extend hook actions
+    HookCondition:
+      type: object
+      oneOf:
+        - $ref: '#/components/schemas/HookConditionPathOp'
+        - $ref: '#/components/schemas/HookConditionExpression'
+        # extend hook conditions
+    HookConditionPathOp:
       type: object
       properties:
-        name:
+        path:
           type: string
-          description: 'The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.'
-        operations:
+          description: 'The absolute path to a file or directory that must have changed as condition for the action to be performed.'
+        op:
           type: array
+          description: 'The operation(s) on files at or below the path that satisfy the path condition.'
           items:
-            type: string
-            enum:
-              - "Enable"
-              - "Disable"
-              - "Start"
-              - "Stop"
-              - "Restart"
-              - "Reload"
-              - "DaemonReload"
-            x-enum-varnames:
-              - "SystemdEnable"
-              - "SystemdDisable"
-              - "SystemdStart"
-              - "SystemdStop"
-              - "SystemdRestart"
-              - "SystemdReload"
-              - "SystemdDaemonReload"
-          description: 'The specific systemd operations to perform on the specified unit.'
-        workDir:
-            type: string
-            description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
+            $ref: '#/components/schemas/FileOperation'
       required:
-        - name
-        - operations 
-    HookActionExecutableSpec:
-      allOf:
-        - $ref: '#/components/schemas/HookActionSpec'
-        - $ref: '#/components/schemas/HookActionExecutable'
-    HookActionExecutable:
+        - path
+        - op
+    FileOperation:
+      type: string
+      enum:
+        - "created"
+        - "removed"
+        - "updated"
+      x-enum-varnames:
+        - "FileOperationCreated"
+        - "FileOperationRemoved"
+        - "FileOperationUpdated"
+    HookConditionExpression:
+      type: string
+      description: 'An expression that must evaluate to true as condition for the action to be performed.'
+    HookActionRun:
+      type: object
+      properties:
+        run:
+          type: string
+          description: 'The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.'
+        envVars:
           type: object
-          properties:
-            run:
-              type: string
-              description: 'The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.'
-            envVars: 
-              type: array
-              items:
-                type: string
-              description: 'An optional list of KEY=VALUE pairs to set as environment variables for the executable.'
-            workDir:
-              type: string
-              description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
-          required:
-            - run
+          description: 'Environment variable key-value pairs, injected during runtime'
+          additionalProperties:
+            type: string
+        workDir:
+          type: string
+          description: 'The working directory to be used when running the command.'
+      required:
+        - run
+    DeviceUpdatePolicySpec:
+      type: object
+      description: 'Specifies the policy for managing device updates, including when updates should be downloaded and applied.'
+      properties:
+        downloadSchedule:
+          $ref: '#/components/schemas/UpdateSchedule'
+          description: 'Defines the schedule for downloading updates.'
+        updateSchedule:
+          $ref: '#/components/schemas/UpdateSchedule'
+          description: 'Defines the schedule for applying updates.'
+    UpdateSchedule:
+      type: object
+      description: 'Defines the schedule for automatic updates, including timing and optional timeout.'
+      properties:
+        timeZone:
+          $ref: '#/components/schemas/TimeZone'
+        at:
+          $ref: '#/components/schemas/CronExpression'
+        startGraceDuration:
+          $ref: '#/components/schemas/Duration'
+      required:
+        - at
+    TimeZone:
+      type: string
+      description: >
+        Time zone identifiers follow the IANA format AREA/LOCATION, where AREA
+        represents a continent or ocean, and LOCATION specifies a particular
+        site within that area.  e.g., America/New_York, Europe/Paris.
+        Only unambiguous 3-character time zones are supported ("GMT", "UTC").
+      default: "Local"
+    CronExpression:
+      type: string
+      description: >
+        "Cron expression format for scheduling times. The format is `* * * * *`:
+        - Minutes: `*` matches 0-59.
+        - Hours: `*` matches 0-23.
+        - Day of Month: `*` matches 1-31.
+        - Month: `*` matches 1-12.
+        - Day of Week: `*` matches 0-6."
+
+        Supported operators:
+        - `*`: Matches any value (e.g., `*` in hours matches every hour).
+        - `-`: Range (e.g., `0-8` for 12 AM to 8 AM).
+        - `,`: List (e.g., `1,12` for 1st and 12th minute).
+        - `/`: Step (e.g., `*/12` for every 12th minute).
+        - Single value (e.g., `8` matches the 8th minute)."
+        example: "* 0-8,16-23 * * *"
     DeviceList:
       type: object
       properties:
@@ -3442,7 +3490,7 @@ components:
         labels:
           type: object
           additionalProperties:
-            type: string 
+            type: string
           description: 'A set of labels that the service will apply to this device when its enrollment is approved'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
@@ -3627,13 +3675,14 @@ components:
       type: string
       pattern: '^[1-9]\d*[smhd]$'
       description: |
-        The maximum duration allowed for the action to complete. 
-        The duration should be specified as a positive integer 
+        The maximum duration allowed for the action to complete.
+        The duration should be specified as a positive integer
         followed by a time unit. Supported time units are:
         - 's' for seconds
         - 'm' for minutes
         - 'h' for hours
         - 'd' for days
+      default: "0s"
 
     BatchSequence:
       type: object
@@ -3694,6 +3743,8 @@ components:
       properties:
         renderedVersion:
           type: string
+        updatePolicy:
+          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
         config:
@@ -3702,8 +3753,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RenderedApplicationSpec'
-        hooks:
-          $ref: '#/components/schemas/DeviceHooksSpec'
         systemd:
           type: object
           properties:
@@ -3718,43 +3767,13 @@ components:
             $ref: '#/components/schemas/ResourceMonitor'
         console:
           $ref: '#/components/schemas/DeviceConsole'
-
       required:
         - renderedVersion
-    DeviceHooksSpec:
-      type: object
-      properties:
-        beforeUpdating:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceUpdateHookSpec'
-          description: |
-            Hooks executed before updating allow for custom actions and integration with other systems
-            or services. These actions occur before configuration changes are applied to the device.
-        afterUpdating:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceUpdateHookSpec'
-          description: |
-            Hooks executed after updating enable custom actions and integration with other systems
-            or services. These actions occur after configuration changes have been applied to the device.
-        beforeRebooting:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceRebootHookSpec'
-          description: |
-            Hooks executed before rebooting allow for custom actions and integration with other systems
-            or services. These actions occur before the device is rebooted.
-        afterRebooting:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceRebootHookSpec'
-          description: |
-            Hooks executed after rebooting enable custom actions and integration with other systems
-            or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
     DeviceSpec:
       type: object
       properties:
+        updatePolicy:
+          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
         config:
@@ -3762,8 +3781,6 @@ components:
           description: List of config providers.
           items:
             $ref: '#/components/schemas/ConfigProviderSpec'
-        hooks:
-          $ref: '#/components/schemas/DeviceHooksSpec'
         applications:
           type: array
           description: List of applications.

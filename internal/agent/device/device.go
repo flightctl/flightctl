@@ -137,7 +137,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 		return fmt.Errorf("sync device: %w", err)
 	}
 
-	if err := a.afterUpdate(ctx); err != nil {
+	if err := a.afterUpdate(ctx, current, desired); err != nil {
 		return fmt.Errorf("after update: %w", err)
 	}
 
@@ -190,7 +190,7 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  string(status.UpdateStatePreparing),
+			Reason:  string(v1alpha1.UpdateStatePreparing),
 			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.RenderedVersion),
 		})
 		if updateErr != nil {
@@ -213,7 +213,7 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.DeviceUpdating,
 		Status:  v1alpha1.ConditionStatusFalse,
-		Reason:  string(status.UpdateStateUpdated),
+		Reason:  string(v1alpha1.UpdateStateUpdated),
 		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.RenderedVersion),
 	})
 	if updateErr != nil {
@@ -270,6 +270,10 @@ func (a *Agent) pushStatus(ctx context.Context) {
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
 		return fmt.Errorf("applications: %w", err)
+	}
+
+	if err := a.hookManager.OnBeforeUpdating(ctx, current, desired); err != nil {
+		return fmt.Errorf("hooks: %w", err)
 	}
 
 	return nil
@@ -331,7 +335,7 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  string(status.UpdateStateApplyingUpdate),
+			Reason:  string(v1alpha1.UpdateStateApplyingUpdate),
 			Message: fmt.Sprintf("The device is applying renderedVersion: %s", desired.RenderedVersion),
 		})
 		if updateErr != nil {
@@ -383,9 +387,15 @@ func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.Rende
 	return nil
 }
 
-func (a *Agent) afterUpdate(ctx context.Context) error {
+func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	a.log.Debug("Executing post actions")
 	defer a.log.Debug("Finished executing post actions")
+
+	rebooted := false
+	if err := a.hookManager.OnAfterUpdating(ctx, current, desired, rebooted); err != nil {
+		a.log.Errorf("Error executing AfterUpdating hook: %v", err)
+		return err
+	}
 
 	// execute post actions for applications
 	if err := a.appManager.ExecuteActions(ctx); err != nil {
@@ -409,7 +419,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
 
-		conditionUpdate.Reason = string(status.UpdateStateError)
+		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
 
@@ -418,7 +428,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
 
-		conditionUpdate.Reason = string(status.UpdateStateRetrying)
+		conditionUpdate.Reason = string(v1alpha1.UpdateStateRetrying)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
 	}

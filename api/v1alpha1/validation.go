@@ -3,14 +3,20 @@ package v1alpha1
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
 )
 
 const maxBase64CertificateLength = 20 * 1024 * 1024
 const maxInlineConfigLength = 1024 * 1024
+
+var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
 
 type Validator interface {
 	Validate() []error
@@ -22,6 +28,9 @@ func (r Device) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	if r.Spec != nil {
+		if r.Spec.UpdatePolicy != nil {
+			allErrs = append(allErrs, r.Spec.UpdatePolicy.Validate()...)
+		}
 		if r.Spec.Os != nil {
 			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Os.Image, "spec.os.image")...)
 		}
@@ -90,6 +99,70 @@ func (c ConfigProviderSpec) Validate() []error {
 	default:
 		// if we hit this case, it means that the type should be added to the switch statement above
 		allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
+	}
+
+	return allErrs
+}
+
+func (a HookAction) Validate(path string) []error {
+	allErrs := []error{}
+
+	t, err := a.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case HookActionTypeRun:
+		runAction, err := a.AsHookActionRun()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			return allErrs
+		}
+		allErrs = append(allErrs, validation.ValidateString(&runAction.Run, path+".run", 1, 2048, nil, "")...)
+		// TODO: pull the extra validation done by the agent up here
+		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(runAction.WorkDir, path+".workDir")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook action type: %s", path, t))
+	}
+
+	if a.If != nil {
+		for i, condition := range *a.If {
+			allErrs = append(allErrs, condition.Validate(fmt.Sprintf("%s.if[%d]", path, i))...)
+		}
+	}
+
+	return allErrs
+}
+
+func (c HookCondition) Validate(path string) []error {
+	allErrs := []error{}
+
+	t, err := c.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case HookConditionTypeExpression:
+		expression, err := c.AsHookConditionExpression()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateString(&expression, path, 1, 2048, nil, "")...)
+	case HookConditionTypePathOp:
+		pathOpCondition, err := c.AsHookConditionPathOp()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(&pathOpCondition.Path, path+".path")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook condition type: %s", path, t))
 	}
 
 	return allErrs
@@ -267,6 +340,10 @@ func (r Fleet) Validate() []error {
 	}
 
 	// Validate the Device spec settings
+	if r.Spec.Template.Spec.UpdatePolicy != nil {
+		allErrs = append(allErrs, r.Spec.Template.Spec.UpdatePolicy.Validate()...)
+	}
+
 	if r.Spec.Template.Spec.Os != nil {
 		allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
 	}
@@ -284,6 +361,46 @@ func (r Fleet) Validate() []error {
 	if r.Spec.Template.Spec.Config != nil {
 		for _, config := range *r.Spec.Template.Spec.Config {
 			allErrs = append(allErrs, config.Validate()...)
+		}
+	}
+
+	return allErrs
+}
+
+func (u DeviceUpdatePolicySpec) Validate() []error {
+	allErrs := []error{}
+	if u.DownloadSchedule != nil {
+		if err := u.DownloadSchedule.Validate(); err != nil {
+			allErrs = append(allErrs, err...)
+		}
+	}
+	if u.UpdateSchedule != nil {
+		if err := u.UpdateSchedule.Validate(); err != nil {
+			allErrs = append(allErrs, err...)
+		}
+	}
+
+	return allErrs
+}
+
+func (u UpdateSchedule) Validate() []error {
+	var allErrs []error
+	if u.TimeZone != nil {
+		if err := validateTimeZone(util.FromPtr(u.TimeZone)); err != nil {
+			allErrs = append(allErrs, err...)
+		}
+	}
+
+	// allow only the standard 5 input cron syntax e.g. "* * * * *"
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(u.At)
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
+	}
+
+	if u.StartGraceDuration != nil {
+		if err := validateGraceDuration(schedule, *u.StartGraceDuration); err != nil {
+			allErrs = append(allErrs, err)
 		}
 	}
 
@@ -336,7 +453,7 @@ func (r ResourceSync) Validate() []error {
 
 func (l *LabelSelector) Validate() []error {
 	if l != nil && l.MatchExpressions == nil && l.MatchLabels == nil {
-		return []error{errors.New("At least one of [matchLabels,matchExpressions] must appear in a label selector")}
+		return []error{errors.New("at least one of [matchLabels,matchExpressions] must appear in a label selector")}
 	}
 	return nil
 }
@@ -484,4 +601,83 @@ func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, e
 	default:
 		return "", fmt.Errorf("unsupported application provider type: %s", appType)
 	}
+}
+
+// note: this regex was taken from the github.com/kubernetes/kubernetes/pkg/apis/batch/validation/validation.go
+// https://data.iana.org/time-zones/theory.html#naming
+// * A name must not be empty, or contain '//', or start or end with '/'.
+// * Do not use the file name components '.' and '..'.
+// * Within a file name component, use only ASCII letters, '.', '-' and '_'.
+// * Do not use digits, as that might create an ambiguity with POSIX TZ strings.
+// * A file name component must not exceed 14 characters or start with '-'
+//
+// 0-9 and + characters are tolerated to accommodate legacy compatibility names
+var validTimeZoneCharacters = regexp.MustCompile(`^[A-Za-z\.\-_0-9+]{1,14}$`)
+
+// validateTimeZone validates the time zone string. it must be a valid IANA time zone identifier.
+func validateTimeZone(timeZone string) []error {
+	allErrs := []error{}
+
+	if len(timeZone) == 0 {
+		allErrs = append(allErrs, fmt.Errorf("time zone must not be empty"))
+		return allErrs
+	}
+
+	// the default time zone is "Local"
+	if strings.EqualFold(timeZone, "Local") {
+		return allErrs
+	}
+
+	// we only support non ambiguous time zones with 3 characters
+	validThreeLetterZones := map[string]bool{
+		"GMT": true,
+		"UTC": true,
+	}
+
+	if len(timeZone) == 3 {
+		if _, ok := validThreeLetterZones[timeZone]; !ok {
+			allErrs = append(allErrs, fmt.Errorf("invalid time zone: %s", timeZone))
+		}
+		return allErrs
+	}
+
+	// split the time zone identifier into parts
+	parts := strings.Split(timeZone, "/")
+	for _, part := range parts {
+		if part == "." || part == ".." || strings.HasPrefix(part, "-") || !validTimeZoneCharacters.MatchString(part) {
+			allErrs = append(allErrs, fmt.Errorf("invalid time zone component: %s", part))
+			return allErrs
+		}
+	}
+
+	if _, err := time.LoadLocation(timeZone); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid time zone: %s: %w", timeZone, err))
+	}
+
+	return allErrs
+}
+
+func validateGraceDuration(schedule cron.Schedule, duration string) error {
+	graceDuration, err := time.ParseDuration(duration)
+	if err != nil {
+		return fmt.Errorf("invalid duration: %w", err)
+	}
+
+	start := time.Now()
+	var cronTimes []time.Time
+	// test through the next 5 cron times
+	for i := 0; i < 5; i++ {
+		start = schedule.Next(start)
+		cronTimes = append(cronTimes, start)
+	}
+
+	// Calculate the minimum interval between cron times
+	for i := 1; i < len(cronTimes); i++ {
+		interval := cronTimes[i].Sub(cronTimes[i-1])
+		if graceDuration > interval {
+			return fmt.Errorf("%w: %s", ErrStartGraceDurationExceedsCronInterval, graceDuration)
+		}
+	}
+
+	return nil
 }

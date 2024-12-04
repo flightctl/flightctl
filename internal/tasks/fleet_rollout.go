@@ -10,7 +10,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 )
@@ -22,13 +21,13 @@ func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store sto
 	}
 	logic := NewFleetRolloutsLogic(callbackManager, log, store, *resourceRef)
 	switch resourceRef.Kind {
-	case model.FleetKind:
+	case api.FleetKind:
 		err := logic.RolloutFleet(ctx)
 		if err != nil {
 			log.Errorf("failed rolling out fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 		}
 		return err
-	case model.DeviceKind:
+	case api.DeviceKind:
 		err := logic.RolloutDevice(ctx)
 		if err != nil {
 			log.Errorf("failed rolling out device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
@@ -75,7 +74,7 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	}
 
 	failureCount := 0
-	owner := util.SetResourceOwner(model.FleetKind, f.resourceRef.Name)
+	owner := util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)
 	f.owner = *owner
 
 	listParams := store.ListParams{Owners: []string{*owner}, Limit: ItemsPerPage}
@@ -152,7 +151,7 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *api.Device, templateVersion *api.TemplateVersion) error {
 	currentVersion := ""
 	if device.Metadata.Annotations != nil {
-		v, ok := (*device.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]
+		v, ok := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
 		if ok {
 			currentVersion = v
 		}
@@ -172,7 +171,6 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		Os:           templateVersion.Status.Os,
 		Systemd:      templateVersion.Status.Systemd,
 		Resources:    templateVersion.Status.Resources,
-		Hooks:        templateVersion.Status.Hooks,
 		Applications: deviceApps,
 	}
 
@@ -188,7 +186,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	annotations := map[string]string{
-		model.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
+		api.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
 	}
 	err = f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
 	if err != nil {

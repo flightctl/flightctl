@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -25,8 +24,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// agent banner file
-const BannerFile = "/etc/issue.d/flightctl-banner.issue"
+const (
+	// agent banner file
+	BannerFile        = "/etc/issue.d/flightctl-banner.issue"
+	BootstrapComplete = "Bootstrap complete"
+)
 
 type Bootstrap struct {
 	deviceName           string
@@ -116,21 +118,50 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusOnline,
-		Info:   util.StrToPtr("Bootstrap complete"),
-	}))
-	if updateErr != nil {
-		b.log.Warnf("Failed setting status: %v", updateErr)
-	}
+	b.updateStatus(ctx)
 
 	// unset NOTIFY_SOCKET on successful bootstrap to prevent subprocesses from
 	// using it.
 	// ref: https://bugzilla.redhat.com/show_bug.cgi?id=1781506
 	os.Unsetenv("NOTIFY_SOCKET")
 
-	b.log.Info("Bootstrap complete")
+	b.log.Info(BootstrapComplete)
 	return nil
+}
+
+func (b *Bootstrap) updateStatus(ctx context.Context) {
+	updateFns := []status.UpdateStatusFn{
+		status.SetConfig(v1alpha1.DeviceConfigStatus{
+			RenderedVersion: b.specManager.RenderedVersion(spec.Current),
+		}),
+		status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusOnline,
+			Info:   util.StrToPtr(BootstrapComplete),
+		}),
+	}
+
+	_, updateErr := b.statusManager.Update(ctx, updateFns...)
+	if updateErr != nil {
+		b.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
+	updatingCondition := v1alpha1.Condition{
+		Type: v1alpha1.DeviceUpdating,
+	}
+
+	if b.specManager.IsUpgrading() {
+		updatingCondition.Status = v1alpha1.ConditionStatusTrue
+		// TODO: only set rebooting in case where we are actually rebooting
+		updatingCondition.Reason = string(v1alpha1.UpdateStateRebooting)
+	} else {
+		updatingCondition.Status = v1alpha1.ConditionStatusFalse
+		updatingCondition.Reason = string(v1alpha1.UpdateStateUpdated)
+	}
+
+	updateErr = b.statusManager.UpdateCondition(ctx, updatingCondition)
+	if updateErr != nil {
+		b.log.Warnf("Failed setting status: %v", updateErr)
+	}
 }
 
 func (b *Bootstrap) ensureSpecFiles() error {
@@ -171,15 +202,8 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 		return nil
 	}
 
-	currentIgnition, err := config.ParseAndConvertConfigFromStr(*currentSpec.Config)
-	if err != nil {
-		return fmt.Errorf("parsing current ignition: %w", err)
-	}
-	b.log.Info("Executing after reboot hooks")
-	defer b.log.Info("Finished executing after reboot hooks")
-	for _, f := range currentIgnition.Storage.Files {
-		b.hookManager.OnAfterReboot(ctx, f.Path)
-	}
+	// TODO: call if device has rebooted, rather than just agent restarted
+	// b.hookManager.OnAfterRebooting(ctx)
 
 	return nil
 }
