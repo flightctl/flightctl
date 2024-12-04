@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"crypto/rand"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,12 +11,22 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
+
+	. "github.com/onsi/gomega/gbytes"
+	"sigs.k8s.io/yaml"
 )
 
 const TIMEOUT = "1m"
 const POLLING = "250ms"
+
+var _ = BeforeSuite(func() {
+	var h *e2e.Harness
+	// This will be executed before all tests run.
+	fmt.Println("Before all tests!")
+	h = e2e.NewTestHarness()
+	h.CleanUpAllResources()
+})
 
 func TestCLI(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -165,6 +176,122 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring("e2e-test-fleet"))
 		})
 	})
+
+	Context("Resources lifecycle for", func() {
+		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506"), func() {
+			By("Verify there are no resources created")
+			err := harness.CleanUpAllResources()
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Device:Resources lifecycle")
+			out, err := harness.CLI("apply", "-f", util.GetExamplesYamlPath("device.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+
+			device := harness.GetDeviceByYaml(util.GetExamplesYamlPath("device.yaml"))
+			(*device.Metadata.Labels)[newTestKey] = newTestValue
+			deviceData, err := yaml.Marshal(&device)
+			out, err = harness.CLIWithStdin(string(deviceData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+
+			//response := harness.GetDeviceWithStatusSystem(*device.Metadata.Name)
+			//responseLabelValue := (*response.JSON200.Metadata.Labels)[newTestKey]
+
+			//Expect(responseLabelValue).To(ContainSubstring(newTestValue))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.Device, *device.Metadata.Name))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Fleet: Resources lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("fleet.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			fleet := harness.GetFleetByYaml(util.GetExamplesYamlPath("fleet.yaml"))
+
+			//Add new label
+			(*fleet.Spec.Selector.MatchLabels)[newTestKey] = newTestValue
+			fleetData, err := yaml.Marshal(&fleet)
+			out, err = harness.CLIWithStdin(string(fleetData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+			// response := harness.GetDeviceWithStatusSystem(*device.Metadata.Name)
+			// responseLabelValue := (*response.JSON200.Metadata.Labels)[newTestKey]
+
+			// Expect(responseLabelValue).To(ContainSubstring(newTestValue))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.Fleet, *fleet.Metadata.Name))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Repository: Resources lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("repository-flightctl.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+
+			repo := harness.GetRepositoryByYaml(util.GetExamplesYamlPath("repository-flightctl.yaml"))
+
+			//Update repo name
+			updatedName := "flightctl-new"
+			*repo.Metadata.Name = updatedName
+			repoData, err := yaml.Marshal(&repo)
+			out, err = harness.CLIWithStdin(string(repoData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(updatedName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.Repository, updatedName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("ResourceSync: Resources lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("resourcesync.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			rSync := harness.GetResourceSyncByYaml(util.GetExamplesYamlPath("resourcesync.yaml"))
+
+			//Update rSync name
+			rSyncNewName := "flightctl-new"
+			*rSync.Metadata.Name = rSyncNewName
+			rSyncData, err := yaml.Marshal(&rSync)
+			out, err = harness.CLIWithStdin(string(rSyncData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(rSyncNewName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.ResourceSync, rSyncNewName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("EnrollmentRequest: Resources lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("enrollmentrequest.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			er := harness.GetEnrollmentRequestByYaml(util.GetExamplesYamlPath("enrollmentrequest.yaml"))
+
+			//Update er name
+			erNewName := randString(64)
+			*er.Metadata.Name = erNewName
+			erData, err := yaml.Marshal(&er)
+			out, err = harness.CLIWithStdin(string(erData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(erNewName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erNewName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("CertificateSigningRequest: Resources lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("csr.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			csr := harness.GetCertificateSigningRequestByYaml(util.GetExamplesYamlPath("csr.yaml"))
+
+			//Update csr name
+			csrNewName := randString(64)
+			*csr.Metadata.Name = csrNewName
+			csrData, err := yaml.Marshal(&csr)
+			out, err = harness.CLIWithStdin(string(csrData), "apply", "-f", "-")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(csrNewName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrNewName))
+			Expect(err).ToNot(HaveOccurred())
+		})
+	})
 })
 
 func randString(n int) string {
@@ -205,3 +332,9 @@ spec:
         matchLabels:
             fleet: default
 `
+
+var (
+	newTestKey   = "testKey"
+	newTestValue = "newValue"
+	newLabels    = fmt.Sprintf("%s: %s", newTestKey, newTestValue)
+)
