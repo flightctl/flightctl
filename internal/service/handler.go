@@ -12,14 +12,13 @@ import (
 )
 
 type ServiceHandler struct {
-	store               store.Store
-	ca                  *crypto.CA
-	log                 logrus.FieldLogger
-	callbackManager     tasks.CallbackManager
-	kvStore             kvstore.KVStore
-	consoleGrpcEndpoint string
-	agentEndpoint       string
-	uiUrl               string
+	store           store.Store
+	ca              *crypto.CA
+	log             logrus.FieldLogger
+	callbackManager tasks.CallbackManager
+	kvStore         kvstore.KVStore
+	agentEndpoint   string
+	uiUrl           string
 }
 
 type WebsocketHandler struct {
@@ -32,16 +31,15 @@ type WebsocketHandler struct {
 // Make sure we conform to servers Service interface
 var _ server.Service = (*ServiceHandler)(nil)
 
-func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CA, log logrus.FieldLogger, consoleGrpcEndpoint string, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CA, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
 	return &ServiceHandler{
-		store:               store,
-		ca:                  ca,
-		log:                 log,
-		callbackManager:     callbackManager,
-		kvStore:             kvStore,
-		consoleGrpcEndpoint: consoleGrpcEndpoint,
-		agentEndpoint:       agentEndpoint,
-		uiUrl:               uiUrl,
+		store:           store,
+		ca:              ca,
+		log:             log,
+		callbackManager: callbackManager,
+		kvStore:         kvStore,
+		agentEndpoint:   agentEndpoint,
+		uiUrl:           uiUrl,
 	}
 }
 

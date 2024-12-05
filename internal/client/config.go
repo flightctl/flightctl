@@ -255,7 +255,12 @@ func addClientCertToTLSConfig(tlsConfig *tls.Config, config *Config) error {
 }
 
 // NewGRPCClientFromConfig returns a new gRPC Client from the given config.
-func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.RouterServiceClient, error) {
+func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterServiceClient, error) {
+	grpcEndpoint := config.Service.Server
+	if endpoint != "" {
+		grpcEndpoint = endpoint
+	}
+
 	config = config.DeepCopy()
 	if err := config.Flatten(); err != nil {
 		return nil, err
@@ -288,9 +293,10 @@ func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.Route
 		}
 		tlsConfig.Certificates = []tls.Certificate{clientCert}
 	}
-
-	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "grpcs://")
-	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "grpc://")
+	// our transport is http, but the grpc library has special encoding for the endpoint
+	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "http://")
+	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
+	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
 	client, err := grpc.NewClient(grpcEndpoint, grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)))
 

@@ -36,11 +36,9 @@ type dbConfig struct {
 type svcConfig struct {
 	Address               string        `json:"address,omitempty"`
 	AgentEndpointAddress  string        `json:"agentEndpointAddress,omitempty"`
-	AgentGrpcAddress      string        `json:"agentGrpcAddress,omitempty"`
 	CertStore             string        `json:"cert,omitempty"`
 	BaseUrl               string        `json:"baseUrl,omitempty"`
 	BaseAgentEndpointUrl  string        `json:"baseAgentEndpointUrl,omitempty"`
-	BaseAgentGrpcUrl      string        `json:"baseAgentGrpcUrl,omitempty"`
 	BaseUIUrl             string        `json:"baseUIUrl,omitempty"`
 	CaCertFile            string        `json:"caCertFile,omitempty"`
 	CaKeyFile             string        `json:"caKeyFile,omitempty"`
@@ -51,6 +49,7 @@ type svcConfig struct {
 	HttpReadTimeout       util.Duration `json:"httpReadTimeout,omitempty"`
 	HttpReadHeaderTimeout util.Duration `json:"httpReadHeaderTimeout,omitempty"`
 	HttpWriteTimeout      util.Duration `json:"httpWriteTimeout,omitempty"`
+	HttpIdleTimeout       util.Duration `json:"httpIdleTimeout,omitempty"`
 	HttpMaxNumHeaders     int           `json:"httpMaxNumHeaders,omitempty"`
 	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
 	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
@@ -112,15 +111,14 @@ func NewDefault() *Config {
 		Service: &svcConfig{
 			Address:               ":3443",
 			AgentEndpointAddress:  ":7443",
-			AgentGrpcAddress:      ":7444",
 			CertStore:             CertificateDir(),
 			BaseUrl:               "https://localhost:3443",
 			BaseAgentEndpointUrl:  "https://localhost:7443",
-			BaseAgentGrpcUrl:      "grpcs://localhost:7444",
 			LogLevel:              "info",
 			HttpReadTimeout:       util.Duration(5 * time.Minute),
 			HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
 			HttpWriteTimeout:      util.Duration(5 * time.Minute),
+			HttpIdleTimeout:       util.Duration(5 * time.Minute),
 			HttpMaxNumHeaders:     32,
 			HttpMaxHeaderBytes:    32 * 1024, // 32KB
 			HttpMaxUrlLength:      2000,
