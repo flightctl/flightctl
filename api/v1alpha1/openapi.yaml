@@ -3013,6 +3013,7 @@ components:
         - updated
         - summary
         - lastSeen
+        - lifecycle
       properties:
         conditions:
           type: array
@@ -3050,6 +3051,9 @@ components:
         lastSeen:
           type: string
           format: date-time
+        lifecycle:
+          $ref: '#/components/schemas/DeviceLifecycleStatus'
+          description: "Current status of the lifecycle of the device."
       description: "DeviceStatus represents information about the status of a device. Status may trail the actual state of a device."
     DeviceSystemInfo:
       required:
@@ -3197,6 +3201,26 @@ components:
         - "DeviceUpdatedStatusOutOfDate"
         - "DeviceUpdatedStatusUpdating"
         - "DeviceUpdatedStatusUnknown"
+    DeviceLifecycleStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceLifecycleStatusType"
+          description: "Status type of the device lifecycle."
+        info:
+          type: string
+          description: "Human readable information about the device lifecycle status."
+    DeviceLifecycleStatusType:
+      type: string
+      enum:
+        - "EnrollmentPending"
+        - "Enrolled"
+        - "Decommissioning"
+        - "DecommissionError"
+        - "DecommissionTimeout"
+        - "Decommissioned"
     DeviceIntegrityStatus:
       type: object
       required:

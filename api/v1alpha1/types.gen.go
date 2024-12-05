@@ -76,6 +76,16 @@ const (
 	DeviceLifecycleHookBeforeUpdating  DeviceLifecycleHookType = "BeforeUpdating"
 )
 
+// Defines values for DeviceLifecycleStatusType.
+const (
+	DecommissionError   DeviceLifecycleStatusType = "DecommissionError"
+	DecommissionTimeout DeviceLifecycleStatusType = "DecommissionTimeout"
+	Decommissioned      DeviceLifecycleStatusType = "Decommissioned"
+	Decommissioning     DeviceLifecycleStatusType = "Decommissioning"
+	Enrolled            DeviceLifecycleStatusType = "Enrolled"
+	EnrollmentPending   DeviceLifecycleStatusType = "EnrollmentPending"
+)
+
 // Defines values for DeviceResourceStatusType.
 const (
 	DeviceResourceStatusCritical DeviceResourceStatusType = "Critical"
@@ -385,6 +395,16 @@ type DeviceIntegrityStatusSummaryType string
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
 
+// DeviceLifecycleStatus defines model for DeviceLifecycleStatus.
+type DeviceLifecycleStatus struct {
+	// Info Human readable information about the device lifecycle status.
+	Info   *string                   `json:"info,omitempty"`
+	Status DeviceLifecycleStatusType `json:"status"`
+}
+
+// DeviceLifecycleStatusType defines model for DeviceLifecycleStatusType.
+type DeviceLifecycleStatusType string
+
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -458,6 +478,7 @@ type DeviceStatus struct {
 	Config     DeviceConfigStatus    `json:"config"`
 	Integrity  DeviceIntegrityStatus `json:"integrity"`
 	LastSeen   time.Time             `json:"lastSeen"`
+	Lifecycle  DeviceLifecycleStatus `json:"lifecycle"`
 	Os         DeviceOSStatus        `json:"os"`
 	Resources  DeviceResourceStatus  `json:"resources"`
 	Summary    DeviceSummaryStatus   `json:"summary"`
