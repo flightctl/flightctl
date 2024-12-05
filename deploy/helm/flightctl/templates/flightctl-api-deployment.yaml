@@ -18,6 +18,7 @@ spec:
       labels:
         flightctl.service: flightctl-api
     spec:
+      serviceAccountName: flightctl-api
       containers:
         - name: flightctl-api
           image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
@@ -56,6 +57,11 @@ spec:
             - mountPath: /usr/share/zoneinfo
               name: tzdata
               readOnly: true
+            {{- if .Values.global.auth.k8s.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-api-k8s-token
+              readOnly: true
+            {{- end}}
 
       restartPolicy: Always
       volumes:
@@ -68,4 +74,9 @@ spec:
         - name: tzdata
           hostPath:
             path: /usr/share/zoneinfo
+        {{- if .Values.global.auth.k8s.externalApiToken}}
+        - name: flightctl-api-k8s-token
+          secret:
+            secretName: flightctl-api-k8s-token
+        {{- end}}
 {{ end }}

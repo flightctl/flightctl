@@ -47,21 +47,18 @@ data:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
     {{- if not (eq .Values.global.auth.type "none")  }}
-    {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:
-        openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
-        internalOpenShiftApiUrl: {{ .Values.global.auth.internalOpenShiftApiUrl }}
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
-    {{- else }}
-    auth:
-        {{- if .Values.global.auth.oidcAuthority }}
-        internalOidcAuthority: {{ .Values.global.auth.internalOidcAuthority }}
+        caCert: {{ .Values.global.auth.caCert }}
+        {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "k8s")  }}
+        k8s:
+            apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
+            externalOpenshiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
         {{- else }}
-        internalOidcAuthority: http://keycloak:8080/realms/flightctl
+        oidc:
+            oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}
+            externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
-        oidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
-        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
-    {{- end }}
     {{- end }}
     {{- if .Values.prometheus.enabled }}
     prometheus:

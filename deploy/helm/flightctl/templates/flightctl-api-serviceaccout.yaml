@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api
+  namespace: {{ .Release.Namespace }}
