@@ -591,7 +591,6 @@ type Duration = string
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
 	EnrollmentService      EnrollmentService `json:"enrollment-service"`
-	GrpcManagementEndpoint string            `json:"grpc-management-endpoint"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.

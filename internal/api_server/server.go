@@ -110,7 +110,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router.Use(middlewares...)
 
-	h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+	h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
