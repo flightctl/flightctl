@@ -21,7 +21,6 @@ import (
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/lthibault/jitterbug"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -99,19 +98,30 @@ func NewAgent(
 func (a *Agent) Run(ctx context.Context) error {
 	ctx, a.cancelFn = context.WithCancel(ctx)
 
-	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer specTicker.Stop()
-	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer statusTicker.Stop()
+	tickerInterval := calculateTickerInterval(a.fetchSpecInterval, a.fetchStatusInterval)
+	ticker := time.NewTicker(tickerInterval)
+	defer ticker.Stop()
+
+	// track the last time the spec and status were synced to ensure even distribution
+	var lastSpecSync, lastStatusSync time.Time
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-specTicker.C:
-			a.syncSpec(ctx, a.syncSpecFn)
-		case <-statusTicker.C:
-			a.pushStatus(ctx)
+		case <-ticker.C:
+			now := time.Now()
+			// spec
+			if isTaskReady(lastSpecSync, a.fetchSpecInterval, now) {
+				lastSpecSync = now
+				a.syncSpec(ctx, a.syncSpecFn)
+			}
+
+			// status
+			if isTaskReady(lastStatusSync, a.fetchStatusInterval, now) {
+				lastStatusSync = now
+				a.pushStatus(ctx)
+			}
 		}
 	}
 }
@@ -442,4 +452,18 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 	}
 
 	a.log.Error(*statusUpdate.Info)
+}
+
+func calculateTickerInterval(fetchSpecInterval, fetchStatusInterval util.Duration) time.Duration {
+	smallestInterval := fetchSpecInterval
+	if fetchStatusInterval < fetchSpecInterval {
+		smallestInterval = fetchStatusInterval
+	}
+
+	// return half of the smallest interval
+	return time.Duration(smallestInterval / 2)
+}
+
+func isTaskReady(lastSync time.Time, interval util.Duration, now time.Time) bool {
+	return now.Sub(lastSync) >= time.Duration(interval)
 }
