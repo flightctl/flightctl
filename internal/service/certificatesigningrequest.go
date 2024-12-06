@@ -39,10 +39,7 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 	if u == "" {
 		u = uuid.NewString()
 	}
-	csr.Subject.CommonName, err = crypto.BootstrapCNFromName(u)
-	if err != nil {
-		return nil, fmt.Errorf("cn: %s does not meet requirement: %w", u, err)
-	}
+	csr.Subject.CommonName = crypto.BootstrapCNFromName(u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
 	if request.Spec.ExpirationSeconds != nil {
@@ -265,7 +262,8 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 			approveResp, _ := h.ApproveCertificateSigningRequest(ctx, approveReq)
 			_, ok := approveResp.(server.ApproveCertificateSigningRequest200JSONResponse)
 			if !ok {
-				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: "CSR created but could not be approved"}, nil
+				msg := fmt.Sprintf("enrollment CSR for %s could not be auto-approved: %s", request.Name, approveResp)
+				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: msg}, nil
 			}
 		}
 		if created {
