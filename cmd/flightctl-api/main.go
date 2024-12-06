@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -85,7 +86,7 @@ func main() {
 		log.Fatalf("running initial migration: %v", err)
 	}
 
-	tlsConfig, agentTlsConfig, grpcTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
@@ -108,21 +109,13 @@ func main() {
 	}()
 
 	go func() {
-		listener, err := middleware.NewTLSListener(cfg.Service.AgentEndpointAddress, agentTlsConfig)
+		listener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
 		if err != nil {
 			log.Fatalf("creating listener: %s", err)
 		}
 
-		agentserver := agentserver.New(log, cfg, store, ca, listener, metrics)
+		agentserver := agentserver.New(log, cfg, store, ca, listener, agentTlsConfig, metrics)
 		if err := agentserver.Run(ctx); err != nil {
-			log.Fatalf("Error running server: %s", err)
-		}
-		cancel()
-	}()
-
-	go func() {
-		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, grpcTlsConfig)
-		if err := grpcServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
 		cancel()

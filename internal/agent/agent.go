@@ -252,10 +252,10 @@ func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 }
 
 func newGrpcClient(cfg *Config) (grpc_v1.RouterServiceClient, error) {
-	if cfg.GrpcManagementEndpoint == "" {
+	if cfg.ManagementService.Config.Service.Server == "" {
 		return nil, fmt.Errorf("no gRPC endpoint, disabling console functionality")
 	}
-	client, err := client.NewGRPCClientFromConfig(&cfg.ManagementService.Config, cfg.GrpcManagementEndpoint)
+	client, err := client.NewGRPCClientFromConfig(&cfg.ManagementService.Config)
 	if err != nil {
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
