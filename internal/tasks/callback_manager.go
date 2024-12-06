@@ -21,7 +21,7 @@ const (
 	FleetSelectorMatchTask = "fleet-selector-match"
 
 	// Task to validate a fleet template
-	ConditionTypeValidateTask = "fleet-template-validate"
+	FleetValidateTask = "fleet-template-validate"
 
 	// Task to render device
 	DeviceRenderTask = "device-render"
@@ -103,7 +103,7 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 	ref := ResourceReference{OrgID: fleet.OrgID, Kind: api.FleetKind, Name: fleet.Name}
 	if templateUpdated {
 		// If the template was updated, start rolling out the new spec
-		t.submitTask(ConditionTypeValidateTask, ref, ConditionTypeValidateOpUpdate)
+		t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
 	}
 	if selectorUpdated {
 		op := FleetSelectorMatchOpUpdate
@@ -116,7 +116,7 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 
 func (t *callbackManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
 	ref := ResourceReference{OrgID: orgId, Kind: api.FleetKind, Name: name}
-	t.submitTask(ConditionTypeValidateTask, ref, ConditionTypeValidateOpUpdate)
+	t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
 }
 
 func (t *callbackManager) RepositoryUpdatedCallback(repository *model.Repository) {

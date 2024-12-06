@@ -173,7 +173,7 @@ var _ = Describe("RepoUpdate", func() {
 		It("refreshes relevant fleets and devices", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.ConditionTypeValidateTask, "fleet1")).Times(1)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "fleet1")).Times(1)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "device1")).Times(1)
 			err := logic.HandleRepositoryUpdate(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -185,7 +185,7 @@ var _ = Describe("RepoUpdate", func() {
 		It("refreshes relevant fleets and devices", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.ConditionTypeValidateTask, "")).Times(2)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "")).Times(2)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "")).Times(2)
 			err := logic.HandleAllRepositoriesDeleted(ctx, log)
 			Expect(err).ToNot(HaveOccurred())

@@ -50,7 +50,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 	})
 
 	When("before is nil and after is not nil", func() {
-		It("submits ConditionTypeValidateTask and FleetSelectorMatchTask", func() {
+		It("submits FleetValidateTask and FleetSelectorMatchTask", func() {
 			after := CreateTestingFleet(orgId, "after", "image1", &map[string]string{"labelKey": "selector"})
 			callbacksManager.FleetUpdatedCallback(nil, after)
 
@@ -59,8 +59,8 @@ var _ = Describe("FleetUpdatedCallback", func() {
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
 			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
-			Expect(publishedResource.TaskName).To(Equal(ConditionTypeValidateTask))
-			Expect(publishedResource.Op).To(Equal(ConditionTypeValidateOpUpdate))
+			Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
+			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
@@ -81,12 +81,12 @@ var _ = Describe("FleetUpdatedCallback", func() {
 			Expect(publishedResource.OrgID).To(Equal(orgId))
 			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
-			Expect(publishedResource.Op).To(Equal(ConditionTypeValidateOpUpdate))
+			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 		})
 	})
 
 	When("template is updated", func() {
-		It("submits ConditionTypeValidateTask and FleetSelectorMatchTask", func() {
+		It("submits FleetValidateTask and FleetSelectorMatchTask", func() {
 			before := CreateTestingFleet(orgId, "before", "image1", &map[string]string{"labelKey": "selector1"})
 			after := CreateTestingFleet(orgId, "after", "image2", &map[string]string{"labelKey": "selector2"})
 			callbacksManager.FleetUpdatedCallback(before, after)
@@ -96,8 +96,8 @@ var _ = Describe("FleetUpdatedCallback", func() {
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
 			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
-			Expect(publishedResource.TaskName).To(Equal(ConditionTypeValidateTask))
-			Expect(publishedResource.Op).To(Equal(ConditionTypeValidateOpUpdate))
+			Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
+			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
@@ -250,7 +250,7 @@ var _ = Describe("FleetSourceUpdated", func() {
 		orgId = uuid.New()
 	})
 
-	It("submits ConditionTypeValidateTask", func() {
+	It("submits FleetValidateTask", func() {
 		callbacksManager.FleetSourceUpdated(orgId, "name")
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
@@ -258,8 +258,8 @@ var _ = Describe("FleetSourceUpdated", func() {
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
 		Expect(publishedResource.Kind).To(Equal(api.FleetKind))
-		Expect(publishedResource.TaskName).To(Equal(ConditionTypeValidateTask))
-		Expect(publishedResource.Op).To(Equal(ConditionTypeValidateOpUpdate))
+		Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
+		Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 	})
 })
 

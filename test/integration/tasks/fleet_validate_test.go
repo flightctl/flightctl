@@ -21,7 +21,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-var _ = Describe("ConditionTypeValidate", func() {
+var _ = Describe("FleetValidate", func() {
 	var (
 		log              *logrus.Logger
 		ctx              context.Context
@@ -144,7 +144,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 	When("a Fleet has a valid configuration", func() {
 		It("creates a new TemplateVersion", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
-			logic := tasks.NewConditionTypeValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -167,7 +167,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersionIfConditionTypeValid(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -197,7 +197,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 	When("a Fleet has an invalid git configuration", func() {
 		It("sets an error Condition", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
-			logic := tasks.NewConditionTypeValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
@@ -220,7 +220,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersionIfConditionTypeValid(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -248,7 +248,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 	When("a Fleet has an invalid http configuration", func() {
 		It("sets an error Condition", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
-			logic := tasks.NewConditionTypeValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -271,7 +271,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersionIfConditionTypeValid(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -299,7 +299,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 	When("a Fleet has a configuration with an invalid parameter", func() {
 		It("sets an error Condition", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
-			logic := tasks.NewConditionTypeValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
 			// Set a parameter that we don't support
@@ -324,7 +324,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersionIfConditionTypeValid(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
@@ -352,7 +352,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 	When("a Fleet has an invalid configuration type", func() {
 		It("sets an error Condition", func() {
 			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
-			logic := tasks.NewConditionTypeValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
+			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -372,7 +372,7 @@ var _ = Describe("ConditionTypeValidate", func() {
 			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = logic.CreateNewTemplateVersionIfConditionTypeValid(ctx)
+			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
 			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
