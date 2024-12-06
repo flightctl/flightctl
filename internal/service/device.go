@@ -339,5 +339,19 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
-	return nil, fmt.Errorf("not yet implemented")
+	orgId := store.NullOrgId
+
+	// soft delete the device in the DB
+	err := h.store.Device().SoftDelete(ctx, orgId, request.Name)
+
+	switch err {
+	case nil:
+		return server.DecommissionDevice200JSONResponse{}, nil
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+		return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.DecommissionDevice404JSONResponse{}, nil
+	default:
+		return nil, err
+	}
 }

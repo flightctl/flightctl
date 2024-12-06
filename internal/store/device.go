@@ -32,6 +32,7 @@ type Device interface {
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
+	SoftDelete(ctx context.Context, orgId uuid.UUID, name string) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
@@ -438,6 +439,17 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 
 	callback(&existingRecord, nil)
 	return nil
+}
+
+func (s *DeviceStore) SoftDelete(ctx context.Context, orgId uuid.UUID, name string) error {
+	condition := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.db.Delete(&condition)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
