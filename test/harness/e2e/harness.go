@@ -383,6 +383,6 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	device := response.JSON200
 	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
-	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUnknown))
+	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUpToDate))
 	return deviceId, device
 }
