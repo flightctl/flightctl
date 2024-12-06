@@ -146,7 +146,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	}
 
 	updatingCondition := v1alpha1.Condition{
-		Type: v1alpha1.DeviceUpdating,
+		Type: v1alpha1.ConditionTypeUpdating,
 	}
 
 	if b.specManager.IsUpgrading() {

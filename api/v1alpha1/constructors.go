@@ -4,11 +4,11 @@ func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{
 		Conditions: []Condition{
 			{
-				Type:   DeviceUpdating,
+				Type:   ConditionTypeUpdating,
 				Status: ConditionStatusUnknown,
 			},
 			{
-				Type:   DeviceSpecValid,
+				Type:   ConditionTypeSpecValid,
 				Status: ConditionStatusUnknown,
 			},
 		},

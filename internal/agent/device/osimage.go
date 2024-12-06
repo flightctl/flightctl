@@ -88,7 +88,7 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	updateErr = c.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
+		Type:    v1alpha1.ConditionTypeUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.UpdateStateRebooting),
 		Message: infoMsg,

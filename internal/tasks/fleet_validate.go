@@ -12,21 +12,21 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
-	logic := NewFleetValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
+func ConditionTypeValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+	logic := NewConditionTypeValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
 	switch {
-	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
-		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
+	case resourceRef.Op == ConditionTypeValidateOpUpdate && resourceRef.Kind == api.FleetKind:
+		err := logic.CreateNewTemplateVersionIfConditionTypeValid(ctx)
 		if err != nil {
 			log.Errorf("failed validating fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 		}
 	default:
-		log.Errorf("FleetValidate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
+		log.Errorf("ConditionTypeValidate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
 	}
 	return nil
 }
 
-type FleetValidateLogic struct {
+type ConditionTypeValidateLogic struct {
 	callbackManager CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
@@ -35,11 +35,11 @@ type FleetValidateLogic struct {
 	templateConfig  *[]api.ConfigProviderSpec
 }
 
-func NewFleetValidateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) FleetValidateLogic {
-	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
+func NewConditionTypeValidateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) ConditionTypeValidateLogic {
+	return ConditionTypeValidateLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
 }
 
-func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
+func (t *ConditionTypeValidateLogic) CreateNewTemplateVersionIfConditionTypeValid(ctx context.Context) error {
 	fleet, err := t.store.Fleet().Get(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
 	if err != nil {
 		return fmt.Errorf("failed getting fleet %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
@@ -90,8 +90,8 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	return t.setStatus(ctx, nil)
 }
 
-func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error) error {
-	condition := api.Condition{Type: api.FleetValid}
+func (t *ConditionTypeValidateLogic) setStatus(ctx context.Context, validationErr error) error {
+	condition := api.Condition{Type: api.ConditionTypeValid}
 
 	if validationErr == nil {
 		condition.Status = api.ConditionStatusTrue
@@ -109,7 +109,7 @@ func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error)
 	return validationErr
 }
 
-func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, error) {
+func (t *ConditionTypeValidateLogic) validateConfig(ctx context.Context) ([]string, error) {
 	if t.templateConfig == nil {
 		return nil, nil
 	}
@@ -162,7 +162,7 @@ func validateParameterFormatInConfig(item RenderItem) error {
 	return ValidateParameterFormat(cfgJson)
 }
 
-func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
+func (t *ConditionTypeValidateLogic) validateConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	configType, err := configItem.Type()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
@@ -182,7 +182,7 @@ func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem 
 	}
 }
 
-func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
+func (t *ConditionTypeValidateLogic) validateGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
@@ -200,7 +200,7 @@ func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
 }
 
-func (t *FleetValidateLogic) validateK8sConfig(configItem *api.ConfigProviderSpec) (*string, *string, error) {
+func (t *ConditionTypeValidateLogic) validateK8sConfig(configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
@@ -216,7 +216,7 @@ func (t *FleetValidateLogic) validateK8sConfig(configItem *api.ConfigProviderSpe
 	return &k8sSpec.Name, nil, nil
 }
 
-func (t *FleetValidateLogic) validateInlineConfig(configItem *api.ConfigProviderSpec) (*string, *string, error) {
+func (t *ConditionTypeValidateLogic) validateInlineConfig(configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
@@ -226,7 +226,7 @@ func (t *FleetValidateLogic) validateInlineConfig(configItem *api.ConfigProvider
 	return &inlineSpec.Name, nil, nil
 }
 
-func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
+func (t *ConditionTypeValidateLogic) validateHttpProviderConfig(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	httpConfigProviderSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)

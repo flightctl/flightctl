@@ -16,7 +16,7 @@ const (
 	FleetSelectorMatchOpUpdateOverlap = "update-overlap"
 	FleetSelectorMatchOpDeleteAll     = "delete-all"
 	TemplateVersionPopulateOpCreated  = "create"
-	FleetValidateOpUpdate             = "update"
+	ConditionTypeValidateOpUpdate     = "update"
 	DeviceRenderOpUpdate              = "update"
 	RepositoryUpdateOpUpdate          = "update"
 	RepositoryUpdateOpDeleteAll       = "delete-all"

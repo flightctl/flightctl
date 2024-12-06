@@ -46,7 +46,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 	}
 	status := v1alpha1.EnrollmentRequestStatus{
 		Conditions: []v1alpha1.Condition{{
-			Type:    v1alpha1.EnrollmentRequestApproved,
+			Type:    v1alpha1.ConditionTypeApproved,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  "ManuallyApproved",
 			Message: "Approved by "}},

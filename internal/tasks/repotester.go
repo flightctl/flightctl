@@ -134,7 +134,7 @@ func (r *RepoTester) SetAccessCondition(repository model.Repository, err error) 
 	if repository.Status.Data.Conditions == nil {
 		repository.Status.Data.Conditions = []api.Condition{}
 	}
-	changed := api.SetStatusConditionByError(&repository.Status.Data.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
+	changed := api.SetStatusConditionByError(&repository.Status.Data.Conditions, api.ConditionTypeAccessible, "Accessible", "Inaccessible", err)
 	if changed {
 		return r.repoStore.UpdateStatusIgnoreOrg(&repository)
 	}

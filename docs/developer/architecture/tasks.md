@@ -13,9 +13,9 @@ This flow chart depicts the tasks that each update to the store can trigger, and
 
 ```mermaid
 flowchart TD
-    FltTemplateUpdated[(Fleet template updated)] --> FleetValidateTask[[FleetValidateTask]]
+    FltTemplateUpdated[(Fleet template updated)] --> ConditionTypeValidateTask[[ConditionTypeValidateTask]]
     FltSelectorUpdated[(Fleet selector updated)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
-    FltConfigSourceUpdated[(Fleet config source updated)] --> FleetValidateTask[[FleetValidateTask]]
+    FltConfigSourceUpdated[(Fleet config source updated)] --> ConditionTypeValidateTask[[ConditionTypeValidateTask]]
     RepoUpdated[(Repository updated)] --> RepositoryUpdatesTask[[RepositoryUpdatesTask]]
     ReposDeleted[(All repositories deleted)] --> RepositoryUpdatesTask[[RepositoryUpdatesTask]]
     FleetsDeleted[(All fleets deleted)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
@@ -29,7 +29,7 @@ flowchart TD
 
     FleetRolloutTask --> DevSpecUpdated
     FleetSelectorMatchTask --> DevOwnerUpdated
-    FleetValidateTask --> TemplateVersionCreated
+    ConditionTypeValidateTask --> TemplateVersionCreated
     RepositoryUpdatesTask --> FltConfigSourceUpdated
     RepositoryUpdatesTask --> DevConfigSourceUpdated
 ```

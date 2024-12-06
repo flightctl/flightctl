@@ -68,7 +68,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 	}
 
 	condition := v1alpha1.Condition{
-		Type:    v1alpha1.EnrollmentRequestApproved,
+		Type:    v1alpha1.ConditionTypeApproved,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  "ManuallyApproved",
 		Message: "Approved by " + *approval.ApprovedBy,
@@ -260,7 +260,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 
 	// if the enrollment request was already approved we should not try to approve it one more time
 	if request.Body.Approved {
-		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
+		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.ConditionTypeApproved) {
 			return server.ApproveEnrollmentRequest400JSONResponse{Message: "Enrollment request is already approved"}, nil
 		}
 		if request.Body.ApprovedAt != nil {

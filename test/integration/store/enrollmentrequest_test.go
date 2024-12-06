@@ -214,7 +214,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 		It("UpdateEnrollmentRequestStatus", func() {
 			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
+				Type:               api.ConditionTypeApproved,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -240,7 +240,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
 			Expect(dev.Status.Conditions).ToNot(BeEmpty())
-			Expect(dev.Status.Conditions[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(dev.Status.Conditions[0].Type).To(Equal(api.ConditionTypeApproved))
 		})
 	})
 })

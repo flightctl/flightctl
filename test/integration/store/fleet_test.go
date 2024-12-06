@@ -399,7 +399,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			condition := api.Condition{
-				Type:               api.FleetValid,
+				Type:               api.ConditionTypeValid,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -411,7 +411,7 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
-			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.ConditionTypeValid))
 
 			updatedFleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
 
@@ -430,7 +430,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
-			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.ConditionTypeValid))
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
 			Expect(*updatedFleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 		})
@@ -628,7 +628,7 @@ var _ = Describe("FleetStore create", func() {
 
 		It("UpdateStatus", func() {
 			condition := api.Condition{
-				Type:               api.FleetValid,
+				Type:               api.ConditionTypeValid,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -648,7 +648,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
-			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.ConditionTypeValid))
 		})
 
 		It("List with owner param", func() {
@@ -692,7 +692,7 @@ var _ = Describe("FleetStore create", func() {
 		It("UpdateConditions", func() {
 			conditions := []api.Condition{
 				{
-					Type:    api.EnrollmentRequestApproved,
+					Type:    api.ConditionTypeApproved,
 					Status:  api.ConditionStatusFalse,
 					Reason:  "reason",
 					Message: "message",
@@ -704,7 +704,7 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
-			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.ConditionTypeApproved))
 			Expect(updatedFleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
 		})
 

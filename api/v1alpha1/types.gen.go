@@ -39,19 +39,17 @@ const (
 
 // Defines values for ConditionType.
 const (
-	CertificateSigningRequestApproved ConditionType = "Approved"
-	CertificateSigningRequestDenied   ConditionType = "Denied"
-	CertificateSigningRequestFailed   ConditionType = "Failed"
-	DeviceMultipleOwners              ConditionType = "MultipleOwners"
-	DeviceSpecValid                   ConditionType = "SpecValid"
-	DeviceUpdating                    ConditionType = "Updating"
-	EnrollmentRequestApproved         ConditionType = "Approved"
-	FleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
-	FleetValid                        ConditionType = "Valid"
-	RepositoryAccessible              ConditionType = "Accessible"
-	ResourceSyncAccessible            ConditionType = "Accessible"
-	ResourceSyncResourceParsed        ConditionType = "ResourceParsed"
-	ResourceSyncSynced                ConditionType = "Synced"
+	ConditionTypeAccessible           ConditionType = "Accessible"
+	ConditionTypeApproved             ConditionType = "Approved"
+	ConditionTypeDenied               ConditionType = "Denied"
+	ConditionTypeFailed               ConditionType = "Failed"
+	ConditionTypeMultipleOwners       ConditionType = "MultipleOwners"
+	ConditionTypeOverlappingSelectors ConditionType = "OverlappingSelectors"
+	ConditionTypeResourceParsed       ConditionType = "ResourceParsed"
+	ConditionTypeSpecValid            ConditionType = "SpecValid"
+	ConditionTypeSynced               ConditionType = "Synced"
+	ConditionTypeUpdating             ConditionType = "Updating"
+	ConditionTypeValid                ConditionType = "Valid"
 )
 
 // Defines values for DeviceDecommissionDecommissionTarget.

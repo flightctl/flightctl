@@ -21,7 +21,7 @@ const (
 	FleetSelectorMatchTask = "fleet-selector-match"
 
 	// Task to validate a fleet template
-	FleetValidateTask = "fleet-template-validate"
+	ConditionTypeValidateTask = "fleet-template-validate"
 
 	// Task to render device
 	DeviceRenderTask = "device-render"
@@ -103,11 +103,11 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 	ref := ResourceReference{OrgID: fleet.OrgID, Kind: api.FleetKind, Name: fleet.Name}
 	if templateUpdated {
 		// If the template was updated, start rolling out the new spec
-		t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
+		t.submitTask(ConditionTypeValidateTask, ref, ConditionTypeValidateOpUpdate)
 	}
 	if selectorUpdated {
 		op := FleetSelectorMatchOpUpdate
-		if fleet.Status != nil && fleet.Status.Data.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Data.Conditions, api.FleetOverlappingSelectors) {
+		if fleet.Status != nil && fleet.Status.Data.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Data.Conditions, api.ConditionTypeOverlappingSelectors) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)
@@ -116,7 +116,7 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 
 func (t *callbackManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
 	ref := ResourceReference{OrgID: orgId, Kind: api.FleetKind, Name: name}
-	t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
+	t.submitTask(ConditionTypeValidateTask, ref, ConditionTypeValidateOpUpdate)
 }
 
 func (t *callbackManager) RepositoryUpdatedCallback(repository *model.Repository) {
@@ -181,7 +181,7 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 		// Check if the new labels cause the device to move to a different fleet
 		op := FleetSelectorMatchOpUpdate
 
-		if api.IsStatusConditionTrue(device.Status.Data.Conditions, api.DeviceMultipleOwners) {
+		if api.IsStatusConditionTrue(device.Status.Data.Conditions, api.ConditionTypeMultipleOwners) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)

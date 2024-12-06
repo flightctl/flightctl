@@ -188,7 +188,7 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.DeviceUpdating,
+			Type:    v1alpha1.ConditionTypeUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStatePreparing),
 			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.RenderedVersion),
@@ -211,7 +211,7 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 
 func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
+		Type:    v1alpha1.ConditionTypeUpdating,
 		Status:  v1alpha1.ConditionStatusFalse,
 		Reason:  string(v1alpha1.UpdateStateUpdated),
 		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.RenderedVersion),
@@ -333,7 +333,7 @@ func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alph
 func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.DeviceUpdating,
+			Type:    v1alpha1.ConditionTypeUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStateApplyingUpdate),
 			Message: fmt.Sprintf("The device is applying renderedVersion: %s", desired.RenderedVersion),
@@ -410,7 +410,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 	version := desired.RenderedVersion
 	statusUpdate := v1alpha1.DeviceSummaryStatus{}
 	conditionUpdate := v1alpha1.Condition{
-		Type: v1alpha1.DeviceUpdating,
+		Type: v1alpha1.ConditionTypeUpdating,
 	}
 
 	if !errors.IsRetryable(syncErr) {

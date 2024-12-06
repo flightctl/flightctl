@@ -304,10 +304,10 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
-	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
+	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeDenied) {
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been denied"}, nil
 	}
-	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeApproved) {
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been approved"}, nil
 	}
 
@@ -327,7 +327,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 	}
 
 	approvedCondition := api.Condition{
-		Type:    api.CertificateSigningRequestApproved,
+		Type:    api.ConditionTypeApproved,
 		Status:  api.ConditionStatusTrue,
 		Reason:  "Approved",
 		Message: "Approved",
@@ -353,13 +353,13 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 func (h *ServiceHandler) DenyCertificateSigningRequest(ctx context.Context, request server.DenyCertificateSigningRequestRequestObject) (server.DenyCertificateSigningRequestResponseObject, error) {
 	orgId := store.NullOrgId
 	approvedCondition := api.Condition{
-		Type:    api.CertificateSigningRequestApproved,
+		Type:    api.ConditionTypeApproved,
 		Status:  api.ConditionStatusFalse,
 		Reason:  "Denied",
 		Message: "Denied",
 	}
 	deniedCondition := api.Condition{
-		Type:    api.CertificateSigningRequestDenied,
+		Type:    api.ConditionTypeDenied,
 		Status:  api.ConditionStatusTrue,
 		Reason:  "Denied",
 		Message: "Denied",

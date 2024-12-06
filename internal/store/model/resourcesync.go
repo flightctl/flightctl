@@ -119,7 +119,7 @@ func (rs *ResourceSync) NeedsSyncToHash(hash string) bool {
 		return true
 	}
 
-	if api.IsStatusConditionFalse(rs.Status.Data.Conditions, api.ResourceSyncSynced) {
+	if api.IsStatusConditionFalse(rs.Status.Data.Conditions, api.ConditionTypeSynced) {
 		return true
 	}
 
@@ -150,21 +150,21 @@ func (rs *ResourceSync) SetCondition(conditionType api.ConditionType, okReason, 
 }
 
 func (rs *ResourceSync) AddRepoNotFoundCondition(err error) {
-	rs.SetCondition(api.ResourceSyncAccessible, "accessible", "repository resource not found", err)
+	rs.SetCondition(api.ConditionTypeAccessible, "accessible", "repository resource not found", err)
 }
 
 func (rs *ResourceSync) AddRepoAccessCondition(err error) {
-	rs.SetCondition(api.ResourceSyncAccessible, "accessible", "failed to clone repository", err)
+	rs.SetCondition(api.ConditionTypeAccessible, "accessible", "failed to clone repository", err)
 }
 
 func (rs *ResourceSync) AddPathAccessCondition(err error) {
-	rs.SetCondition(api.ResourceSyncAccessible, "accessible", "path not found in repository", err)
+	rs.SetCondition(api.ConditionTypeAccessible, "accessible", "path not found in repository", err)
 }
 
 func (rs *ResourceSync) AddResourceParsedCondition(err error) {
-	rs.SetCondition(api.ResourceSyncResourceParsed, "Success", "Fail", err)
+	rs.SetCondition(api.ConditionTypeResourceParsed, "Success", "Fail", err)
 }
 
 func (rs *ResourceSync) AddSyncedCondition(err error) {
-	rs.SetCondition(api.ResourceSyncSynced, "Success", "Fail", err)
+	rs.SetCondition(api.ConditionTypeSynced, "Success", "Fail", err)
 }
