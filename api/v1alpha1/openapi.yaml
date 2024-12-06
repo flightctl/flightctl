@@ -1633,7 +1633,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/Error'
         "400":
           description: Bad Request
           content:
@@ -1642,6 +1642,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: InternalServerError
           content:
             application/json:
               schema:
