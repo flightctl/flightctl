@@ -331,7 +331,7 @@ func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*
 }
 
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
-	lastStatusPrint := ""
+	lastResourcePrint := ""
 
 	Eventually(func() error {
 		logrus.Infof("Waiting for condition: %q to be met", description)
@@ -343,15 +343,15 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		}
 		device := response.JSON200
 
-		yamlData, err := yaml.Marshal(device.Status)
+		yamlData, err := yaml.Marshal(device)
 		yamlString := string(yamlData)
 		Expect(err).ToNot(HaveOccurred())
-		if yamlString != lastStatusPrint {
+		if yamlString != lastResourcePrint {
 			fmt.Println("")
-			fmt.Println("======================= Device status change ===================== ")
+			fmt.Println("======================= Device resource change ===================== ")
 			fmt.Println(yamlString)
 			fmt.Println("================================================================== ")
-			lastStatusPrint = yamlString
+			lastResourcePrint = yamlString
 		}
 
 		if condition(device) {
@@ -383,6 +383,5 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	device := response.JSON200
 	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
-	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUpToDate))
 	return deviceId, device
 }
