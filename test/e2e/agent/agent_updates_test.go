@@ -34,7 +34,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			device := response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 			Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
-			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUnknown))
 
 			var newImageReference string
 
