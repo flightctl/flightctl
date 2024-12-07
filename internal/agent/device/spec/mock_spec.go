@@ -174,20 +174,6 @@ func (mr *MockManagerMockRecorder) Read(specType any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Read", reflect.TypeOf((*MockManager)(nil).Read), specType)
 }
 
-// RenderedVersion mocks base method.
-func (m *MockManager) RenderedVersion(specType Type) string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RenderedVersion", specType)
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// RenderedVersion indicates an expected call of RenderedVersion.
-func (mr *MockManagerMockRecorder) RenderedVersion(specType any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenderedVersion", reflect.TypeOf((*MockManager)(nil).RenderedVersion), specType)
-}
-
 // Rollback mocks base method.
 func (m *MockManager) Rollback() error {
 	m.ctrl.T.Helper()

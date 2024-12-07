@@ -24,11 +24,8 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	// agent banner file
-	BannerFile        = "/etc/issue.d/flightctl-banner.issue"
-	BootstrapComplete = "Bootstrap complete"
-)
+// agent banner file
+const BannerFile = "/etc/issue.d/flightctl-banner.issue"
 
 type Bootstrap struct {
 	deviceName           string
@@ -118,50 +115,21 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	b.updateStatus(ctx)
+	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
+		Status: v1alpha1.DeviceSummaryStatusOnline,
+		Info:   util.StrToPtr("Bootstrap complete"),
+	}))
+	if updateErr != nil {
+		b.log.Warnf("Failed setting status: %v", updateErr)
+	}
 
 	// unset NOTIFY_SOCKET on successful bootstrap to prevent subprocesses from
 	// using it.
 	// ref: https://bugzilla.redhat.com/show_bug.cgi?id=1781506
 	os.Unsetenv("NOTIFY_SOCKET")
 
-	b.log.Info(BootstrapComplete)
+	b.log.Info("Bootstrap complete")
 	return nil
-}
-
-func (b *Bootstrap) updateStatus(ctx context.Context) {
-	updateFns := []status.UpdateStatusFn{
-		status.SetConfig(v1alpha1.DeviceConfigStatus{
-			RenderedVersion: b.specManager.RenderedVersion(spec.Current),
-		}),
-		status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-			Status: v1alpha1.DeviceSummaryStatusOnline,
-			Info:   util.StrToPtr(BootstrapComplete),
-		}),
-	}
-
-	_, updateErr := b.statusManager.Update(ctx, updateFns...)
-	if updateErr != nil {
-		b.log.Warnf("Failed setting status: %v", updateErr)
-	}
-
-	updatingCondition := v1alpha1.Condition{
-		Type: v1alpha1.DeviceUpdating,
-	}
-
-	if b.specManager.IsUpgrading() {
-		updatingCondition.Status = v1alpha1.ConditionStatusTrue
-		// TODO: only set rebooting in case where we are actually rebooting
-		updatingCondition.Reason = string(v1alpha1.UpdateStateRebooting)
-	} else {
-		updatingCondition.Status = v1alpha1.ConditionStatusFalse
-		updatingCondition.Reason = string(v1alpha1.UpdateStateUpdated)
-	}
-
-	updateErr = b.statusManager.UpdateCondition(ctx, updatingCondition)
-	if updateErr != nil {
-		b.log.Warnf("Failed setting status: %v", updateErr)
-	}
 }
 
 func (b *Bootstrap) ensureSpecFiles() error {

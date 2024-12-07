@@ -46,9 +46,6 @@ func TestInitialization(t *testing.T) {
 		currentDeviceSpec := &v1alpha1.RenderedDeviceSpec{}
 		mockSpecManager.EXPECT().Read(spec.Current).Return(currentDeviceSpec, nil)
 		mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
-		mockSpecManager.EXPECT().RenderedVersion(gomock.Any()).Return("1")
-		mockSpecManager.EXPECT().IsUpgrading().Return(false)
-		mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil)
 		require.NoError(b.Initialize(ctx))
 	})
 }

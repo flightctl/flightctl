@@ -269,20 +269,6 @@ func (s *manager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
 	return spec, nil
 }
 
-func (s *manager) RenderedVersion(specType Type) string {
-	switch specType {
-	case Current:
-		return s.currentRenderedVersion
-	case Desired:
-		return s.desiredRenderedVersion
-	case Rollback:
-		return s.rollbackRenderedVersion
-	default:
-		s.log.Errorf("Unknown spec type: %s", specType)
-		return ""
-	}
-}
-
 func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
 	renderedVersion := s.getRenderedVersion()
 	newDesired := &v1alpha1.RenderedDeviceSpec{}
