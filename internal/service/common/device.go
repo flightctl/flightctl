@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -30,7 +31,25 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 	if errs := validateDeviceStatus(device); len(errs) > 0 {
 		return server.ReplaceDeviceStatus400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
+	if request.Name != *request.Body.Metadata.Name {
+		return server.ReplaceDeviceStatus400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	}
 	device.Status.LastSeen = time.Now()
+
+	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
+	// that the agent does not provide or only have an outdated knowledge of
+	oldDevice, err := st.Device().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.ReplaceDeviceStatus400JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+	device.Metadata.Annotations = oldDevice.Metadata.Annotations
 	UpdateServiceSideStatus(ctx, st, log, orgId, device)
 
 	result, err := st.Device().UpdateStatus(ctx, orgId, device)
@@ -48,8 +67,9 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 	}
 }
 
-func validateDeviceStatus(_ *api.Device) []error {
+func validateDeviceStatus(d *api.Device) []error {
 	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateResourceName(d.Metadata.Name)...)
 	// TODO: implement validation of agent's status updates
 	return allErrs
 }
