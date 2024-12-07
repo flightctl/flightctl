@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 )
 
 type Type string
@@ -54,6 +55,7 @@ type Manager interface {
 	SetClient(client.Management)
 	// GetDesired returns the desired rendered device spec from the management API.
 	GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error)
+	status.Exporter
 }
 
 type PriorityQueue interface {
@@ -73,4 +75,8 @@ type PriorityQueue interface {
 	SetVersionFailed(version string)
 	// IsVersionFailed returns true if a template version is marked as failed.
 	IsVersionFailed(version string) bool
+}
+
+var initRenderedDeviceSpec = &v1alpha1.RenderedDeviceSpec{
+	RenderedVersion: "0",
 }

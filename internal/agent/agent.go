@@ -139,16 +139,21 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create systemd manager
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
+	// create os manager
+	osManager := device.NewOSManager(bootcClient)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
-		resourceManager,
-		hookManager,
-		applicationManager,
-		systemdManager,
-		executer,
 		a.log,
 	)
+
+	// register status exporters
+	statusManager.RegisterStatusExporter(applicationManager)
+	statusManager.RegisterStatusExporter(systemdManager)
+	statusManager.RegisterStatusExporter(resourceManager)
+	statusManager.RegisterStatusExporter(osManager)
+	statusManager.RegisterStatusExporter(specManager)
 
 	// create config controller
 	configController := config.NewController(
@@ -191,7 +196,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create os image controller
 	osImageController := device.NewOSImageController(
-		executer,
+		bootcClient,
 		statusManager,
 		specManager,
 		a.log,

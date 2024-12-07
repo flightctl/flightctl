@@ -83,7 +83,7 @@ func TestCPUMonitor(t *testing.T) {
 		return len(alerts) == 1
 	}, retryTimeout, retryInterval, "alert add")
 
-	deviceResourceStatusType, alertMsg := GetHighestSeverityResourceStatusFromAlerts(CPUMonitorType, alerts)
+	deviceResourceStatusType, alertMsg := getHighestSeverityResourceStatusFromAlerts(CPUMonitorType, alerts)
 	require.NotEmpty(alertMsg) // ensure we have an alert message
 
 	require.Equal(v1alpha1.DeviceResourceStatusWarning, deviceResourceStatusType)
