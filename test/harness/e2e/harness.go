@@ -376,3 +376,35 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 	return deviceId, device
 }
+
+func (h *Harness) CleanUpDevices() (string, error) {
+	return h.CLI("delete", "devices")
+
+}
+
+func (h *Harness) CleanUpFleets() (string, error) {
+	return h.CLI("delete", "fleets")
+
+}
+
+func (h *Harness) GetFleetByYaml(fleetYaml string) v1alpha1.Fleet {
+	fleetBytes, err := os.ReadFile(fleetYaml)
+	Expect(err).ToNot(HaveOccurred())
+
+	var fleet v1alpha1.Fleet
+	err = yaml.Unmarshal(fleetBytes, &fleet)
+	Expect(err).ToNot(HaveOccurred())
+
+	return fleet
+}
+
+func (h *Harness) GetDeviceByYaml(deviceYaml string) v1alpha1.Device {
+	deviceBytes, err := os.ReadFile(deviceYaml)
+	Expect(err).ToNot(HaveOccurred())
+
+	var device v1alpha1.Device
+	err = yaml.Unmarshal(deviceBytes, &device)
+	Expect(err).ToNot(HaveOccurred())
+
+	return device
+}
