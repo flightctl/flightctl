@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,8 +32,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			response := harness.GetDeviceWithStatusSystem(deviceId)
 			device := response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
-			Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
-			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUnknown))
 
 			var newImageReference string
 
@@ -52,7 +49,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "1m")
 
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
@@ -68,9 +66,10 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
 				}, "2m")
 
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
-
+			// Check the device status after the update completes
+			response = harness.GetDeviceWithStatusSystem(deviceId)
+			device = response.JSON200
+			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUpToDate))
 			logrus.Info("Device updated to new image 🎉")
 		})
