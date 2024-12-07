@@ -58,6 +58,18 @@ func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, devic
 	return device, false, nil
 }
 
+func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice *v1alpha1.Device, resp server.PatchDeviceResponseObject) {
+	resp200, ok := resp.(server.PatchDevice200JSONResponse)
+	require.True(ok)
+	require.NotNil(resp200)
+	actualDevice := (v1alpha1.Device)(resp200)
+	// ignore fields updated by server-side status logic when testing equality
+	actualDevice.Status.Summary = expectedDevice.Status.Summary
+	actualDevice.Status.Updated = expectedDevice.Status.Updated
+	actualDevice.Status.ApplicationsSummary = expectedDevice.Status.ApplicationsSummary
+	require.Equal(server.PatchDevice200JSONResponse(actualDevice), resp)
+}
+
 func verifyDevicePatchFailed(require *require.Assertions, resp server.PatchDeviceResponseObject) {
 	_, ok := resp.(server.PatchDevice400JSONResponse)
 	require.True(ok)
@@ -145,14 +157,14 @@ func TestDevicePatchSpec(t *testing.T) {
 	}
 	resp, device := testDevicePatch(require, pr)
 	device.Spec.Os.Image = "newimg"
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 
 	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec/os"},
 	}
 	resp, device = testDevicePatch(require, pr)
 	device.Spec.Os = nil
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 
 	value = "foo"
 	pr = v1alpha1.PatchRequest{
@@ -205,7 +217,7 @@ func TestDevicePatchLabels(t *testing.T) {
 
 	resp, device := testDevicePatch(require, pr)
 	device.Metadata.Labels = &addLabels
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 
 	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
@@ -213,7 +225,7 @@ func TestDevicePatchLabels(t *testing.T) {
 
 	resp, device = testDevicePatch(require, pr)
 	device.Metadata.Labels = &map[string]string{}
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 }
 
 func TestDeviceNonExistingResource(t *testing.T) {
