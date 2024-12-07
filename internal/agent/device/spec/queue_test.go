@@ -114,47 +114,54 @@ func TestQueue(t *testing.T) {
 
 func TestRequeueThreshold(t *testing.T) {
 	require := require.New(t)
-	testCases := []struct {
-		name                     string
-		requeueThreshold         int
-		requeueThresholdDuration time.Duration
-		versionToRequeue         string
-		expectedNextAvailable    bool
-		sleepDuration            time.Duration
-	}{
-		{
-			name:                     "test requeue threshold",
-			requeueThreshold:         1,
-			requeueThresholdDuration: time.Millisecond * 200,
-			versionToRequeue:         "1",
-		},
-		// TODO: extend test coverage
-	}
+	const (
+		requeueThreshold         = 1
+		requeueThresholdDuration = time.Millisecond * 200
+		renderedVersion                  = "1"
+	)
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	maxSize := 1
+	q := newQueue(log, 0, maxSize, requeueThreshold, requeueThresholdDuration)
+	item := newItem(&v1alpha1.RenderedDeviceSpec{RenderedVersion: renderedVersion})
 
-	for _, tt := range testCases {
-		t.Run(tt.name, func(t *testing.T) {
-			log := log.NewPrefixLogger("test")
-			log.SetLevel(logrus.DebugLevel)
-			maxSize := 1
-			q := newQueue(log, 0, maxSize, tt.requeueThreshold, tt.requeueThresholdDuration)
-			item := newItem(&v1alpha1.RenderedDeviceSpec{RenderedVersion: tt.versionToRequeue})
+	_, ok := q.Next()
+	require.False(ok, "queue should be empty")
 
-			err := q.Add(item)
-			require.NoError(err)
-			_, ok := q.Next()
-			require.True(ok, "first retrieval should succeed")
+	// add item to queue
+	err := q.Add(item)
+	require.NoError(err)
 
-			err = q.Add(item)
-			require.NoError(err)
-			_, ok = q.Next()
-			require.False(ok, "retrieval before threshold duration should return false")
+	// ensure item is immediately available
+	status := q.requeueStatus[item.Version]
+	require.NotNil(status)
+	require.Equal(0, status.tries, "tries should be zero")
+	require.True(status.nextAvailable.IsZero(), "nextAvailable should be zero")
 
-			require.Eventually(func() bool {
-				item, ok := q.Next()
-				return ok && item.Spec.RenderedVersion == tt.versionToRequeue
-			}, time.Second, time.Millisecond*10, "retrieval after threshold duration should succeed")
-		})
-	}
+	// add same item to queue before it is tried
+	err = q.Add(item)
+	require.NoError(err)
+
+	// ensure item is immediately available
+	status = q.requeueStatus[item.Version]
+	require.NotNil(status)
+	require.Equal(0, status.tries, "tries should be zero")
+	require.True(status.nextAvailable.IsZero(), "nextAvailable should be zero")
+
+	// retrieve item
+	_, ok = q.Next()
+	require.True(ok, "first retrieval should succeed")
+
+	// add same item to queue after it is tried should trigger requeue thresholdDuration
+	err = q.Add(item)
+	require.NoError(err)
+	_, ok = q.Next()
+	require.False(ok, "retrieval before threshold duration should return false")
+
+	require.Eventually(func() bool {
+		item, ok := q.Next()
+		return ok && item.Spec.RenderedVersion == renderedVersion
+	}, time.Second, time.Millisecond*10, "retrieval after threshold duration should succeed")
 }
 
 func TestEnforceMaxSize(t *testing.T) {
@@ -298,7 +305,6 @@ func TestEnforceMaxSize(t *testing.T) {
 			copy(itemHeap, tt.initialHeap)
 			heap.Init(&itemHeap)
 
-			// // Initialize Queue
 			q := &queue{
 				log:                           log,
 				maxSize:                       tt.maxSize,

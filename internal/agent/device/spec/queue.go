@@ -76,7 +76,7 @@ func (q *queue) Add(item *Item) error {
 		q.log.Debugf("Template version already in queue: %d", version)
 
 		// if the queue is empty and a requeue threshold is set, enforce requeue delay
-		if q.requeueThreshold > 0 && q.heap.Len() == 0 {
+		if q.requeueThreshold > 0 && q.heap.Len() == 0 && requeue.tries > 0 {
 			requeue.count++
 			if requeue.count >= q.requeueThreshold && requeue.nextAvailable.IsZero() {
 				requeue.nextAvailable = time.Now().Add(q.requeueThresholdDelayDuration)
