@@ -3,11 +3,10 @@ package status
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/container"
-	"github.com/flightctl/flightctl/pkg/executer"
 )
 
 const (
@@ -15,20 +14,7 @@ const (
 	DefaultBootIDPath = "/proc/sys/kernel/random/boot_id"
 )
 
-var _ Exporter = (*SystemInfo)(nil)
-
-// SystemInfo collects system information.
-type SystemInfo struct {
-	bootcClient *container.BootcCmd
-}
-
-func newSystemInfo(exec executer.Executer) *SystemInfo {
-	return &SystemInfo{
-		bootcClient: container.NewBootcCmd(exec),
-	}
-}
-
-func (s *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func systemInfoStatus(_ context.Context, status *v1alpha1.DeviceStatus) error {
 	if !status.SystemInfo.IsEmpty() {
 		return nil
 	}
@@ -44,18 +30,13 @@ func (s *SystemInfo) Export(ctx context.Context, status *v1alpha1.DeviceStatus) 
 		BootID:          bootID,
 	}
 
-	bootcInfo, err := s.bootcClient.Status(ctx)
-	if err != nil {
-		return fmt.Errorf("getting bootc status: %w", err)
-	}
-
-	osImage := bootcInfo.GetBootedImage()
-	if osImage == "" {
-		return fmt.Errorf("getting booted os image: %w", err)
-	}
-
-	status.Os.Image = osImage
-	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
-
 	return nil
+}
+
+func getBootID(bootIDPath string) (string, error) {
+	bootID, err := os.ReadFile(bootIDPath)
+	if err != nil {
+		return "", err
+	}
+	return string(bootID), nil
 }
