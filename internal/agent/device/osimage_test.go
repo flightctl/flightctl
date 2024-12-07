@@ -166,7 +166,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", "mynewimage")
 			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(ctx context.Context, fn status.UpdateStatusFn) (*v1alpha1.DeviceStatus, error) {
-					status := v1alpha1.NewDeviceStatus()
+					status := status.NewAgentDeviceStatus()
 					err := fn(&status)
 					Expect(err).To(BeNil())
 					Expect(status.Summary.Status).To(Equal(summaryStatus))

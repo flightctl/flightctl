@@ -28,7 +28,7 @@ func NewManager(
 	log *log.PrefixLogger,
 ) *StatusManager {
 	exporters := newExporters(resourceManager, applicationManager, systemdManager, executer, log)
-	status := v1alpha1.NewDeviceStatus()
+	status := NewAgentDeviceStatus()
 	return &StatusManager{
 		deviceName: deviceName,
 		exporters:  exporters,
@@ -172,5 +172,38 @@ func SetOSImage(osStatus v1alpha1.DeviceOSStatus) UpdateStatusFn {
 		status.Os.Image = osStatus.Image
 		status.Os.ImageDigest = osStatus.ImageDigest
 		return nil
+	}
+}
+
+// NewAgentDeviceStatus creates a new device status with default values owned by the agent.
+func NewAgentDeviceStatus() v1alpha1.DeviceStatus {
+	return v1alpha1.DeviceStatus{
+		Conditions: []v1alpha1.Condition{
+			{
+				Type:   v1alpha1.DeviceUpdating,
+				Status: v1alpha1.ConditionStatusUnknown,
+			},
+			// DeviceSpecValid owned by service
+		},
+		Applications: []v1alpha1.DeviceApplicationStatus{},
+		ApplicationsSummary: v1alpha1.DeviceApplicationsSummaryStatus{
+			Status: v1alpha1.ApplicationsSummaryStatusUnknown,
+		},
+		Integrity: v1alpha1.DeviceIntegrityStatus{
+			Summary: v1alpha1.DeviceIntegrityStatusSummary{
+				Status: v1alpha1.DeviceIntegrityStatusUnknown,
+			},
+		},
+		Resources: v1alpha1.DeviceResourceStatus{
+			Cpu:    v1alpha1.DeviceResourceStatusUnknown,
+			Disk:   v1alpha1.DeviceResourceStatusUnknown,
+			Memory: v1alpha1.DeviceResourceStatusUnknown,
+		},
+		Updated: v1alpha1.DeviceUpdatedStatus{
+			Status: v1alpha1.DeviceUpdatedStatusUnknown,
+		},
+		Summary: v1alpha1.DeviceSummaryStatus{
+			Status: v1alpha1.DeviceSummaryStatusUnknown,
+		},
 	}
 }
