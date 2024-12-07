@@ -80,6 +80,20 @@ func (mr *MockManagerMockRecorder) Run(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockManager)(nil).Run), ctx)
 }
 
+// Status mocks base method.
+func (m *MockManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Status", ctx, status)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Status indicates an expected call of Status.
+func (mr *MockManagerMockRecorder) Status(ctx, status any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), ctx, status)
+}
+
 // Update mocks base method.
 func (m *MockManager) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
 	m.ctrl.T.Helper()

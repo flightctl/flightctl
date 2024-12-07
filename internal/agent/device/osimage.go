@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -26,13 +25,13 @@ type OSImageController struct {
 }
 
 func NewOSImageController(
-	executer executer.Executer,
+	bootc *container.BootcCmd,
 	statusManager status.Manager,
 	specManager spec.Manager,
 	log *log.PrefixLogger,
 ) *OSImageController {
 	return &OSImageController{
-		bootc:         container.NewBootcCmd(executer),
+		bootc:         bootc,
 		statusManager: statusManager,
 		specManager:   specManager,
 		log:           log,
@@ -104,4 +103,34 @@ func (c *OSImageController) ensureImage(ctx context.Context, desired *v1alpha1.R
 	}
 
 	return c.bootc.Apply(ctx)
+}
+
+type OSManager interface {
+	status.Exporter
+}
+
+func NewOSManager(bootcClient container.BootcClient) OSManager {
+	return &osManager{
+		bootcClient: bootcClient,
+	}
+}
+
+type osManager struct {
+	bootcClient container.BootcClient
+}
+
+func (m *osManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+	bootcInfo, err := m.bootcClient.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("getting bootc status: %w", err)
+	}
+
+	osImage := bootcInfo.GetBootedImage()
+	if osImage == "" {
+		return fmt.Errorf("getting booted os image: %w", err)
+	}
+
+	status.Os.Image = osImage
+	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
+	return nil
 }
