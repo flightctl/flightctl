@@ -51,7 +51,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 			Reason:  "ManuallyApproved",
 			Message: "Approved by "}},
 	}
-	deviceStatus := v1alpha1.NewDeviceStatus()
+	deviceStatus := v1alpha1.DeviceStatus{}
 	device := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1",
 		Kind:       "EnrollmentRequest",

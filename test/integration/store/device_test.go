@@ -90,7 +90,7 @@ var _ = Describe("DeviceStore create", func() {
 	})
 
 	It("CreateOrUpdateDevice update mode race", func() {
-		status := api.NewDeviceStatus()
+		status := api.DeviceStatus{}
 		device := api.Device{
 			Metadata: api.ObjectMeta{
 				Name: util.StrToPtr("mydevice-1"),
@@ -346,7 +346,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("CreateOrUpdateDevice update mode", func() {
-			status := api.NewDeviceStatus()
+			status := api.DeviceStatus{}
 			device := api.Device{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("mydevice-1"),
@@ -397,7 +397,7 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("UpdateDeviceStatus", func() {
 			// Random Condition to make sure Conditions do get stored
-			status := api.NewDeviceStatus()
+			status := api.DeviceStatus{}
 			condition := api.Condition{
 				Type:               api.DeviceUpdating,
 				LastTransitionTime: time.Now(),

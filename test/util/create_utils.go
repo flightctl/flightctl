@@ -14,7 +14,7 @@ import (
 )
 
 func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) api.Device {
-	deviceStatus := api.NewDeviceStatus()
+	deviceStatus := api.DeviceStatus{}
 	deviceStatus.Os.Image = "quay.io/flightctl/test-osimage:latest"
 
 	gitConfig := &api.GitConfigProviderSpec{

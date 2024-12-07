@@ -64,7 +64,7 @@ func verifyDevicePatchFailed(require *require.Assertions, resp server.PatchDevic
 }
 
 func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchDeviceResponseObject, v1alpha1.Device) {
-	status := v1alpha1.NewDeviceStatus()
+	status := v1alpha1.DeviceStatus{}
 	device := v1alpha1.Device{
 		ApiVersion: "v1",
 		Kind:       "Device",

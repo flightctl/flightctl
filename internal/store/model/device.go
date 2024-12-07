@@ -56,7 +56,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 		spec = *resource.Spec
 	}
 
-	status := api.NewDeviceStatus()
+	status := api.DeviceStatus{}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -103,7 +103,7 @@ func (d *Device) ToApiResource() api.Device {
 		spec = d.Spec.Data
 	}
 
-	status := api.NewDeviceStatus()
+	status := api.DeviceStatus{}
 	if d.Status != nil {
 		status = d.Status.Data
 	}
