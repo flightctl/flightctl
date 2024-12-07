@@ -20,10 +20,12 @@ type queue struct {
 	// A value of 0 means infinite retries.
 	maxRetries int
 	maxSize    int
-	// requeueThreshold is the number of times a template version can be requeued before enforcing a delay.
+	// requeueDelayThreshold is the number of times a template version can be requeued before enforcing a delay.
 	// A value of 0 means this is disabled.
-	requeueThreshold              int
-	requeueThresholdDelayDuration time.Duration
+	requeueDelayThreshold int
+	// requeueDelayDuration is the duration to wait before the item is
+	// available to be retrieved form the queue.
+	requeueDelayDuration time.Duration
 
 	log *log.PrefixLogger
 }
@@ -35,19 +37,19 @@ func newQueue(
 	log *log.PrefixLogger,
 	maxRetries,
 	maxSize,
-	requeueThreshold int,
-	requeueThresholdDelayDuration time.Duration,
+	requeueDelayThreshold int,
+	requeueDelayDuration time.Duration,
 ) *queue {
 	return &queue{
-		heap:                          make(ItemHeap, 0),
-		items:                         make(map[int64]*Item),
-		failedVersions:                make(map[int64]struct{}),
-		requeueStatus:                 make(map[int64]*requeueVersion),
-		maxRetries:                    maxRetries,
-		maxSize:                       maxSize,
-		requeueThreshold:              requeueThreshold,
-		requeueThresholdDelayDuration: requeueThresholdDelayDuration,
-		log:                           log,
+		heap:                  make(ItemHeap, 0),
+		items:                 make(map[int64]*Item),
+		failedVersions:        make(map[int64]struct{}),
+		requeueStatus:         make(map[int64]*requeueVersion),
+		maxRetries:            maxRetries,
+		maxSize:               maxSize,
+		requeueDelayThreshold: requeueDelayThreshold,
+		requeueDelayDuration:  requeueDelayDuration,
+		log:                   log,
 	}
 }
 
@@ -76,11 +78,11 @@ func (q *queue) Add(item *Item) error {
 		q.log.Debugf("Template version already in queue: %d", version)
 
 		// if the queue is empty and a requeue threshold is set, enforce requeue delay
-		if q.requeueThreshold > 0 && q.heap.Len() == 0 && requeue.tries > 0 {
+		if q.requeueDelayThreshold > 0 && q.heap.Len() == 0 && requeue.tries > 0 {
 			requeue.count++
-			if requeue.count >= q.requeueThreshold && requeue.nextAvailable.IsZero() {
-				requeue.nextAvailable = time.Now().Add(q.requeueThresholdDelayDuration)
-				q.log.Debugf("Requeue threshold exceeded for version %d. Next available in %s", version, q.requeueThresholdDelayDuration.String())
+			if requeue.count >= q.requeueDelayThreshold && requeue.nextAvailable.IsZero() {
+				requeue.nextAvailable = time.Now().Add(q.requeueDelayDuration)
+				q.log.Debugf("Requeue delay threshold exceeded for version %d. Next available in %s", version, q.requeueDelayDuration.String())
 			}
 		} else if q.maxRetries > 0 && requeue.tries >= q.maxRetries {
 			q.log.Debugf("Max retries exceeded for version %d", version)

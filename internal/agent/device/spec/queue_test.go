@@ -115,14 +115,14 @@ func TestQueue(t *testing.T) {
 func TestRequeueThreshold(t *testing.T) {
 	require := require.New(t)
 	const (
-		requeueThreshold         = 1
-		requeueThresholdDuration = time.Millisecond * 200
-		renderedVersion                  = "1"
+		requeueDelayThreshold = 1
+		requeueDelayDuration  = time.Millisecond * 200
+		renderedVersion       = "1"
 	)
 	log := log.NewPrefixLogger("test")
 	log.SetLevel(logrus.DebugLevel)
 	maxSize := 1
-	q := newQueue(log, 0, maxSize, requeueThreshold, requeueThresholdDuration)
+	q := newQueue(log, 0, maxSize, requeueDelayThreshold, requeueDelayDuration)
 	item := newItem(&v1alpha1.RenderedDeviceSpec{RenderedVersion: renderedVersion})
 
 	_, ok := q.Next()
@@ -152,7 +152,7 @@ func TestRequeueThreshold(t *testing.T) {
 	_, ok = q.Next()
 	require.True(ok, "first retrieval should succeed")
 
-	// add same item to queue after it is tried should trigger requeue thresholdDuration
+	// add same item to queue after it is tried should trigger requeue delay duration
 	err = q.Add(item)
 	require.NoError(err)
 	_, ok = q.Next()
@@ -306,13 +306,13 @@ func TestEnforceMaxSize(t *testing.T) {
 			heap.Init(&itemHeap)
 
 			q := &queue{
-				log:                           log,
-				maxSize:                       tt.maxSize,
-				items:                         tt.initialItems,
-				heap:                          itemHeap,
-				requeueStatus:                 tt.requeueStatus,
-				requeueThreshold:              0,
-				requeueThresholdDelayDuration: 0,
+				log:                   log,
+				maxSize:               tt.maxSize,
+				items:                 tt.initialItems,
+				heap:                  itemHeap,
+				requeueStatus:         tt.requeueStatus,
+				requeueDelayThreshold: 0, // disable requeue delay
+				requeueDelayDuration:  0,
 			}
 
 			exceeded := q.enforceMaxSize()
