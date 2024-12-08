@@ -120,16 +120,9 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 	for i := range *t.templateConfig {
 		configItem := (*t.templateConfig)[i]
 		name, repoName, err := t.validateConfigItem(ctx, &configItem)
-		paramErr := validateParameterFormatInConfig(&configItem)
 
 		if repoName != nil {
 			referencedRepos = append(referencedRepos, *repoName)
-		}
-
-		// An error message regarding invalid parameters should take precedence
-		// because it may be the cause of the render error
-		if paramErr != nil {
-			err = paramErr
 		}
 
 		if err != nil {
@@ -151,15 +144,6 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 	}
 
 	return referencedRepos, nil
-}
-
-func validateParameterFormatInConfig(item RenderItem) error {
-	cfgJson, err := item.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("failed converting configuration to json: %w", err)
-	}
-
-	return ValidateParameterFormat(cfgJson)
 }
 
 func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {

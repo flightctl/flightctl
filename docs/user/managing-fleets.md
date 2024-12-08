@@ -91,27 +91,21 @@ A fleet's device template contains a device specification that gets applied to a
 
 For example, you could specify in a fleet's device template that all devices in the fleet shall run the OS image `quay.io/flightctl/rhel:9.5`. The Flight Control service would then roll out this specification to all devices in the fleet and the Flight Control agents would update the devices accordingly. The same would apply to the other specification items described in [Managing Devices](managing-devices.md).
 
-However, it would be impractical if *all* of a fleet's devices had to have the *exact same specification*. Flight Control therefore allows templates to contain placeholders that get filled in based on a device's name or label values.
+However, it would be impractical if *all* of a fleet's devices had to have the *exact same specification*. Flight Control therefore allows templates to contain placeholders that get filled in based on a device's name or label values. The syntax for these placeholders matches that of [Go templates](https://pkg.go.dev/text/template). You may reference anything under a device's metadata such as `{{ index .Metadata.Labels \"key\" }}` or {{ .Metadata.Name }}`.
 
 Here are some examples what you can do with placeholders in device templates:
 
-* You can label devices by their deployment stage (say, `stage: testing` and `stage: production`) and then use the label with the key `stage` as placeholder when referencing the OS image to use (say, `quay.io/myorg/myimage:latest-{{ .Labels["stage"] }}`) or when referencing a folder with configuration in a Git repository.
+* You can label devices by their deployment stage (say, `stage: testing` and `stage: production`) and then use the label with the key `stage` as placeholder when referencing the OS image to use (say, `quay.io/myorg/myimage:latest-{{ index .Metadata.Labels \"stage\" }}`) or when referencing a folder with configuration in a Git repository.
 * You can label devices by deployment site (say, `site: factory-berlin` and `site: factory-madrid`) and then use the label with the key `site` as parameter when referencing the secret with network access credentials in Kubernetes.
-
-The following placeholders are supported:
-
-| Placeholder | Gets replaced by |
-| ----------- | ---------------- |
-| `{{ device.metadata.name }}` | The name of a device. |
-| `{{ device.metadata.labels["somekey"] }}` | The value of the label with the key `somekey`. If the device does not have a label with the specified key, the device's specification is marked as "invalid". |
 
 The following fields in device templates support placeholders (including within values, unless otherwise noted):
 
 | Field | Placeholders supported in |
 | ----- | ------------------------- |
 | OS Image | repository name, image name, image tag |
-| Git Config Provider | branches, paths |
-| HTTP Config Provider | repository, URL suffix |
+| Git Config Provider | targetRevision, path |
+| HTTP Config Provider | URL suffix, path |
+| Inline Config Provider | content, path |
 
 ## Defining Rollout Policies
 

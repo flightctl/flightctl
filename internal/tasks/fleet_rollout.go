@@ -1,11 +1,12 @@
 package tasks
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"strings"
+	"text/template"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -230,11 +231,11 @@ func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app
 	origEnvVars := *app.EnvVars
 	newEnvVars := make(map[string]string, len(origEnvVars))
 	for k, v := range origEnvVars {
-		newValue, warnings := ReplaceParameters([]byte(v), device.Metadata)
-		if len(warnings) > 0 {
-			f.log.Infof("failed replacing application parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
+		newValue, err := replaceParametersInString(v, device)
+		if err != nil {
+			return nil, fmt.Errorf("failed replacing application parameters: %w", err)
 		}
-		newEnvVars[k] = string(newValue)
+		newEnvVars[k] = newValue
 	}
 	app.EnvVars = &newEnvVars
 	return &app, nil
@@ -246,93 +247,212 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 	}
 
 	deviceConfig := []api.ConfigProviderSpec{}
+	configErrs := []error{}
 	for _, configItem := range *templateVersion.Status.Config {
 		var newConfigItem *api.ConfigProviderSpec
-		var err error
+		errs := []error{}
 
-		// We need to decode the inline spec contents before replacing parameters
 		configType, err := configItem.Type()
 		if err != nil {
-			return nil, fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
+			configErrs = append(configErrs, fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err))
+			continue
 		}
 
 		switch configType {
 		case api.GitConfigProviderType:
-			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
+			newConfigItem, errs = f.replaceGitConfigParameters(device, configItem)
 		case api.KubernetesSecretProviderType:
-			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
+			newConfigItem, errs = f.replaceKubeSecretConfigParameters(device, configItem)
 		case api.InlineConfigProviderType:
-			newConfigItem, err = f.replaceInlineSpecParameters(device, configItem)
+			newConfigItem, errs = f.replaceInlineConfigParameters(device, configItem)
 		case api.HttpConfigProviderType:
-			newConfigItem, err = f.replaceGenericConfigParameters(device, configItem)
+			newConfigItem, errs = f.replaceHTTPConfigParameters(device, configItem)
 		default:
-			err = fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType)
-		}
-		if err != nil {
-			return nil, err
+			errs = append(errs, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType))
 		}
 
-		deviceConfig = append(deviceConfig, *newConfigItem)
+		configErrs = append(configErrs, errs...)
+		if newConfigItem != nil {
+			deviceConfig = append(deviceConfig, *newConfigItem)
+		}
+	}
+
+	if len(configErrs) > 0 {
+		return nil, fmt.Errorf("found %d config errors: %v", len(configErrs), errors.Join(configErrs...))
 	}
 
 	return &deviceConfig, nil
 }
 
-func (f FleetRolloutsLogic) replaceInlineSpecParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, error) {
+func (f FleetRolloutsLogic) replaceGitConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
+	gitSpec, err := configItem.AsGitConfigProviderSpec()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
+	}
+
+	errs := []error{}
+
+	gitSpec.GitRef.TargetRevision, err = replaceParametersInString(gitSpec.GitRef.TargetRevision, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in targetRevision in git config %s: %w", gitSpec.Name, err))
+	}
+
+	gitSpec.GitRef.Path, err = replaceParametersInString(gitSpec.GitRef.Path, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in path in git config %s: %w", gitSpec.Name, err))
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	errs = gitSpec.Validate()
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	newConfigItem := api.ConfigProviderSpec{}
+	err = newConfigItem.FromGitConfigProviderSpec(gitSpec)
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
+	}
+
+	return &newConfigItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
+	secretSpec, err := configItem.AsKubernetesSecretProviderSpec()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
+	}
+
+	errs := []error{}
+
+	secretSpec.SecretRef.Name, err = replaceParametersInString(secretSpec.SecretRef.Name, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in name in k8s secret config %s: %w", secretSpec.Name, err))
+	}
+
+	secretSpec.SecretRef.Namespace, err = replaceParametersInString(secretSpec.SecretRef.Namespace, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in namespace in k8s secret config %s: %w", secretSpec.Name, err))
+	}
+
+	secretSpec.SecretRef.MountPath, err = replaceParametersInString(secretSpec.SecretRef.MountPath, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in mountPath in k8s secret config %s: %w", secretSpec.Name, err))
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	errs = secretSpec.Validate()
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	newConfigItem := api.ConfigProviderSpec{}
+	err = newConfigItem.FromKubernetesSecretProviderSpec(secretSpec)
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
+	}
+
+	return &newConfigItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert config to inline config: %w", err)
+		return nil, []error{fmt.Errorf("failed to convert config to inline config: %w", err)}
 	}
+
+	errs := []error{}
 
 	for fileIndex, file := range inlineSpec.Inline {
 		var decodedBytes []byte
 		var err error
+
+		file.Path, err = replaceParametersInString(file.Path, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
+		}
 
 		if file.ContentEncoding == nil {
 			decodedBytes = []byte(file.Content)
 		} else {
 			decodedBytes, err = base64.StdEncoding.DecodeString(file.Content)
 			if err != nil {
-				return nil, fmt.Errorf("error base64 decoding: %w", err)
+				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
+				continue
 			}
 		}
 
-		contentsReplaced, warnings := ReplaceParameters(decodedBytes, device.Metadata)
-		if len(warnings) > 0 {
-			f.log.Infof("failed replacing parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
+		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
+			continue
 		}
 
 		if file.ContentEncoding != nil && (*file.ContentEncoding) == api.Base64 {
-			inlineSpec.Inline[fileIndex].Content = base64.StdEncoding.EncodeToString(contentsReplaced)
+			inlineSpec.Inline[fileIndex].Content = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
 		} else {
-			inlineSpec.Inline[fileIndex].Content = string(contentsReplaced)
+			inlineSpec.Inline[fileIndex].Content = contentsReplaced
 		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	errs = inlineSpec.Validate()
+	if len(errs) > 0 {
+		return nil, errs
 	}
 
 	newConfigItem := api.ConfigProviderSpec{}
 	err = newConfigItem.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
-		return nil, fmt.Errorf("failed converting inline config: %w", err)
+		return nil, []error{fmt.Errorf("failed converting inline config: %w", err)}
 	}
 
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) replaceGenericConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, error) {
-	cfgJson, err := configItem.MarshalJSON()
+func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
+	httpSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
-		return nil, fmt.Errorf("failed converting configuration to json: %w", err)
+		return nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
 	}
 
-	cfgJsonReplaced, warnings := ReplaceParameters(cfgJson, device.Metadata)
-	if len(warnings) > 0 {
-		f.log.Infof("failed replacing parameters for device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, strings.Join(warnings, ", "))
+	errs := []error{}
+
+	if httpSpec.HttpRef.Suffix != nil {
+		suffix, err := replaceParametersInString(*httpSpec.HttpRef.Suffix, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in suffix in http config %s: %w", httpSpec.Name, err))
+		}
+		httpSpec.HttpRef.Suffix = &suffix
 	}
 
-	var newConfigItem api.ConfigProviderSpec
-	err = newConfigItem.UnmarshalJSON(cfgJsonReplaced)
+	httpSpec.HttpRef.FilePath, err = replaceParametersInString(httpSpec.HttpRef.FilePath, device)
 	if err != nil {
-		return nil, fmt.Errorf("failed converting configuration from json: %w", err)
+		errs = append(errs, fmt.Errorf("failed replacing parameters in file path in http config %s: %w", httpSpec.Name, err))
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	errs = httpSpec.Validate()
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	newConfigItem := api.ConfigProviderSpec{}
+	err = newConfigItem.FromHttpConfigProviderSpec(httpSpec)
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
 	}
 
 	return &newConfigItem, nil
@@ -363,4 +483,19 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api
 	}
 
 	return err
+}
+
+func replaceParametersInString(s string, device *api.Device) (string, error) {
+	t, err := template.New("t").Parse(s)
+	if err != nil {
+		return "", fmt.Errorf("invalid parameter syntax: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	err = t.Execute(buf, device)
+	if err != nil {
+		return "", fmt.Errorf("cannot apply parameters, possibly because they access invalid fields: %w", err)
+	}
+
+	return buf.String(), nil
 }

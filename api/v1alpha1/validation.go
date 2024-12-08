@@ -1,8 +1,11 @@
 package v1alpha1
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"html/template"
 	"regexp"
 	"strings"
 	"time"
@@ -244,17 +247,47 @@ func (c GitConfigProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&c.GitRef.Repository, "spec.config[].gitRef.repository")...)
-	allErrs = append(allErrs, validation.ValidateString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision", 0, 1024, nil, "")...)
-	allErrs = append(allErrs, validation.ValidateString(&c.GitRef.Path, "spec.config[].gitRef.path", 0, 2048, nil, "")...)
+
+	containsParams, paramErrs := ValidateParametersInString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision")
+	if len(paramErrs) > 0 {
+		allErrs = append(allErrs, paramErrs...)
+	} else if !containsParams {
+		allErrs = append(allErrs, validation.ValidateString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision", 0, 1024, nil, "")...)
+	}
+
+	containsParams, paramErrs = ValidateParametersInString(&c.GitRef.Path, "spec.config[].gitRef.path")
+	if len(paramErrs) > 0 {
+		allErrs = append(allErrs, paramErrs...)
+	} else if !containsParams {
+		allErrs = append(allErrs, validation.ValidateString(&c.GitRef.Path, "spec.config[].gitRef.path", 0, 2048, nil, "")...)
+	}
 	return allErrs
 }
 
 func (c KubernetesSecretProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Name, "spec.config[].secretRef.name")...)
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Namespace, "spec.config[].secretRef.namespace")...)
-	allErrs = append(allErrs, validation.ValidateFilePath(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath")...)
+
+	containsParams, paramErrs := ValidateParametersInString(&c.SecretRef.Name, "spec.config[].secretRef.name")
+	if len(paramErrs) > 0 {
+		allErrs = append(allErrs, paramErrs...)
+	} else if !containsParams {
+		allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Name, "spec.config[].secretRef.name")...)
+	}
+
+	containsParams, paramErrs = ValidateParametersInString(&c.SecretRef.Namespace, "spec.config[].secretRef.namespace")
+	if len(paramErrs) > 0 {
+		allErrs = append(allErrs, paramErrs...)
+	} else if !containsParams {
+		allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Namespace, "spec.config[].secretRef.namespace")...)
+	}
+
+	containsParams, paramErrs = ValidateParametersInString(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath")
+	if len(paramErrs) > 0 {
+		allErrs = append(allErrs, paramErrs...)
+	} else if !containsParams {
+		allErrs = append(allErrs, validation.ValidateFilePath(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath")...)
+	}
 
 	return allErrs
 }
@@ -263,7 +296,13 @@ func (c InlineConfigProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
 	for i := range c.Inline {
-		allErrs = append(allErrs, validation.ValidateFilePath(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i))...)
+		containsParams, paramErrs := ValidateParametersInString(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i))
+		if len(paramErrs) > 0 {
+			allErrs = append(allErrs, paramErrs...)
+		} else if !containsParams {
+			allErrs = append(allErrs, validation.ValidateFilePath(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i))...)
+		}
+
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].User, fmt.Sprintf("spec.config[].inline[%d].user", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
@@ -271,9 +310,15 @@ func (c InlineConfigProviderSpec) Validate() []error {
 		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64 {
 			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
+			// Can ignore errors because we just validated it in the previous line
+			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
+			_, paramErrs = ValidateParametersInString(util.StrToPtr(string(b)), "spec.config[].inline[%d].content")
+			allErrs = append(allErrs, paramErrs...)
 		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineConfigLength, nil, "")...)
+			_, paramErrs = ValidateParametersInString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i))
+			allErrs = append(allErrs, paramErrs...)
 		} else {
 			allErrs = append(allErrs, fmt.Errorf("unknown contentEncoding: %s", *(c.Inline[i].ContentEncoding)))
 		}
@@ -285,8 +330,20 @@ func (h HttpConfigProviderSpec) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
-	allErrs = append(allErrs, validation.ValidateFilePath(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath")...)
-	allErrs = append(allErrs, validation.ValidateString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", 0, 2048, nil, "")...)
+
+	containsParams, paramErrs := ValidateParametersInString(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath")
+	if len(paramErrs) > 0 {
+		allErrs = append(allErrs, paramErrs...)
+	} else if !containsParams {
+		allErrs = append(allErrs, validation.ValidateFilePath(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath")...)
+	}
+
+	containsParams, paramErrs = ValidateParametersInString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix")
+	if len(paramErrs) > 0 {
+		allErrs = append(allErrs, paramErrs...)
+	} else if !containsParams {
+		allErrs = append(allErrs, validation.ValidateString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", 0, 2048, nil, "")...)
+	}
 
 	return allErrs
 }
@@ -680,4 +737,40 @@ func validateGraceDuration(schedule cron.Schedule, duration string) error {
 	}
 
 	return nil
+}
+
+// To ensure valid go-template syntax, we create a fake device that contains only ObjectMeta
+// (what we allow to include in parameters), then evaluate.
+type whitelistDevice struct {
+	Metadata ObjectMeta
+}
+
+func ValidateParametersInString(s *string, path string) (bool, []error) {
+	if s == nil {
+		return false, []error{}
+	}
+
+	allErrs := []error{}
+
+	t, err := template.New("t").Parse(*s)
+	if err != nil {
+		return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("invalid parameter syntax: %v", err))
+	}
+
+	// When the template is executed, any missing label/annotation keys are evaluated to empty
+	// strings, so an empty map is fine.
+	dev := whitelistDevice{
+		Metadata: ObjectMeta{
+			Name:        util.StrToPtr("name"),
+			Labels:      &map[string]string{},
+			Annotations: &map[string]string{},
+		},
+	}
+
+	buf := new(bytes.Buffer)
+	err = t.Execute(buf, dev)
+	if err != nil {
+		return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("cannot apply parameters, possibly because they access invalid fields: %v", err))
+	}
+	return buf.String() != *s, allErrs
 }
