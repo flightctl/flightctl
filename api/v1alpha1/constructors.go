@@ -7,10 +7,6 @@ func NewDeviceStatus() DeviceStatus {
 				Type:   DeviceUpdating,
 				Status: ConditionStatusUnknown,
 			},
-			{
-				Type:   DeviceSpecValid,
-				Status: ConditionStatusUnknown,
-			},
 		},
 		Applications: []DeviceApplicationStatus{},
 		ApplicationsSummary: DeviceApplicationsSummaryStatus{

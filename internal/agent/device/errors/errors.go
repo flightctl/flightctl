@@ -69,9 +69,9 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, ErrAuthenticationFailed):
 		return false
 	default:
-		// this will need to be updated as we identify more errors that are not
-		// retryable but for now we will retry and mark degraded.
-		return true
+		// this will need to be updated as we identify more errors that are
+		// retryable but for now we will fail the update.
+		return false
 	}
 }
 
