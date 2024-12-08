@@ -68,20 +68,11 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		}
 	}
 
-	var sortField *store.SortField
-	if request.Params.SortBy != nil {
-		sortField = &store.SortField{
-			FieldName: selector.SelectorName(*request.Params.SortBy),
-			Order:     *request.Params.SortOrder,
-		}
-	}
-
 	listParams := store.ListParams{
 		Labels:        labelMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
-		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest

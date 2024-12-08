@@ -98,10 +98,9 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	if request.Params.SummaryOnly != nil && *request.Params.SummaryOnly {
 		// Check for unsupported parameters
 		if request.Params.Limit != nil ||
-			request.Params.Continue != nil ||
-			request.Params.SortBy != nil {
+			request.Params.Continue != nil {
 			return server.ListDevices400JSONResponse{
-				Message: "parameters such as 'limit', 'continue', and 'sortBy' are not supported when 'summaryOnly' is true",
+				Message: "parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true",
 			}, nil
 		}
 
@@ -128,14 +127,6 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var sortField *store.SortField
-	if request.Params.SortBy != nil {
-		sortField = &store.SortField{
-			FieldName: selector.SelectorName(*request.Params.SortBy),
-			Order:     *request.Params.SortOrder,
-		}
-	}
-
 	listParams := store.ListParams{
 		Labels:        labelMap,
 		Filter:        filterMap,
@@ -143,7 +134,6 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		Continue:      cont,
 		Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
 		FieldSelector: fieldSelector,
-		SortBy:        sortField,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest

@@ -67,7 +67,7 @@ func ListQuery(model any) *listQuery {
 
 func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
 	var err error
-	query := db.Model(lq.dest)
+	query := db.Model(lq.dest).Order("name")
 	query = query.Where("org_id = ?", orgId)
 
 	var invertLabels bool
@@ -104,23 +104,6 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 			return nil, err
 		}
 		query = query.Where(q, p...)
-	}
-
-	resolver, err := selector.SelectorFieldResolver(lq.dest)
-	if err != nil {
-		return nil, err
-	}
-
-	if listParams.SortBy != nil {
-		// Resolve name from the SortBy field, which might correspond to multiple fields.
-		fields, err := resolver.ResolveNames(listParams.SortBy.FieldName)
-		if err != nil {
-			return nil, err
-		}
-		for _, name := range fields {
-			query = query.Order(fmt.Sprintf("%s %s", createParamsFromKey(name),
-				strings.ToLower(string(listParams.SortBy.Order))))
-		}
 	}
 
 	return query, nil
