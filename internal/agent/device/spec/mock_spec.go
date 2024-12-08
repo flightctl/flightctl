@@ -226,6 +226,20 @@ func (mr *MockManagerMockRecorder) SetUpgradeFailed() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed))
 }
 
+// Status mocks base method.
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Status", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Status indicates an expected call of Status.
+func (mr *MockManagerMockRecorder) Status(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), arg0, arg1)
+}
+
 // Upgrade mocks base method.
 func (m *MockManager) Upgrade() error {
 	m.ctrl.T.Helper()

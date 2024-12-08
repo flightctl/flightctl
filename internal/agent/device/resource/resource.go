@@ -26,6 +26,7 @@ type Manager interface {
 	Update(monitor *v1alpha1.ResourceMonitor) (bool, error)
 	// ResetAlertDefaults clears all alerts and resets the monitors to their default state.
 	ResetAlertDefaults() error
+	Status(ctx context.Context, status *v1alpha1.DeviceStatus) error
 	Alerts() *Alerts
 }
 
@@ -126,6 +127,41 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 		m.log.Debug("Reset memory monitor alerts")
 	}
 
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+	alerts := m.Alerts()
+	errs := []error{}
+
+	// disk
+	diskStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(DiskMonitorType, alerts.DiskUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
+	}
+	status.Resources.Disk = diskStatus
+
+	// cpu
+	cpuStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(CPUMonitorType, alerts.CPUUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
+	}
+	status.Resources.Cpu = cpuStatus
+
+	// memory
+	memoryStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(MemoryMonitorType, alerts.MemoryUsage)
+	if alertMsg != "" {
+		errs = append(errs, errors.New(alertMsg))
+	}
+	status.Resources.Memory = memoryStatus
+
+	// the alertMsg is a message that gets bubbled up to the summary.info status field
+	// if an alert is present.  these messages are not errors specifically but
+	// for now the presence of an error sets the device status to degraded.
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -236,9 +272,9 @@ type MonitorSpec struct {
 	Path string `json:"path,omitempty"`
 }
 
-// GetHighestSeverityResourceStatusFromAlerts returns the highest severity statusDeviceResourceStatusType from a list of alerts along with the alert message.
+// getHighestSeverityResourceStatusFromAlerts returns the highest severity statusDeviceResourceStatusType from a list of alerts along with the alert message.
 // The alert message is auto generated if the alert description is empty.
-func GetHighestSeverityResourceStatusFromAlerts(resource string, alerts []v1alpha1.ResourceAlertRule) (v1alpha1.DeviceResourceStatusType, string) {
+func getHighestSeverityResourceStatusFromAlerts(resource string, alerts []v1alpha1.ResourceAlertRule) (v1alpha1.DeviceResourceStatusType, string) {
 	if len(alerts) == 0 {
 		return v1alpha1.DeviceResourceStatusHealthy, ""
 	}
