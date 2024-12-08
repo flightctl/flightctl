@@ -41,7 +41,8 @@ var _ = Describe("Calling osimages Sync", func() {
 		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
 		specManager = spec.NewMockManager(ctrl)
-		controller = device.NewOSImageController(execMock, statusManager, specManager, log)
+		mockBootcClient := container.NewBootcCmd(execMock)
+		controller = device.NewOSImageController(mockBootcClient, statusManager, specManager, log)
 	})
 
 	AfterEach(func() {

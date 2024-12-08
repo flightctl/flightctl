@@ -73,15 +73,15 @@ func NewManager(
 
 func (s *manager) Initialize() error {
 	// current
-	if err := s.write(Current, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+	if err := s.write(Current, initRenderedDeviceSpec); err != nil {
 		return err
 	}
 	// desired
-	if err := s.write(Desired, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+	if err := s.write(Desired, initRenderedDeviceSpec); err != nil {
 		return err
 	}
 	// rollback
-	if err := s.write(Rollback, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+	if err := s.write(Rollback, initRenderedDeviceSpec); err != nil {
 		return err
 	}
 	return nil
@@ -96,7 +96,7 @@ func (s *manager) Ensure() error {
 
 		if !exists {
 			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
-			if err := s.write(specType, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+			if err := s.write(specType, initRenderedDeviceSpec); err != nil {
 				return err
 			}
 		}
@@ -389,6 +389,11 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 	}
 
 	return bootedOSImage, desired.Os.Image == bootc.GetBootedImage(), nil
+}
+
+func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+	status.Config.RenderedVersion = s.currentRenderedVersion
+	return nil
 }
 
 func (s *manager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {

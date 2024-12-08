@@ -7,11 +7,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications"
-	"github.com/flightctl/flightctl/internal/agent/device/hook"
-	"github.com/flightctl/flightctl/internal/agent/device/resource"
-	"github.com/flightctl/flightctl/internal/agent/device/systemd"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -20,18 +15,14 @@ var _ Manager = (*StatusManager)(nil)
 // NewManager creates a new device status manager.
 func NewManager(
 	deviceName string,
-	resourceManager resource.Manager,
-	hookManager hook.Manager,
-	applicationManager applications.Manager,
-	systemdManager systemd.Manager,
-	executer executer.Executer,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	exporters := newExporters(resourceManager, applicationManager, systemdManager, executer, log)
 	status := v1alpha1.NewDeviceStatus()
+	// remove the DeviceSpecValid condition because it is not owned by the agent.
+	_ = v1alpha1.RemoveStatusCondition(&status.Conditions, v1alpha1.DeviceSpecValid)
+
 	return &StatusManager{
 		deviceName: deviceName,
-		exporters:  exporters,
 		device: &v1alpha1.Device{
 			Metadata: v1alpha1.ObjectMeta{
 				Name: &deviceName,
@@ -51,11 +42,6 @@ type StatusManager struct {
 	device           *v1alpha1.Device
 }
 
-type Exporter interface {
-	// Export collects status information and updates the device status.
-	Export(ctx context.Context, device *v1alpha1.DeviceStatus) error
-}
-
 type Collector interface {
 	// Get returns the device status and is safe to call without a management client.
 	Get(context.Context) *v1alpha1.DeviceStatus
@@ -67,12 +53,18 @@ type Manager interface {
 	Sync(context.Context) error
 	// Collect gathers status information from all exporters and is safe to call without a management client.
 	Collect(context.Context) error
+	// RegisterStatusExporterFn registers a function to be called when collecting status.
+	RegisterStatusExporterFn(fn Exporter)
 	// Update updates the device status with the given update functions.
 	Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1alpha1.DeviceStatus, error)
 	// UpdateCondition updates the device status with the given condition.
 	UpdateCondition(context.Context, v1alpha1.Condition) error
 	// SetClient sets the management client for the status manager.
 	SetClient(client.Management)
+}
+
+type Exporter interface {
+	Status(context.Context, *v1alpha1.DeviceStatus) error
 }
 
 func (m *StatusManager) SetClient(managementClient client.Management) {
@@ -87,15 +79,23 @@ func (m *StatusManager) reset() {
 	m.device.Status.Applications = m.device.Status.Applications[:0]
 }
 
+func (m *StatusManager) RegisterStatusExporterFn(fn Exporter) {
+	m.exporters = append(m.exporters, fn)
+}
+
 func (m *StatusManager) Collect(ctx context.Context) error {
 	m.reset()
 	errs := []error{}
-	for _, exporter := range m.exporters {
-		err := exporter.Export(ctx, m.device.Status)
+	for _, export := range m.exporters {
+		err := export.Status(ctx, m.device.Status)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
+	}
+
+	if err := systemInfoStatus(ctx, m.device.Status); err != nil {
+		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {
