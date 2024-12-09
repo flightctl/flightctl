@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -20,6 +21,13 @@ import (
 
 // (POST /api/v1/resourcesyncs)
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.CreateResourceSyncRequestObject) (server.CreateResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "create")
+	if err != nil {
+		return server.CreateResourceSync401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.CreateResourceSync403JSONResponse{Message: "cannot create resource sync"}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -45,6 +53,13 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 
 // (GET /api/v1/resourcesyncs)
 func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.ListResourceSyncRequestObject) (server.ListResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "list")
+	if err != nil {
+		return server.ListResourceSync401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ListResourceSync403JSONResponse{Message: "cannot list resource syncs"}, nil
+	}
 	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
@@ -107,9 +122,16 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 
 // (DELETE /api/v1/resourcesyncs)
 func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server.DeleteResourceSyncsRequestObject) (server.DeleteResourceSyncsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "deletecollection")
+	if err != nil {
+		return server.DeleteResourceSyncs401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.DeleteResourceSyncs403JSONResponse{Message: "cannot delete resource syncs"}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
+	err = h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
 	switch err {
 	case nil:
 		return server.DeleteResourceSyncs200JSONResponse{}, nil
@@ -120,6 +142,13 @@ func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server
 
 // (GET /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.ReadResourceSyncRequestObject) (server.ReadResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "read")
+	if err != nil {
+		return server.ReadResourceSync401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReadResourceSync403JSONResponse{Message: "cannot read resource sync"}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
@@ -135,6 +164,13 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 
 // (PUT /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server.ReplaceResourceSyncRequestObject) (server.ReplaceResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "replace")
+	if err != nil {
+		return server.ReplaceResourceSync401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReplaceResourceSync403JSONResponse{Message: "cannot replace resource sync"}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -170,8 +206,15 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 
 // (DELETE /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.DeleteResourceSyncRequestObject) (server.DeleteResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "delete")
+	if err != nil {
+		return server.DeleteResourceSync401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.DeleteResourceSync403JSONResponse{Message: "cannot delete resource sync"}, nil
+	}
 	orgId := store.NullOrgId
-	err := h.store.ResourceSync().Delete(ctx, orgId, request.Name, h.store.Fleet().UnsetOwner)
+	err = h.store.ResourceSync().Delete(ctx, orgId, request.Name, h.store.Fleet().UnsetOwner)
 	switch err {
 	case nil:
 		return server.DeleteResourceSync200JSONResponse{}, nil
@@ -185,6 +228,13 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.
 // (PATCH /api/v1/resourcesyncs/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.PatchResourceSyncRequestObject) (server.PatchResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "patch")
+	if err != nil {
+		return server.PatchResourceSync401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.PatchResourceSync403JSONResponse{Message: "cannot patch resource sync"}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)

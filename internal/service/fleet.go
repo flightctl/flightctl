@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -32,6 +33,13 @@ func FleetFromReader(r io.Reader) (*v1alpha1.Fleet, error) {
 
 // (POST /api/v1/fleets)
 func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "create")
+	if err != nil {
+		return server.CreateFleet401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.CreateFleet403JSONResponse{Message: "cannot create fleet"}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -58,6 +66,13 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 
 // (GET /api/v1/fleets)
 func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "list")
+	if err != nil {
+		return server.ListFleets401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ListFleets403JSONResponse{Message: "cannot list fleets"}, nil
+	}
 	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
@@ -112,9 +127,16 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 
 // (DELETE /api/v1/fleets)
 func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "deletecollection")
+	if err != nil {
+		return server.DeleteFleets401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.DeleteFleets403JSONResponse{Message: "cannot delete fleets"}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.Fleet().DeleteAll(ctx, orgId, h.callbackManager.AllFleetsDeletedCallback)
+	err = h.store.Fleet().DeleteAll(ctx, orgId, h.callbackManager.AllFleetsDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteFleets200JSONResponse{}, nil
@@ -125,6 +147,13 @@ func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.Delete
 
 // (GET /api/v1/fleets/{name})
 func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "read")
+	if err != nil {
+		return server.ReadFleet401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReadFleet403JSONResponse{Message: "cannot read fleet"}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.WithSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
@@ -140,6 +169,13 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 
 // (PUT /api/v1/fleets/{name})
 func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "replace")
+	if err != nil {
+		return server.ReplaceFleet401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReplaceFleet403JSONResponse{Message: "cannot replace fleet"}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -179,6 +215,13 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 
 // (DELETE /api/v1/fleets/{name})
 func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "delete")
+	if err != nil {
+		return server.DeleteFleet401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.DeleteFleet403JSONResponse{Message: "cannot replace fleet"}, nil
+	}
 	orgId := store.NullOrgId
 
 	f, err := h.store.Fleet().Get(ctx, orgId, request.Name)
@@ -203,6 +246,13 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 
 // (GET /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "readstatus")
+	if err != nil {
+		return server.ReadFleetStatus401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReadFleetStatus403JSONResponse{Message: "cannot read fleet status"}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
@@ -218,6 +268,13 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 
 // (PUT /api/v1/fleets/{name}/status)
 func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "replacestatus")
+	if err != nil {
+		return server.ReplaceFleetStatus401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReplaceFleetStatus403JSONResponse{Message: "cannot replace fleet status"}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, request.Body)
@@ -234,6 +291,13 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 // (PATCH /api/v1/fleets/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFleetRequestObject) (server.PatchFleetResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "patch")
+	if err != nil {
+		return server.PatchFleet401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.PatchFleet403JSONResponse{Message: "cannot patch fleet"}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.Fleet().Get(ctx, orgId, request.Name)

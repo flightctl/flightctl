@@ -24,6 +24,14 @@ import (
 
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "create")
+	if err != nil {
+		return server.CreateDevice401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.CreateDevice403JSONResponse{Message: "cannot create device"}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -161,9 +169,16 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 // (DELETE /api/v1/devices)
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "deletecollection")
+	if err != nil {
+		return server.DeleteDevices401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.DeleteDevices403JSONResponse{Message: "cannot delete devices"}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
+	err = h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevices200JSONResponse{}, nil
@@ -174,6 +189,13 @@ func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.Delet
 
 // (GET /api/v1/devices/{name})
 func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDeviceRequestObject) (server.ReadDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "read")
+	if err != nil {
+		return server.ReadDevice401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReadDevice403JSONResponse{Message: "cannot read device"}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -189,6 +211,13 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "replace")
+	if err != nil {
+		return server.ReplaceDevice401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReplaceDevice403JSONResponse{Message: "cannot replace device"}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -225,9 +254,16 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 
 // (DELETE /api/v1/devices/{name})
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "delete")
+	if err != nil {
+		return server.DeleteDevice401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.DeleteDevice403JSONResponse{Message: "cannot delete device"}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
+	err = h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil
@@ -240,6 +276,13 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 
 // (GET /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.ReadDeviceStatusRequestObject) (server.ReadDeviceStatusResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "readstatus")
+	if err != nil {
+		return server.ReadDeviceStatus401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReadDeviceStatus403JSONResponse{Message: "cannot read device status"}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -255,17 +298,38 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 
 // (PUT /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "replacestatus")
+	if err != nil {
+		return server.ReplaceDeviceStatus401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.ReplaceDeviceStatus403JSONResponse{Message: "cannot replace device status"}, nil
+	}
 	return common.ReplaceDeviceStatus(ctx, h.store, request)
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "getrenderedspec")
+	if err != nil {
+		return server.GetRenderedDeviceSpec401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.GetRenderedDeviceSpec403JSONResponse{Message: "cannot get rendered device spec"}, nil
+	}
 	return common.GetRenderedDeviceSpec(ctx, h.store, request, h.consoleGrpcEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDeviceRequestObject) (server.PatchDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "patch")
+	if err != nil {
+		return server.PatchDevice401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.PatchDevice403JSONResponse{Message: "cannot patch device"}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -329,5 +393,12 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "decomission")
+	if err != nil {
+		return server.DecommissionDevice401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+	}
+	if !allowed {
+		return server.DecommissionDevice403JSONResponse{Message: "cannot decomission device"}, nil
+	}
 	return nil, fmt.Errorf("not yet implemented")
 }
