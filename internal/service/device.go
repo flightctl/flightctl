@@ -34,6 +34,8 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 		return server.CreateDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
+
 	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
@@ -202,6 +204,8 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
+
 	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
@@ -255,12 +259,12 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 
 // (PUT /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	return common.ReplaceDeviceStatus(ctx, h.store, request)
+	return common.ReplaceDeviceStatus(ctx, h.store, h.log, request)
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	return common.GetRenderedDeviceSpec(ctx, h.store, request, h.consoleGrpcEndpoint)
+	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.consoleGrpcEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
@@ -310,6 +314,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
+
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
+
 	// create
 	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, updateCallback)
 
