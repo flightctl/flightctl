@@ -67,7 +67,7 @@ spec:
         httpRef:
           filePath: /var/local/acm-import/import.yaml
           repository: acm-registration
-          suffix: /agent-registration/manifests/{{ device.metadata.name }}
+          suffix: /agent-registration/manifests/{{.Metadata.Name}}
       - name: pull-secret
         inline:
             - path: "/etc/crio/openshift-pull-secret"
@@ -111,7 +111,7 @@ As described in the user documentation, a fleet specification is composed of var
       httpRef:
         filePath: /var/local/acm-import/import.yaml
         repository: acm-registration
-        suffix: /agent-registration/manifests/{{ device.metadata.name }}
+        suffix: /agent-registration/manifests/{{.Metadata.Name}}
     ```
 
     This API call to ACM's agent registration endpoint will retrieve a set of Kubernetes manifests to deploy the Klusterlet. Once we have both the Klusterlet CRD and deployment manifests, we will use Flight Control hooks to apply them.
