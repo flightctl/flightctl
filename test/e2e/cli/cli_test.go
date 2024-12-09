@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"crypto/rand"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,8 +11,11 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
+
+	. "github.com/onsi/gomega/gbytes"
+	"github.com/samber/lo"
+	"sigs.k8s.io/yaml"
 )
 
 const TIMEOUT = "1m"
@@ -163,6 +167,53 @@ var _ = Describe("cli operation", func() {
 			out, err := harness.CLI("get", "fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("e2e-test-fleet"))
+		})
+	})
+
+	Context("Resources lifecycle", Label("75506"), func() {
+		It("Resources lifecycle", func() {
+			newTestKey := "testKey"
+			newTestValue := "newValue"
+			By("Verify there are no devices/fleets")
+			_, err := harness.CleanUpDevices()
+			Expect(err).ToNot(HaveOccurred())
+			_, err = harness.CleanUpFleets()
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Apply, edit, delete device")
+			out, err := harness.CLI("apply", "-f", util.GetExamplesYamlPath("device.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			device := harness.GetDeviceByYaml(util.GetExamplesYamlPath("device.yaml"))
+			(*device.Metadata.Labels)[newTestKey] = newTestValue
+			deviceData, err := yaml.Marshal(&device)
+			out, err = harness.CLIWithStdin(string(deviceData), "apply", "-f", "-")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lo.FromPtr(device.Metadata.Labels)[newTestKey]).To(Equal(newTestValue))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("device/%s", *device.Metadata.Name))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Apply, edit, delete fleet")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("fleet.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			fleet := harness.GetFleetByYaml(util.GetExamplesYamlPath("fleet.yaml"))
+
+			//Add new label
+			(*fleet.Spec.Selector.MatchLabels)[newTestKey] = newTestValue
+			fleetData, err := yaml.Marshal(&fleet)
+			out, err = harness.CLIWithStdin(string(fleetData), "apply", "-f", "-")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lo.FromPtr(fleet.Spec.Selector.MatchLabels)[newTestKey]).To(Equal(newTestValue))
+
+			//_, err = harness.CLI("delete", fmt.Sprintf("fleet/%s", *fleet.Metadata.Name))
+			//Expect(err).ToNot(HaveOccurred())
+
 		})
 	})
 })
