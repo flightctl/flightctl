@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -32,8 +33,7 @@ const (
 type Manager interface {
 	// EnsurePatterns sets the match patterns for systemd units.
 	EnsurePatterns([]string) error
-	// Status returns the status of systemd units.
-	Status(context.Context) ([]v1alpha1.DeviceApplicationStatus, error)
+	status.Exporter
 }
 
 type SystemDUnitListEntry struct {
@@ -67,21 +67,19 @@ func (m *manager) EnsurePatterns(patterns []string) error {
 	return nil
 }
 
-func (m *manager) Status(ctx context.Context) ([]v1alpha1.DeviceApplicationStatus, error) {
+func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus) error {
 	if len(m.patterns) == 0 {
-		return []v1alpha1.DeviceApplicationStatus{}, nil
+		return nil
 	}
 
 	status, err := m.client.ListUnitsByMatchPattern(ctx, m.patterns)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	m.log.Debugf("systemd list-units output: %s", status)
 
 	var units []SystemDUnitListEntry
 	if err := json.Unmarshal([]byte(status), &units); err != nil {
-		return nil, fmt.Errorf("failed unmarshalling systemctl list-units output: %w", err)
+		return fmt.Errorf("failed unmarshalling systemctl list-units output: %w", err)
 	}
 
 	appStatus := make([]v1alpha1.DeviceApplicationStatus, 0, len(units))
@@ -94,7 +92,9 @@ func (m *manager) Status(ctx context.Context) ([]v1alpha1.DeviceApplicationStatu
 		})
 	}
 
-	return appStatus, nil
+	device.Applications = append(device.Applications, appStatus...)
+
+	return nil
 }
 
 func parseApplicationStatusType(unit SystemDUnitListEntry) (v1alpha1.ApplicationStatusType, string) {

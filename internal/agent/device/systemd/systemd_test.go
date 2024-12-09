@@ -101,10 +101,10 @@ func TestStatus(t *testing.T) {
 				args := append([]string{"list-units", "--all", "--output", "json"}, tt.matchPatterns...)
 				execMock.EXPECT().ExecuteWithContext(gomock.Any(), gomock.Any(), args).Return(string(unitBytes), "", 0)
 			}
-
-			status, err := m.Status(context.Background())
+			status := v1alpha1.NewDeviceStatus()
+			err := m.Status(context.Background(), &status)
 			require.NoError(err)
-			require.Equal(status, tt.expected)
+			require.Equal(tt.expected, status.Applications)
 		})
 	}
 }

@@ -129,7 +129,7 @@ func TestMemoryMonitor(t *testing.T) {
 		return len(alerts) == 1
 	}, retryTimeout, retryInterval, "alert add")
 
-	deviceResourceStatusType, alertMsg := GetHighestSeverityResourceStatusFromAlerts(MemoryMonitorType, alerts)
+	deviceResourceStatusType, alertMsg := getHighestSeverityResourceStatusFromAlerts(MemoryMonitorType, alerts)
 	require.NotEmpty(alertMsg) // ensure we have an alert message
 
 	require.Equal(v1alpha1.DeviceResourceStatusWarning, deviceResourceStatusType)

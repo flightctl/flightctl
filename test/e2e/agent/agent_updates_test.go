@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	agent "github.com/flightctl/flightctl/internal/agent/device"
+	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,9 +32,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Check the device status right after bootstrap
 			response := harness.GetDeviceWithStatusSystem(deviceId)
 			device := response.JSON200
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-			Expect(*device.Status.Summary.Info).To(Equal(agent.BootstrapComplete))
-			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+			Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
+			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUnknown))
 
 			var newImageReference string
 
@@ -52,7 +52,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "1m")
 
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
@@ -60,7 +60,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusRebooting))
 
 			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
 				func(device *v1alpha1.Device) bool {
@@ -69,11 +69,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
-			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
-			// related to: https://issues.redhat.com/browse/EDM-679
-			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUpToDate))
 			logrus.Info("Device updated to new image 🎉")
 		})
 	})
