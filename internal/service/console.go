@@ -29,7 +29,8 @@ func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.Requ
 	annotations := map[string]string{api.DeviceAnnotationConsole: sessionId}
 
 	if err := h.store.Device().UpdateAnnotations(ctx, orgId, request.Name, annotations, []string{}); err != nil {
-		return server.RequestConsole401JSONResponse{Message: "Unable to annotate device for console setup"}, err
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.RequestConsole503JSONResponse{Message: "Unable to annotate device for console setup"}, err
 	}
 
 	// create a new console session
