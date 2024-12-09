@@ -97,6 +97,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - resourcesync
@@ -127,6 +133,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
           content:
@@ -147,6 +159,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -173,6 +191,12 @@ paths:
                 $ref: '#/components/schemas/ResourceSync'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -226,6 +250,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -274,6 +304,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -307,6 +343,12 @@ paths:
                 $ref: '#/components/schemas/ResourceSync'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -366,6 +408,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - repository
@@ -396,6 +444,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
           content:
@@ -416,6 +470,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -442,6 +502,12 @@ paths:
                 $ref: '#/components/schemas/Repository'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -495,6 +561,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -528,6 +600,12 @@ paths:
                 $ref: '#/components/schemas/Repository'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -570,6 +648,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -690,6 +774,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
           content:
@@ -710,6 +800,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -736,6 +832,12 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -789,6 +891,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -822,6 +930,12 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -868,6 +982,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -902,6 +1022,12 @@ paths:
                 $ref: '#/components/schemas/Device'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -949,6 +1075,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -977,6 +1109,12 @@ paths:
                 $ref: '#/components/schemas/DeviceConsole'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1031,6 +1169,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1072,6 +1216,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1106,6 +1256,12 @@ paths:
                 $ref: '#/components/schemas/EnrollmentConfig'
         "400":
           description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1171,6 +1327,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - enrollmentrequest
@@ -1207,6 +1369,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
           content:
@@ -1227,6 +1395,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1253,6 +1427,12 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1306,6 +1486,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1343,6 +1529,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1371,6 +1563,12 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1408,6 +1606,12 @@ paths:
                 $ref: '#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1458,6 +1662,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1523,6 +1733,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - certificatesigningrequest
@@ -1571,6 +1787,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - certificatesigningrequest
@@ -1585,6 +1807,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1638,6 +1866,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
           content:
@@ -1666,6 +1900,12 @@ paths:
                 $ref: '#/components/schemas/CertificateSigningRequest'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1719,6 +1959,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1756,6 +2002,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1788,6 +2040,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1830,6 +2088,12 @@ paths:
                 $ref: '#/components/schemas/CertificateSigningRequest'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1907,6 +2171,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - fleet
@@ -1937,6 +2207,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
           content:
@@ -1957,6 +2233,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1989,6 +2271,12 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -2048,6 +2336,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
           content:
@@ -2090,6 +2384,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -2123,6 +2423,12 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -2165,6 +2471,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -2198,6 +2510,12 @@ paths:
                 $ref: '#/components/schemas/Fleet'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -2263,6 +2581,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - templateversion
@@ -2284,6 +2608,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -2316,6 +2646,12 @@ paths:
                 $ref: '#/components/schemas/TemplateVersion'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -2353,6 +2689,12 @@ paths:
                 $ref: '#/components/schemas/TemplateVersion'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
