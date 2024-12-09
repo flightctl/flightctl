@@ -41,18 +41,18 @@ func (m *MockExporter) EXPECT() *MockExporterMockRecorder {
 	return m.recorder
 }
 
-// Export mocks base method.
-func (m *MockExporter) Export(ctx context.Context, device *v1alpha1.DeviceStatus) error {
+// Status mocks base method.
+func (m *MockExporter) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Export", ctx, device)
+	ret := m.ctrl.Call(m, "Status", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Export indicates an expected call of Export.
-func (mr *MockExporterMockRecorder) Export(ctx, device any) *gomock.Call {
+// Status indicates an expected call of Status.
+func (mr *MockExporterMockRecorder) Status(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Export", reflect.TypeOf((*MockExporter)(nil).Export), ctx, device)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockExporter)(nil).Status), arg0, arg1)
 }
 
 // MockCollector is a mock of Collector interface.
@@ -141,6 +141,18 @@ func (m *MockManager) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
 func (mr *MockManagerMockRecorder) Get(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockManager)(nil).Get), arg0)
+}
+
+// RegisterStatusExporter mocks base method.
+func (m *MockManager) RegisterStatusExporter(arg0 Exporter) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RegisterStatusExporter", arg0)
+}
+
+// RegisterStatusExporter indicates an expected call of RegisterStatusExporter.
+func (mr *MockManagerMockRecorder) RegisterStatusExporter(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterStatusExporter", reflect.TypeOf((*MockManager)(nil).RegisterStatusExporter), arg0)
 }
 
 // SetClient mocks base method.

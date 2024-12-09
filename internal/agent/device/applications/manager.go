@@ -11,6 +11,8 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
+var _ Manager = (*manager)(nil)
+
 type manager struct {
 	podmanMonitor *PodmanMonitor
 	log           *log.PrefixLogger
@@ -66,8 +68,16 @@ func (m *manager) ExecuteActions(ctx context.Context) error {
 	return nil
 }
 
-func (m *manager) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
-	return m.podmanMonitor.Status()
+func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+	applicationsStatus, applicationSummary, err := m.podmanMonitor.Status()
+	if err != nil {
+		return err
+	}
+
+	status.ApplicationsSummary.Status = applicationSummary.Status
+	status.ApplicationsSummary.Info = applicationSummary.Info
+	status.Applications = applicationsStatus
+	return nil
 }
 
 func (m *manager) Stop(ctx context.Context) error {

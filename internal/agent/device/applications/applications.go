@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -66,8 +67,8 @@ type Manager interface {
 	Remove(app Application) error
 	Update(app Application) error
 	ExecuteActions(ctx context.Context) error
-	Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 	Stop(ctx context.Context) error
+	status.Exporter
 }
 
 type Application interface {

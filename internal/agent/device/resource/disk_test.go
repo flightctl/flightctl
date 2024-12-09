@@ -71,7 +71,7 @@ func TestDiskMonitor(t *testing.T) {
 		return len(alerts) == 2
 	}, retryTimeout, retryInterval, "alert add")
 
-	deviceResourceStatusType, alertMsg := GetHighestSeverityResourceStatusFromAlerts(DiskMonitorType, alerts)
+	deviceResourceStatusType, alertMsg := getHighestSeverityResourceStatusFromAlerts(DiskMonitorType, alerts)
 	require.NotEmpty(alertMsg) // ensure we have an alert message
 
 	require.Equal(v1alpha1.DeviceResourceStatusCritical, deviceResourceStatusType)
