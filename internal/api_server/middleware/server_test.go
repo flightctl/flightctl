@@ -45,7 +45,7 @@ var _ = Describe("Low level server behavior", func() {
 		noSubjectCert, _, err = ca.EnsureClientCertificate(filepath.Join(tempDir, "no-subject.crt"), filepath.Join(tempDir, "no-subject.key"), "", 365)
 		Expect(err).NotTo(HaveOccurred())
 
-		_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+		_, tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 		Expect(err).ToNot(HaveOccurred())
 
 		// create a listener using the next available port
