@@ -31,30 +31,41 @@ func (r Device) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	if r.Spec != nil {
-		if r.Spec.UpdatePolicy != nil {
-			allErrs = append(allErrs, r.Spec.UpdatePolicy.Validate()...)
+		allErrs = append(allErrs, r.Spec.Validate()...)
+	}
+	return allErrs
+}
+
+func (r DeviceSpec) Validate() []error {
+	allErrs := []error{}
+	if r.UpdatePolicy != nil {
+		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
+	}
+	if r.Os != nil {
+		containsParams, paramErrs := ValidateParametersInString(&r.Os.Image, "spec.os.image")
+		if len(paramErrs) > 0 {
+			allErrs = append(allErrs, paramErrs...)
+		} else if !containsParams {
+			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Os.Image, "spec.os.image")...)
 		}
-		if r.Spec.Os != nil {
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Os.Image, "spec.os.image")...)
+	}
+	if r.Config != nil {
+		for _, config := range *r.Config {
+			allErrs = append(allErrs, config.Validate()...)
 		}
-		if r.Spec.Config != nil {
-			for _, config := range *r.Spec.Config {
-				allErrs = append(allErrs, config.Validate()...)
-			}
+	}
+	if r.Applications != nil {
+		allErrs = append(allErrs, validateApplications(*r.Applications)...)
+	}
+	if r.Resources != nil {
+		for _, resource := range *r.Resources {
+			allErrs = append(allErrs, resource.Validate()...)
 		}
-		if r.Spec.Applications != nil {
-			allErrs = append(allErrs, validateApplications(*r.Spec.Applications)...)
-		}
-		if r.Spec.Resources != nil {
-			for _, resource := range *r.Spec.Resources {
-				allErrs = append(allErrs, resource.Validate()...)
-			}
-		}
-		if r.Spec.Systemd != nil {
-			for i, matchPattern := range *r.Spec.Systemd.MatchPatterns {
-				matchPattern := matchPattern
-				allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
-			}
+	}
+	if r.Systemd != nil {
+		for i, matchPattern := range *r.Systemd.MatchPatterns {
+			matchPattern := matchPattern
+			allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
 		}
 	}
 	return allErrs
@@ -402,7 +413,12 @@ func (r Fleet) Validate() []error {
 	}
 
 	if r.Spec.Template.Spec.Os != nil {
-		allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
+		containsParams, paramErrs := ValidateParametersInString(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")
+		if len(paramErrs) > 0 {
+			allErrs = append(allErrs, paramErrs...)
+		} else if !containsParams {
+			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
+		}
 	}
 
 	if r.Spec.Template.Spec.Applications != nil {

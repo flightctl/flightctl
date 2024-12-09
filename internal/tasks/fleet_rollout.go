@@ -157,22 +157,39 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 			currentVersion = v
 		}
 	}
+	errs := []error{}
 
-	deviceConfig, err := f.getDeviceConfig(device, templateVersion)
-	if err != nil {
-		return err
+	var osSpec *api.DeviceOSSpec
+	if templateVersion.Status.Os != nil {
+		img, err := replaceParametersInString(templateVersion.Status.Os.Image, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))
+		} else {
+			osSpec = &api.DeviceOSSpec{Image: img}
+		}
 	}
-	deviceApps, err := f.getDeviceApps(device, templateVersion)
-	if err != nil {
-		return err
+
+	deviceConfig, configErrs := f.getDeviceConfig(device, templateVersion)
+	errs = append(errs, configErrs...)
+
+	deviceApps, appErrs := f.getDeviceApps(device, templateVersion)
+	errs = append(errs, appErrs...)
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed generating device spec for %s/%s: %w", f.resourceRef.OrgID, *device.Metadata.Name, errors.Join(errs...))
 	}
 
 	newDeviceSpec := api.DeviceSpec{
 		Config:       deviceConfig,
-		Os:           templateVersion.Status.Os,
+		Os:           osSpec,
 		Systemd:      templateVersion.Status.Systemd,
 		Resources:    templateVersion.Status.Resources,
 		Applications: deviceApps,
+	}
+
+	errs = newDeviceSpec.Validate()
+	if len(errs) > 0 {
+		return fmt.Errorf("failed validating device spec for %s/%s: %w", f.resourceRef.OrgID, *device.Metadata.Name, errors.Join(errs...))
 	}
 
 	if currentVersion == *templateVersion.Metadata.Name && api.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
@@ -181,7 +198,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
-	err = f.updateDeviceInStore(ctx, device, &newDeviceSpec)
+	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec)
 	if err != nil {
 		return fmt.Errorf("failed updating device spec: %w", err)
 	}
@@ -197,30 +214,33 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	return err
 }
 
-func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationSpec, error) {
+func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationSpec, []error) {
 	if templateVersion.Status.Applications == nil {
 		return nil, nil
 	}
+	errs := []error{}
 
 	deviceApps := []api.ApplicationSpec{}
-	for _, app := range *templateVersion.Status.Applications {
+	for appIndex, app := range *templateVersion.Status.Applications {
 		appType, err := app.Type()
 		if err != nil {
-			return nil, fmt.Errorf("failed getting app type: %w", err)
+			errs = append(errs, fmt.Errorf("failed getting type for app %d: %w", appIndex, err))
+			continue
 		}
 		switch appType {
 		case api.ImageApplicationProviderType:
 			newApp, err := f.replaceEnvVarValueParameters(device, app)
 			if err != nil {
-				return nil, err
+				errs = append(errs, fmt.Errorf("failed replacing parameters for app %d: %w", appIndex, err))
+				continue
 			}
 			deviceApps = append(deviceApps, *newApp)
 		default:
-			return nil, fmt.Errorf("unsupported application type: %s", appType)
+			errs = append(errs, fmt.Errorf("unsupported type for app %d: %s", appIndex, appType))
 		}
 	}
 
-	return &deviceApps, nil
+	return &deviceApps, errs
 }
 
 func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationSpec) (*api.ApplicationSpec, error) {
@@ -241,7 +261,7 @@ func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app
 	return &app, nil
 }
 
-func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ConfigProviderSpec, error) {
+func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ConfigProviderSpec, []error) {
 	if templateVersion.Status.Config == nil {
 		return nil, nil
 	}
@@ -278,7 +298,7 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 	}
 
 	if len(configErrs) > 0 {
-		return nil, fmt.Errorf("found %d config errors: %v", len(configErrs), errors.Join(configErrs...))
+		return nil, configErrs
 	}
 
 	return &deviceConfig, nil
@@ -302,11 +322,6 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *api.Device, confi
 		errs = append(errs, fmt.Errorf("failed replacing parameters in path in git config %s: %w", gitSpec.Name, err))
 	}
 
-	if len(errs) > 0 {
-		return nil, errs
-	}
-
-	errs = gitSpec.Validate()
 	if len(errs) > 0 {
 		return nil, errs
 	}
@@ -343,11 +358,6 @@ func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *api.Device
 		errs = append(errs, fmt.Errorf("failed replacing parameters in mountPath in k8s secret config %s: %w", secretSpec.Name, err))
 	}
 
-	if len(errs) > 0 {
-		return nil, errs
-	}
-
-	errs = secretSpec.Validate()
 	if len(errs) > 0 {
 		return nil, errs
 	}
@@ -405,11 +415,6 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 		return nil, errs
 	}
 
-	errs = inlineSpec.Validate()
-	if len(errs) > 0 {
-		return nil, errs
-	}
-
 	newConfigItem := api.ConfigProviderSpec{}
 	err = newConfigItem.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
@@ -440,11 +445,6 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *api.Device, conf
 		errs = append(errs, fmt.Errorf("failed replacing parameters in file path in http config %s: %w", httpSpec.Name, err))
 	}
 
-	if len(errs) > 0 {
-		return nil, errs
-	}
-
-	errs = httpSpec.Validate()
 	if len(errs) > 0 {
 		return nil, errs
 	}
