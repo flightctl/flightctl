@@ -2,7 +2,7 @@ GOBASE=$(shell pwd)
 GOBIN=$(GOBASE)/bin
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
-GO_FILES := $(shell find ./ -name ".go" -not -path "./bin" -not -path "./packaging/*")
+GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
 GO_CACHE := -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -v $${HOME}/go/flightctl-go-cache/.cache:/opt/app-root/src/.cache:Z
 TIMEOUT ?= 30m
 GOOS := $(shell go env GOOS)
@@ -48,6 +48,7 @@ help:
 	@echo "    unit-test:       run unit tests"
 	@echo "    test:            run all tests"
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
+	@echo "    redeploy-*       redeploy the api,worker,periodic containers in kind"
 	@echo "    deploy-db:       deploy only the database as a container, for testing"
 	@echo "    deploy-mq:       deploy only the message queue broker as a container"
 	@echo "    deploy-quadlets: deploy FlightCtl using Quadlets"
@@ -124,11 +125,6 @@ build-containers: flightctl-api-container flightctl-worker-container flightctl-p
 .PHONY: build-containers
 
 
-update-server-container: bin/.flightctl-server-container
-	kind load docker-image localhost/flightctl-server:latest
-	kubectl delete pod -l flightctl.service=flightctl-server -n flightctl-external
-	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s
-	kubectl logs -l flightctl.service=flightctl-server -n flightctl-external -f
 bin:
 	mkdir -p bin
 
