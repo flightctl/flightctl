@@ -184,22 +184,8 @@ func (b *Bootstrap) ensureSpecFiles() error {
 }
 
 func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
-	desiredSpec, err := b.specManager.Read(spec.Desired)
-	if err != nil {
+	if err := b.ensureBootedOS(ctx); err != nil {
 		return err
-	}
-
-	if err := b.ensureBootedOS(ctx, desiredSpec); err != nil {
-		return err
-	}
-
-	currentSpec, err := b.specManager.Read(spec.Current)
-	if err != nil {
-		return err
-	}
-
-	if currentSpec.Config == nil {
-		return nil
 	}
 
 	// TODO: call if device has rebooted, rather than just agent restarted
@@ -208,41 +194,29 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bootstrap) ensureBootedOS(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	if desired.Os == nil || desired.Os.Image == "" {
-		b.log.Debug("Device os image is empty")
-		return nil
-	}
-
-	updating, err := b.specManager.IsOSUpdate()
-	if err != nil {
-		return err
-	}
-	if !updating {
+func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
+	if !b.specManager.IsOSUpdate() {
 		b.log.Info("No OS update in progress")
 		// no change in OS image, so nothing else to do here
 		return nil
 	}
 
+	return b.checkRollback(ctx)
+}
+
+func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	// check if the bootedOS image is expected
 	bootedOS, reconciled, err := b.specManager.CheckOsReconciliation(ctx)
 	if err != nil {
 		return fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
 
-	if !reconciled {
-		return b.checkRollback(ctx, bootedOS, desired.Os.Image)
-	}
-
-	b.log.Infof("Booted into desired OS image: %s", desired.Os.Image)
-	return nil
-}
-
-func (b *Bootstrap) checkRollback(ctx context.Context, bootedOS, desiredOS string) error {
-	if bootedOS == desiredOS {
+	if reconciled {
+		b.log.Infof("Booted into desired OS image: %s", bootedOS)
 		return nil
 	}
 
+	desiredOS := b.specManager.OSVersion(spec.Desired)
 	// We rebooted without applying the new OS image - something potentially went wrong
 	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedOS, desiredOS)
 
@@ -270,6 +244,16 @@ func (b *Bootstrap) checkRollback(ctx context.Context, bootedOS, desiredOS strin
 		return fmt.Errorf("failed spec rollback: %w", err)
 	}
 	b.log.Info("Spec rollback complete, resuming bootstrap")
+
+	updateErr = b.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceUpdating,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.UpdateStateRollingBack),
+		Message: fmt.Sprintf("The device is rolling back to template version: %s", b.specManager.RenderedVersion(spec.Desired)),
+	})
+	if updateErr != nil {
+		b.log.Warnf("Failed setting status: %v", updateErr)
+	}
 
 	return nil
 }

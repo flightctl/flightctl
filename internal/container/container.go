@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"k8s.io/klog/v2"
@@ -69,10 +70,14 @@ type OstreeDetails struct {
 }
 
 type BootcClient interface {
+	// Status returns the current bootc status.
 	Status(ctx context.Context) (*BootcHost, error)
+	// Switch targets a new container image reference to boot.
 	Switch(ctx context.Context, image string) error
-	Apply(ctx context.Context) error
+	// UsrOverlay adds a transient writable overlayfs on `/usr` that will be discarded on reboot.
 	UsrOverlay(ctx context.Context) error
+	// Apply restart or reboot into the new target image.
+	Apply(ctx context.Context) error
 }
 
 var (
@@ -86,12 +91,25 @@ func NewBootcCmd(executer executer.Executer) *BootcCmd {
 	}
 }
 
-// Status returns the current bootc host status.
+func (b *BootcCmd) Upgrade(ctx context.Context, image string) error {
+	target, err := imageToBootcTarget(image)
+	if err != nil {
+		return err
+	}
+
+	args := []string{"download", target}
+	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("download image: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 	args := []string{"status", "--json"}
 	stdout, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("get bootc status: %s", stderr)
+		return nil, fmt.Errorf("bootc status: %w", errors.FromStderr(stderr, exitCode))
 	}
 
 	var bootcHost BootcHost
@@ -102,8 +120,6 @@ func (b *BootcCmd) Status(ctx context.Context) (*BootcHost, error) {
 	return &bootcHost, nil
 }
 
-// Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
-// The status will be updated in logger.
 func (b *BootcCmd) Switch(ctx context.Context, image string) error {
 	target, err := imageToBootcTarget(image)
 	if err != nil {
@@ -112,10 +128,16 @@ func (b *BootcCmd) Switch(ctx context.Context, image string) error {
 
 	done := make(chan error, 1)
 	go func() {
-		args := []string{"switch", "--retain", target}
+		args := []string{
+			"switch",
+			"--transport",
+			"containers-storage",
+			"--retain",
+			target,
+		}
 		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
 		if exitCode != 0 {
-			done <- fmt.Errorf("stage image: %s", stderr)
+			done <- fmt.Errorf("stage image: %w", errors.FromStderr(stderr, exitCode))
 			return
 		}
 		done <- nil
@@ -145,7 +167,7 @@ func (b *BootcCmd) Apply(ctx context.Context) error {
 	args := []string{"upgrade", "--apply"}
 	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
 	if exitCode != 0 && exitCode != 137 { // 137 is the exit code for SIGKILL and is expected during reboot 128 + SIGKILL (9)
-		return fmt.Errorf("apply image: %s", stderr)
+		return fmt.Errorf("apply image: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -155,7 +177,7 @@ func (b *BootcCmd) UsrOverlay(ctx context.Context) error {
 	args := []string{"usr-overlay"}
 	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, CmdBootc, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("overlay image: %s", stderr)
+		return fmt.Errorf("overlay image: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }

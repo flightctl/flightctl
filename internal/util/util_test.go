@@ -25,3 +25,7 @@ var _ = Describe("Test util", func() {
 		})
 	})
 })
+
+func TestLabelMapToArray(t *testing.T) {
+	LabelMapToArray()
+}
