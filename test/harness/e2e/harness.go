@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	agent "github.com/flightctl/flightctl/internal/agent/device"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	client "github.com/flightctl/flightctl/internal/client"
+	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -188,6 +188,16 @@ func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) v1alpha1.Devic
 	return device.JSON200.Status.Summary.Status
 }
 
+func (h *Harness) GetDeviceWithUpdateStatus(enrollmentID string) v1alpha1.DeviceUpdatedStatusType {
+	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	Expect(err).NotTo(HaveOccurred())
+	// we keep waiting for a 200 response, with filled in Status.SystemInfo
+	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil {
+		return ""
+	}
+	return device.JSON200.Status.Updated.Status
+}
+
 func (h *Harness) ApiEndpoint() string {
 	ep := os.Getenv("API_ENDPOINT")
 	Expect(ep).NotTo(BeEmpty(), "API_ENDPOINT environment variable must be set")
@@ -321,7 +331,7 @@ func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*
 }
 
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
-	lastStatusPrint := ""
+	lastResourcePrint := ""
 
 	Eventually(func() error {
 		logrus.Infof("Waiting for condition: %q to be met", description)
@@ -333,15 +343,15 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		}
 		device := response.JSON200
 
-		yamlData, err := yaml.Marshal(device.Status)
+		yamlData, err := yaml.Marshal(device)
 		yamlString := string(yamlData)
 		Expect(err).ToNot(HaveOccurred())
-		if yamlString != lastStatusPrint {
+		if yamlString != lastResourcePrint {
 			fmt.Println("")
-			fmt.Println("======================= Device status change ===================== ")
+			fmt.Println("======================= Device resource change ===================== ")
 			fmt.Println(yamlString)
 			fmt.Println("================================================================== ")
-			lastStatusPrint = yamlString
+			lastResourcePrint = yamlString
 		}
 
 		if condition(device) {
@@ -371,8 +381,7 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	// Check the device status.
 	response := h.GetDeviceWithStatusSystem(deviceId)
 	device := response.JSON200
-	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-	Expect(*device.Status.Summary.Info).To(Equal(agent.BootstrapComplete))
-	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
 	return deviceId, device
 }

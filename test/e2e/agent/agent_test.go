@@ -58,7 +58,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 			// Approve the enrollment and wait for the device details to be populated by the agent
 			harness.ApproveEnrollment(enrollmentID, testutil.TestEnrollmentApproval())
-			logrus.Infof("Waiting for device %s to report status so we can check TPM PCRs again", enrollmentID)
+			logrus.Infof("Waiting for device %s to report status", enrollmentID)
 
 			// wait for the device to pickup enrollment and report measurements on device status
 			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
@@ -119,11 +119,11 @@ var _ = Describe("VM Agent behavior", func() {
 
 			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Retrying",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRetrying))
+					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
 				}, "2m")
 
-			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Degraded")))
+			Eventually(harness.GetDeviceWithUpdateStatus, TIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceUpdatedStatusOutOfDate))
 		})
 
 		It(`should show an error when trying to update a device with
@@ -189,7 +189,7 @@ var _ = Describe("VM Agent behavior", func() {
 					return conditionExists(device, "Updating", "False", "Updated")
 				}, "2m")
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 		})
 
 		It("should report 'Unknown' after the device vm is powered-off", func() {
@@ -199,7 +199,7 @@ var _ = Describe("VM Agent behavior", func() {
 			err := harness.VM.Shutdown()
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Unknown")))
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
 		})
 	})
 })
