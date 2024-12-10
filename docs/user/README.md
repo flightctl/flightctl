@@ -52,3 +52,4 @@ Welcome to the Flight Control user documentation.
 **References** - Useful references.
 
 * [API Resources](api-resources.md)
+* [Device Status Definitions](device-api-statuses.md)
