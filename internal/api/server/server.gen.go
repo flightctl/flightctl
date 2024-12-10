@@ -2680,7 +2680,7 @@ func (response CreateCertificateSigningRequest202JSONResponse) VisitCreateCertif
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateCertificateSigningRequest208JSONResponse EnrollmentRequest
+type CreateCertificateSigningRequest208JSONResponse Error
 
 func (response CreateCertificateSigningRequest208JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
