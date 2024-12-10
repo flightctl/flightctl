@@ -428,7 +428,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
 
-		conditionUpdate.Reason = string(v1alpha1.UpdateStateRetrying)
+		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
 	}
