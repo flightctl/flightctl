@@ -1999,30 +1999,12 @@ paths:
               $ref: '#/components/schemas/CertificateSigningRequest'
         required: true
       responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
         "201":
           description: Created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
-        "202":
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "208":
-          description: Already Reported
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
         "400":
           description: Bad Request
           content:
