@@ -42,6 +42,9 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/pgsql/data
               name: flightctl-db
+            - mountPath: /usr/share/container-scripts/postgresql/start/enable-superuser.sh
+              subPath: enable-superuser.sh
+              name: init-scripts
           resources:
             requests:
               cpu: {{ .Values.db.resources.requests.cpu}}
@@ -54,4 +57,7 @@ spec:
         - name: flightctl-db
           persistentVolumeClaim:
             claimName: flightctl-db
+        - name: init-scripts
+          configMap:
+            name: flightctl-db
 
