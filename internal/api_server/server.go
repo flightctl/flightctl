@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"slices"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -96,22 +95,30 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 
-	middlewares := [](func(http.Handler) http.Handler){
+	// general middleware stack for all route groups
+	router.Use(
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
-		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	}
+	)
 
-	if s.metrics != nil {
-		middlewares = slices.Insert(middlewares, 0, s.metrics.ApiServerMiddleware)
-	}
+	// a group is a new mux copy, with it's own copy of the middleware stack
+	// this one handles the OpenAPI handling of the service
+	router.Group(func(r chi.Router) {
+		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
+		// to avoid issues with websocket connections
+		if s.metrics != nil {
+			r.Use(s.metrics.ApiServerMiddleware)
+		}
+		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
-	router.Use(middlewares...)
+		h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
+	})
 
-	h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
-	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
+	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, callbackManager)
+	ws.RegisterRoutes(router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
 
