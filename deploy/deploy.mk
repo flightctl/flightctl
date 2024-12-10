@@ -19,6 +19,15 @@ clean-cluster:
 
 deploy: cluster build deploy-helm deploy-e2e-extras prepare-agent-config
 
+redeploy-api: flightctl-api-container
+	test/scripts/redeploy.sh api
+
+redeploy-worker: flightctl-worker-container
+	test/scripts/redeploy.sh worker
+
+redeploy-periodic: flightctl-periodic-container
+	test/scripts/redeploy.sh periodic
+
 deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
