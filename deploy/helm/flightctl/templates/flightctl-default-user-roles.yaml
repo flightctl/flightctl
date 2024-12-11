@@ -1,0 +1,29 @@
+{{ if eq .Values.global.target "acm" }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-admin
+  namespace: {{ .Release.Namespace }}
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - flightctl.io
+    resources:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-reader
+  namespace: {{ .Release.Namespace }}
+rules:
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
+      - '*'
+{{ end }}
