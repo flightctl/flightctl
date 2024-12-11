@@ -102,7 +102,6 @@ kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w -
 
 # Make sure the database is usable from the unit tests
 DB_POD=$(kubectl get pod -n flightctl-internal -l flightctl.service=flightctl-db --no-headers -o custom-columns=":metadata.name" --context kind-kind )
-kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- psql -c 'ALTER ROLE admin WITH SUPERUSER'
 kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- createdb admin 2>/dev/null|| true
 
 

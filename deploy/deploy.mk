@@ -45,7 +45,6 @@ deploy-db:
 	podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec podman_flightctl-db
 	cd deploy/podman && podman-compose up -d flightctl-db
 	test/scripts/wait_for_postgres.sh podman
-	podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 	podman exec -it flightctl-db createdb admin || true
 
 deploy-mq:
