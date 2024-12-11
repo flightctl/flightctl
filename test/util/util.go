@@ -119,7 +119,7 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 
 	metrics := instrumentation.NewApiMetrics(cfg)
 
-	return apiserver.New(log, cfg, store, ca, listener, provider, metrics), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, provider, metrics, nil), listener, nil
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.

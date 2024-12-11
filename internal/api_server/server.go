@@ -13,6 +13,7 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/service"
@@ -30,13 +31,14 @@ const (
 )
 
 type Server struct {
-	log      logrus.FieldLogger
-	cfg      *config.Config
-	store    store.Store
-	ca       *crypto.CA
-	listener net.Listener
-	provider queues.Provider
-	metrics  *instrumentation.ApiMetrics
+	log                logrus.FieldLogger
+	cfg                *config.Config
+	store              store.Store
+	ca                 *crypto.CA
+	listener           net.Listener
+	provider           queues.Provider
+	metrics            *instrumentation.ApiMetrics
+	consoleEndpointReg console.InternalSessionRegistration
 }
 
 // New returns a new instance of a flightctl server.
@@ -48,15 +50,17 @@ func New(
 	listener net.Listener,
 	provider queues.Provider,
 	metrics *instrumentation.ApiMetrics,
+	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
 	return &Server{
-		log:      log,
-		cfg:      cfg,
-		store:    store,
-		ca:       ca,
-		listener: listener,
-		provider: provider,
-		metrics:  metrics,
+		log:                log,
+		cfg:                cfg,
+		store:              store,
+		ca:                 ca,
+		listener:           listener,
+		provider:           provider,
+		metrics:            metrics,
+		consoleEndpointReg: consoleEndpointReg,
 	}
 }
 
@@ -117,7 +121,8 @@ func (s *Server) Run(ctx context.Context) error {
 		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
 	})
 
-	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, callbackManager)
+	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, configStorage, s.log, s.consoleEndpointReg)
+	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
 	ws.RegisterRoutes(router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)

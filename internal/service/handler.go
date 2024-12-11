@@ -2,6 +2,7 @@ package service
 
 import (
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -21,10 +22,10 @@ type ServiceHandler struct {
 }
 
 type WebsocketHandler struct {
-	store           store.Store
-	ca              *crypto.CA
-	log             logrus.FieldLogger
-	callbackManager tasks.CallbackManager
+	store                 store.Store
+	ca                    *crypto.CA
+	log                   logrus.FieldLogger
+	consoleSessionManager *console.ConsoleSessionManager
 }
 
 // Make sure we conform to servers Service interface
@@ -42,12 +43,12 @@ func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager,
 	}
 }
 
-func NewWebsocketHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger, callbackManager tasks.CallbackManager) *WebsocketHandler {
+func NewWebsocketHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {
 	return &WebsocketHandler{
-		store:           store,
-		ca:              ca,
-		log:             log,
-		callbackManager: callbackManager,
+		store:                 store,
+		ca:                    ca,
+		log:                   log,
+		consoleSessionManager: consoleSessionManager,
 	}
 }
 
