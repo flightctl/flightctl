@@ -47,7 +47,7 @@ jobs:
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           make generate
-          go mod tidy -v
+          make tidy
           git diff --exit-code
 
       - name: Running Linter
