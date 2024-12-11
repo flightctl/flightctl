@@ -94,13 +94,16 @@ func main() {
 	metrics := instrumentation.NewApiMetrics(cfg)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+
+	grpcServer := agentserver.NewAgentGrpcServer(log, cfg, grpcTlsConfig)
+
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
 		if err != nil {
 			log.Fatalf("creating listener: %s", err)
 		}
-
-		server := apiserver.New(log, cfg, store, ca, listener, provider, metrics)
+		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
+		server := apiserver.New(log, cfg, store, ca, listener, provider, metrics, grpcServer)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -121,7 +124,6 @@ func main() {
 	}()
 
 	go func() {
-		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, grpcTlsConfig)
 		if err := grpcServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
