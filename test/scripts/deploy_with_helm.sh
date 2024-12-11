@@ -83,7 +83,7 @@ fi
 kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
 
 API_PORT=3443
-KEYCLOAK_PORT=8080
+KEYCLOAK_PORT=8081
 GATEWAY_ARGS=""
 if [ "$GATEWAY" ]; then
   API_PORT=4443

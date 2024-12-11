@@ -1,7 +1,7 @@
 global:
   auth:
     type: "none"
-    internalOidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8080/realms/flightctl
+    internalOidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8081/realms/flightctl
   internalNamespace: flightctl-internal
   storageClassName: standard
   exposeServicesMethod: "nodePort"
@@ -11,7 +11,7 @@ global:
     grpc: 7444
     db: 5432
     kv: 6379
-    keycloak: 8080
+    keycloak: 8081
     prometheus: 9090
     gitserver: 3222
     registry: 5000
