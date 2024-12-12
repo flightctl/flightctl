@@ -8,6 +8,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -56,9 +57,17 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 
 // (DELETE /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, request server.DeleteCertificateSigningRequestsRequestObject) (server.DeleteCertificateSigningRequestsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "deletecollection")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteCertificateSigningRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteCertificateSigningRequests403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.CertificateSigningRequest().DeleteAll(ctx, orgId)
+	err = h.store.CertificateSigningRequest().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteCertificateSigningRequests200JSONResponse{}, nil
@@ -69,6 +78,14 @@ func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, r
 
 // (GET /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, request server.ListCertificateSigningRequestsRequestObject) (server.ListCertificateSigningRequestsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "list")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ListCertificateSigningRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ListCertificateSigningRequests403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
@@ -122,6 +139,14 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 
 // (POST /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, request server.CreateCertificateSigningRequestRequestObject) (server.CreateCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "create")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.CreateCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.CreateCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -146,9 +171,17 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, re
 
 // (DELETE /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, request server.DeleteCertificateSigningRequestRequestObject) (server.DeleteCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "delete")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.CertificateSigningRequest().Delete(ctx, orgId, request.Name)
+	err = h.store.CertificateSigningRequest().Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteCertificateSigningRequest200JSONResponse{}, nil
@@ -161,6 +194,14 @@ func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, re
 
 // (GET /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) ReadCertificateSigningRequest(ctx context.Context, request server.ReadCertificateSigningRequestRequestObject) (server.ReadCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReadCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReadCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
@@ -176,6 +217,14 @@ func (h *ServiceHandler) ReadCertificateSigningRequest(ctx context.Context, requ
 
 // (PATCH /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, request server.PatchCertificateSigningRequestRequestObject) (server.PatchCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "patch")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.PatchCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.PatchCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
@@ -230,6 +279,14 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 
 // (PUT /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, request server.ReplaceCertificateSigningRequestRequestObject) (server.ReplaceCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -278,6 +335,14 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 // (POST /api/v1/certificatesigningrequests/{name}/approval)
 // NOTE: Approval currently also issues a certificate - this will change in the future based on policy
 func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, request server.ApproveCertificateSigningRequestRequestObject) (server.ApproveCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests/approval", "post")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ApproveCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ApproveCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	storeCsr := h.store.CertificateSigningRequest()
@@ -340,6 +405,14 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 
 // (DELETE /api/v1/certificatesigningrequests/{name}/approval)
 func (h *ServiceHandler) DenyCertificateSigningRequest(ctx context.Context, request server.DenyCertificateSigningRequestRequestObject) (server.DenyCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests/approval", "delete")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DenyCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DenyCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 	approvedCondition := api.Condition{
 		Type:    api.CertificateSigningRequestApproved,
@@ -353,7 +426,7 @@ func (h *ServiceHandler) DenyCertificateSigningRequest(ctx context.Context, requ
 		Reason:  "Denied",
 		Message: "Denied",
 	}
-	err := h.store.CertificateSigningRequest().UpdateConditions(ctx, orgId, request.Name, []api.Condition{approvedCondition, deniedCondition})
+	err = h.store.CertificateSigningRequest().UpdateConditions(ctx, orgId, request.Name, []api.Condition{approvedCondition, deniedCondition})
 
 	switch err {
 	case nil:
