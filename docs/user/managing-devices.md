@@ -566,40 +566,6 @@ The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib
 | `/etc/NetworkManager/system-connections/` | `nmcli conn reload` | Changes to Network Manager system connections will be activated by signaling Network Manager to reload all connections. |
 | `/etc/firewalld/` | `firewall-cmd --reload` | Changes to firewalld's permanent configuration will be activated by signaling firewalld to reload firewall rules as new runtime configuration. |
 
-### Using Device Lifecycle Hooks on the Web UI
-
-### Using Device Lifecycle Hooks on the CLI
-
-To add a device lifecycle hook, specify it in the device's `spec.hooks` as follows:
-
-```yaml
-apiVersion: v1alpha1
-kind: Device
-metadata:
-  name: some_device_name
-spec:
-[...]
-  hooks:
-    afterUpdating:
-    # a simple command with arguments (note: specify absolute path to binary)
-    - run: /usr/bin/echo "called from afterUpdating hook"
-    # a second command, this time running a shell and using environment
-    # variables, working directory, and timeout
-    - run: /usr/bin/bash -c "echo ${MESSAGE}"
-      envVars:
-        MESSAGE: "called from afterUpdating hook"
-      timeout: 10s
-      workDir: /
-    # a third command, this time with a path condition that runs the command
-    # only if a file below /etc/systemd/system/ has been changed and prints
-    # the paths of the changed files
-    - if:
-        path: "/etc/systemd/system/"
-        op: [Create, Update, Remove]
-      run: /usr/bin/echo "{{ Files }}"
-[...]
-```
-
 ## Monitoring Device Resources
 
 You can set up monitors for device resources and define alerts when the utilization of these resources crosses a defined threshold. When the agent alerts the Flight Control service, the service sets the device status to "degraded" or "error" (depending on the severity level) and may suspend the rollout of updates and alarm the user as a result.
