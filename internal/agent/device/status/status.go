@@ -90,6 +90,9 @@ func (m *StatusManager) Collect(ctx context.Context) error {
 	for _, export := range m.exporters {
 		err := export.Status(ctx, m.device.Status)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
 			errs = append(errs, err)
 			continue
 		}
@@ -134,7 +137,8 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return nil
 	}
 
-	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
+	err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device)
+	if err != nil {
 		return fmt.Errorf("failed to update device status: %w", err)
 	}
 	return nil

@@ -22,7 +22,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
-	"github.com/flightctl/flightctl/internal/container"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -92,15 +91,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// create bootc client
-	bootcClient := container.NewBootcCmd(executer)
-
-	// create podman client
-	podmanClient := client.NewPodman(a.log, executer)
-
-	// create systemd client
-	systemdClient := client.NewSystemd(executer)
-
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
@@ -108,6 +98,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		Factor:   1.5,
 		Steps:    6,
 	}
+
+	// create bootc client
+	bootcClient := client.NewBootc(a.log, executer)
+
+	// create podman client
+	podmanClient := client.NewPodman(a.log, executer, backoff)
+
+	// create systemd client
+	systemdClient := client.NewSystemd(executer)
 
 	// create shutdown manager
 	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)

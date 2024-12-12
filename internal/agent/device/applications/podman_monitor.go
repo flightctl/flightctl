@@ -291,6 +291,9 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 		action := actions[i]
 		if action.Handler == lifecycle.ActionHandlerCompose {
 			if err := m.compose.Execute(ctx, &action); err != nil {
+				if errors.Is(err, context.Canceled) {
+					return nil
+				}
 				// this error should result in a failed status for the revision
 				// and not retried.
 				return err

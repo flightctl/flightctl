@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -41,7 +42,7 @@ var _ = Describe("Calling osimages Sync", func() {
 		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
 		specManager = spec.NewMockManager(ctrl)
-		mockBootcClient := container.NewBootcCmd(execMock)
+		mockBootcClient := client.NewBootc(log, execMock)
 		controller = device.NewOSImageController(mockBootcClient, statusManager, specManager, log)
 	})
 
@@ -59,7 +60,7 @@ var _ = Describe("Calling osimages Sync", func() {
 
 	Context("When we fail to get the bootc status", func() {
 		It("should return the error and set a condition", func() {
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return("", "status error", 1)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "status", "--json").Return("", "status error", 1)
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "image"}}
 			err := controller.Sync(ctx, &desired)
 			Expect(err).To(HaveOccurred())
@@ -82,7 +83,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			hostJson, err := json.Marshal(host)
 			Expect(err).ToNot(HaveOccurred())
 
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "status", "--json").Return(string(hostJson), "", 0)
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "myimage"}}
 			err = controller.Sync(ctx, &desired)
 			Expect(err).ToNot(HaveOccurred())
@@ -106,8 +107,8 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "mynewimage"}}
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "switch", "--retain", "mynewimage").Return("", "status error", 1)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "status", "--json").Return(string(hostJson), "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "switch", "--retain", "mynewimage").Return("", "status error", 1)
 
 			err = controller.Sync(ctx, &desired)
 			Expect(err).To(HaveOccurred())
@@ -131,9 +132,9 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "mynewimage"}}
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "switch", "--retain", "mynewimage").Return("", "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "upgrade", "--apply").Return("", "status error", 1)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "status", "--json").Return(string(hostJson), "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "switch", "--retain", "mynewimage").Return("", "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "upgrade", "--apply").Return("", "status error", 1)
 			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
 			statusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 			specManager.EXPECT().PrepareRollback(gomock.Any()).Return(nil)
@@ -160,9 +161,9 @@ var _ = Describe("Calling osimages Sync", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "mynewimage"}}
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "switch", "--retain", "mynewimage").Return("", "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "upgrade", "--apply").Return("", "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "status", "--json").Return(string(hostJson), "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "switch", "--retain", "mynewimage").Return("", "", 0)
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), client.BootcCmd, "upgrade", "--apply").Return("", "", 0)
 			summaryStatus := v1alpha1.DeviceSummaryStatusRebooting
 			infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", "mynewimage")
 			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
