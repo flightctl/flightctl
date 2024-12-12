@@ -1,0 +1,186 @@
+syntax = "proto3";
+
+package flightctl.v1;
+
+option go_package = "github.com/flightctl/flightctl/api/grpc/v1/grpc-v1";
+
+// General notes
+// - All messages should include an api_version field to allow for future changes of 
+//   the json content without breaking the API. i.e. the service should be able to
+//   downconvert the json to the version the agent will understand.
+//
+// - We use json for openapi bound objects to reduce coupling, and eto enable
+//   seamless translation between versions at server side.
+
+service EnrollmentService {
+  // RequestEnrollment enrolls a device with the service.
+  //
+  // Parameters:
+  // - EnrollmentRequest: Contains device enrollment information.
+  //
+  // Returns:
+  // - EnrollmentResponse: Confirmation of enrollment.
+  //
+  // Errors:
+  // - INVALID_ARGUMENT: The request is invalid.
+  // - AUTHENTICATION_FAILED: The provided certificate is not valid for performing an enrollment request.
+  //
+  rpc RequestEnrollment(EnrollmentRequest) returns (EnrollmentResponse);
+
+  // GetEnrollment retrieves enrollment status and details for a device.
+  //
+  // Parameters:
+  // - GetEnrollmentRequest: Includes the device name.
+  //
+  // Returns:
+  // - GetEnrollmentResponse: Contains the enrollment status and details.
+  //
+  // Errors:
+  // - NOT_FOUND: If the enrollment request does not exist.
+  // - INVALID_ARGUMENT: If the request is invalid.
+  // - AUTHENTICATION_FAILED: If the provided certificate is not valid for enrollment request phase.
+  //
+  rpc GetEnrollment(GetEnrollmentRequest) returns (GetEnrollmentResponse);
+}
+
+message EnrollmentRequest {
+  string api_version = 1;
+  string device_name = 2;
+  bytes json = 3;
+}
+
+message EnrollmentResponse {
+  oneof enrollment {
+    DeviceEnrollment device_enrollment = 1;
+    RedirectResponse redirect = 2;
+  }
+}
+
+message GetEnrollmentRequest {
+  string api_version = 1;
+  string device_name = 2;
+}
+
+message GetEnrollmentResponse {
+  oneof enrollment {
+    DeviceEnrollment device_enrollment = 1;
+    RedirectResponse redirect = 2;
+  }
+}
+
+
+message DeviceEnrollment {
+  string json = 1;
+}
+
+
+service HealthCheckService {
+   rpc Heartbeat(HeartBeatRequest) returns (HeartBeatResponse);
+}
+
+message HeartBeatRequest {}
+message HeartBeatResponse {}
+
+service AgentService {
+  // GetRenderedSpec retrieves the specification for a device.
+  //
+  // Parameters:
+  // - SpecRequest: Includes the device name and known version.
+  //
+  // Returns:
+  // - SpecResponse: Contains the device specification.
+  //
+  // Errors:
+  // - NOT_FOUND: If the device does not exist.
+  // - INVALID_ARGUMENT: If the request is invalid.
+  // - AUTHENTICATION_FAILED: If the provided certificate is not valid for the specific device.
+  //
+  rpc GetRenderedSpec(GetRenderedSpecRequest) returns (GetRenderedSpecResponse);
+
+  // UpdateStatus updates the status of a device.
+  //
+  // Parameters:
+  // - UpdateStatusRequest: Contains the new status information.
+  //
+  // Returns:
+  // - UpdateStatusResponse: Acknowledgment of the update.
+  //
+  // Errors:
+  // - INVALID_ARGUMENT: If the status information is invalid.
+  //
+  rpc UpdateStatus(UpdateStatusRequest) returns (UpdateStatusResponse);
+}
+
+
+message GetRenderedSpecRequest {
+  string api_version = 1;
+  string device_name = 2;
+  string known_version = 3;
+}
+
+message GetRenderedSpecResponse {
+  oneof spec {
+    RenderedDeviceSpec device_spec = 1;
+    NotChanged not_changed = 2; 
+    RedirectResponse redirect = 3;
+  }
+}
+
+message NotChanged {
+}
+
+message RenderedDeviceSpec {
+  bytes json = 1;
+}
+
+message UpdateStatusRequest {
+  string api_version = 1;
+  string device_name = 2;
+  bytes json = 3;
+}
+
+message UpdateStatusResponse {
+  oneof status {
+    DeviceStatus device_status = 1;
+    RedirectResponse redirect = 2;
+  }
+}
+
+message DeviceStatus {
+  string json = 1; 
+}
+
+service RouterService {
+  // Stream connects caller to another caller of the same stream, this is used
+  // to connect two endpoints together, provide console access, or general TCP proxying.
+  //
+  // Parameters:
+  // - StreamRequest: Contains the payload. (stream)
+  //
+  // Returns:
+  // - StreamResponse: Contains the payload. (stream)
+  //
+  // Errors:
+  // - INVALID_ARGUMENT: If the stream ID is invalid.
+  //
+  // Metadata:
+  // - stream-id: The ID of the stream.
+  //
+  rpc Stream(stream StreamRequest) returns (stream StreamResponse);
+}
+message StreamRequest {
+  bytes payload = 1;
+  bool closed = 2;
+}
+
+message StreamResponse {
+  bytes payload = 1;
+  bool closed = 2;
+}
+
+// Redirect Messages ////////////////////////////////////////////////////////////
+// TODO: this is a placeholder for a redirection mechanism, not implemented yet.
+message RedirectResponse {
+  repeated string endpoint = 1;
+  string reason = 2;
+}
