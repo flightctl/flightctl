@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -57,7 +58,7 @@ type Manager interface {
 	// Sync collects status information from all exporters and updates the device status.
 	Sync(context.Context) error
 	// Collect gathers status information from all exporters and is safe to call without a management client.
-	Collect(context.Context) error
+	Collect(context.Context) (bool, error)
 	// RegisterStatusExporter registers an exporter to be called when collecting status.
 	RegisterStatusExporter(Exporter)
 	// Update updates the device status with the given update functions.
@@ -84,12 +85,13 @@ func (m *StatusManager) RegisterStatusExporter(exporter Exporter) {
 	m.exporters = append(m.exporters, exporter)
 }
 
-func (m *StatusManager) Collect(ctx context.Context) error {
+func (m *StatusManager) Collect(ctx context.Context) (bool, error) {
 	m.reset()
 	errs := []error{}
+	oldDeviceStatus := *m.device.Status
+
 	for _, export := range m.exporters {
-		err := export.Status(ctx, m.device.Status)
-		if err != nil {
+		if err := export.Status(ctx, m.device.Status); err != nil {
 			errs = append(errs, err)
 			continue
 		}
@@ -100,22 +102,24 @@ func (m *StatusManager) Collect(ctx context.Context) error {
 	}
 
 	if len(errs) > 0 {
-		return errors.Join(errs...)
+		return false, errors.Join(errs...)
 	}
 
-	return nil
+	return !reflect.DeepEqual(oldDeviceStatus, *m.device.Status), nil
 }
 
 func (m *StatusManager) Sync(ctx context.Context) error {
-	if err := m.Collect(ctx); err != nil {
-		return err
-	}
 	if m.managementClient == nil {
 		m.log.Warn("management client not set")
 		return nil
 	}
-	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
-		m.log.Warnf("Failed to update device status: %v", err)
+	wasChanged, err := m.Collect(ctx)
+	updateStatus := m.managementClient.UpdateDeviceStatus
+	if !wasChanged || err != nil {
+		updateStatus = m.managementClient.HeartBeat
+	}
+	if err := updateStatus(ctx, m.deviceName, *m.device); err != nil {
+		m.log.Warnf("Failed to send device heart bit: %v", err)
 	}
 	return nil
 }
@@ -125,7 +129,7 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return fmt.Errorf("management client not set")
 	}
 
-	if err := m.Collect(ctx); err != nil {
+	if _, err := m.Collect(ctx); err != nil {
 		return err
 	}
 
@@ -147,7 +151,7 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 		return nil, fmt.Errorf("management client not set")
 	}
 
-	if err := m.Collect(ctx); err != nil {
+	if _, err := m.Collect(ctx); err != nil {
 		return nil, err
 	}
 

@@ -62,6 +62,25 @@ func (mr *MockManagementMockRecorder) GetRenderedDeviceSpec(ctx, name, params an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDeviceSpec", reflect.TypeOf((*MockManagement)(nil).GetRenderedDeviceSpec), varargs...)
 }
 
+// HeartBeat mocks base method.
+func (m *MockManagement) HeartBeat(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, name, device}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HeartBeat", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HeartBeat indicates an expected call of HeartBeat.
+func (mr *MockManagementMockRecorder) HeartBeat(ctx, name, device any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, name, device}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeartBeat", reflect.TypeOf((*MockManagement)(nil).HeartBeat), varargs...)
+}
+
 // UpdateDeviceStatus mocks base method.
 func (m *MockManagement) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
 	m.ctrl.T.Helper()

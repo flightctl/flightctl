@@ -215,6 +215,21 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 }
 
+func ReplaceHeartbeat(ctx context.Context, st store.Store, request server.ReplaceHeartBeatRequestObject) (server.ReplaceHeartBeatResponseObject, error) {
+	orgId := store.NullOrgId
+
+	deviceName := request.Name
+
+	// This should go to kv
+	err := st.Device().UpdateLastSeen(ctx, orgId, deviceName)
+	switch err {
+	case nil:
+		return server.ReplaceHeartBeat200Response{}, nil
+	default:
+		return server.ReplaceHeartBeat400JSONResponse{Message: err.Error()}, err
+	}
+}
+
 func GetRenderedDeviceSpec(ctx context.Context, st store.Store, _ logrus.FieldLogger, request server.GetRenderedDeviceSpecRequestObject, consoleGrpcEndpoint string) (server.GetRenderedDeviceSpecResponseObject, error) {
 	orgId := store.NullOrgId
 
