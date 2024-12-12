@@ -261,3 +261,101 @@ func TestValidateGraceDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateParametersInString(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name           string
+		paramString    string
+		containsParams bool
+		expectError    int
+	}{
+		{
+			name:           "no parameters",
+			paramString:    "hello world",
+			containsParams: false,
+			expectError:    0,
+		},
+		{
+			name:           "simple name access",
+			paramString:    "hello {{ .Metadata.Name }} world",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "toUpper name",
+			paramString:    "{{ toUpper .Metadata.Name }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "toUpper label",
+			paramString:    "{{ toUpper .Metadata.Labels.key }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "toLower name",
+			paramString:    "{{ toLower .Metadata.Name }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "toLower label",
+			paramString:    "{{ toLower .Metadata.Labels.key }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "replace name",
+			paramString:    "{{ replace .Metadata.Name \"old\" \"new\" }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "replace label",
+			paramString:    "{{ replace .Metadata.Labels.key \"old\" \"new\" }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "getOrDefault",
+			paramString:    "{{ getOrDefault .Metadata.Labels \"key\" \"default\" }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "getOrError",
+			paramString:    "{{ getOrError .Metadata.Labels \"key\" }}",
+			containsParams: true,
+			expectError:    0,
+		},
+		{
+			name:           "missing function",
+			paramString:    "{{ badfunction .Metadata.Labels \"key\" }}",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "using range",
+			paramString:    "Labels: {{range $key, $value := .Metadata.Labels }} {{$key}}: {{$value}} {{ end }}",
+			containsParams: true,
+			expectError:    1,
+		},
+		{
+			name:           "using if",
+			paramString:    "{{if .Metadata.Name }} Resource Name: {{ .Metadata.Name }} {{ else }} Resource Name is not set. {{ end }}",
+			containsParams: true,
+			expectError:    1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			containsParams, errs := validateParametersInString(&(tt.paramString), "path", true)
+			require.Len(errs, tt.expectError)
+			if len(errs) == 0 {
+				require.Equal(tt.containsParams, containsParams)
+			}
+		})
+	}
+}
