@@ -97,6 +97,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - resourcesync
@@ -127,8 +139,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -147,6 +171,18 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -177,8 +213,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -226,6 +274,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -234,6 +288,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -274,6 +334,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -282,6 +348,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -311,8 +383,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -366,6 +450,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - repository
@@ -396,8 +492,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -416,6 +524,18 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -446,8 +566,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -495,6 +627,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -503,6 +641,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -532,8 +676,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -574,6 +730,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -582,6 +744,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -660,6 +828,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - device
@@ -690,8 +864,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -710,6 +896,18 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -740,8 +938,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -789,6 +999,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -797,6 +1013,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -826,8 +1048,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -868,6 +1102,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -876,6 +1116,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -906,8 +1152,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -949,8 +1207,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -981,6 +1251,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -989,6 +1265,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1031,8 +1313,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1072,6 +1366,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1080,6 +1380,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1110,6 +1416,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: Not Found
           content:
@@ -1118,6 +1430,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1171,6 +1489,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - enrollmentrequest
@@ -1207,8 +1537,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1227,6 +1569,18 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1257,8 +1611,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1306,6 +1672,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1314,6 +1686,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1343,8 +1721,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1375,8 +1765,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1412,8 +1814,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1462,6 +1876,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1470,6 +1890,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "500":
           description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1523,6 +1949,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - certificatesigningrequest
@@ -1571,6 +2009,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - certificatesigningrequest
@@ -1585,6 +2035,18 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1638,8 +2100,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1670,8 +2144,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1719,6 +2205,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1727,6 +2219,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1756,8 +2254,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1792,6 +2302,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1806,6 +2322,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "500":
           description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1834,6 +2356,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1842,6 +2370,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1907,6 +2441,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - fleet
@@ -1937,8 +2483,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1957,6 +2515,18 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1993,8 +2563,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2048,8 +2630,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2090,6 +2684,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -2098,6 +2698,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2127,6 +2733,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -2135,6 +2747,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2165,8 +2783,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2202,8 +2832,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2263,6 +2905,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - templateversion
@@ -2284,6 +2938,18 @@ paths:
                 $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2320,8 +2986,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2357,8 +3035,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:

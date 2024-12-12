@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -76,6 +79,8 @@ func verifyDevicePatchFailed(require *require.Assertions, resp server.PatchDevic
 }
 
 func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchDeviceResponseObject, v1alpha1.Device) {
+	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
+	_, _ = auth.CreateAuthMiddleware(nil, log.InitLogs())
 	status := v1alpha1.NewDeviceStatus()
 	device := v1alpha1.Device{
 		ApiVersion: "v1",

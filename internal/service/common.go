@@ -18,6 +18,11 @@ import (
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
 
+const (
+	Forbidden                      = "Forbidden"
+	AuthorizationServerUnavailable = "Authorization server unavailable"
+)
+
 var (
 	ErrorInvalidFieldKey   = errors.New("invalid field filter key")
 	ErrorInvalidFieldValue = errors.New("invalid field filter value")

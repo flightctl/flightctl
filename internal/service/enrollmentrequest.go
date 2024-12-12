@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -95,11 +96,27 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 // (POST /api/v1/enrollmentrequests)
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "create")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.CreateEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.CreateEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	return common.CreateEnrollmentRequest(ctx, h.store, request)
 }
 
 // (GET /api/v1/enrollmentrequests)
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "list")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ListEnrollmentRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ListEnrollmentRequests403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 	labelSelector := ""
 	if request.Params.LabelSelector != nil {
@@ -153,9 +170,17 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 // (DELETE /api/v1/enrollmentrequests)
 func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "deletecollection")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteEnrollmentRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteEnrollmentRequests403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
+	err = h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteEnrollmentRequests200JSONResponse{}, nil
@@ -166,11 +191,27 @@ func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request s
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReadEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReadEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	return common.ReadEnrollmentRequest(ctx, h.store, request)
 }
 
 // (PUT /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
@@ -205,9 +246,17 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "delete")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
+	err = h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
@@ -220,6 +269,14 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 
 // (GET /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/status", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReadEnrollmentRequestStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReadEnrollmentRequestStatus403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
@@ -235,6 +292,14 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 
 // (POST /api/v1/enrollmentrequests/{name}/approval)
 func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request server.ApproveEnrollmentRequestRequestObject) (server.ApproveEnrollmentRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/approval", "post")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ApproveEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ApproveEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
@@ -287,6 +352,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 
 // (PUT /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/status", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceEnrollmentRequestStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceEnrollmentRequestStatus403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
