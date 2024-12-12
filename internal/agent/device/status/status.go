@@ -108,6 +108,9 @@ func (m *StatusManager) Collect(ctx context.Context) error {
 
 func (m *StatusManager) Sync(ctx context.Context) error {
 	if err := m.Collect(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
 		return err
 	}
 	if m.managementClient == nil {
@@ -126,6 +129,9 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 	}
 
 	if err := m.Collect(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
 		return err
 	}
 
@@ -134,7 +140,8 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return nil
 	}
 
-	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
+	err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device)
+	if err != nil {
 		return fmt.Errorf("failed to update device status: %w", err)
 	}
 	return nil
@@ -148,6 +155,9 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 	}
 
 	if err := m.Collect(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return &v1alpha1.DeviceStatus{}, nil
+		}
 		return nil, err
 	}
 

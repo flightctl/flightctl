@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
@@ -18,14 +19,14 @@ const (
 )
 
 type OSImageController struct {
-	bootc         *container.BootcCmd
+	bootc         client.Bootc
 	statusManager status.Manager
 	specManager   spec.Manager
 	log           *log.PrefixLogger
 }
 
 func NewOSImageController(
-	bootc *container.BootcCmd,
+	bootc client.Bootc,
 	statusManager status.Manager,
 	specManager spec.Manager,
 	log *log.PrefixLogger,

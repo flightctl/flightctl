@@ -24,7 +24,7 @@ func TestBootstrapCheckRollback(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockBootcClient := container.NewMockBootcClient(ctrl)
+	mockBootcClient := client.NewMockBootc(ctrl)
 
 	s := &manager{
 		log:              log.NewPrefixLogger("test"),
@@ -378,7 +378,7 @@ func TestUpgrade(t *testing.T) {
 
 			tc.setupMocks(mockReadWriter, mockPriorityQueue)
 
-			err := s.Upgrade()
+			err := s.Upgrade(context.Background())
 
 			if tc.expectedError != nil {
 				require.ErrorIs(err, tc.expectedError)
@@ -474,7 +474,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockBootcClient := container.NewMockBootcClient(ctrl)
+	mockBootcClient := client.NewMockBootc(ctrl)
 
 	desiredPath := "test/desired.json"
 	s := &manager{
@@ -566,7 +566,7 @@ func TestPrepareRollback(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockBootcClient := container.NewMockBootcClient(ctrl)
+	mockBootcClient := client.NewMockBootc(ctrl)
 
 	currentPath := "test/current.json"
 	rollbackPath := "test/rollback.json"

@@ -163,6 +163,10 @@ func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, d
 	}
 
 	if err := syncFn(ctx, desired); err != nil {
+		// if context is canceled return to exit the sync loop
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		a.handleSyncError(ctx, desired, err)
 		return
 	}
@@ -202,7 +206,7 @@ func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDevice
 		return err
 	}
 
-	if err := a.specManager.Upgrade(); err != nil {
+	if err := a.specManager.Upgrade(ctx); err != nil {
 		return err
 	}
 
