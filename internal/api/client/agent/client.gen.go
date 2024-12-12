@@ -91,6 +91,9 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// ReplaceHeartBeat request
+	ReplaceHeartBeat(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetRenderedDeviceSpec request
 	GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -106,6 +109,18 @@ type ClientInterface interface {
 
 	// ReadEnrollmentRequest request
 	ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) ReplaceHeartBeat(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplaceHeartBeatRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -178,6 +193,40 @@ func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEdit
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewReplaceHeartBeatRequest generates requests for ReplaceHeartBeat
+func NewReplaceHeartBeatRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/heartbeat", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewGetRenderedDeviceSpecRequest generates requests for GetRenderedDeviceSpec
@@ -400,6 +449,9 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// ReplaceHeartBeatWithResponse request
+	ReplaceHeartBeatWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReplaceHeartBeatResponse, error)
+
 	// GetRenderedDeviceSpecWithResponse request
 	GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error)
 
@@ -415,6 +467,30 @@ type ClientWithResponsesInterface interface {
 
 	// ReadEnrollmentRequestWithResponse request
 	ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error)
+}
+
+type ReplaceHeartBeatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *externalRef0.Error
+	JSON401      *externalRef0.Error
+	JSON404      *externalRef0.Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ReplaceHeartBeatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReplaceHeartBeatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type GetRenderedDeviceSpecResponse struct {
@@ -517,6 +593,15 @@ func (r ReadEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
+// ReplaceHeartBeatWithResponse request returning *ReplaceHeartBeatResponse
+func (c *ClientWithResponses) ReplaceHeartBeatWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReplaceHeartBeatResponse, error) {
+	rsp, err := c.ReplaceHeartBeat(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplaceHeartBeatResponse(rsp)
+}
+
 // GetRenderedDeviceSpecWithResponse request returning *GetRenderedDeviceSpecResponse
 func (c *ClientWithResponses) GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error) {
 	rsp, err := c.GetRenderedDeviceSpec(ctx, name, params, reqEditors...)
@@ -567,6 +652,46 @@ func (c *ClientWithResponses) ReadEnrollmentRequestWithResponse(ctx context.Cont
 		return nil, err
 	}
 	return ParseReadEnrollmentRequestResponse(rsp)
+}
+
+// ParseReplaceHeartBeatResponse parses an HTTP response from a ReplaceHeartBeatWithResponse call
+func ParseReplaceHeartBeatResponse(rsp *http.Response) (*ReplaceHeartBeatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReplaceHeartBeatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseGetRenderedDeviceSpecResponse parses an HTTP response from a GetRenderedDeviceSpecWithResponse call

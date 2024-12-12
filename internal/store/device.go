@@ -29,6 +29,7 @@ type Device interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, deviceName string) error
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
@@ -387,6 +388,17 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 	}
 
 	return s.db.WithContext(ctx).Exec(query, args...).Error
+}
+
+func (s *DeviceStore) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, deviceName string) error {
+	query := fmt.Sprintf(`
+        UPDATE devices
+        SET 
+            status = jsonb_set(status, '{lastSeen}', 
+            			to_jsonb(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS.USZ'))
+                     )
+        WHERE name = '%s'`, deviceName)
+	return s.db.WithContext(ctx).Exec(query).Error
 }
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {

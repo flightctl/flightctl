@@ -320,6 +320,11 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 	return common.ReplaceDeviceStatus(ctx, h.store, h.log, request)
 }
 
+// (PUT /api/v1/devices/{name}/heartbeat)
+func (h *ServiceHandler) ReplaceHeartBeat(ctx context.Context, request server.ReplaceHeartBeatRequestObject) (server.ReplaceHeartBeatResponseObject, error) {
+	return common.ReplaceHeartbeat(ctx, h.store, request)
+}
+
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
 	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/rendered", "get")
