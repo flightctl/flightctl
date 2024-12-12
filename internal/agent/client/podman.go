@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -21,29 +23,60 @@ type Podman struct {
 	exec    executer.Executer
 	log     *log.PrefixLogger
 	timeout time.Duration
+	backoff wait.Backoff
 }
 
 type ImageConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
-func NewPodman(log *log.PrefixLogger, exec executer.Executer) *Podman {
+func NewPodman(log *log.PrefixLogger, exec executer.Executer, backoff wait.Backoff) *Podman {
 	return &Podman{
 		log:     log,
 		exec:    exec,
 		timeout: defaultPodmanTimeout,
+		backoff: backoff,
 	}
 }
 
-// Pull pulls the image from the registry.
-func (p *Podman) Pull(ctx context.Context, image string) (string, error) {
+// Pull pulls the image from the registry and the response. Users can pass in options to configure the client.
+func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (resp string, err error) {
+	options := clientOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	if options.retry {
+		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
+			resp, err = p.pullImage(ctx, image)
+			if err != nil {
+				p.log.Warnf("Failed to pull os image %q: %v", image, err)
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			return "", err
+		}
+		return resp, nil
+	}
+
+	// no retry
+	resp, err = p.pullImage(ctx, image)
+	if err != nil {
+		return "", err
+	}
+	return resp, nil
+}
+
+func (p *Podman) pullImage(ctx context.Context, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
 	args := []string{"pull", image}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("failed to pull image:%s  %d: %s", image, exitCode, stderr)
+		return "", fmt.Errorf("pull image: %w", errors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil
@@ -57,7 +90,7 @@ func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
 	args := []string{"inspect", image}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("failed to inspect image: %s  %d: %s", image, exitCode, stderr)
+		return "", fmt.Errorf("inspect image: %s: %w", image, errors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil
@@ -94,7 +127,7 @@ func (p *Podman) Mount(ctx context.Context, image string) (string, error) {
 	}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("failed to mount image: %s  %d: %s", image, exitCode, stderr)
+		return "", fmt.Errorf("mount image: %s: %w", image, errors.FromStderr(stderr, exitCode))
 	}
 
 	out := strings.TrimSpace(stdout)
@@ -112,7 +145,7 @@ func (p *Podman) Unmount(ctx context.Context, image string) error {
 	}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to unmount image: %s  %d: %s", image, exitCode, stderr)
+		return fmt.Errorf("unmount image: %s: %w", image, errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -124,7 +157,7 @@ func (p *Podman) Copy(ctx context.Context, src, dst string) error {
 	args := []string{"cp", src, dst}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to copy %s to %s: %d: %s", src, dst, exitCode, stderr)
+		return fmt.Errorf("copy %s to %s: %w", src, dst, errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -164,7 +197,7 @@ func (p *Podman) StopContainers(ctx context.Context, labels []string) error {
 	}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to stop containers %d: %s", exitCode, stderr)
+		return fmt.Errorf("stop containers: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -179,7 +212,7 @@ func (p *Podman) RemoveContainer(ctx context.Context, labels []string) error {
 	}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to remove containers %d: %s", exitCode, stderr)
+		return fmt.Errorf("remove containers: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -191,7 +224,7 @@ func (p *Podman) RemoveVolumes(ctx context.Context, labels []string) error {
 	args := []string{"volume", "rm"}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to remove volumes %d: %s", exitCode, stderr)
+		return fmt.Errorf("remove volumes: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -212,7 +245,7 @@ func (p *Podman) ListNetworks(ctx context.Context, labels []string) ([]string, e
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("failed to list containers %d: %s", exitCode, stderr)
+		return nil, fmt.Errorf("list containers: %w", errors.FromStderr(stderr, exitCode))
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -242,7 +275,7 @@ func (p *Podman) RemoveNetworks(ctx context.Context, networks ...string) error {
 		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
 		cancel()
 		if exitCode != 0 {
-			return fmt.Errorf("failed to remove networks %d: %s", exitCode, stderr)
+			return fmt.Errorf("remove networks: %w", errors.FromStderr(stderr, exitCode))
 		}
 		p.log.Infof("Removed network %s", network)
 	}
@@ -256,7 +289,7 @@ func (p *Podman) Unshare(ctx context.Context, args ...string) (string, error) {
 	args = append([]string{"unshare"}, args...)
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("failed to execute podman unshare %d: %s", exitCode, stderr)
+		return "", fmt.Errorf("unshare: %w", errors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil

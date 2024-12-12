@@ -78,7 +78,7 @@ func TestParseApps(t *testing.T) {
 			require.NoError(err)
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0).Times(len(tc.apps))
 
-			mockPodman := client.NewPodman(log, execMock)
+			mockPodman := client.NewPodman(log, execMock, newTestBackoff())
 			apps, err := parseApps(ctx, mockPodman, spec)
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
