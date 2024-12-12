@@ -2,9 +2,11 @@ package service
 
 import (
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/go-chi/chi/v5"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,6 +19,13 @@ type ServiceHandler struct {
 	consoleGrpcEndpoint string
 	agentEndpoint       string
 	uiUrl               string
+}
+
+type WebsocketHandler struct {
+	store                 store.Store
+	ca                    *crypto.CA
+	log                   logrus.FieldLogger
+	consoleSessionManager *console.ConsoleSessionManager
 }
 
 // Make sure we conform to servers Service interface
@@ -32,4 +41,18 @@ func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager,
 		agentEndpoint:       agentEndpoint,
 		uiUrl:               uiUrl,
 	}
+}
+
+func NewWebsocketHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {
+	return &WebsocketHandler{
+		store:                 store,
+		ca:                    ca,
+		log:                   log,
+		consoleSessionManager: consoleSessionManager,
+	}
+}
+
+func (h *WebsocketHandler) RegisterRoutes(r chi.Router) {
+	// Websocket handler for console
+	r.Get("/ws/v1/devices/{name}/console", h.HandleDeviceConsole)
 }

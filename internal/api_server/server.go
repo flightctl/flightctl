@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"slices"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -14,6 +13,7 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/service"
@@ -31,13 +31,14 @@ const (
 )
 
 type Server struct {
-	log      logrus.FieldLogger
-	cfg      *config.Config
-	store    store.Store
-	ca       *crypto.CA
-	listener net.Listener
-	provider queues.Provider
-	metrics  *instrumentation.ApiMetrics
+	log                logrus.FieldLogger
+	cfg                *config.Config
+	store              store.Store
+	ca                 *crypto.CA
+	listener           net.Listener
+	provider           queues.Provider
+	metrics            *instrumentation.ApiMetrics
+	consoleEndpointReg console.InternalSessionRegistration
 }
 
 // New returns a new instance of a flightctl server.
@@ -49,15 +50,17 @@ func New(
 	listener net.Listener,
 	provider queues.Provider,
 	metrics *instrumentation.ApiMetrics,
+	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
 	return &Server{
-		log:      log,
-		cfg:      cfg,
-		store:    store,
-		ca:       ca,
-		listener: listener,
-		provider: provider,
-		metrics:  metrics,
+		log:                log,
+		cfg:                cfg,
+		store:              store,
+		ca:                 ca,
+		listener:           listener,
+		provider:           provider,
+		metrics:            metrics,
+		consoleEndpointReg: consoleEndpointReg,
 	}
 }
 
@@ -96,22 +99,31 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 
-	middlewares := [](func(http.Handler) http.Handler){
+	// general middleware stack for all route groups
+	router.Use(
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
-		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	}
+	)
 
-	if s.metrics != nil {
-		middlewares = slices.Insert(middlewares, 0, s.metrics.ApiServerMiddleware)
-	}
+	// a group is a new mux copy, with it's own copy of the middleware stack
+	// this one handles the OpenAPI handling of the service
+	router.Group(func(r chi.Router) {
+		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
+		// to avoid issues with websocket connections
+		if s.metrics != nil {
+			r.Use(s.metrics.ApiServerMiddleware)
+		}
+		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
-	router.Use(middlewares...)
+		h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
+	})
 
-	h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
-	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
+	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, configStorage, s.log, s.consoleEndpointReg)
+	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
+	ws.RegisterRoutes(router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
 
