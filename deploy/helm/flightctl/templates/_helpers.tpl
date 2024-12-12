@@ -12,11 +12,11 @@
 {{- end }}
 
 {{- define "flightctl.getOpenShiftAPIUrl" }}
-  {{- if .Values.global.auth.openShiftApiUrl }}
-    {{- printf .Values.global.auth.openShiftApiUrl }}
-  {{- else }}
-    {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
-    {{- printf "https://api.%s:6443" $openShiftBaseDomain }}
+  {{- if .Values.global.auth.k8s.externalOpenShiftApiUrl }}
+    {{- printf .Values.global.auth.k8s.externalOpenShiftApiUrl }}
+  {{- else if eq .Values.global.target "acm" }}
+    {{- $openShiftApiUrl := (lookup "config.openshift.io/v1" "Infrastructure" "" "cluster").status.apiServerURL }}
+    {{- printf $openShiftApiUrl }}
   {{- end }}
 {{- end }}
 
@@ -69,22 +69,24 @@
 {{- end }}
 
 {{- define "flightctl.getOidcAuthorityUrl" }}
-  {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- $scheme := (include "flightctl.getHttpScheme" . )}}
-  {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" .)}}
-  {{- if .Values.global.auth.oidcAuthority }}
-    {{- printf "%s" .Values.global.auth.oidcAuthority }}
-  {{- else if eq $exposeMethod "nodePort" }}
-    {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.nodePorts.keycloak }}
-  {{- else if eq $exposeMethod "gateway" }}
-    {{- if and (eq $scheme "http") (not (eq .Values.global.gatewayPorts.http 80)) }}
-      {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.http }}
-    {{- else if and (eq $scheme "https") (not (eq .Values.global.gatewayPorts.tls 443))}}
-      {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+  {{- if .Values.global.auth.oidc.externalOidcAuthority }}
+    {{- printf .Values.global.auth.oidc.externalOidcAuthority }}
+  {{- else }}
+    {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
+    {{- $scheme := (include "flightctl.getHttpScheme" . )}}
+    {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" .)}}
+    {{- if eq $exposeMethod "nodePort" }}
+      {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.nodePorts.keycloak }}
+    {{- else if eq $exposeMethod "gateway" }}
+      {{- if and (eq $scheme "http") (not (eq .Values.global.gatewayPorts.http 80)) }}
+        {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.http }}
+      {{- else if and (eq $scheme "https") (not (eq .Values.global.gatewayPorts.tls 443))}}
+        {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+      {{- else }}
+        {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
+      {{- end }}
     {{- else }}
       {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
     {{- end }}
-  {{- else }}
-    {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
   {{- end }}
 {{- end }}
