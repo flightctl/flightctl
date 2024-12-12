@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -92,15 +93,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// create bootc client
-	bootcClient := container.NewBootcCmd(executer)
-
-	// create podman client
-	podmanClient := client.NewPodman(a.log, executer)
-
-	// create systemd client
-	systemdClient := client.NewSystemd(executer)
-
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
@@ -108,6 +100,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		Factor:   1.5,
 		Steps:    6,
 	}
+
+	// create bootc client
+	bootcClient := container.NewBootcCmd(executer)
+
+	// create podman client
+	podmanClient := client.NewPodman(a.log, executer, backoff)
+
+	// create systemd client
+	systemdClient := client.NewSystemd(executer)
 
 	// create shutdown manager
 	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
@@ -140,7 +141,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
 	// create os manager
-	osManager := device.NewOSManager(bootcClient)
+	osManager := os.NewManager(a.log, bootcClient, podmanClient)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -194,14 +195,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 	)
 
-	// create os image controller
-	osImageController := device.NewOSImageController(
-		bootcClient,
-		statusManager,
-		specManager,
-		a.log,
-	)
-
 	// create console controller
 	consoleController := console.NewController(
 		grpcClient,
@@ -228,9 +221,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
 		hookManager,
+		osManager,
 		applicationsController,
 		configController,
-		osImageController,
 		resourceController,
 		consoleController,
 		bootcClient,

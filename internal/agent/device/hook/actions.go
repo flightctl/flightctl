@@ -175,11 +175,12 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 	}
 	envVars := util.LabelMapToArray(action.EnvVars)
 
-	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
+	stdout, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	if exitCode != 0 {
-		log.Errorf("running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
+		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
 		return fmt.Errorf("%s (exit code %d)", stderr, exitCode)
 	}
+	log.Infof("Running %q with args %q was successful from workDir %s: %s", cmd, args, stdout, workDir)
 
 	return nil
 }
