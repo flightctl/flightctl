@@ -10,6 +10,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -86,7 +87,7 @@ func (b *Boot) Time(ctx context.Context) (string, error) {
 	args := []string{"-s"}
 	stdout, stderr, exitCode := b.exec.ExecuteWithContext(ctx, "uptime", args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("failed to get device uptime: %d: %s", exitCode, stderr)
+		return "", fmt.Errorf("device uptime: %w", errors.FromStderr(stderr, exitCode))
 	}
 	bootTime, err := time.Parse("2006-01-02 15:04:05", strings.TrimSpace(stdout))
 	if err != nil {
@@ -98,4 +99,18 @@ func (b *Boot) Time(ctx context.Context) (string, error) {
 
 	bootTimeStr := bootTime.Format(time.RFC3339Nano)
 	return bootTimeStr, nil
+}
+
+// ClientOption is a functional option for configuring the client.
+type ClientOption func(*clientOptions)
+
+type clientOptions struct {
+	retry bool
+}
+
+// WithRetry enables enables retry based on the backoff config provided.
+func WithRetry() ClientOption {
+	return func(opts *clientOptions) {
+		opts.retry = true
+	}
 }
