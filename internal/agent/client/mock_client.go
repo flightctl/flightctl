@@ -15,6 +15,7 @@ import (
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
+	container "github.com/flightctl/flightctl/internal/container"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -154,4 +155,84 @@ func (m *MockEnrollment) SetRPCMetricsCallback(cb func(string, float64, error)) 
 func (mr *MockEnrollmentMockRecorder) SetRPCMetricsCallback(cb any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRPCMetricsCallback", reflect.TypeOf((*MockEnrollment)(nil).SetRPCMetricsCallback), cb)
+}
+
+// MockBootc is a mock of Bootc interface.
+type MockBootc struct {
+	ctrl     *gomock.Controller
+	recorder *MockBootcMockRecorder
+}
+
+// MockBootcMockRecorder is the mock recorder for MockBootc.
+type MockBootcMockRecorder struct {
+	mock *MockBootc
+}
+
+// NewMockBootc creates a new mock instance.
+func NewMockBootc(ctrl *gomock.Controller) *MockBootc {
+	mock := &MockBootc{ctrl: ctrl}
+	mock.recorder = &MockBootcMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockBootc) EXPECT() *MockBootcMockRecorder {
+	return m.recorder
+}
+
+// Apply mocks base method.
+func (m *MockBootc) Apply(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Apply", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Apply indicates an expected call of Apply.
+func (mr *MockBootcMockRecorder) Apply(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockBootc)(nil).Apply), ctx)
+}
+
+// Status mocks base method.
+func (m *MockBootc) Status(ctx context.Context) (*container.BootcHost, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Status", ctx)
+	ret0, _ := ret[0].(*container.BootcHost)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Status indicates an expected call of Status.
+func (mr *MockBootcMockRecorder) Status(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockBootc)(nil).Status), ctx)
+}
+
+// Switch mocks base method.
+func (m *MockBootc) Switch(ctx context.Context, image string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Switch", ctx, image)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Switch indicates an expected call of Switch.
+func (mr *MockBootcMockRecorder) Switch(ctx, image any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Switch", reflect.TypeOf((*MockBootc)(nil).Switch), ctx, image)
+}
+
+// UsrOverlay mocks base method.
+func (m *MockBootc) UsrOverlay(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UsrOverlay", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UsrOverlay indicates an expected call of UsrOverlay.
+func (mr *MockBootcMockRecorder) UsrOverlay(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UsrOverlay", reflect.TypeOf((*MockBootc)(nil).UsrOverlay), ctx)
 }

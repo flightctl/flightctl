@@ -2,16 +2,15 @@ package device_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
-	"github.com/flightctl/flightctl/pkg/executer"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -27,7 +26,7 @@ var _ = Describe("Calling osimages Sync", func() {
 	var (
 		ctx           context.Context
 		ctrl          *gomock.Controller
-		execMock      *executer.MockExecuter
+		mockBootc     *client.MockBootc
 		statusManager *status.MockManager
 		specManager   *spec.MockManager
 		log           *flightlog.PrefixLogger
@@ -38,11 +37,10 @@ var _ = Describe("Calling osimages Sync", func() {
 		ctx = context.Background()
 		log = flightlog.NewPrefixLogger("")
 		ctrl = gomock.NewController(GinkgoT())
-		execMock = executer.NewMockExecuter(ctrl)
 		statusManager = status.NewMockManager(ctrl)
 		specManager = spec.NewMockManager(ctrl)
-		mockBootcClient := container.NewBootcCmd(execMock)
-		controller = device.NewOSImageController(mockBootcClient, statusManager, specManager, log)
+		mockBootc = client.NewMockBootc(ctrl)
+		controller = device.NewOSImageController(mockBootc, statusManager, specManager, log)
 	})
 
 	AfterEach(func() {
@@ -59,7 +57,7 @@ var _ = Describe("Calling osimages Sync", func() {
 
 	Context("When we fail to get the bootc status", func() {
 		It("should return the error and set a condition", func() {
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return("", "status error", 1)
+			mockBootc.EXPECT().Status(ctx).Return(nil, fmt.Errorf("status error"))
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "image"}}
 			err := controller.Sync(ctx, &desired)
 			Expect(err).To(HaveOccurred())
@@ -79,18 +77,15 @@ var _ = Describe("Calling osimages Sync", func() {
 					},
 				},
 			}
-			hostJson, err := json.Marshal(host)
-			Expect(err).ToNot(HaveOccurred())
-
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
+			mockBootc.EXPECT().Status(ctx).Return(&host, nil)
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "myimage"}}
-			err = controller.Sync(ctx, &desired)
+			err := controller.Sync(ctx, &desired)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 
 	Context("When we fail to switch images", func() {
-		It("should return the error and set a condition", func() {
+		It("should return the error", func() {
 			host := container.BootcHost{
 				Status: container.Status{
 					Booted: container.ImageStatus{
@@ -102,14 +97,12 @@ var _ = Describe("Calling osimages Sync", func() {
 					},
 				},
 			}
-			hostJson, err := json.Marshal(host)
-			Expect(err).ToNot(HaveOccurred())
 
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "mynewimage"}}
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "switch", "--retain", "mynewimage").Return("", "status error", 1)
+			mockBootc.EXPECT().Status(ctx).Return(&host, nil)
+			mockBootc.EXPECT().Switch(gomock.Any(), "mynewimage").Return(fmt.Errorf("switch error"))
 
-			err = controller.Sync(ctx, &desired)
+			err := controller.Sync(ctx, &desired)
 			Expect(err).To(HaveOccurred())
 		})
 	})
@@ -127,18 +120,17 @@ var _ = Describe("Calling osimages Sync", func() {
 					},
 				},
 			}
-			hostJson, err := json.Marshal(host)
-			Expect(err).ToNot(HaveOccurred())
 
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "mynewimage"}}
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "switch", "--retain", "mynewimage").Return("", "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "upgrade", "--apply").Return("", "status error", 1)
-			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
-			statusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			mockBootc.EXPECT().Status(ctx).Return(&host, nil)
+			mockBootc.EXPECT().Switch(gomock.Any(), "mynewimage").Return(nil)
+			mockBootc.EXPECT().Apply(gomock.Any()).Return(fmt.Errorf("apply error"))
 			specManager.EXPECT().PrepareRollback(gomock.Any()).Return(nil)
 
-			err = controller.Sync(ctx, &desired)
+			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
+			statusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+
+			err := controller.Sync(ctx, &desired)
 			Expect(err).To(HaveOccurred())
 		})
 	})
@@ -156,13 +148,11 @@ var _ = Describe("Calling osimages Sync", func() {
 					},
 				},
 			}
-			hostJson, err := json.Marshal(host)
-			Expect(err).ToNot(HaveOccurred())
 
 			desired := v1alpha1.RenderedDeviceSpec{Os: &v1alpha1.DeviceOSSpec{Image: "mynewimage"}}
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "status", "--json").Return(string(hostJson), "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "switch", "--retain", "mynewimage").Return("", "", 0)
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), container.CmdBootc, "upgrade", "--apply").Return("", "", 0)
+			mockBootc.EXPECT().Status(ctx).Return(&host, nil)
+			mockBootc.EXPECT().Switch(gomock.Any(), "mynewimage").Return(nil)
+			mockBootc.EXPECT().Apply(gomock.Any()).Return(nil)
 			summaryStatus := v1alpha1.DeviceSummaryStatusRebooting
 			infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", "mynewimage")
 			statusManager.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -178,7 +168,7 @@ var _ = Describe("Calling osimages Sync", func() {
 			statusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 			specManager.EXPECT().PrepareRollback(gomock.Any()).Return(nil)
 
-			err = controller.Sync(ctx, &desired)
+			err := controller.Sync(ctx, &desired)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})

@@ -36,7 +36,7 @@ type Manager interface {
 	Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error)
 	// Upgrade updates the current rendered spec to the desired rendered spec
 	// and resets the rollback spec.
-	Upgrade() error
+	Upgrade(ctx context.Context) error
 	// SetUpgradeFailed marks the desired rendered spec as failed.
 	SetUpgradeFailed()
 	// IsUpdating returns true if the device is in the process of reconciling the desired spec.
