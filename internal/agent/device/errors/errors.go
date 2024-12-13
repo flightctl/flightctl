@@ -3,7 +3,9 @@ package errors
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"strings"
 )
 
 var (
@@ -44,6 +46,7 @@ var (
 	// networking
 	ErrNoContent   = errors.New("no content")
 	ErrNilResponse = errors.New("received nil response")
+	ErrNetwork     = errors.New("network")
 
 	// authentication
 	ErrAuthenticationFailed = errors.New("authentication failed")
@@ -51,6 +54,7 @@ var (
 	// io
 	ErrReadingPath = errors.New("failed reading path")
 	ErrPathIsDir   = errors.New("provided path is a directory")
+	ErrNotFound    = errors.New("not found")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
@@ -59,6 +63,8 @@ func IsRetryable(err error) bool {
 	case IsTimeoutError(err):
 		return true
 	case errors.Is(err, ErrRetryable):
+		return true
+	case errors.Is(err, ErrNetwork):
 		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
@@ -98,4 +104,31 @@ func IsTimeoutError(err error) bool {
 	}
 
 	return false
+}
+
+// FromStderr converts stderr output from a command into an error type.
+func FromStderr(stderr string, exitCode int) error {
+	// mapping is used to convert stderr output from os.exec into an error
+	errMap := map[string]error{
+		// authentication
+		"authentication required": ErrAuthenticationFailed,
+		"unauthorized":            ErrAuthenticationFailed,
+		"access denied":           ErrAuthenticationFailed,
+		// not found
+		"not found": ErrNotFound,
+		// networking
+		"no such host":           ErrNetwork,
+		"connection refused":     ErrNetwork,
+		"unable to resolve host": ErrNetwork,
+		"network is unreachable": ErrNetwork,
+		// context
+		"context canceled":          context.Canceled,
+		"context deadline exceeded": context.DeadlineExceeded,
+	}
+	for check, err := range errMap {
+		if strings.Contains(stderr, check) {
+			return fmt.Errorf("%w: code: %d: %s", err, exitCode, stderr)
+		}
+	}
+	return fmt.Errorf("code: %d: %s", exitCode, stderr)
 }
