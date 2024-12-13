@@ -46,6 +46,7 @@ func NewDefault() *Config {
 // Management is the client interface for managing devices.
 type Management interface {
 	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
+	HeartBeat(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
 	GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error)
 }
 

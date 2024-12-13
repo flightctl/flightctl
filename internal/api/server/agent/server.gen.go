@@ -19,6 +19,9 @@ import (
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (PUT /api/v1/devices/{name}/heartbeat)
+	ReplaceHeartBeat(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams)
 
@@ -35,6 +38,11 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// (PUT /api/v1/devices/{name}/heartbeat)
+func (_ Unimplemented) ReplaceHeartBeat(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // (GET /api/v1/devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams) {
@@ -64,6 +72,32 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ReplaceHeartBeat operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceHeartBeat(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceHeartBeat(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
 
 // GetRenderedDeviceSpec operation middleware
 func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +317,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/devices/{name}/heartbeat", wrapper.ReplaceHeartBeat)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDeviceSpec)
 	})
 	r.Group(func(r chi.Router) {
@@ -296,6 +333,49 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 
 	return r
+}
+
+type ReplaceHeartBeatRequestObject struct {
+	Name string `json:"name"`
+}
+
+type ReplaceHeartBeatResponseObject interface {
+	VisitReplaceHeartBeatResponse(w http.ResponseWriter) error
+}
+
+type ReplaceHeartBeat200Response struct {
+}
+
+func (response ReplaceHeartBeat200Response) VisitReplaceHeartBeatResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type ReplaceHeartBeat400JSONResponse externalRef0.Error
+
+func (response ReplaceHeartBeat400JSONResponse) VisitReplaceHeartBeatResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceHeartBeat401JSONResponse externalRef0.Error
+
+func (response ReplaceHeartBeat401JSONResponse) VisitReplaceHeartBeatResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReplaceHeartBeat404JSONResponse externalRef0.Error
+
+func (response ReplaceHeartBeat404JSONResponse) VisitReplaceHeartBeatResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type GetRenderedDeviceSpecRequestObject struct {
@@ -487,6 +567,9 @@ func (response ReadEnrollmentRequest404JSONResponse) VisitReadEnrollmentRequestR
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
+	// (PUT /api/v1/devices/{name}/heartbeat)
+	ReplaceHeartBeat(ctx context.Context, request ReplaceHeartBeatRequestObject) (ReplaceHeartBeatResponseObject, error)
+
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDeviceSpec(ctx context.Context, request GetRenderedDeviceSpecRequestObject) (GetRenderedDeviceSpecResponseObject, error)
 
@@ -527,6 +610,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ReplaceHeartBeat operation middleware
+func (sh *strictHandler) ReplaceHeartBeat(w http.ResponseWriter, r *http.Request, name string) {
+	var request ReplaceHeartBeatRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceHeartBeat(ctx, request.(ReplaceHeartBeatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceHeartBeat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceHeartBeatResponseObject); ok {
+		if err := validResponse.VisitReplaceHeartBeatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetRenderedDeviceSpec operation middleware

@@ -95,6 +95,21 @@ func (s *AgentServiceHandler) ReplaceDeviceStatus(ctx context.Context, request a
 	return common.ReplaceDeviceStatus(ctx, s.store, s.log, serverRequest)
 }
 
+// (PUT /api/v1/devices/{name}/heartbeat)
+func (s *AgentServiceHandler) ReplaceHeartBeat(ctx context.Context, request agentServer.ReplaceHeartBeatRequestObject) (agentServer.ReplaceHeartBeatResponseObject, error) {
+
+	if err := ValidateDeviceAccessFromContext(ctx, request.Name, s.log); err != nil {
+		return agentServer.ReplaceHeartBeat401JSONResponse{
+			Message: err.Error(),
+		}, err
+	}
+
+	serverRequest := server.ReplaceHeartBeatRequestObject{
+		Name: request.Name,
+	}
+	return common.ReplaceHeartbeat(ctx, s.store, serverRequest)
+}
+
 // (POST /api/v1/enrollmentrequests)
 func (s *AgentServiceHandler) CreateEnrollmentRequest(ctx context.Context, request agentServer.CreateEnrollmentRequestRequestObject) (agentServer.CreateEnrollmentRequestResponseObject, error) {
 
