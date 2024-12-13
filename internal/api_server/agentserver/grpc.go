@@ -24,7 +24,7 @@ import (
 )
 
 type AgentGrpcServer struct {
-	pb.UnimplementedRouterServiceServer
+	pb.UnimplementedAgentServiceServer
 	log            logrus.FieldLogger
 	cfg            *config.Config
 	tlsConfig      *tls.Config
@@ -52,7 +52,7 @@ func (s *AgentGrpcServer) Run(ctx context.Context) error {
 		grpc.Creds(tlsCredentials),
 		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
 	)
-	pb.RegisterRouterServiceServer(server, s)
+	pb.RegisterAgentServiceServer(server, s)
 
 	listener, err := net.Listen("tcp", s.cfg.Service.AgentGrpcAddress)
 
