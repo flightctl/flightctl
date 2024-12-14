@@ -196,9 +196,9 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 	for _, app := range device.Status.Applications {
 		switch app.Status {
 		case api.ApplicationStatusError:
-			appErrors = append(appErrors, "%s is in status %s", app.Name, string(app.Status))
+			appErrors = append(appErrors, fmt.Sprintf("%s is in status %s", app.Name, string(app.Status)))
 		case api.ApplicationStatusPreparing, api.ApplicationStatusStarting:
-			appDegradations = append(appDegradations, "%s is in status %s", app.Name, string(app.Status))
+			appDegradations = append(appDegradations, fmt.Sprintf("%s is in status %s", app.Name, string(app.Status)))
 		}
 	}
 	switch {
