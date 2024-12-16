@@ -10,6 +10,7 @@ import (
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -19,8 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, configStorage ConfigStorage, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, configStorage, *resourceRef)
+func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, kvStore, *resourceRef)
 	if resourceRef.Op == DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -39,7 +40,7 @@ type DeviceRenderLogic struct {
 	log             logrus.FieldLogger
 	store           store.Store
 	k8sClient       k8sclient.K8SClient
-	configStorage   ConfigStorage
+	kvStore         kvstore.KVStore
 	resourceRef     ResourceReference
 	ownerFleet      *string
 	templateVersion *string
@@ -47,8 +48,8 @@ type DeviceRenderLogic struct {
 	applications    *[]api.ApplicationSpec
 }
 
-func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, configStorage ConfigStorage, resourceRef ResourceReference) DeviceRenderLogic {
-	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, configStorage: configStorage, resourceRef: resourceRef}
+func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef ResourceReference) DeviceRenderLogic {
+	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
@@ -348,18 +349,18 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	}
 
 	var secretData map[string][]byte
-	var configStoreKey ConfigStorageK8sSecretKey
+	var key kvstore.K8sSecretKey
 	needToStoreData := false
 
 	if t.ownerFleet != nil {
-		configStoreKey = ConfigStorageK8sSecretKey{
+		key = kvstore.K8sSecretKey{
 			OrgID:           t.resourceRef.OrgID,
 			Fleet:           *t.ownerFleet,
 			TemplateVersion: *t.templateVersion,
 			Namespace:       k8sSpec.SecretRef.Namespace,
 			Name:            k8sSpec.SecretRef.Name,
 		}
-		data, err := t.configStorage.Get(ctx, configStoreKey.ComposeKey())
+		data, err := t.kvStore.Get(ctx, key.ComposeKey())
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed fetching cached secret data: %w", err)
 		}
@@ -386,7 +387,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed marhsalling secret data %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
-		updated, err := t.configStorage.SetNX(ctx, configStoreKey.ComposeKey(), secretDataToStore)
+		updated, err := t.kvStore.SetNX(ctx, key.ComposeKey(), secretDataToStore)
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed storing secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
@@ -466,17 +467,17 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	var httpData []byte
-	var configStoreKey ConfigStorageHttpKey
+	var httpKey kvstore.HttpKey
 	needToStoreData := false
 
 	if t.ownerFleet != nil {
-		configStoreKey = ConfigStorageHttpKey{
+		httpKey = kvstore.HttpKey{
 			OrgID:           t.resourceRef.OrgID,
 			Fleet:           *t.ownerFleet,
 			TemplateVersion: *t.templateVersion,
 			URL:             repoURL,
 		}
-		data, err := t.configStorage.Get(ctx, configStoreKey.ComposeKey())
+		data, err := t.kvStore.Get(ctx, httpKey.ComposeKey())
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed fetching cached data: %w", err)
 		}
@@ -495,7 +496,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	if needToStoreData {
-		updated, err := t.configStorage.SetNX(ctx, configStoreKey.ComposeKey(), httpData)
+		updated, err := t.kvStore.SetNX(ctx, httpKey.ComposeKey(), httpData)
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed storing data: %w", err)
 		}
@@ -522,13 +523,13 @@ func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *mo
 		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
 	}
 
-	repoKey := ConfigStorageRepositoryUrlKey{
+	repoKey := kvstore.RepositoryUrlKey{
 		OrgID:           t.resourceRef.OrgID,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
 		Repository:      repo.Name,
 	}
-	origRepoURL, err := t.configStorage.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
+	origRepoURL, err := t.kvStore.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
 	if err != nil {
 		return fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
 	}
@@ -551,20 +552,20 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 	}
 
 	// 2. Do we have the mapping of targetRevision -> frozenHash cached?
-	gitRevisionKey := ConfigStorageGitRevisionKey{
+	gitRevisionKey := kvstore.GitRevisionKey{
 		OrgID:           t.resourceRef.OrgID,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
 		Repository:      repo.Name,
 		TargetRevision:  targetRevision,
 	}
-	frozenHashBytes, err := t.configStorage.Get(ctx, gitRevisionKey.ComposeKey())
+	frozenHashBytes, err := t.kvStore.Get(ctx, gitRevisionKey.ComposeKey())
 	if err != nil {
 		return nil, fmt.Errorf("failed fetching frozen git revision: %w", err)
 	}
 
 	// 3. If we have the frozen hash, try to get the git data from the cache
-	gitContentsKey := ConfigStorageGitContentsKey{
+	gitContentsKey := kvstore.GitContentsKey{
 		OrgID:           t.resourceRef.OrgID,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
@@ -574,7 +575,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 	}
 
 	if frozenHashBytes != nil {
-		cachedGitData, err := t.configStorage.Get(ctx, gitContentsKey.ComposeKey())
+		cachedGitData, err := t.kvStore.Get(ctx, gitContentsKey.ComposeKey())
 		if err != nil {
 			return nil, fmt.Errorf("failed fetching cached git data: %w", err)
 		}
@@ -583,7 +584,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 		if cachedGitData != nil {
 			wrapper, err := ignition.NewWrapperFromJson(cachedGitData)
 			if err != nil {
-				return nil, fmt.Errorf("fetched invalid json-encoded ignition from config storage: %w", err)
+				return nil, fmt.Errorf("fetched invalid json-encoded ignition from kvstore: %w", err)
 			}
 
 			wrapper.ChangeMountPath(mountPath)
@@ -606,7 +607,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 
 	// 5. If we didn't freeze the hash yet, do it now
 	if frozenHashBytes == nil {
-		_, err = t.configStorage.SetNX(ctx, gitRevisionKey.ComposeKey(), []byte(hash))
+		_, err = t.kvStore.SetNX(ctx, gitRevisionKey.ComposeKey(), []byte(hash))
 		if err != nil {
 			return nil, fmt.Errorf("failed freezing git hash: %w", err)
 		}
@@ -618,7 +619,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 	if err != nil {
 		return nil, fmt.Errorf("failed converting git ignition to json: %w", err)
 	}
-	_, err = t.configStorage.SetNX(ctx, gitContentsKey.ComposeKey(), jsonData)
+	_, err = t.kvStore.SetNX(ctx, gitContentsKey.ComposeKey(), jsonData)
 	if err != nil {
 		return nil, fmt.Errorf("failed caching git data: %w", err)
 	}

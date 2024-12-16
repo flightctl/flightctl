@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -74,7 +75,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	configStorage, err := tasks.NewConfigStorage(s.cfg.KV.Hostname, s.cfg.KV.Port)
+	kvStore, err := kvstore.NewKVStore(s.cfg.KV.Hostname, s.cfg.KV.Port)
 	if err != nil {
 		return err
 	}
@@ -117,11 +118,11 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
-		h := service.NewServiceHandler(s.store, callbackManager, configStorage, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+		h := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
 		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
 	})
 
-	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, configStorage, s.log, s.consoleEndpointReg)
+	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, kvStore, s.log, s.consoleEndpointReg)
 	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
 	ws.RegisterRoutes(router)
 
@@ -135,7 +136,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
-		configStorage.Close()
+		kvStore.Close()
 		s.provider.Stop()
 		s.provider.Wait()
 	}()

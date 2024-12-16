@@ -10,9 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/tasks"
 	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
 	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
@@ -100,19 +100,19 @@ func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request ser
 		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
-	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's config storage
+	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's keys from the kvstore
 	listParams := store.ListParams{Limit: 100, FleetName: &request.Fleet}
 	for {
 		result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
 		if err != nil {
-			h.log.Warnf("failed deleting config storage for templateVersions in org %s", orgId)
+			h.log.Warnf("failed deleting KV storage for templateVersions in org %s", orgId)
 			break
 		}
 		for _, tv := range result.Items {
-			tvkey := tasks.TemplateVersionKey{OrgID: orgId, Fleet: tv.Spec.Fleet, TemplateVersion: *tv.Metadata.Name}
-			err := h.configStorage.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+			tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: tv.Spec.Fleet, TemplateVersion: *tv.Metadata.Name}
+			err := h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
 			if err != nil {
-				h.log.Warnf("failed deleting config storage for templateVersion %s/%s/%s", orgId, tv.Spec.Fleet, *tv.Metadata.Name)
+				h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, tv.Spec.Fleet, *tv.Metadata.Name)
 			}
 		}
 		if result.Metadata.Continue != nil {
@@ -167,10 +167,10 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request serv
 	}
 	orgId := store.NullOrgId
 
-	tvkey := tasks.TemplateVersionKey{OrgID: orgId, Fleet: request.Fleet, TemplateVersion: request.Name}
-	err = h.configStorage.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+	tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: request.Fleet, TemplateVersion: request.Name}
+	err = h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
 	if err != nil {
-		h.log.Warnf("failed deleting config storage for templateVersion %s/%s/%s", orgId, request.Fleet, request.Name)
+		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, request.Fleet, request.Name)
 	}
 
 	err = h.store.TemplateVersion().Delete(ctx, orgId, request.Fleet, request.Name)
