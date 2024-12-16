@@ -22,8 +22,11 @@ type kvStore struct {
 	getSetNxScript *valkey.Lua
 }
 
-func NewKVStore(hostname string, port uint) (KVStore, error) {
-	client, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{fmt.Sprintf("%s:%d", hostname, port)}})
+func NewKVStore(hostname string, port uint, password string) (KVStore, error) {
+	client, err := valkey.NewClient(valkey.ClientOption{
+		InitAddress: []string{fmt.Sprintf("%s:%d", hostname, port)},
+		Password:    password,
+	})
 	if err != nil {
 		return nil, err
 	}

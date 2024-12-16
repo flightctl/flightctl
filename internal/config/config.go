@@ -56,6 +56,7 @@ type queueConfig struct {
 type kvConfig struct {
 	Hostname string `json:"hostname,omitempty"`
 	Port     uint   `json:"port,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 type authConfig struct {
@@ -115,6 +116,7 @@ func NewDefault() *Config {
 		KV: &kvConfig{
 			Hostname: "localhost",
 			Port:     6379,
+			Password: "adminpass",
 		},
 		Prometheus: &prometheusConfig{
 			Address:        ":15690",
