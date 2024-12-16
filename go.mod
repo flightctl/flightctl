@@ -1,6 +1,7 @@
 module github.com/flightctl/flightctl
 
 go 1.21
+toolchain go1.22.5
 
 require (
 	github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2
@@ -28,8 +29,8 @@ require (
 	github.com/mackerelio/go-osstat v0.2.5
 	github.com/oapi-codegen/nethttp-middleware v1.0.1
 	github.com/oapi-codegen/runtime v1.1.1
-	github.com/onsi/ginkgo/v2 v2.19.0
-	github.com/onsi/gomega v1.34.1
+	github.com/onsi/ginkgo/v2 v2.20.1
+	github.com/onsi/gomega v1.36.1
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/client_golang v1.19.0
@@ -45,13 +46,13 @@ require (
 	github.com/valkey-io/valkey-go v1.0.48
 	github.com/vincent-petithory/dataurl v1.0.0
 	go.uber.org/mock v0.4.0
-	golang.org/x/crypto v0.25.0
-	golang.org/x/net v0.27.0
-	golang.org/x/sync v0.7.0
-	golang.org/x/sys v0.24.0
-	golang.org/x/term v0.22.0
+	golang.org/x/crypto v0.28.0
+	golang.org/x/net v0.30.0
+	golang.org/x/sync v0.8.0
+	golang.org/x/sys v0.26.0
+	golang.org/x/term v0.25.0
 	google.golang.org/grpc v1.64.0
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.35.1
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/driver/sqlite v1.5.5
 	gorm.io/gorm v1.25.10
@@ -84,7 +85,7 @@ require (
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-logr/logr v1.4.1 // indirect
+	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-openapi/jsonpointer v0.20.2 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
@@ -96,7 +97,7 @@ require (
 	github.com/google/gnostic v0.5.7-v3refs // indirect
 	github.com/google/go-configfs-tsm v0.2.2 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
-	github.com/google/pprof v0.0.0-20240424215950-a892ee059fd6 // indirect
+	github.com/google/pprof v0.0.0-20240827171923-fa2c70bbbfe5 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/yaml v0.2.0 // indirect
@@ -132,12 +133,11 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.2.2 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
-	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/mod v0.19.0 // indirect
+	golang.org/x/mod v0.20.0 // indirect
 	golang.org/x/oauth2 v0.20.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/text v0.19.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.23.0 // indirect
+	golang.org/x/tools v0.24.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240513163218-0867130af1f8 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
