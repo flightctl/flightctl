@@ -46,6 +46,7 @@ data:
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
+        password: {{ .Values.kv.password }}   # we should funnel this via secrets instead
     {{- if not (eq .Values.global.auth.type "none")  }}
     {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:

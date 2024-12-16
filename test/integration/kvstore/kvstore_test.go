@@ -20,7 +20,7 @@ var _ = Describe("FleetSelector", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		var err error
-		kvStore, err = kvstore.NewKVStore("localhost", 6379)
+		kvStore, err = kvstore.NewKVStore("localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 	})
 

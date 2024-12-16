@@ -47,7 +47,7 @@ func (s *Server) Run() error {
 		s.log.WithError(err).Error("failed to create fleet queue publisher")
 		return err
 	}
-	kvStore, err := kvstore.NewKVStore(s.cfg.KV.Hostname, s.cfg.KV.Port)
+	kvStore, err := kvstore.NewKVStore(s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err

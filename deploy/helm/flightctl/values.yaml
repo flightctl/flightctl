@@ -91,7 +91,8 @@ kv:
     pullPolicy: Always
   # Save a snapshot of the DB every 60 seconds if at least 1 write operation was performed.
   # Each snapshot replaces the previous one.
-  flags: '--save 60 1 --loglevel warning'
+  password: adminpass
+  flags: --save 60 1 --loglevel warning --requirepass {{ .Values.kv.password }}
 api:
   enabled: true
   image:
