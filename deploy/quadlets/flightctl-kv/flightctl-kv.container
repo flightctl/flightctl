@@ -8,6 +8,7 @@ ContainerName=flightctl-kv
 Image=docker.io/valkey/valkey:latest
 Network=flightctl.network
 Environment=HOME=/root
+Environment=VALKEY_EXTRA_FLAGS='--save 60 1 --loglevel warning --requirepass adminpass'
 
 PublishPort=6379:6379
 Volume=flightctl-kv:/data
