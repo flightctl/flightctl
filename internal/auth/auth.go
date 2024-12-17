@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
 
@@ -78,31 +79,32 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 			caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
 			tlsConfig.RootCAs = caCertPool
 		}
-		if cfg.Auth.OpenShiftApiUrl != "" {
-			if cfg.Auth.InternalOpenShiftApiUrl == k8sApiService {
-				_, err := os.Stat(k8sCACertPath)
-				if err == nil {
-					k8sCert, err := os.ReadFile(k8sCACertPath)
-					if err != nil {
-						return nil, fmt.Errorf("failed to read k8s ca.crt: %w", err)
-					}
-					if tlsConfig.RootCAs == nil {
-						tlsConfig.RootCAs = x509.NewCertPool()
-					}
-					tlsConfig.RootCAs.AppendCertsFromPEM(k8sCert)
-				}
+		if cfg.Auth.K8s != nil {
+			apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
+			externalOpenshiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenshiftApiUrl, "/")
+			log.Println(fmt.Sprintf("k8s auth enabled: %s", apiUrl))
+			var k8sClient k8sclient.K8SClient
+			var err error
+			if apiUrl == "https://kubernetes.default.svc" {
+				k8sClient, err = k8sclient.NewK8SClient()
+			} else {
+				k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, cfg.Auth.InsecureSkipTlsVerify, cfg.Auth.CACert)
 			}
-			apiUrl := strings.TrimSuffix(cfg.Auth.OpenShiftApiUrl, "/")
-			log.Println(fmt.Sprintf("OpenShift auth enabled: %s", apiUrl))
-			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: apiUrl, ClientTlsConfig: tlsConfig}}
-			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: apiUrl, InternalOpenShiftApiUrl: cfg.Auth.InternalOpenShiftApiUrl, ClientTlsConfig: tlsConfig}
-		} else if cfg.Auth.OIDCAuthority != "" {
-			oidcUrl := strings.TrimSuffix(cfg.Auth.OIDCAuthority, "/")
-			internalOidcUrl := strings.TrimSuffix(cfg.Auth.InternalOIDCAuthority, "/")
+			if err != nil {
+				return nil, fmt.Errorf("failed to create k8s client: %w", err)
+			}
+			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{K8sClient: k8sClient}}
+			authN, err = authn.NewK8sAuthN(k8sClient, externalOpenshiftApiUrl)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create k8s AuthN: %w", err)
+			}
+		} else if cfg.Auth.OIDC != nil {
+			oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
+			externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 			log.Println(fmt.Sprintf("OIDC auth enabled: %s", oidcUrl))
 			authZ = NilAuth{}
 			var err error
-			authN, err = authn.NewJWTAuth(oidcUrl, internalOidcUrl, tlsConfig)
+			authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, tlsConfig)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
 			}

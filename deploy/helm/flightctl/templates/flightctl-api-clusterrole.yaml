@@ -1,0 +1,12 @@
+{{ if eq .Values.global.target "acm" }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api-{{ .Release.Namespace }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+{{ end }}

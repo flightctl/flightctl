@@ -10,6 +10,7 @@
 package k8sclient
 
 import (
+	context "context"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
@@ -40,16 +41,36 @@ func (m *MockK8SClient) EXPECT() *MockK8SClientMockRecorder {
 }
 
 // GetSecret mocks base method.
-func (m *MockK8SClient) GetSecret(namespace, name string) (*v1.Secret, error) {
+func (m *MockK8SClient) GetSecret(ctx context.Context, namespace, name string) (*v1.Secret, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSecret", namespace, name)
+	ret := m.ctrl.Call(m, "GetSecret", ctx, namespace, name)
 	ret0, _ := ret[0].(*v1.Secret)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetSecret indicates an expected call of GetSecret.
-func (mr *MockK8SClientMockRecorder) GetSecret(namespace, name any) *gomock.Call {
+func (mr *MockK8SClientMockRecorder) GetSecret(ctx, namespace, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockK8SClient)(nil).GetSecret), namespace, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockK8SClient)(nil).GetSecret), ctx, namespace, name)
+}
+
+// PostCRD mocks base method.
+func (m *MockK8SClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...Option) ([]byte, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, crdGVK, body}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PostCRD", varargs...)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PostCRD indicates an expected call of PostCRD.
+func (mr *MockK8SClientMockRecorder) PostCRD(ctx, crdGVK, body any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, crdGVK, body}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostCRD", reflect.TypeOf((*MockK8SClient)(nil).PostCRD), varargs...)
 }
