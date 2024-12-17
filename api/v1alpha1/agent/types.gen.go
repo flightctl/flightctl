@@ -9,7 +9,7 @@ import (
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
 type GetRenderedDeviceSpecParams struct {
-	// KnownRenderedVersion The last known renderedVersion
+	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
