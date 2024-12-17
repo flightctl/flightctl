@@ -21,7 +21,7 @@ The table below contains the routes, names, resource names, and verbs for flight
 |`GET /api/v1/devices/{name}/status`|`ReadDeviceStatus`|`devices/status`|`get`|
 |`PUT /api/v1/devices/{name}/status`|`ReplaceDeviceStatus`|`devices/status`|`update`|
 |`GET /api/v1/devices/{name}/rendered`|`GetRenderedDeviceSpec`|`devices/rendered`|`get`|
-|`PUT /api/v1/devices/{name}/decommission`|`DecommissionDevice`|`devices/decomission`|`update`|
+|`PUT /api/v1/devices/{name}/decommission`|`DecommissionDevice`|`devices/decommission`|`update`|
 |`POST /api/v1/enrollmentrequests`|`CreateEnrollmentRequest`|`enrollmentrequests`|`create`|
 |`GET /api/v1/enrollmentrequests`|`ListEnrollmentRequests`|`enrollmentrequests`|`list`|
 |`DELETE /api/v1/enrollmentrequests`|`DeleteEnrollmentRequests`|`enrollmentrequests`|`deletecollection`|
