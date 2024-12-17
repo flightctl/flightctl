@@ -4390,6 +4390,8 @@ components:
             $ref: '#/components/schemas/ResourceMonitor'
         console:
           $ref: '#/components/schemas/DeviceConsole'
+        decommission:
+          $ref: '#/components/schemas/DeviceDecommission'
       required:
         - renderedVersion
     DeviceSpec:
