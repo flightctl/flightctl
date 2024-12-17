@@ -76,6 +76,8 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestID,
 		middleware.Logger,
+		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
+		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}
@@ -89,7 +91,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	h := service.NewAgentServiceHandler(s.store, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
-	srv := tlsmiddleware.NewHTTPServerWithTLSContext(router, s.log, s.cfg.Service.AgentEndpointAddress)
+	srv := tlsmiddleware.NewHTTPServerWithTLSContext(router, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
 		<-ctx.Done()

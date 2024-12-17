@@ -3,10 +3,11 @@ package middleware
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
-	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -18,17 +19,19 @@ type contextKey string
 
 const TLSCommonNameContextKey contextKey = "tls-cn"
 
-func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string) *http.Server {
+func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
 	return &http.Server{
-		Addr:         address,
-		Handler:      router,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:              address,
+		Handler:           router,
+		ReadTimeout:       cfg.Service.HttpReadTimeout.Duration,
+		ReadHeaderTimeout: cfg.Service.HttpReadHeaderTimeout.Duration,
+		WriteTimeout:      cfg.Service.HttpWriteTimeout.Duration,
+		MaxHeaderBytes:    cfg.Service.HttpMaxHeaderBytes,
 	}
 }
 
-func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string) *http.Server {
-	server := NewHTTPServer(router, log, address)
+func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
+	server := NewHTTPServer(router, log, address, cfg)
 	server.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
 		tc := c.(*tls.Conn)
 		// We need to ensure TLS handshake is complete before
@@ -77,4 +80,22 @@ func ValidateClientTlsCert(ctx context.Context) (context.Context, error) {
 		return ctx, status.Error(codes.Unauthenticated, "failed to verify client certificate")
 	}
 	return ctx, nil
+}
+
+// RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
+func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if len(r.URL.String()) > maxURLLength {
+				http.Error(w, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength), http.StatusRequestURITooLong)
+				return
+			}
+			if len(r.Header) > maxNumHeaders {
+				http.Error(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestEntityTooLarge)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
