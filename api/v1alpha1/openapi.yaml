@@ -4642,19 +4642,20 @@ components:
     ConditionType:
       type: string
       enum:
-      - 'Approved'             # EnrollmentRequest
-      - 'Approved'             # CertificateSigningRequest
-      - 'Denied'               # CertificateSigningRequest
-      - 'Failed'               # CertificateSigningRequest
-      - 'Accessible'           # Repository
-      - 'Accessible'           # ResourceSync
-      - 'ResourceParsed'       # ResourceSync
-      - 'Synced'               # ResourceSync
-      - 'OverlappingSelectors' # Fleet
-      - 'Valid'                # Fleet
-      - 'Updating'             # Device
-      - 'SpecValid'            # Device (service condition)
-      - 'MultipleOwners'       # Device (service condition)
+      - 'Approved'              # EnrollmentRequest
+      - 'Approved'              # CertificateSigningRequest
+      - 'Denied'                # CertificateSigningRequest
+      - 'Failed'                # CertificateSigningRequest
+      - 'Accessible'            # Repository
+      - 'Accessible'            # ResourceSync
+      - 'ResourceParsed'        # ResourceSync
+      - 'Synced'                # ResourceSync
+      - 'OverlappingSelectors'  # Fleet
+      - 'Valid'                 # Fleet
+      - 'Updating'              # Device
+      - 'SpecValid'             # Device (service condition)
+      - 'MultipleOwners'        # Device (service condition)
+      - 'DeviceDecommissioning' # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - CertificateSigningRequestApproved
@@ -4669,6 +4670,7 @@ components:
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
+      - DeviceDecommissioning
     ConditionStatus:
       type: string
       enum:
