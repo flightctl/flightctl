@@ -58,11 +58,6 @@ type Config struct {
 	// ManagementService is the client configuration for connecting to the device management server
 	ManagementService ManagementService `json:"management-service,omitempty"`
 
-	// grpcManagementEndpoint is the address of the device management server (gRPC)
-	// TODO: remove this field once the HTTP management field is not used anymore, we can just
-	// switch to use that one.
-	GrpcManagementEndpoint string `json:"grpc-management-endpoint,omitempty"`
-
 	// SpecFetchInterval is the interval between two reads of the remote device spec
 	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
