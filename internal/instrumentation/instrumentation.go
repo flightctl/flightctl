@@ -248,6 +248,7 @@ func (m *ApiMetrics) RegisterWith(reg *prometheus.Registry) {
 	reg.MustRegister(m.CpuUtilization)
 	reg.MustRegister(m.MemoryUtilization)
 	reg.MustRegister(m.DiskUtilization)
+	reg.MustRegister(m.ClientErrors)
 
 }
 
