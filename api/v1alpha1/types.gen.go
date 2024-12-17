@@ -77,6 +77,14 @@ const (
 	DeviceLifecycleHookBeforeUpdating  DeviceLifecycleHookType = "BeforeUpdating"
 )
 
+// Defines values for DeviceLifecycleStatusType.
+const (
+	DeviceLifecycleStatusDecommissioned  DeviceLifecycleStatusType = "Decommissioned"
+	DeviceLifecycleStatusDecommissioning DeviceLifecycleStatusType = "Decommissioning"
+	DeviceLifecycleStatusEnrolled        DeviceLifecycleStatusType = "Enrolled"
+	DeviceLifecycleStatusUnknown         DeviceLifecycleStatusType = "Unknown"
+)
+
 // Defines values for DeviceResourceStatusType.
 const (
 	DeviceResourceStatusCritical DeviceResourceStatusType = "Critical"
@@ -408,6 +416,18 @@ type DeviceIntegrityStatusSummaryType string
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
 
+// DeviceLifecycleStatus Current status of the device lifecycle.
+type DeviceLifecycleStatus struct {
+	// Info Human readable information about the device lifecycle status.
+	Info *string `json:"info,omitempty"`
+
+	// Status Status type of the device lifecycle.
+	Status DeviceLifecycleStatusType `json:"status"`
+}
+
+// DeviceLifecycleStatusType Status type of the device lifecycle.
+type DeviceLifecycleStatusType string
+
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -499,6 +519,9 @@ type DeviceStatus struct {
 
 	// LastSeen The last time the device was seen by the service.
 	LastSeen time.Time `json:"lastSeen"`
+
+	// Lifecycle Current status of the device lifecycle.
+	Lifecycle DeviceLifecycleStatus `json:"lifecycle"`
 
 	// Os Current status of the device OS.
 	Os DeviceOSStatus `json:"os"`
