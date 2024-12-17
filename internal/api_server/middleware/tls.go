@@ -20,10 +20,12 @@ const TLSCommonNameContextKey contextKey = "tls-cn"
 
 func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string) *http.Server {
 	return &http.Server{
-		Addr:         address,
-		Handler:      router,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:              address,
+		Handler:           router,
+		ReadTimeout:       5 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		MaxHeaderBytes:    4096,
 	}
 }
 
