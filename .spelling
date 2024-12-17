@@ -127,6 +127,9 @@ webhooks
 workflows
 X.509
 YAML
+openshift
+acm
+namespaces
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -187,3 +190,13 @@ LessThanOrEquals
 NotContains
 NotEquals
 NotIn
+ - docs/user/kubernetes-auth.md
+global.auth.type
+insecureSkipTlsVerify
+internalOpenShiftApiUrl
+global.target
+RoleBinding
+ClusterRole
+global.auth.openShiftApiUrl
+caCert
+ClusterRoleBinding
