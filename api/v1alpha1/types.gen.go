@@ -1081,7 +1081,8 @@ type RenderedDeviceSpec struct {
 	Config *string `json:"config,omitempty"`
 
 	// Console DeviceConsole represents the console connection information.
-	Console *DeviceConsole `json:"console,omitempty"`
+	Console      *DeviceConsole      `json:"console,omitempty"`
+	Decommission *DeviceDecommission `json:"decommission,omitempty"`
 
 	// Os DeviceOSSpec describes the target OS for the device.
 	Os *DeviceOSSpec `json:"os,omitempty"`
