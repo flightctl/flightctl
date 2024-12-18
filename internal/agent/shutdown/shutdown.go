@@ -44,8 +44,8 @@ func (m *manager) Run(ctx context.Context) {
 		case s := <-signals:
 			m.log.Infof("Agent received shutdown signal: %s", s)
 			m.Shutdown(ctx)
-			close(signals)
 			m.cancelFn()
+			close(signals)
 		case <-ctx.Done():
 			m.log.Infof("Context has been cancelled, shutting down.")
 			m.Shutdown(ctx)

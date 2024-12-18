@@ -66,20 +66,20 @@ type PodmanMonitor struct {
 	apps    map[string]Application
 	actions []lifecycle.Action
 
-	compose lifecycle.ActionHandler
-	client  *client.Podman
-	boot    *client.Boot
+	compose  lifecycle.ActionHandler
+	client   *client.Podman
+	bootTime string
 
 	log *log.PrefixLogger
 }
 
-func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman) *PodmanMonitor {
+func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman, bootTime string) *PodmanMonitor {
 	return &PodmanMonitor{
-		client:  podman,
-		boot:    client.NewBoot(exec),
-		compose: lifecycle.NewCompose(log, podman),
-		apps:    make(map[string]Application),
-		log:     log,
+		client:   podman,
+		compose:  lifecycle.NewCompose(log, podman),
+		apps:     make(map[string]Application),
+		bootTime: bootTime,
+		log:      log,
 	}
 }
 
@@ -87,16 +87,9 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	m.log.Debugf("Starting podman monitor")
 	ctx, m.cancelFn = context.WithCancel(ctx)
 
-	// get boot time
-	bootTime, err := m.boot.Time(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get boot time: %w", err)
-	}
-	m.log.Debugf("Boot time: %s", bootTime)
-
 	// list of podman events to listen for
 	events := []string{"init", "start", "die", "sync", "remove", "exited"}
-	m.cmd = m.client.EventsSinceCmd(ctx, events, bootTime)
+	m.cmd = m.client.EventsSinceCmd(ctx, events, m.bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
 	if err != nil {

@@ -70,6 +70,9 @@ const (
 	// device's OS image and configuration have been rolled back to the
 	// pre-update version and have been activated
 	UpdateStateError UpdateState = "Error"
+	// The agent has detected an error and is rolling back to the pre-update OS
+	// image and configuration.
+	UpdateStateRollingBack UpdateState = "RollingBack"
 	// The agent failed to apply the desired spec and will retry. The device's
 	// OS image and configuration have been rolled back to the pre-update
 	// version and have been activated.

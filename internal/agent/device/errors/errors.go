@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var (
@@ -55,6 +57,9 @@ var (
 	ErrReadingPath = errors.New("failed reading path")
 	ErrPathIsDir   = errors.New("provided path is a directory")
 	ErrNotFound    = errors.New("not found")
+
+	// images
+	ErrImageNotFound = errors.New("image not found")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
@@ -98,6 +103,10 @@ func IsTimeoutError(err error) bool {
 		return true
 	}
 
+	if errors.Is(err, wait.ErrWaitTimeout) {
+		return true
+	}
+
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
@@ -115,7 +124,8 @@ func FromStderr(stderr string, exitCode int) error {
 		"unauthorized":            ErrAuthenticationFailed,
 		"access denied":           ErrAuthenticationFailed,
 		// not found
-		"not found": ErrNotFound,
+		"not found":        ErrNotFound,
+		"manifest unknown": ErrImageNotFound,
 		// networking
 		"no such host":           ErrNetwork,
 		"connection refused":     ErrNetwork,
