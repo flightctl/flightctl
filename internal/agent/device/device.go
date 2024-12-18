@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -36,6 +37,7 @@ type Agent struct {
 	appManager             applications.Manager
 	systemdManager         systemd.Manager
 	osManager              os.Manager
+	policyManager          policy.Manager
 	applicationsController *applications.Controller
 	configController       *config.Controller
 	resourceController     *resource.Controller
@@ -64,6 +66,7 @@ func NewAgent(
 	fetchStatusInterval util.Duration,
 	hookManager hook.Manager,
 	osManager os.Manager,
+	policyManager policy.Manager,
 	applicationsController *applications.Controller,
 	configController *config.Controller,
 	resourceController *resource.Controller,
@@ -80,6 +83,7 @@ func NewAgent(
 		specManager:            specManager,
 		hookManager:            hookManager,
 		osManager:              osManager,
+		policyManager:          policyManager,
 		appManager:             appManager,
 		systemdManager:         systemdManager,
 		fetchSpecInterval:      fetchSpecInterval,
@@ -133,6 +137,12 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 		return fmt.Errorf("before update: %w", err)
 	}
 
+	// check if the policy is ready to progress
+	if err := a.specManager.CheckPolicy(ctx, policy.Update, desired.RenderedVersion); err != nil {
+		a.log.Error(err)
+		return fmt.Errorf("policy: %w", err)
+	}
+
 	if err := a.syncDevice(ctx, current, desired); err != nil {
 		// TODO: enable rollback on failure
 		return fmt.Errorf("sync device: %w", err)
@@ -182,6 +192,12 @@ func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, d
 }
 
 func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+	// check if the policy is ready to progress
+	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.RenderedVersion); err != nil {
+		a.log.Error(err)
+		return fmt.Errorf("policy: %w", err)
+	}
+
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
 		return err
@@ -369,6 +385,10 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 
 	if err := a.systemdControllerSync(ctx, desired); err != nil {
 		return fmt.Errorf("systemd: %w", err)
+	}
+
+	if err := a.policyManager.Sync(ctx, desired); err != nil {
+		return fmt.Errorf("policy: %w", err)
 	}
 
 	return nil

@@ -190,7 +190,7 @@ func TestEnsure(t *testing.T) {
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).Return(nil)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
-		mockPriorityQueue.EXPECT().Add(gomock.Any()).Return(nil).Times(1)
+		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any()).Times(1)
 		err := s.Ensure()
 		require.NoError(err)
 	})
@@ -199,7 +199,7 @@ func TestEnsure(t *testing.T) {
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(3).Return(true, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
-		mockPriorityQueue.EXPECT().Add(gomock.Any()).Return(nil).Times(1)
+		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any()).Times(1)
 		err := s.Ensure()
 		require.NoError(err)
 	})
@@ -680,7 +680,7 @@ func TestRollback(t *testing.T) {
 	t.Run("error when copy fails", func(t *testing.T) {
 		copyErr := errors.New("failure to copy file")
 		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(copyErr)
-		mockPriorityQueue.EXPECT().SetVersionFailed(gomock.Any())
+		mockPriorityQueue.EXPECT().SetFailed(gomock.Any())
 
 		err := s.Rollback()
 		require.ErrorIs(err, errors.ErrCopySpec)
@@ -691,7 +691,7 @@ func TestRollback(t *testing.T) {
 		require.NoError(err)
 		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(nil)
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(currentSpec, nil)
-		mockPriorityQueue.EXPECT().SetVersionFailed(gomock.Any())
+		mockPriorityQueue.EXPECT().SetFailed(gomock.Any())
 		err = s.Rollback()
 		require.NoError(err)
 	})
@@ -764,7 +764,7 @@ func TestGetDesired(t *testing.T) {
 			name: "error reading desired spec",
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
 				mrw.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
-				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
 				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
 			},
 			expectedSpec:  nil,
@@ -778,7 +778,7 @@ func TestGetDesired(t *testing.T) {
 				require.NoError(err)
 
 				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
-				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
 				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
 			},
 			expectedSpec:  nil,
@@ -792,9 +792,9 @@ func TestGetDesired(t *testing.T) {
 				require.NoError(err)
 
 				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
-				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
-				mpq.EXPECT().Add(gomock.Any()).Return(nil)
-				mpq.EXPECT().Next().Return(&Item{Version: 2, Spec: renderedDesiredSpec}, true)
+				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 
 				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
 			},
@@ -808,9 +808,9 @@ func TestGetDesired(t *testing.T) {
 				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
 				require.NoError(err)
 
-				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
-				mpq.EXPECT().Add(gomock.Any()).Return(nil)
-				mpq.EXPECT().Next().Return(&Item{Version: 1, Spec: renderedDesiredSpec}, true)
+				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 				mrw.EXPECT().WriteFile(desiredPath, marshaledDesiredSpec, gomock.Any()).Return(nil)
 
 				mc.EXPECT().GetRenderedDeviceSpec(ctx, gomock.Any(), gomock.Any()).Return(renderedDesiredSpec, 200, nil)
@@ -822,9 +822,9 @@ func TestGetDesired(t *testing.T) {
 			name: "error when writing the desired spec fails",
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
 				renderedDesiredSpec := createRenderedTestSpec(image)
-				mpq.EXPECT().IsVersionFailed(gomock.Any()).Return(false)
-				mpq.EXPECT().Add(gomock.Any()).Return(nil)
-				mpq.EXPECT().Next().Return(&Item{Version: 1, Spec: renderedDesiredSpec}, true)
+				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 
 				// API is returning a rendered version that is different from the read desired spec
 				apiResponse := &v1alpha1.RenderedDeviceSpec{RenderedVersion: "5"}
@@ -1063,7 +1063,7 @@ func Test_getRenderedVersion(t *testing.T) {
 			if tt.desiredIsFailed {
 				isFailed = true
 			}
-			mockPriorityQueue.EXPECT().IsVersionFailed(gomock.Any()).Return(isFailed)
+			mockPriorityQueue.EXPECT().IsFailed(gomock.Any()).Return(isFailed)
 			renderedVersion := s.getRenderedVersion()
 			require.Equal(tt.expectedRenderedVersion, renderedVersion)
 		})
