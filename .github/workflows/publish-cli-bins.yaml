@@ -16,7 +16,7 @@ jobs:
         arch: [amd64, arm64]
     env:
       NAME: flightctl-${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-24.04"
     steps:
       - name: "Checkout"
         uses: actions/checkout@v4
@@ -54,7 +54,7 @@ jobs:
     strategy:
       matrix:
         env:
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04
             build: linux-amd64
           - runner: macos-latest
             build: darwin-arm64
@@ -75,7 +75,7 @@ jobs:
 
   publish:
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-24.04"
     needs: [verify]
     permissions:
       contents: write
