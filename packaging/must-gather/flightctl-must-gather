@@ -39,6 +39,9 @@ echo "### Disk Usage (du -h /) ###" >> "$output_file"
 du -h / >> "$output_file"
 echo "" >> "$output_file"
 
+echo "### flightctl agent version (flightctl-agent version) ###" >> "$output_file"
+flightctl-agent version >> "$output_file"
+
 echo "### bootc version (bootc --version) ###" >> "$output_file"
 bootc --version >> "$output_file"
 echo "" >> "$output_file"
