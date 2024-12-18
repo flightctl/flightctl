@@ -16,8 +16,14 @@ jobs:
         arch: [amd64, arm64]
     env:
       NAME: flightctl-${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: "ubuntu-24.04"
+    runs-on: ${{ matrix.os == 'darwin' && 'macos-latest' || 'ubuntu-24.04' }}
     steps:
+      - name: Install Go (if macOS)
+        if: ${{ matrix.os == 'darwin' }}
+        run: |
+          brew install go
+          go version
+
       - name: "Checkout"
         uses: actions/checkout@v4
 
@@ -27,10 +33,10 @@ jobs:
           GOOS: ${{ matrix.os }}
         run: |
           make build-cli
-          SHA=$(sha256sum bin | awk '{ print $1 }')
+          SHA=$(shasum -a 256 bin/flightctl | awk '{ print $1 }')
           echo $SHA > ${{ env.NAME }}-sha256.txt
-          tar cvf ${{ env.NAME }}.tar.gz  bin
-          mv bin ${{ env.NAME }}
+          mv bin/flightctl ${{ env.NAME }}
+          tar cvf ${{ env.NAME }}.tar.gz ${{ env.NAME }}
 
       - name: "Save tar binary"
         uses: actions/upload-artifact@v4
@@ -53,24 +59,26 @@ jobs:
   verify:
     strategy:
       matrix:
-        env:
-          - runner: ubuntu-24.04
-            build: linux-amd64
-          - runner: macos-latest
-            build: darwin-arm64
-    runs-on: ${{ matrix.env.runner }}
+        os: [linux, darwin]
+        arch: [amd64, arm64]
+    env:
+      NAME: flightctl-${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os == 'darwin' && 'macos-latest' || 'ubuntu-24.04' }}
+    if: ${{ !(matrix.os == 'linux' && matrix.arch == 'arm64') }}
     needs: [build]
 
     steps:
       - name: "Load binary"
         uses: actions/download-artifact@v4
         with:
-          name: flightctl-${{ matrix.env.build }}
+          name: ${{ env.NAME }}
 
       - name: "Verify"
         run: |
-          chmod +x flightctl-${{ matrix.env.build }}
-          ./flightctl-${{ matrix.env.build }} version
+          chmod +x ${{ env.NAME }}
+          ls -l
+          file ${{ env.NAME }}
+          ./${{ env.NAME }} version
           exit $?
 
   publish:
