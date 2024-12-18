@@ -28,5 +28,8 @@ func NewDeviceStatus() DeviceStatus {
 		Summary: DeviceSummaryStatus{
 			Status: DeviceSummaryStatusUnknown,
 		},
+		Lifecycle: DeviceLifecycleStatus{
+			Status: DeviceLifecycleStatusUnknown,
+		},
 	}
 }
