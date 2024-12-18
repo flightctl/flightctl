@@ -1,9 +1,7 @@
 package spec
 
 import (
-	"container/heap"
 	"testing"
-	"time"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -14,16 +12,15 @@ import (
 func TestQueue(t *testing.T) {
 	testCases := []struct {
 		name            string
-		maxRetries      int
 		maxSize         int
 		items           []*Item
 		expectOrder     []string
 		expectedRequeue map[int64]int
+		expectNoItems   bool
 	}{
 		{
-			name:       "ensure priory ordering",
-			maxRetries: 3,
-			maxSize:    10,
+			name:    "ensure priory ordering",
+			maxSize: 10,
 			items: []*Item{
 				{Version: 3, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
 				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
@@ -32,47 +29,26 @@ func TestQueue(t *testing.T) {
 			expectOrder: []string{"1", "2", "3"},
 		},
 		{
-			name:       "maxSize exceeded lowest version not tried yet",
-			maxRetries: 3,
-			maxSize:    2,
+			name:    "maxSize exceeded lowest version evicted",
+			maxSize: 2,
 			items: []*Item{
 				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
 				{Version: 3, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
 			},
-			expectOrder: []string{"1", "2"}, // 3 was skipped
+			expectOrder: []string{"2", "3"}, // 1 was evicted
 		},
 		{
-			name:       "requeue with maxRetries exceeded",
-			maxRetries: 2,
-			maxSize:    10,
+			name:    "add items equal to maxSize",
+			maxSize: 1,
 			items: []*Item{
 				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 			},
-			expectOrder: []string{}, // remove item after maxRetries
+			expectOrder: []string{"1"}, // remove item after maxRetries
 		},
 		{
-			name:       "requeue within maxRetries",
-			maxRetries: 3,
-			maxSize:    10,
-			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-			},
-			expectOrder: []string{"1"},
-		},
-		{
-			name:       "adding new item after requeue",
-			maxRetries: 3,
-			maxSize:    10,
-			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-			},
-			expectOrder: []string{"1"},
-		},
-		{
-			name:       "requeue different versions",
-			maxRetries: 3,
-			maxSize:    10,
+			name:    "maxSize unlimited",
+			maxSize: 0,
 			items: []*Item{
 				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
@@ -80,10 +56,10 @@ func TestQueue(t *testing.T) {
 			expectOrder: []string{"1", "2"},
 		},
 		{
-			name:       "requeue without maxRetries hit",
-			maxRetries: 5,
-			maxSize:    10,
+			name:    "add same item twice",
+			maxSize: 1,
 			items: []*Item{
+				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
 			},
 			expectOrder: []string{"1"},
@@ -94,235 +70,19 @@ func TestQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			log := log.NewPrefixLogger("test")
-			q := newQueue(log, tt.maxRetries, tt.maxSize, defaultSpecRequeueThreshold, defaultSpecRequeueDelay)
+			log.SetLevel(logrus.DebugLevel)
+			q := newQueue(log, tt.maxSize)
 
 			// add to queue
 			for _, item := range tt.items {
-				err := q.Add(item)
-				require.NoError(err)
+				q.Add(item)
 			}
 
 			// ensure priority ordering
 			for _, expectedVersion := range tt.expectOrder {
-				item, ok := q.Next()
+				item, ok := q.Pop()
 				require.True(ok)
 				require.Equal(expectedVersion, item.Spec.RenderedVersion)
-			}
-		})
-	}
-}
-
-func TestRequeueThreshold(t *testing.T) {
-	require := require.New(t)
-	const (
-		requeueDelayThreshold = 1
-		requeueDelayDuration  = time.Millisecond * 200
-		renderedVersion       = "1"
-	)
-	log := log.NewPrefixLogger("test")
-	log.SetLevel(logrus.DebugLevel)
-	maxSize := 1
-	q := newQueue(log, 0, maxSize, requeueDelayThreshold, requeueDelayDuration)
-	item := newItem(&v1alpha1.RenderedDeviceSpec{RenderedVersion: renderedVersion})
-
-	_, ok := q.Next()
-	require.False(ok, "queue should be empty")
-
-	// add item to queue
-	err := q.Add(item)
-	require.NoError(err)
-
-	// ensure item is immediately available
-	status := q.requeueStatus[item.Version]
-	require.NotNil(status)
-	require.Equal(0, status.tries, "tries should be zero")
-	require.True(status.nextAvailable.IsZero(), "nextAvailable should be zero")
-
-	// add same item to queue before it is tried
-	err = q.Add(item)
-	require.NoError(err)
-
-	// ensure item is immediately available
-	status = q.requeueStatus[item.Version]
-	require.NotNil(status)
-	require.Equal(0, status.tries, "tries should be zero")
-	require.True(status.nextAvailable.IsZero(), "nextAvailable should be zero")
-
-	// retrieve item
-	_, ok = q.Next()
-	require.True(ok, "first retrieval should succeed")
-
-	// add same item to queue after it is tried should trigger requeue delay duration
-	err = q.Add(item)
-	require.NoError(err)
-	_, ok = q.Next()
-	require.False(ok, "retrieval before threshold duration should return false")
-
-	require.Eventually(func() bool {
-		item, ok := q.Next()
-		return ok && item.Spec.RenderedVersion == renderedVersion
-	}, time.Second, time.Millisecond*10, "retrieval after threshold duration should succeed")
-}
-
-func TestEnforceMaxSize(t *testing.T) {
-	require := require.New(t)
-	testCases := []struct {
-		name                    string
-		maxSize                 int
-		initialItems            map[int64]*Item
-		initialHeap             []*Item
-		expectedHeap            []*Item
-		requeueStatus           map[int64]*requeueVersion
-		expectedMaxSizeExceeded bool
-		expectedItems           map[int64]*Item
-	}{
-		{
-			name:    "Max size not exceeded",
-			maxSize: 5,
-			initialItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-				3: {Version: 3},
-			},
-			initialHeap: []*Item{
-				{Version: 1},
-				{Version: 2},
-				{Version: 3},
-			},
-			expectedHeap: []*Item{
-				{Version: 1},
-				{Version: 2},
-				{Version: 3},
-			},
-			requeueStatus:           map[int64]*requeueVersion{},
-			expectedMaxSizeExceeded: false,
-			expectedItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-				3: {Version: 3},
-			},
-		},
-		{
-			name:    "Max size exceeded, removed item not tried",
-			maxSize: 3,
-			initialItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-				3: {Version: 3},
-			},
-			initialHeap: []*Item{
-				{Version: 1},
-				{Version: 2},
-				{Version: 3},
-			},
-			expectedHeap: []*Item{
-				{Version: 1}, //   1
-				{Version: 3}, // /   \
-				{Version: 2}, // 2   3
-			},
-			requeueStatus: map[int64]*requeueVersion{
-				1: {tries: 0},
-			},
-			expectedMaxSizeExceeded: true,
-			expectedItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-				3: {Version: 3},
-			},
-		},
-		{
-			name:    "Max size exceeded, removed item tried",
-			maxSize: 3,
-			initialItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-				3: {Version: 3},
-			},
-			initialHeap: []*Item{
-				{Version: 1},
-				{Version: 2},
-				{Version: 3},
-			},
-			expectedHeap: []*Item{
-				// {Version: 1}, <- removed
-				{Version: 2},
-				{Version: 3},
-			},
-			requeueStatus: map[int64]*requeueVersion{
-				1: {tries: 1},
-			},
-			expectedMaxSizeExceeded: false,
-			expectedItems: map[int64]*Item{
-				2: {Version: 2},
-				3: {Version: 3},
-			},
-		},
-		{
-			name:    "Max size is zero",
-			maxSize: 0,
-			initialItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-			},
-			initialHeap: []*Item{
-				{Version: 1},
-				{Version: 2},
-			},
-			expectedHeap: []*Item{
-				{Version: 1},
-				{Version: 2},
-			},
-			requeueStatus:           map[int64]*requeueVersion{},
-			expectedMaxSizeExceeded: false,
-			expectedItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-			},
-		},
-		{
-			name:    "Heap is empty when max size exceeded",
-			maxSize: 2,
-			initialItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-			},
-			initialHeap:             []*Item{}, // Heap is empty
-			requeueStatus:           map[int64]*requeueVersion{},
-			expectedMaxSizeExceeded: false,
-			expectedItems: map[int64]*Item{
-				1: {Version: 1},
-				2: {Version: 2},
-			},
-		},
-	}
-
-	for _, tt := range testCases {
-		t.Run(tt.name, func(t *testing.T) {
-			log := log.NewPrefixLogger("test")
-			log.SetLevel(logrus.DebugLevel)
-
-			itemHeap := make(ItemHeap, len(tt.initialHeap))
-			copy(itemHeap, tt.initialHeap)
-			heap.Init(&itemHeap)
-
-			q := &queue{
-				log:                   log,
-				maxSize:               tt.maxSize,
-				items:                 tt.initialItems,
-				heap:                  itemHeap,
-				requeueStatus:         tt.requeueStatus,
-				requeueDelayThreshold: 0, // disable requeue delay
-				requeueDelayDuration:  0,
-			}
-
-			exceeded := q.enforceMaxSize()
-
-			require.Equal(tt.expectedMaxSizeExceeded, exceeded, "exceeded mismatch")
-
-			require.Equal(tt.expectedItems, q.items, "items mismatch")
-
-			for i, item := range tt.expectedHeap {
-				require.Equal(item, q.heap[i], "heap item mismatch")
 			}
 		})
 	}
