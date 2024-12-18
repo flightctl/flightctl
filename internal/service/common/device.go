@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	ApplicationStatusInfoHealthy = "All application workloads healthy."
-	DeviceStatusInfoHealthy      = "All system resources healthy."
-	DeviceStatusInfoRebooting    = "The device is rebooting."
+	ApplicationStatusInfoHealthy   = "All application workloads are healthy."
+	ApplicationStatusInfoUndefined = "No application workloads are defined."
+	DeviceStatusInfoHealthy        = "All system resources healthy."
+	DeviceStatusInfoRebooting      = "The device is rebooting."
 )
 
 func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLogger, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
@@ -202,6 +203,9 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 		}
 	}
 	switch {
+	case len(device.Status.Applications) == 0:
+		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+		device.Status.ApplicationsSummary.Info = util.StrToPtr(ApplicationStatusInfoUndefined)
 	case len(appErrors) > 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
 		device.Status.ApplicationsSummary.Info = util.StrToPtr(strings.Join(appErrors, ", "))

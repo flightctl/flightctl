@@ -75,3 +75,14 @@ const (
 	// version and have been activated.
 	UpdateStateRetrying UpdateState = "Retrying"
 )
+
+type DecommissionState string
+
+const (
+	// The agent has received the request to decommission from the service.
+	DecommissionStateStarted DecommissionState = "Started"
+	// The agent has completed its decommissioning actions.
+	DecommissionStateComplete DecommissionState = "Completed"
+	// The agent has encoutered an error while decommissioning.
+	DecommissionStateError DecommissionState = "Error"
+)

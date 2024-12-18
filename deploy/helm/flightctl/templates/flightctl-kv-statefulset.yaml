@@ -1,4 +1,4 @@
-{{ if .Values.rabbitmq.enabled }}
+{{ if .Values.kv.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -26,7 +26,7 @@ spec:
               containerPort: 6379
           env:
             - name: VALKEY_EXTRA_FLAGS
-              value: {{ .Values.kv.flags }}
+              value: {{ tpl .Values.kv.flags . }}
           volumeMounts:
             - name: flightctl-kv
               mountPath: /data
