@@ -14,7 +14,7 @@ permissions:
 jobs:
   # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
   kind-cluster:
-    runs-on: "ubuntu-latest"
+    runs-on: "ubuntu-24.04"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
