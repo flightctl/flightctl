@@ -39,6 +39,7 @@ global:
     insecureSkipTlsVerify: false
     oidcAuthority: ""
     internalOidcAuthority: ""
+    k8sRbacNs: ""
   metrics:
     enabled: true
   internalNamespace: ""
