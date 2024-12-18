@@ -57,10 +57,14 @@ type OstreeDetails struct {
 }
 
 type BootcClient interface {
+	// Status returns the current bootc status.
 	Status(ctx context.Context) (*BootcHost, error)
+	// Switch targets a new container image reference to boot.
 	Switch(ctx context.Context, image string) error
-	Apply(ctx context.Context) error
+	// UsrOverlay adds a transient writable overlayfs on `/usr` that will be discarded on reboot.
 	UsrOverlay(ctx context.Context) error
+	// Apply restart or reboot into the new target image.
+	Apply(ctx context.Context) error
 }
 
 var (

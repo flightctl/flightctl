@@ -50,7 +50,12 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
 			resp, err = p.pullImage(ctx, image)
 			if err != nil {
-				p.log.Warnf("Failed to pull os image %q: %v", image, err)
+				// fail fast if the error is not retryable
+				if !errors.IsRetryable(err) {
+					p.log.Error(err)
+					return false, err
+				}
+				p.log.Debugf("Retrying: %s", err)
 				return false, nil
 			}
 			return true, nil
