@@ -3,9 +3,9 @@
 Name: flightctl
 Version: 0.3.0
 Release: 1%{?dist}
-Summary: Flightctl CLI
+Summary: Flightctl is a command line interface for managing edge device fleets.
 
-License: XXX
+License: Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL: https://github.com/flightctl/flightctl
 Source0: flightctl-0.3.0.tar.gz
 
@@ -13,6 +13,7 @@ BuildRequires: golang
 BuildRequires: make
 BuildRequires: git
 BuildRequires: openssl-devel
+
 Requires: openssl
 
 %description
@@ -27,15 +28,19 @@ Flightctl Agent is a component of the flightctl tool.
 %prep
 %setup -q -n flightctl-0.0.1
 
-%build
+# Retrieving data from git repository
+bash hack/generate_git_data.sh $URL
 
+%build
 # if this is a buggy version of go we need to set GOPROXY as workaround
 # see https://github.com/golang/go/issues/61928
 GOENVFILE=$(go env GOROOT)/go.env
 if [[ ! -f "{$GOENVFILE}" ]]; then
     export GOPROXY='https://proxy.golang.org,direct'
 fi
-make build
+source_git_tag=$(cat source_git_tag.txt)
+source_git_commit=$(cat source_git_commit.txt)
+SOURCE_GIT_TAG=$source_git_tag SOURCE_GIT_COMMIT=$source_git_commit make build
 
 %install
 mkdir -p %{buildroot}/usr/bin
