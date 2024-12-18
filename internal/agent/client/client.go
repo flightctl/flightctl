@@ -5,16 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"strings"
-	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/container"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/middleware"
 )
@@ -69,6 +65,18 @@ type Bootc interface {
 	Apply(ctx context.Context) error
 }
 
+type System interface {
+	// Initialize initializes the system client.
+	Initialize() error
+	// IsRebooted returns true if the system has been rebooted since the last boot.
+	IsRebooted() bool
+	// BootTime returns the time the system was booted as a string.
+	BootTime() string
+	// BootID returns the unique boot ID populated by the kernel. This is
+	// expected to be empty for integration and simulation tests.
+	BootID() string
+}
+
 // IsCommandAvailable checks if a command is available in the PATH.
 func IsCommandAvailable(cmdName string) bool {
 	_, err := exec.LookPath(cmdName)
@@ -82,35 +90,6 @@ func IsComposeAvailable() bool {
 		}
 	}
 	return false
-}
-
-type Boot struct {
-	exec executer.Executer
-}
-
-func NewBoot(exec executer.Executer) *Boot {
-	return &Boot{
-		exec: exec,
-	}
-}
-
-// Time returns the time the system was booted as a string.
-func (b *Boot) Time(ctx context.Context) (string, error) {
-	args := []string{"-s"}
-	stdout, stderr, exitCode := b.exec.ExecuteWithContext(ctx, "uptime", args...)
-	if exitCode != 0 {
-		return "", fmt.Errorf("device uptime: %w", errors.FromStderr(stderr, exitCode))
-	}
-	bootTime, err := time.Parse("2006-01-02 15:04:05", strings.TrimSpace(stdout))
-	if err != nil {
-		return "", err
-	}
-
-	// ensure UTC
-	bootTime = bootTime.UTC()
-
-	bootTimeStr := bootTime.Format(time.RFC3339Nano)
-	return bootTimeStr, nil
 }
 
 // ClientOption is a functional option for configuring the client.

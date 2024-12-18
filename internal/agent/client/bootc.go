@@ -46,7 +46,7 @@ func (b *bootc) Status(ctx context.Context) (*container.BootcHost, error) {
 }
 
 // Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
-// The status will be updated in logger.
+// The status will be updated in logger. Switch assumes the os image is available in local container storage.
 func (b *bootc) Switch(ctx context.Context, image string) error {
 	target, err := container.ImageToBootcTarget(image)
 	if err != nil {
@@ -55,7 +55,13 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 
 	done := make(chan error, 1)
 	go func() {
-		args := []string{"switch", "--retain", target}
+		args := []string{
+			"switch",
+			"--transport",
+			"containers-storage",
+			"--retain",
+			target,
+		}
 		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
 		if exitCode != 0 {
 			done <- fmt.Errorf("stage image: %w", errors.FromStderr(stderr, exitCode))
