@@ -14,7 +14,7 @@ env:
 
 jobs:
   generate-tags:
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-24.04"
     outputs:
       image_tags: ${{ steps.get-tags.outputs.image_tags }}
       helm_tag: ${{ steps.get-tags.outputs.helm_tag }}
@@ -50,7 +50,7 @@ jobs:
           fi
 
   publish-helm-charts-containers:
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-24.04"
     needs: [publish-flightctl-containers, generate-tags]
     steps:
       - uses: actions/checkout@v3
@@ -82,7 +82,7 @@ jobs:
       matrix:
         image: ['api', 'periodic', 'worker']
     needs: [generate-tags]
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v3
 

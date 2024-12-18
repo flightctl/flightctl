@@ -2,10 +2,6 @@
 name: 'Setup environment'
 description: 'Setup CI environment for testing'
 inputs:
-  setup_podman4:
-    description: 'Setup podman4 from OpenSUSE repos'
-    required: false
-    default: ''
   setup_kvm:
     description: 'Setup kvm in the VM'
     required: false
@@ -26,10 +22,10 @@ runs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sudo apt-get update
-          sudo apt-get install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
-                                  virtinst bridge-utils qemu qemu-system-x86 qemu-kvm \
-                                  swtpm apparmor-utils
+          sudo apt update -y
+          sudo apt install -y libvirt-clients libvirt-daemon-system libvirt-daemon libvirt-dev \
+                              virtinst bridge-utils qemu-system-x86 qemu-kvm \
+                              swtpm apparmor-utils
           sudo usermod -a -G kvm,libvirt,swtpm $USER
           echo "::endgroup::"
 
@@ -37,30 +33,27 @@ runs:
         shell: bash
         run: |
           echo "::group::Installing general dependencies"
-          sudo apt-get update -y # fix broken repo cache
-          sudo apt install -y make python3-pip libvirt-dev protobuf-compiler
+          sudo apt update -y # fix broken repo cache
+          sudo apt install -y make python3-pip podman podman-compose
+
           go install gotest.tools/gotestsum@latest
-          go get -u github.com/proglottis/gpgme
           go install go.uber.org/mock/mockgen@v0.4.0
           go install github.com/onsi/ginkgo/v2/ginkgo
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+
+          curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
+          sudo unzip -q protoc.zip bin/protoc -d /usr/local
+          sudo chmod a+x /usr/local/bin/protoc
+          protoc --version
+          rm -rf protoc.zip
           echo "::endgroup::"
 
-      - name: Install podman 4
-        if: inputs.setup_podman4 != ''
+      - name: Fix container storage driver
         shell: bash
         run: |
-          echo "::group::Upgrade Podman to version 4"
-          sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL "https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_$(lsb_release -rs)/Release.key" \
-            | gpg --dearmor \
-            | sudo tee /etc/apt/keyrings/devel_kubic_libcontainers_unstable.gpg > /dev/null
-          echo \
-            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/devel_kubic_libcontainers_unstable.gpg]\
-              https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_$(lsb_release -rs)/ /" \
-            | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:unstable.list > /dev/null
-          sudo apt-get update -qq
-          sudo apt-get -qq -y install podman
-          pip3 install podman-compose
-          echo "::endgroup::"
+          # Fix storage driver so it can be used with BIB (see https://github.com/osbuild/bootc-image-builder/issues/446)
+          sudo rm -rf /var/lib/containers/storage
+          sudo mkdir -p /etc/containers
+          echo -e "[storage]\ndriver = \"overlay\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"" | sudo tee /etc/containers/storage.conf
+
