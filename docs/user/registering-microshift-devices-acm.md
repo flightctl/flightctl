@@ -68,7 +68,7 @@ spec:
         httpRef:
           filePath: /var/local/acm-import/import.yaml
           repository: acm-registration
-          suffix: /agent-registration/manifests/{{ device.metadata.name }}
+          suffix: /agent-registration/manifests/{{.metadata.name}}
       - name: pull-secret
         inline:
         - path: "/etc/crio/openshift-pull-secret"
@@ -94,6 +94,6 @@ spec:
 The added items under `.spec.template.spec.config` have the following functions:
 
 - `acm-crd` uses the HTTP Configuration Provider to query the ACM agent-registration server for the Kubernetes manifests containing the custom resource definition (CRD) for ACM's klusterlet agent. These manifests are stored in the device's filesystem in the file `/var/local/acm-import/crd.yaml`.
-- `acm-import` queries the server once more to receive the import manifests for a cluster whose name is the same as the device's name, so both can be more easily correlated later. This is achieved by using the templating variable `{{ device.metadata.name }}`. The returned manifests are stored in the same location on the device's filesystem as `import.yaml`.
+- `acm-import` queries the server once more to receive the import manifests for a cluster whose name is the same as the device's name, so both can be more easily correlated later. This is achieved by using the templating variable `{{ .metadata.name }}`. The returned manifests are stored in the same location on the device's filesystem as `import.yaml`.
 - `pull-secret` optionally adds your OpenShift pull secret to the device, so MicroShift can pull the ACM agent's images from the container registry. You can download your pull secret from the [OpenShift installation page](https://cloud.redhat.com/openshift/install/pull-secret). This item is not necessary if you've already provisioned your pull secret in another way, for example by embedding it into the OS image. Also, you can use other configuration providers to add this secret.
 - `apply-acm-manifests` installs an `afterUpdating` device lifecycle hook (see [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)). This hook gets called once after the agent has created the `crd.yaml` and `import.yaml` files and applies the manifests to the MicroShift cluster using the `kubectl` CLI.
