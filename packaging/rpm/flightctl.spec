@@ -1,6 +1,9 @@
 %define debug_package %{nil}
 
 Name: flightctl
+# PLEASE READ BEFORE CHANGING the Version: field
+# https://docs.fedoraproject.org/en-US/packaging-guidelines/Versioning/
+# TL;DR With upstream releases 0.4.0, 0.4.1, 0.5.0-rc1, 0.5.0-rc2, 0.5.0, the two "release candidates" should use 0.5.0~rc1 and 0.5.0~rc2 in the Version: field
 Version: 0.3.0
 Release: 1%{?dist}
 Summary: Flightctl CLI
