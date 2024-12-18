@@ -20,9 +20,10 @@
 ## @param global.internalNamespace Namespace where internal components are deployed
 ## @param global.clusterLevelSecretAccess Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
-## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
+## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort, route or gateway
 ## @param global.nodePorts Node port numbers for FCTL services
-
+## @param hubConfig.ocpIngress Same as global.baseDomain but this property is expected to be set by ACM operator
+## @param hubConfig.apiUrl Same as global.auth.openShiftApiUrl but this property is expected to be set by ACM operator
 
 global:
   target: "standalone" # standalone, acm
@@ -57,6 +58,11 @@ global:
   gatewayPorts:
     tls: 443
     http: 80
+
+## @section ACM operator specific parameters
+hubConfig:
+  ocpIngress: ""
+  apiUrl: ""
 
 
 ## @section Component specific parameters
