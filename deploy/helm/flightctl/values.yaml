@@ -6,6 +6,7 @@
 
 ## @param global.target The type of Flightctl to deploy - either 'standalone' or 'acm'.
 ## @param global.baseDomain Base domain to construct the FQDN for the service endpoints.
+## @param global.ocpIngress Base domain to construct the FQDN for the service endpoints. (alternative used by the multiclusterhub operator)
 ## @param.global.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
 ## @param.global.baseDomainTls.key Key for the base domain wildcard certificate.
 ## @param global.storageClassName Storage class name for the PVCs.
@@ -14,6 +15,7 @@
 ## @param global.auth.insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
 ## @param global.auth.k8s.apiUrl API URL of k8s cluster that will be used as authentication authority
 ## @param global.auth.k8s.externalOpenShiftApiUrl API URL of OpenShift cluster that can be accessed by external client to retrieve auth token
+## @param global.apiUrl is an alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator
 ## @param global.auth.k8s.externalApiToken In case flightctl is not running within a cluster, you can provide api token
 ## @param global.auth.k8s.rbacNs Namespace that should be used for the RBAC checks
 ## @param global.auth.oidc.oidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
@@ -23,18 +25,21 @@
 ## @param global.internalNamespace Namespace where internal components are deployed
 ## @param global.clusterLevelSecretAccess Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
-## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
+## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort, route or gateway
 ## @param global.nodePorts Node port numbers for FCTL services
-
+## @param hubConfig.ocpIngress Same as global.baseDomain but this property is expected to be set by ACM operator
+## @param hubConfig.apiUrl Same as global.auth.openShiftApiUrl but this property is expected to be set by ACM operator
 
 global:
   target: "standalone" # standalone, acm
   baseDomain: ""
+  ocpIngress: "" # alternative to baseDomain used by the multiclusterhub operator
   baseDomainTls:
     cert: ""
     key: ""
   storageClassName: ""
   imagePullSecretName: ""
+  apiUrl: "" # alternative used by multiclusterhub operator
   auth:
     type: "builtin" # builtin, k8s, oidc, none
     caCert: ""
@@ -63,6 +68,11 @@ global:
   gatewayPorts:
     tls: 443
     http: 80
+
+## @section ACM operator specific parameters
+hubConfig:
+  ocpIngress: ""
+  apiUrl: ""
 
 
 ## @section Component specific parameters
