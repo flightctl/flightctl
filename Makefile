@@ -65,13 +65,9 @@ publish: build-containers
 
 generate:
 	go generate -v $(shell go list ./...)
-	hack/mockgen.sh
-
-generate-grpc:
-	hack/grpcgen.sh
 
 tidy:
-	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
 
 lint: tools
 	$(GOBIN)/golangci-lint run -v
