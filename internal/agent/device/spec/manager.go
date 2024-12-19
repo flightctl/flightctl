@@ -32,11 +32,8 @@ type manager struct {
 	managementClient client.Management
 	bootcClient      container.BootcClient
 
-	// cached rendered versions
-	currentRenderedVersion  string
-	desiredRenderedVersion  string
-	rollbackRenderedVersion string
-	queue                   PriorityQueue
+	cache *cache
+	queue PriorityQueue
 
 	log     *log.PrefixLogger
 	backoff wait.Backoff
@@ -51,6 +48,7 @@ func NewManager(
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) Manager {
+	cache := newCache(log)
 	queue := newQueue(
 		log,
 		defaultSpecRequeueMaxRetries,
@@ -66,6 +64,7 @@ func NewManager(
 		deviceReadWriter: deviceReadWriter,
 		bootcClient:      bootcClient,
 		backoff:          backoff,
+		cache:            cache,
 		queue:            queue,
 		log:              log,
 	}
@@ -116,9 +115,9 @@ func (s *manager) Ensure() error {
 	}
 
 	// update cached rendered versions
-	s.currentRenderedVersion = current.RenderedVersion
-	s.desiredRenderedVersion = desired.RenderedVersion
-	s.rollbackRenderedVersion = rollback.RenderedVersion
+	s.cache.update(Current, current)
+	s.cache.update(Desired, desired)
+	s.cache.update(Rollback, rollback)
 
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
@@ -178,26 +177,27 @@ func (s *manager) Upgrade(ctx context.Context) error {
 			return err
 		}
 
-		if err := s.write(Rollback, &v1alpha1.RenderedDeviceSpec{}); err != nil {
+		if err := s.ClearRollback(); err != nil {
 			return err
 		}
+
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.RenderedVersion)
 	}
 
 	// remove desired spec from the queue
-	s.queue.Remove(s.desiredRenderedVersion)
+	s.queue.Remove(s.cache.getRenderedVersion(Desired))
 	return nil
 }
 
 func (s *manager) SetUpgradeFailed() {
-	s.queue.SetVersionFailed(s.desiredRenderedVersion)
+	s.queue.SetVersionFailed(s.cache.getRenderedVersion(Desired))
 }
 
 func (s *manager) IsUpgrading() bool {
-	return s.currentRenderedVersion != s.desiredRenderedVersion
+	return s.cache.getRenderedVersion(Current) != s.cache.getRenderedVersion(Desired)
 }
 
-func (s *manager) PrepareRollback(ctx context.Context) error {
+func (s *manager) CreateRollback(ctx context.Context) error {
 	current, err := s.Read(Current)
 	if err != nil {
 		return err
@@ -209,7 +209,7 @@ func (s *manager) PrepareRollback(ctx context.Context) error {
 	if current.Os == nil || current.Os.Image == "" {
 		bootcStatus, err := s.bootcClient.Status(ctx)
 		if err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrGettingBootcStatus, err)
+			return err
 		}
 		currentOSImage = bootcStatus.GetBootedImage()
 	} else {
@@ -229,25 +229,28 @@ func (s *manager) PrepareRollback(ctx context.Context) error {
 	return nil
 }
 
+func (s *manager) ClearRollback() error {
+	return s.write(Rollback, initRenderedDeviceSpec)
+}
+
 func (s *manager) Rollback() error {
+	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
+
 	// set the desired spec as failed
-	s.queue.SetVersionFailed(s.desiredRenderedVersion)
+	s.queue.SetVersionFailed(desiredRenderedVersion)
 
 	// copy the current rendered spec to the desired rendered spec
 	// this will reconcile the device with the desired "rollback" state
-	err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath)
-	if err != nil {
+	if err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath); err != nil {
 		return fmt.Errorf("%w: copy %q to %q", errors.ErrCopySpec, s.currentPath, s.desiredPath)
 	}
 
-	// update cached rendered versions
+	// update cache
 	desired, err := s.Read(Desired)
 	if err != nil {
 		return err
 	}
-
-	// update cached rendered versions
-	s.desiredRenderedVersion = desired.RenderedVersion
+	s.cache.update(Desired, desired)
 	return nil
 }
 
@@ -261,31 +264,17 @@ func (s *manager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
 		return nil, fmt.Errorf("reading %s: %w", specType, err)
 	}
 
-	// since we already have the version in memory update cached version.
-	switch specType {
-	case Current:
-		s.currentRenderedVersion = spec.RenderedVersion
-	case Desired:
-		s.desiredRenderedVersion = spec.RenderedVersion
-	case Rollback:
-		s.rollbackRenderedVersion = spec.RenderedVersion
-	}
+	s.cache.update(specType, spec)
 
 	return spec, nil
 }
 
 func (s *manager) RenderedVersion(specType Type) string {
-	switch specType {
-	case Current:
-		return s.currentRenderedVersion
-	case Desired:
-		return s.desiredRenderedVersion
-	case Rollback:
-		return s.rollbackRenderedVersion
-	default:
-		s.log.Errorf("Unknown spec type: %s", specType)
-		return ""
-	}
+	return s.cache.getRenderedVersion(specType)
+}
+
+func (s *manager) OSVersion(specType Type) string {
+	return s.cache.getOSVersion(specType)
 }
 
 func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
@@ -342,7 +331,7 @@ func (s *manager) getSpecFromQueue() (*v1alpha1.RenderedDeviceSpec, bool,
 
 	// if this is a new version ensure we persist it to disk
 	desired := item.Spec
-	if desired.RenderedVersion != s.desiredRenderedVersion {
+	if desired.RenderedVersion != s.cache.getRenderedVersion(Desired) {
 		s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.RenderedVersion)
 		if err := s.write(Desired, desired); err != nil {
 			return nil, false, err
@@ -356,25 +345,8 @@ func (s *manager) SetClient(client client.Management) {
 	s.managementClient = client
 }
 
-func (s *manager) IsOSUpdate() (bool, error) {
-	current, err := s.Read(Current)
-	if err != nil {
-		return false, err
-	}
-	desired, err := s.Read(Desired)
-	if err != nil {
-		return false, err
-	}
-
-	currentImage := ""
-	if current.Os != nil {
-		currentImage = current.Os.Image
-	}
-	desiredImage := ""
-	if desired.Os != nil {
-		desiredImage = desired.Os.Image
-	}
-	return currentImage != desiredImage, nil
+func (s *manager) IsOSUpdate() bool {
+	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
 }
 
 func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
@@ -397,7 +369,7 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 }
 
 func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	status.Config.RenderedVersion = s.currentRenderedVersion
+	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
 	return nil
 }
 
@@ -412,15 +384,7 @@ func (s *manager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error 
 		return fmt.Errorf("writing %s: %w", specType, err)
 	}
 
-	// since we already have the version in memory update cached version.
-	switch specType {
-	case Current:
-		s.currentRenderedVersion = spec.RenderedVersion
-	case Desired:
-		s.desiredRenderedVersion = spec.RenderedVersion
-	case Rollback:
-		s.rollbackRenderedVersion = spec.RenderedVersion
-	}
+	s.cache.update(specType, spec)
 
 	return nil
 }
@@ -441,10 +405,11 @@ func (s *manager) exists(specType Type) (bool, error) {
 // desired rendered version is marked as failed it will return the next version
 // to make progress.
 func (s *manager) getRenderedVersion() string {
-	if s.queue.IsVersionFailed(s.desiredRenderedVersion) {
-		return s.desiredRenderedVersion
+	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
+	if s.queue.IsVersionFailed(desiredRenderedVersion) {
+		return desiredRenderedVersion
 	}
-	return s.currentRenderedVersion
+	return s.cache.getRenderedVersion(Current)
 }
 
 func (s *manager) pathFromType(specType Type) (string, error) {

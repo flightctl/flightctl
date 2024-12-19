@@ -10,7 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
-const defaultPodmanTimeout = time.Minute
+const defaultPodmanTimeout = 2 * time.Minute
 
 type Compose struct {
 	*Podman

@@ -3738,6 +3738,7 @@ components:
         - updated
         - summary
         - lastSeen
+        - lifecycle
       properties:
         conditions:
           type: array
@@ -3769,6 +3770,8 @@ components:
           type: string
           description: The last time the device was seen by the service.
           format: date-time
+        lifecycle:
+          $ref: '#/components/schemas/DeviceLifecycleStatus'
     DeviceSystemInfo:
       required:
         - architecture
@@ -3920,6 +3923,30 @@ components:
         - "DeviceUpdatedStatusOutOfDate"
         - "DeviceUpdatedStatusUpdating"
         - "DeviceUpdatedStatusUnknown"
+    DeviceLifecycleStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceLifecycleStatusType"
+        info:
+          type: string
+          description: Human readable information about the device lifecycle status.
+      description: Current status of the device lifecycle.
+    DeviceLifecycleStatusType:
+      type: string
+      enum:
+        - "Unknown"
+        - "Enrolled"
+        - "Decommissioning"
+        - "Decommissioned"
+      x-enum-varnames:
+        - "DeviceLifecycleStatusUnknown"
+        - "DeviceLifecycleStatusEnrolled"
+        - "DeviceLifecycleStatusDecommissioning"
+        - "DeviceLifecycleStatusDecommissioned"
+      description: Status type of the device lifecycle.
     DeviceIntegrityStatus:
       type: object
       description: Status of device integrity.

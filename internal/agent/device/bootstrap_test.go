@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -11,178 +12,321 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestInitialization(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	tmpDir := t.TempDir()
+	config := config.NewDefault()
+	config.Service.CertStore = tmpDir
 
-	mockStatusManager := status.NewMockManager(ctrl)
-	mockSpecManager := spec.NewMockManager(ctrl)
-	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockHookManager := hook.NewMockManager(ctrl)
+	testCases := []struct {
+		name       string
+		setupMocks func(
+			mockStatusManager *status.MockManager,
+			mockSpecManager *spec.MockManager,
+			mockReadWriter *fileio.MockReadWriter,
+			mockHookManager *hook.MockManager,
+			mockEnrollmentClient *client.MockEnrollment,
+			mockSystemClient *client.MockSystem,
+		)
+		expectedError error
+	}{
+		{
+			name: "initialization enrolled no OS upgrade",
+			setupMocks: func(
+				mockStatusManager *status.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockReadWriter *fileio.MockReadWriter,
+				mockHookManager *hook.MockManager,
+				_ *client.MockEnrollment,
+				mockSystemClient *client.MockSystem,
 
-	b := &Bootstrap{
-		statusManager:           mockStatusManager,
-		specManager:             mockSpecManager,
-		hookManager:             mockHookManager,
-		deviceReadWriter:        mockReadWriter,
-		managementServiceConfig: &client.Config{},
-		log:                     log.NewPrefixLogger("test"),
+			) {
+				gomock.InOrder(
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockSpecManager.EXPECT().Ensure().Return(nil),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockStatusManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
+					mockSystemClient.EXPECT().IsRebooted().Return(false),
+					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
+		},
+		{
+			name: "initialization enrolled with OS upgrade",
+			setupMocks: func(
+				mockStatusManager *status.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockReadWriter *fileio.MockReadWriter,
+				mockHookManager *hook.MockManager,
+				_ *client.MockEnrollment,
+				mockSystemClient *client.MockSystem,
+			) {
+				bootedOSVersion := "2.0.0"
+				gomock.InOrder(
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockSpecManager.EXPECT().Ensure().Return(nil),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockStatusManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().IsOSUpdate().Return(true),
+					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOSVersion, true, nil),
+					mockSystemClient.EXPECT().IsRebooted().Return(false),
+					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(true),
+					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
+		},
+		{
+			name: "initialization not enrolled",
+			setupMocks: func(
+				mockStatusManager *status.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockReadWriter *fileio.MockReadWriter,
+				mockHookManager *hook.MockManager,
+				mockEnrollmentClient *client.MockEnrollment,
+				mockSystemClient *client.MockSystem,
+			) {
+				mockEnrollmentRequest := mockEnrollmentRequest(v1alpha1.ConditionStatusTrue)
+				gomock.InOrder(
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, nil).Times(1),
+					mockSpecManager.EXPECT().Initialize().Return(nil),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, nil).Times(1),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(nil),
+					mockEnrollmentClient.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockEnrollmentClient.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(mockEnrollmentRequest, nil),
+					mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockStatusManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
+					mockSystemClient.EXPECT().IsRebooted().Return(false),
+					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
+		},
 	}
+	for _, tt := range testCases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	ctx := context.TODO()
+			mockStatusManager := status.NewMockManager(ctrl)
+			mockSpecManager := spec.NewMockManager(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockHookManager := hook.NewMockManager(ctrl)
+			mockEnrollmentClient := client.NewMockEnrollment(ctrl)
+			mockSystemClient := client.NewMockSystem(ctrl)
 
-	t.Run("initialization", func(t *testing.T) {
-		mockSpecManager.EXPECT().Ensure().Return(nil)
-		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(3)
-		mockSpecManager.EXPECT().SetClient(gomock.Any())
-		mockStatusManager.EXPECT().SetClient(gomock.Any())
-		mockSpecManager.EXPECT().Read(spec.Desired).Return(&v1alpha1.RenderedDeviceSpec{}, nil)
-		currentDeviceSpec := &v1alpha1.RenderedDeviceSpec{}
-		mockSpecManager.EXPECT().Read(spec.Current).Return(currentDeviceSpec, nil)
-		mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
-		mockSpecManager.EXPECT().RenderedVersion(gomock.Any()).Return("1")
-		mockSpecManager.EXPECT().IsUpgrading().Return(false)
-		mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil)
-		require.NoError(b.Initialize(ctx))
-	})
+			backoff := wait.Backoff{
+				Steps: 1,
+			}
+
+			b := &Bootstrap{
+				statusManager:           mockStatusManager,
+				specManager:             mockSpecManager,
+				hookManager:             mockHookManager,
+				deviceReadWriter:        mockReadWriter,
+				managementServiceConfig: &client.Config{},
+				enrollmentClient:        mockEnrollmentClient,
+				systemClient:            mockSystemClient,
+				log:                     log.NewPrefixLogger("test"),
+				backoff:                 backoff,
+			}
+
+			ctx := context.TODO()
+
+			tt.setupMocks(
+				mockStatusManager,
+				mockSpecManager,
+				mockReadWriter,
+				mockHookManager,
+				mockEnrollmentClient,
+				mockSystemClient,
+			)
+
+			err := b.Initialize(ctx)
+			if tt.expectedError != nil {
+				require.ErrorIs(err, tt.expectedError)
+				return
+			}
+			require.NoError(err)
+		})
+	}
 }
 
 func TestBootstrapCheckRollback(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStatusManager := status.NewMockManager(ctrl)
-	mockSpecManager := spec.NewMockManager(ctrl)
-
-	b := &Bootstrap{
-		statusManager: mockStatusManager,
-		specManager:   mockSpecManager,
-		log:           log.NewPrefixLogger("test"),
-	}
-
-	ctx := context.TODO()
+	mockErr := errors.New("mock error")
 	bootedOS := "1.0.0"
 	desiredOS := "2.0.0"
 
-	t.Run("happy path", func(t *testing.T) {
-		err := b.checkRollback(ctx, desiredOS, desiredOS)
-		require.NoError(err)
-	})
+	testCases := []struct {
+		name          string
+		setupMocks    func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager)
+		expectedError error
+	}{
+		{
+			name: "happy path",
+			setupMocks: func(_ *status.MockManager, mockSpecManager *spec.MockManager) {
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOS, true, nil)
+			},
+		},
+		{
+			name: "successfully handles no rollback",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOS, false, nil),
+					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(false, nil),
+				)
+			},
+		},
+		{
+			name: "successfully handles rollback",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOS, false, nil),
+					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil),
+					mockSpecManager.EXPECT().Rollback().Return(nil),
+					mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2"),
+					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
+		},
+		{
+			name: "error checking rollback status",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOS, false, nil),
+					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(false, mockErr),
+				)
+			},
+			expectedError: mockErr,
+		},
+		{
+			name: "error during rollback",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOS, false, nil),
+					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil),
+					mockSpecManager.EXPECT().Rollback().Return(mockErr),
+				)
+			},
+			expectedError: mockErr,
+		},
+		{
+			name: "error updating status",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOS, false, nil),
+					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, mockErr),
+					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(false, nil),
+				)
+			},
+		},
+	}
+	for _, tt := range testCases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	t.Run("successfully handles no rollback", func(t *testing.T) {
-		isRollingBack := false
+			mockStatusManager := status.NewMockManager(ctrl)
+			mockSpecManager := spec.NewMockManager(ctrl)
 
-		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
-		mockSpecManager.EXPECT().IsRollingBack(ctx).Return(isRollingBack, nil)
+			b := &Bootstrap{
+				statusManager: mockStatusManager,
+				specManager:   mockSpecManager,
+				log:           log.NewPrefixLogger("test"),
+			}
 
-		err := b.checkRollback(ctx, bootedOS, desiredOS)
-		require.NoError(err)
-	})
+			ctx := context.TODO()
+			tt.setupMocks(mockStatusManager, mockSpecManager)
 
-	t.Run("successfully handles rollback", func(t *testing.T) {
-		isRollingBack := true
-
-		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
-		mockSpecManager.EXPECT().IsRollingBack(ctx).Return(isRollingBack, nil)
-		mockSpecManager.EXPECT().Rollback().Return(nil)
-
-		err := b.checkRollback(ctx, bootedOS, desiredOS)
-		require.NoError(err)
-	})
-
-	t.Run("error checking rollback status", func(t *testing.T) {
-		isRollingBack := false
-
-		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
-		mockSpecManager.EXPECT().IsRollingBack(ctx).Return(isRollingBack, errors.New("rollback check failed"))
-
-		err := b.checkRollback(ctx, bootedOS, desiredOS)
-		require.Error(err)
-	})
-
-	t.Run("error during rollback", func(t *testing.T) {
-		isRollingBack := true
-
-		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
-		mockSpecManager.EXPECT().IsRollingBack(ctx).Return(isRollingBack, nil)
-		mockSpecManager.EXPECT().Rollback().Return(errors.New("rollback failed"))
-
-		err := b.checkRollback(ctx, bootedOS, desiredOS)
-		require.Error(err)
-	})
-
-	t.Run("error updating status", func(t *testing.T) {
-		isRollingBack := false
-
-		mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, errors.New("update failed"))
-		mockSpecManager.EXPECT().IsRollingBack(ctx).Return(isRollingBack, nil)
-
-		err := b.checkRollback(ctx, bootedOS, desiredOS)
-		require.NoError(err)
-	})
+			err := b.checkRollback(ctx)
+			if tt.expectedError != nil {
+				require.ErrorIs(err, tt.expectedError)
+				return
+			}
+			require.NoError(err)
+		})
+	}
 }
 
 func TestEnsureBootedOS(t *testing.T) {
 	require := require.New(t)
-	desiredSpec := newTestDesiredSpec("desired-image", "1")
 	specErr := errors.New("problem with spec")
 
 	testCases := []struct {
 		name          string
 		setupMocks    func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager)
-		desired       *v1alpha1.RenderedDeviceSpec
 		expectedError error
 	}{
 		{
-			name: "no desired OS image specified",
+			name: "happy path - no OS update in progress",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
 			},
-			desired:       &v1alpha1.RenderedDeviceSpec{},
-			expectedError: nil,
-		},
-		{
-			name: "no OS update in progress",
-			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(false, nil)
-			},
-			desired:       desiredSpec,
 			expectedError: nil,
 		},
 		{
 			name: "OS image reconciliation failure",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true, nil)
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", false, specErr)
 			},
-			desired:       desiredSpec,
 			expectedError: specErr,
 		},
 		{
-			name: "OS image not reconciled - triggers rollback",
+			name: "OS image not reconciled triggers rollback",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true, nil)
+				mockSpecManager.EXPECT().OSVersion(gomock.Any()).Return("desired-image")
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("unexpected-booted-image", false, nil)
 				mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil)
 				mockSpecManager.EXPECT().Rollback().Return(nil)
 				mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
+				mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2")
+				mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil)
 			},
-			desired:       desiredSpec,
 			expectedError: nil,
 		},
 		{
 			name: "OS image reconciled",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true, nil)
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("desired-image", true, nil)
 			},
-			desired:       desiredSpec,
 			expectedError: nil,
 		},
 	}
@@ -208,7 +352,7 @@ func TestEnsureBootedOS(t *testing.T) {
 
 			tt.setupMocks(mockStatusManager, mockSpecManager)
 
-			err := b.ensureBootedOS(ctx, tt.desired)
+			err := b.ensureBootedOS(ctx)
 			if tt.expectedError != nil {
 				require.ErrorIs(err, tt.expectedError)
 				return
@@ -218,11 +362,36 @@ func TestEnsureBootedOS(t *testing.T) {
 	}
 }
 
-func newTestDesiredSpec(image, version string) *v1alpha1.RenderedDeviceSpec {
-	return &v1alpha1.RenderedDeviceSpec{
-		Os: &v1alpha1.DeviceOSSpec{
-			Image: image,
+func mockEnrollmentRequest(status v1alpha1.ConditionStatus) *v1alpha1.EnrollmentRequest {
+	condition := v1alpha1.Condition{
+		Type:               v1alpha1.EnrollmentRequestApproved,
+		LastTransitionTime: time.Now(),
+		Status:             status,
+		Reason:             "reason",
+		Message:            "message",
+	}
+	return &v1alpha1.EnrollmentRequest{
+		Metadata: v1alpha1.ObjectMeta{
+			Name: util.StrToPtr("mock-request"),
 		},
-		RenderedVersion: version,
+		Spec: v1alpha1.EnrollmentRequestSpec{
+			Csr: "different csr string",
+		},
+		Status: &v1alpha1.EnrollmentRequestStatus{
+			Conditions:  []v1alpha1.Condition{condition},
+			Certificate: util.StrToPtr(mockManagementCert),
+		},
 	}
 }
+
+var mockManagementCert = `-----BEGIN CERTIFICATE-----
+MIIBjDCCATGgAwIBAgIINoR3ImoPCTEwCgYIKoZIzj0EAwIwDTELMAkGA1UEAxMC
+Y2EwHhcNMjQwMjI3MjEwODUxWhcNMzQwMjI0MjEwODUyWjANMQswCQYDVQQDEwJj
+YTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABFv6UUQcSOlh5KeccQZrgRNG9na3
+kLnS+ujwMQyFqqpMVez+oiED+601q572Cs/SCqsdoszGhw5+kj3OchYkREGjezB5
+MA4GA1UdDwEB/wQEAwICpDAPBgNVHRMBAf8EBTADAQH/MCkGA1UdDgQiBCBjMAN8
+gDGCoybdkHp5RcjIxHlF/AJ6j1f8OjLrU8r4ZzArBgNVHSMEJDAigCBjMAN8gDGC
+oybdkHp5RcjIxHlF/AJ6j1f8OjLrU8r4ZzAKBggqhkjOPQQDAgNJADBGAiEA/h5w
+CHzlbDp2BUZwuOuYowGj4Npzvaw56bZy/6gcorYCIQC3gp8uwlVHK10n+q7NcrqD
+Ip8s5o3V6ts3shDNpknA/Q==
+-----END CERTIFICATE-----`
