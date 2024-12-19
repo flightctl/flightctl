@@ -69,6 +69,12 @@ func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
 	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
 }
 
+const (
+	maxUrlLength   = 2000             // Limit the length of URLs
+	maxNumHeaders  = 10               // Limit the number of headers in a request
+	maxRequestSize = 50 * 1024 * 1024 // Limit the size of each request
+)
+
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
 	publisher, err := tasks.TaskQueuePublisher(s.provider)
@@ -100,10 +106,29 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 
+	requestSizeLimiter := func() func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if len(r.URL.String()) > maxUrlLength {
+					http.Error(w, fmt.Sprintf("URL too long, exceeds %d characters", maxUrlLength), http.StatusRequestURITooLong)
+					return
+				}
+				if len(r.Header) > maxNumHeaders {
+					http.Error(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestEntityTooLarge)
+					return
+				}
+
+				next.ServeHTTP(w, r)
+			})
+		}
+	}
+
 	// general middleware stack for all route groups
 	router.Use(
 		middleware.RequestID,
 		middleware.Logger,
+		middleware.RequestSize(maxRequestSize), // Limit request body size to 1MB
+		requestSizeLimiter(),
 		middleware.Recoverer,
 		authMiddleware,
 	)
