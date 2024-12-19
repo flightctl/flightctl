@@ -20,7 +20,7 @@ const (
 
 	// defaultMaxRetries is the default number of retries for a spec item set to 0 for infinite retries.
 	defaultSpecRequeueMaxRetries = 0
-	defaultSpecQueueSize         = 1
+	defaultSpecQueueMaxSize      = 1
 	defaultSpecRequeueThreshold  = 1
 	// defaultSpecRequeueDelay is the default delay between requeue attempts.
 	defaultSpecRequeueDelay = 5 * time.Minute

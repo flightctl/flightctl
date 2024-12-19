@@ -49,6 +49,14 @@ func NewManager(
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) Manager {
+	queue := newPriorityQueue(
+		defaultSpecQueueMaxSize,
+		defaultSpecRequeueMaxRetries,
+		defaultSpecRequeueThreshold,
+		defaultSpecRequeueDelay,
+		policyManager,
+		log,
+	)
 	return &manager{
 		deviceName:       deviceName,
 		currentPath:      filepath.Join(dataDir, string(Current)+".json"),
@@ -58,7 +66,7 @@ func NewManager(
 		bootcClient:      bootcClient,
 		backoff:          backoff,
 		cache:            newCache(log),
-		queue:            newPriorityQueue(log, policyManager),
+		queue:            queue,
 		log:              log,
 	}
 }
