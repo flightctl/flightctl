@@ -392,7 +392,7 @@ func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.
 
 func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 	if o.Output == wideFormat {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
+		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLIFECYCLE\tLABELS")
 	} else {
 		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	}
@@ -415,6 +415,7 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 			lastSeen,
 		)
 		if o.Output == wideFormat {
+			fmt.Fprintf(w, "\t%s", d.Status.Lifecycle.Status)
 			fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
 		} else {
 			fmt.Fprintln(w)
