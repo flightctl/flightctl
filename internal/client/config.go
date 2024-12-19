@@ -197,40 +197,61 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	if len(tlsServerName) == 0 {
 		u, err := url.Parse(config.Service.Server)
 		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing server url: %w", err)
 		}
 		tlsServerName = u.Hostname()
 	}
 
+	tlsConfig, err := CreateTLSConfigFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: creating TLS config: %w", err)
+	}
+	tlsConfig.ServerName = tlsServerName
+
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+	return httpClient, nil
+}
+
+func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
 	tlsConfig := tls.Config{
-		ServerName:         tlsServerName,
 		MinVersion:         tls.VersionTLS13,
 		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
 	}
 
+	if err := addServiceCAToTLSConfig(&tlsConfig, config); err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+	}
+
+	if err := addClientCertToTLSConfig(&tlsConfig, config); err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
+	}
+	return &tlsConfig, nil
+}
+
+func addServiceCAToTLSConfig(tlsConfig *tls.Config, config *Config) error {
 	if len(config.Service.CertificateAuthorityData) > 0 {
 		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
 		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+			return err
 		}
-
 		tlsConfig.RootCAs = caPool
 	}
+	return nil
+}
 
+func addClientCertToTLSConfig(tlsConfig *tls.Config, config *Config) error {
 	if len(config.AuthInfo.ClientCertificateData) > 0 {
 		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
 		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
+			return err
 		}
 		tlsConfig.Certificates = []tls.Certificate{clientCert}
 	}
-
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tlsConfig,
-		},
-	}
-	return httpClient, nil
+	return nil
 }
 
 // NewGRPCClientFromConfig returns a new gRPC Client from the given config.
