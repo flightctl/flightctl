@@ -66,6 +66,7 @@ type authConfig struct {
 	InternalOIDCAuthority   string `json:"internalOidcAuthority,omitempty"`
 	CACert                  string `json:"caCert,omitempty"`
 	InsecureSkipTlsVerify   bool   `json:"insecureSkipTlsVerify,omitempty"`
+	K8sRBACNs               string `json:"k8sRbacNs,omitempty"`
 }
 
 type prometheusConfig struct {
