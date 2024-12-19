@@ -9,3 +9,11 @@ To query that configuration, use the following command.
 ```console
 flightctl get device/${device_name} --rendered | jq
 ```
+
+## Generate Device Log Bundle
+
+The device includes a script which will generate a bundle of logs necessary to debug the agent. Run the command below on the device and include the tarball in the bug report. Note: This depends on an SSH connection to extract the tarball.
+
+```console
+sudo flightctl-must-gather
+```
