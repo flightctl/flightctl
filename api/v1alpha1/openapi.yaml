@@ -3085,17 +3085,23 @@ paths:
                 $ref: '#/components/schemas/Error'
 components:
   schemas:
+    DeviceDecommissionTargetType:
+      type: string
+      enum:
+        - "Unenroll"
+        - "FactoryReset"
+      x-enum-varnames:
+        - "DeviceDecommissionTargetTypeUnenroll"
+        - "DeviceDecommissionTargetTypeFactoryReset"
+      description: Specifies the desired decommissioning method of the device.
     DeviceDecommission:
       type: object
       properties:
-        decommissionTarget:
-          type: string
-          enum:
-            - 'Unenroll'
-            - 'FactoryReset'
-          description: Specifies the desired decommissioning method of the device.
+        target:
+          $ref: '#/components/schemas/DeviceDecommissionTargetType'
       required:
-        - decommissionTarget
+        - target
+      description: Metadata about a device decommissioning request.
     PatchRequest:
       type: array
       items:

@@ -55,10 +55,10 @@ const (
 	ResourceSyncSynced                ConditionType = "Synced"
 )
 
-// Defines values for DeviceDecommissionDecommissionTarget.
+// Defines values for DeviceDecommissionTargetType.
 const (
-	FactoryReset DeviceDecommissionDecommissionTarget = "FactoryReset"
-	Unenroll     DeviceDecommissionDecommissionTarget = "Unenroll"
+	DeviceDecommissionTargetTypeFactoryReset DeviceDecommissionTargetType = "FactoryReset"
+	DeviceDecommissionTargetTypeUnenroll     DeviceDecommissionTargetType = "Unenroll"
 )
 
 // Defines values for DeviceIntegrityStatusSummaryType.
@@ -386,14 +386,14 @@ type DeviceConsole struct {
 	SessionID string `json:"sessionID"`
 }
 
-// DeviceDecommission defines model for DeviceDecommission.
+// DeviceDecommission Metadata about a device decommissioning request.
 type DeviceDecommission struct {
-	// DecommissionTarget Specifies the desired decommissioning method of the device.
-	DecommissionTarget DeviceDecommissionDecommissionTarget `json:"decommissionTarget"`
+	// Target Specifies the desired decommissioning method of the device.
+	Target DeviceDecommissionTargetType `json:"target"`
 }
 
-// DeviceDecommissionDecommissionTarget Specifies the desired decommissioning method of the device.
-type DeviceDecommissionDecommissionTarget string
+// DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
+type DeviceDecommissionTargetType string
 
 // DeviceIntegrityStatus Status of device integrity.
 type DeviceIntegrityStatus struct {
@@ -1104,7 +1104,9 @@ type RenderedDeviceSpec struct {
 	Config *string `json:"config,omitempty"`
 
 	// Console DeviceConsole represents the console connection information.
-	Console      *DeviceConsole      `json:"console,omitempty"`
+	Console *DeviceConsole `json:"console,omitempty"`
+
+	// Decommission Metadata about a device decommissioning request.
 	Decommission *DeviceDecommission `json:"decommission,omitempty"`
 
 	// Os DeviceOSSpec describes the target OS for the device.
