@@ -4513,7 +4513,7 @@ type CreateCertificateSigningRequestResponse struct {
 	JSON200      *CertificateSigningRequest
 	JSON201      *CertificateSigningRequest
 	JSON202      *CertificateSigningRequest
-	JSON208      *EnrollmentRequest
+	JSON208      *Error
 	JSON400      *Error
 	JSON401      *Error
 	JSON403      *Error
@@ -6913,7 +6913,7 @@ func ParseCreateCertificateSigningRequestResponse(rsp *http.Response) (*CreateCe
 		response.JSON202 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 208:
-		var dest EnrollmentRequest
+		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

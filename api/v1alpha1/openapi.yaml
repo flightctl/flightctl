@@ -2022,7 +2022,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/Error'
         "400":
           description: Bad Request
           content:
