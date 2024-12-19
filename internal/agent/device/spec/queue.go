@@ -13,22 +13,33 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
+// requeueState represents the state of a queued template version.
 type requeueState struct {
-	count             int
-	nextAvailable     time.Time
-	tries             int
-	downloadSatisfied bool
-	updateSatisfied   bool
+	count         int
+	nextAvailable time.Time
+	tries         int
+	// downloadPolicySatisfied indicates if the download policy is satisfied.
+	// this state only needs to be met once.
+	downloadPolicySatisfied bool
+	// updatePolicySatisfied indicates if the update policy is satisfied. this
+	// state only needs to be met once.
+	updatePolicySatisfied bool
 }
 
 type queueManager struct {
-	queue                 *queue
-	policyManager         policy.Manager
-	failedVersions        map[int64]struct{}
-	requeueStatus         map[int64]*requeueState
-	maxRetries            int
+	queue          *queue
+	policyManager  policy.Manager
+	failedVersions map[int64]struct{}
+	requeueLookup  map[int64]*requeueState
+	// maxRetries is the number of times a template version can be requeued before being removed.
+	// A value of 0 means infinite retries.
+	maxRetries int
+	// requeueDelayThreshold is the number of times a template version can be requeued before enforcing a delay.
+	// A value of 0 means this is disabled.
 	requeueDelayThreshold int
-	requeueDelayDuration  time.Duration
+	// requeueDelayDuration is the duration to wait before the item is
+	// available to be retrieved form the queue.
+	requeueDelayDuration time.Duration
 
 	log *log.PrefixLogger
 }
@@ -38,7 +49,7 @@ func newPriorityQueue(log *log.PrefixLogger, policyManager policy.Manager) Prior
 		queue:                 newQueue(log, defaultSpecQueueSize),
 		policyManager:         policyManager,
 		failedVersions:        make(map[int64]struct{}),
-		requeueStatus:         make(map[int64]*requeueState),
+		requeueLookup:         make(map[int64]*requeueState),
 		maxRetries:            defaultSpecRequeueMaxRetries,
 		requeueDelayThreshold: defaultSpecRequeueThreshold,
 		requeueDelayDuration:  defaultSpecRequeueDelay,
@@ -60,11 +71,12 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 
 	m.pruneRequeueStatus()
 
-	if requeue, exists := m.requeueStatus[version]; exists {
+	if requeue, exists := m.requeueLookup[version]; exists {
 		if m.updatePolicy(ctx, requeue) {
 			m.log.Debugf("Template version policy updated: %d", version)
 		}
 
+		// if the queue is empty and a requeue threshold is set, enforce requeue delay
 		if m.requeueDelayThreshold > 0 && m.queue.IsEmpty() && requeue.tries > 0 {
 			requeue.count++
 			if requeue.count >= m.requeueDelayThreshold && requeue.nextAvailable.IsZero() {
@@ -77,12 +89,13 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 			return
 		}
 	} else {
+		// initialize requeue state
 		m.log.Debugf("Adding template version to the queue: %d", version)
 		requeue := &requeueState{}
 		if m.updatePolicy(ctx, requeue) {
 			m.log.Debugf("Template version policy updated: %d", version)
 		}
-		m.requeueStatus[version] = requeue
+		m.requeueLookup[version] = requeue
 	}
 
 	m.queue.Add(item)
@@ -90,17 +103,17 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 
 func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
 	changed := false
-	if !requeue.downloadSatisfied {
+	if !requeue.downloadPolicySatisfied {
 		if m.policyManager.IsReady(ctx, policy.Download) {
 			changed = true
-			requeue.downloadSatisfied = true
+			requeue.downloadPolicySatisfied = true
 		}
 	}
 
-	if !requeue.updateSatisfied {
+	if !requeue.updatePolicySatisfied {
 		if m.policyManager.IsReady(ctx, policy.Update) {
 			changed = true
-			requeue.updateSatisfied = true
+			requeue.updatePolicySatisfied = true
 		}
 	}
 	return changed
@@ -120,7 +133,7 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 	}
 
 	now := time.Now()
-	requeue, exists := m.requeueStatus[item.Version]
+	requeue, exists := m.requeueLookup[item.Version]
 	if exists && now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
 		m.log.Debugf("Template version %d is not yet ready. Will retry at: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
@@ -150,26 +163,26 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 }
 
 func (m *queueManager) isUpdatePolicyReady(requeue *requeueState) bool {
-	return requeue.downloadSatisfied || requeue.updateSatisfied
+	return requeue.downloadPolicySatisfied || requeue.updatePolicySatisfied
 }
 
 func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
 	v := stringToInt64(version)
-	requeue, exists := m.requeueStatus[v]
+	requeue, exists := m.requeueLookup[v]
 	if !exists {
 		// this would be very unexpected so we would need to requeue the version
-		return fmt.Errorf("%w: version %d", errors.ErrRetryable, v)
+		return fmt.Errorf("%w: %d", errors.ErrRetryable, v)
 	}
 	m.log.Debugf("Requeue state: %+v", requeue)
 
 	switch policyType {
 	case policy.Download:
-		if requeue.downloadSatisfied {
+		if requeue.downloadPolicySatisfied {
 			return nil
 		}
 		return errors.ErrDownloadPolicyNotReady
 	case policy.Update:
-		if requeue.updateSatisfied {
+		if requeue.updatePolicySatisfied {
 			return nil
 		}
 		return errors.ErrUpdatePolicyNotReady
@@ -181,7 +194,7 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 func (m *queueManager) SetFailed(version string) {
 	v := stringToInt64(version)
 	m.failedVersions[v] = struct{}{}
-	delete(m.requeueStatus, v)
+	delete(m.requeueLookup, v)
 	m.queue.Remove(v)
 }
 
@@ -196,18 +209,18 @@ func (m *queueManager) pruneRequeueStatus() {
 		return
 	}
 
-	if len(m.requeueStatus) > maxRequeueSize {
+	if len(m.requeueLookup) > maxRequeueSize {
 		var minVersion int64
 		var initialized bool
 
-		for version := range m.requeueStatus {
+		for version := range m.requeueLookup {
 			if !initialized || version < minVersion {
 				minVersion = version
 				initialized = true
 			}
 		}
 		if initialized {
-			delete(m.requeueStatus, minVersion)
+			delete(m.requeueLookup, minVersion)
 			m.log.Debugf("Evicted lowest template version: %d", minVersion)
 		}
 	}
