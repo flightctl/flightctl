@@ -193,6 +193,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		Systemd:      templateVersion.Status.Systemd,
 		Resources:    templateVersion.Status.Resources,
 		Applications: deviceApps,
+		UpdatePolicy: templateVersion.Status.UpdatePolicy,
 	}
 
 	errs = newDeviceSpec.Validate(false)
