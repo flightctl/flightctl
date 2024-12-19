@@ -30,6 +30,9 @@ Flightctl Agent is a component of the flightctl tool.
 %prep
 %setup -q -n flightctl-0.0.1
 
+%define source_git_tag $(git describe --tags --exclude latest)
+%define source_git_commit $(git rev-parse --short "HEAD^{commit}" 2>/dev/null)
+
 %build
 
 # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -38,7 +41,7 @@ GOENVFILE=$(go env GOROOT)/go.env
 if [[ ! -f "{$GOENVFILE}" ]]; then
     export GOPROXY='https://proxy.golang.org,direct'
 fi
-make build
+SOURCE_GIT_TAG=%{source_git_tag} SOURCE_GIT_COMMIT=%{source_git_commit} make build
 
 %install
 mkdir -p %{buildroot}/usr/bin
