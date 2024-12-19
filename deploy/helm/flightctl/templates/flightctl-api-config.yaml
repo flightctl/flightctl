@@ -53,6 +53,7 @@ data:
         openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
         internalOpenShiftApiUrl: {{ .Values.global.auth.internalOpenShiftApiUrl }}
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
+        k8sRbacNs: {{ default .Release.Namespace .Values.global.auth.k8sRbacNs }}
     {{- else }}
     auth:
         {{- if .Values.global.auth.oidcAuthority }}

@@ -94,7 +94,7 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 			}
 			apiUrl := strings.TrimSuffix(cfg.Auth.OpenShiftApiUrl, "/")
 			log.Println(fmt.Sprintf("OpenShift auth enabled: %s", apiUrl))
-			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: apiUrl, ClientTlsConfig: tlsConfig}}
+			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: apiUrl, ClientTlsConfig: tlsConfig, Namespace: cfg.Auth.K8sRBACNs}}
 			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: apiUrl, InternalOpenShiftApiUrl: cfg.Auth.InternalOpenShiftApiUrl, ClientTlsConfig: tlsConfig}
 		} else if cfg.Auth.OIDCAuthority != "" {
 			oidcUrl := strings.TrimSuffix(cfg.Auth.OIDCAuthority, "/")

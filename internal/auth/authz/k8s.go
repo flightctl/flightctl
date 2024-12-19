@@ -14,15 +14,17 @@ import (
 type K8sAuthZ struct {
 	ApiUrl          string
 	ClientTlsConfig *tls.Config
+	Namespace       string
 }
 
-func createSSAR(resource string, verb string) ([]byte, error) {
+func createSSAR(resource string, verb string, ns string) ([]byte, error) {
 	ssar := k8sAuthorizationV1.SelfSubjectAccessReview{
 		Spec: k8sAuthorizationV1.SelfSubjectAccessReviewSpec{
 			ResourceAttributes: &k8sAuthorizationV1.ResourceAttributes{
-				Verb:     verb,
-				Group:    "flightctl.io",
-				Resource: resource,
+				Verb:      verb,
+				Group:     "flightctl.io",
+				Resource:  resource,
+				Namespace: ns,
 			},
 		},
 	}
@@ -30,7 +32,7 @@ func createSSAR(resource string, verb string) ([]byte, error) {
 }
 
 func (k8sAuth K8sAuthZ) CheckPermission(ctx context.Context, k8sToken string, resource string, op string) (bool, error) {
-	body, err := createSSAR(resource, op)
+	body, err := createSSAR(resource, op, k8sAuth.Namespace)
 	if err != nil {
 		return false, err
 	}
