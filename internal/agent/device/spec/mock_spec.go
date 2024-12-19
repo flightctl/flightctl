@@ -57,6 +57,34 @@ func (mr *MockManagerMockRecorder) CheckOsReconciliation(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckOsReconciliation", reflect.TypeOf((*MockManager)(nil).CheckOsReconciliation), ctx)
 }
 
+// ClearRollback mocks base method.
+func (m *MockManager) ClearRollback() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearRollback")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearRollback indicates an expected call of ClearRollback.
+func (mr *MockManagerMockRecorder) ClearRollback() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearRollback", reflect.TypeOf((*MockManager)(nil).ClearRollback))
+}
+
+// CreateRollback mocks base method.
+func (m *MockManager) CreateRollback(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateRollback", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateRollback indicates an expected call of CreateRollback.
+func (mr *MockManagerMockRecorder) CreateRollback(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRollback", reflect.TypeOf((*MockManager)(nil).CreateRollback), ctx)
+}
+
 // Ensure mocks base method.
 func (m *MockManager) Ensure() error {
 	m.ctrl.T.Helper()
@@ -102,12 +130,11 @@ func (mr *MockManagerMockRecorder) Initialize() *gomock.Call {
 }
 
 // IsOSUpdate mocks base method.
-func (m *MockManager) IsOSUpdate() (bool, error) {
+func (m *MockManager) IsOSUpdate() bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IsOSUpdate")
 	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	return ret0
 }
 
 // IsOSUpdate indicates an expected call of IsOSUpdate.
@@ -145,18 +172,18 @@ func (mr *MockManagerMockRecorder) IsUpgrading() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsUpgrading", reflect.TypeOf((*MockManager)(nil).IsUpgrading))
 }
 
-// PrepareRollback mocks base method.
-func (m *MockManager) PrepareRollback(ctx context.Context) error {
+// OSVersion mocks base method.
+func (m *MockManager) OSVersion(specType Type) string {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PrepareRollback", ctx)
-	ret0, _ := ret[0].(error)
+	ret := m.ctrl.Call(m, "OSVersion", specType)
+	ret0, _ := ret[0].(string)
 	return ret0
 }
 
-// PrepareRollback indicates an expected call of PrepareRollback.
-func (mr *MockManagerMockRecorder) PrepareRollback(ctx any) *gomock.Call {
+// OSVersion indicates an expected call of OSVersion.
+func (mr *MockManagerMockRecorder) OSVersion(specType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareRollback", reflect.TypeOf((*MockManager)(nil).PrepareRollback), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OSVersion", reflect.TypeOf((*MockManager)(nil).OSVersion), specType)
 }
 
 // Read mocks base method.
