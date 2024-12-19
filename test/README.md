@@ -149,6 +149,12 @@ in place, we could speed up furter by using the `run-e2e-test` target.
 make run-e2e-test GO_E2E_DIRS=test/e2e/cli
 ```
 
+You can also filter by providing the GINKGO_FOCUS environment variable, which
+will filter the tests by the provided string.
+````
+make e2e-test GINKGO_FOCUS="should create a new project"
+````
+
 #### Environment flags
 
 * `FLIGHTCTL_NS` - the namespace where the flightctl is deployed, this is
