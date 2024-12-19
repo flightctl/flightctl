@@ -79,10 +79,13 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 }
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+	status := v1alpha1.NewDeviceStatus()
+	status.Lifecycle = v1alpha1.DeviceLifecycleStatus{Status: "Enrolled"}
 	apiResource := &v1alpha1.Device{
 		Metadata: v1alpha1.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
+		Status: &status,
 	}
 	if errs := apiResource.Validate(); len(errs) > 0 {
 		return fmt.Errorf("failed validating new device: %w", errors.Join(errs...))
