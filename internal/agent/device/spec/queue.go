@@ -77,6 +77,7 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 		}
 
 		// if the queue is empty and a requeue threshold is set, enforce requeue delay
+		// TODO: requeue delay should work as a backoff with incremental delay
 		if m.requeueDelayThreshold > 0 && m.queue.IsEmpty() && requeue.tries > 0 {
 			requeue.count++
 			if requeue.count >= m.requeueDelayThreshold && requeue.nextAvailable.IsZero() {

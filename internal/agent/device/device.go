@@ -132,15 +132,46 @@ func (a *Agent) Stop(ctx context.Context) error {
 }
 
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
-	// TODO: handle ReadyToUpdate
+	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.RenderedVersion); err != nil {
+		return fmt.Errorf("download policy: %w", err)
+	}
+
+	// the agent is validating the desired device spec and downloading
+	// dependencies. no changes have been made to the device's configuration
+	// yet.
+	if a.specManager.IsUpgrading() {
+		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+			Type:    v1alpha1.DeviceUpdating,
+			Status:  v1alpha1.ConditionStatusTrue,
+			Reason:  string(v1alpha1.UpdateStatePreparing),
+			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.RenderedVersion),
+		})
+		if updateErr != nil {
+			a.log.Warnf("Failed setting status: %v", updateErr)
+		}
+	}
+
 	if err := a.beforeUpdate(ctx, current, desired); err != nil {
 		return fmt.Errorf("before update: %w", err)
 	}
 
-	// check if the policy is ready to progress
 	if err := a.specManager.CheckPolicy(ctx, policy.Update, desired.RenderedVersion); err != nil {
-		a.log.Error(err)
-		return fmt.Errorf("policy: %w", err)
+		return fmt.Errorf("update policy: %w", err)
+	}
+
+	// the agent has validated the desired spec, downloaded all dependencies,
+	// and is ready to update. No changes have been made to the device's
+	// configuration yet.
+	if a.specManager.IsUpgrading() {
+		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+			Type:    v1alpha1.DeviceUpdating,
+			Status:  v1alpha1.ConditionStatusTrue,
+			Reason:  string(v1alpha1.UpdateStateReadyToUpdate),
+			Message: fmt.Sprintf("The device is ready to apply update to renderedVersion: %s", desired.RenderedVersion),
+		})
+		if updateErr != nil {
+			a.log.Warnf("Failed setting status: %v", updateErr)
+		}
 	}
 
 	if err := a.syncDevice(ctx, current, desired); err != nil {
@@ -192,27 +223,9 @@ func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, d
 }
 
 func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	// check if the policy is ready to progress
-	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.RenderedVersion); err != nil {
-		a.log.Error(err)
-		return fmt.Errorf("policy: %w", err)
-	}
-
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
 		return err
-	}
-
-	if a.specManager.IsUpgrading() {
-		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.DeviceUpdating,
-			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  string(v1alpha1.UpdateStatePreparing),
-			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.RenderedVersion),
-		})
-		if updateErr != nil {
-			a.log.Warnf("Failed setting status: %v", updateErr)
-		}
 	}
 
 	if err := a.sync(ctx, current, desired); err != nil {
