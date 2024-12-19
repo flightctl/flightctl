@@ -15,9 +15,10 @@ import (
 
 // requeueState represents the state of a queued template version.
 type requeueState struct {
-	count         int
+	// nextAvailable is the time when the template version is available to be retrieved from the queue.
 	nextAvailable time.Time
-	tries         int
+	// tries is the number of times the template version has been requeued.
+	tries int
 	// downloadPolicySatisfied indicates if the download policy is satisfied.
 	// this state only needs to be met once.
 	downloadPolicySatisfied bool
@@ -34,26 +35,33 @@ type queueManager struct {
 	// maxRetries is the number of times a template version can be requeued before being removed.
 	// A value of 0 means infinite retries.
 	maxRetries int
-	// requeueDelayThreshold is the number of times a template version can be requeued before enforcing a delay.
+	// delayThreshold is the number of times a template version can be requeued before enforcing a delay.
 	// A value of 0 means this is disabled.
-	requeueDelayThreshold int
-	// requeueDelayDuration is the duration to wait before the item is
+	delayThreshold int
+	// delayDuration is the duration to wait before the item is
 	// available to be retrieved form the queue.
-	requeueDelayDuration time.Duration
+	delayDuration time.Duration
 
 	log *log.PrefixLogger
 }
 
-func newPriorityQueue(log *log.PrefixLogger, policyManager policy.Manager) PriorityQueue {
+func newPriorityQueue(
+	maxSize int,
+	maxRetries int,
+	delayThreshold int,
+	delayDuration time.Duration,
+	policyManager policy.Manager,
+	log *log.PrefixLogger,
+) PriorityQueue {
 	return &queueManager{
-		queue:                 newQueue(log, defaultSpecQueueSize),
-		policyManager:         policyManager,
-		failedVersions:        make(map[int64]struct{}),
-		requeueLookup:         make(map[int64]*requeueState),
-		maxRetries:            defaultSpecRequeueMaxRetries,
-		requeueDelayThreshold: defaultSpecRequeueThreshold,
-		requeueDelayDuration:  defaultSpecRequeueDelay,
-		log:                   log,
+		queue:          newQueue(log, maxSize),
+		policyManager:  policyManager,
+		failedVersions: make(map[int64]struct{}),
+		requeueLookup:  make(map[int64]*requeueState),
+		maxRetries:     maxRetries,
+		delayThreshold: delayThreshold,
+		delayDuration:  delayDuration,
+		log:            log,
 	}
 }
 
@@ -61,9 +69,9 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 	if ctx.Err() != nil {
 		return
 	}
+
 	item := newItem(spec)
 	version := item.Version
-
 	if _, failed := m.failedVersions[version]; failed {
 		m.log.Debugf("Skipping adding failed template version: %d", version)
 		return
@@ -71,53 +79,17 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 
 	m.pruneRequeueStatus()
 
-	if requeue, exists := m.requeueLookup[version]; exists {
-		if m.updatePolicy(ctx, requeue) {
-			m.log.Debugf("Template version policy updated: %d", version)
-		}
+	state := m.getOrCreateRequeueState(ctx, version)
+	if m.shouldEnforceDelay(state) {
+		m.log.Debugf("Enforcing delay for version: %d", version)
+	}
 
-		// if the queue is empty and a requeue threshold is set, enforce requeue delay
-		// TODO: requeue delay should work as a backoff with incremental delay
-		if m.requeueDelayThreshold > 0 && m.queue.IsEmpty() && requeue.tries > 0 {
-			requeue.count++
-			if requeue.count >= m.requeueDelayThreshold && requeue.nextAvailable.IsZero() {
-				requeue.nextAvailable = time.Now().Add(m.requeueDelayDuration)
-				m.log.Debugf("Requeue delay threshold exceeded for version %d. Next available in %s", version, m.requeueDelayDuration.String())
-			}
-		} else if m.maxRetries > 0 && requeue.tries >= m.maxRetries {
-			m.log.Debugf("Max retries exceeded for version %d", version)
-			m.SetFailed(spec.RenderedVersion)
-			return
-		}
-	} else {
-		// initialize requeue state
-		m.log.Debugf("Adding template version to the queue: %d", version)
-		requeue := &requeueState{}
-		if m.updatePolicy(ctx, requeue) {
-			m.log.Debugf("Template version policy updated: %d", version)
-		}
-		m.requeueLookup[version] = requeue
+	if m.hasExceededMaxRetries(state, version) {
+		m.setFailed(version)
+		return
 	}
 
 	m.queue.Add(item)
-}
-
-func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
-	changed := false
-	if !requeue.downloadPolicySatisfied {
-		if m.policyManager.IsReady(ctx, policy.Download) {
-			changed = true
-			requeue.downloadPolicySatisfied = true
-		}
-	}
-
-	if !requeue.updatePolicySatisfied {
-		if m.policyManager.IsReady(ctx, policy.Update) {
-			changed = true
-			requeue.updatePolicySatisfied = true
-		}
-	}
-	return changed
 }
 
 func (m *queueManager) Remove(version string) {
@@ -133,6 +105,7 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 		return nil, false
 	}
 
+	m.log.Debugf("Evaluating template version: %d", item.Version)
 	now := time.Now()
 	requeue, exists := m.requeueLookup[item.Version]
 	if exists && now.Before(requeue.nextAvailable) {
@@ -172,7 +145,7 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 	requeue, exists := m.requeueLookup[v]
 	if !exists {
 		// this would be very unexpected so we would need to requeue the version
-		return fmt.Errorf("%w: %d", errors.ErrRetryable, v)
+		return fmt.Errorf("%w: policy check failed: not found: version: %d", errors.ErrRetryable, v)
 	}
 	m.log.Debugf("Requeue state: %+v", requeue)
 
@@ -194,14 +167,71 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 
 func (m *queueManager) SetFailed(version string) {
 	v := stringToInt64(version)
-	m.failedVersions[v] = struct{}{}
-	delete(m.requeueLookup, v)
-	m.queue.Remove(v)
+	m.setFailed(v)
+}
+
+func (m *queueManager) setFailed(version int64) {
+	m.failedVersions[version] = struct{}{}
+	delete(m.requeueLookup, version)
+	m.queue.Remove(version)
 }
 
 func (m *queueManager) IsFailed(version string) bool {
 	_, ok := m.failedVersions[stringToInt64(version)]
 	return ok
+}
+
+func (m *queueManager) getOrCreateRequeueState(ctx context.Context, version int64) *requeueState {
+	state, exists := m.requeueLookup[version]
+	if !exists {
+		m.log.Debugf("Initializing requeueState for version %d", version)
+		state = &requeueState{}
+		m.requeueLookup[version] = state
+	}
+
+	if m.updatePolicy(ctx, state) {
+		m.log.Debugf("Policy updated for version %d", version)
+	}
+
+	return state
+}
+
+func (m *queueManager) shouldEnforceDelay(state *requeueState) bool {
+	if m.delayThreshold <= 0 || !m.queue.IsEmpty() || state.tries == 0 {
+		return false
+	}
+	if state.tries >= m.delayThreshold && state.nextAvailable.IsZero() {
+		state.nextAvailable = time.Now().Add(m.delayDuration)
+		m.log.Debugf("Delay enforced until: %s", state.nextAvailable)
+		return true
+	}
+	return false
+}
+
+func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64) bool {
+	if m.maxRetries > 0 && state.tries >= m.maxRetries {
+		m.log.Debugf("Max retries exceeded for version: %d", version)
+		return true
+	}
+	return false
+}
+
+func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
+	changed := false
+	if !requeue.downloadPolicySatisfied {
+		if m.policyManager.IsReady(ctx, policy.Download) {
+			changed = true
+			requeue.downloadPolicySatisfied = true
+		}
+	}
+
+	if !requeue.updatePolicySatisfied {
+		if m.policyManager.IsReady(ctx, policy.Update) {
+			changed = true
+			requeue.updatePolicySatisfied = true
+		}
+	}
+	return changed
 }
 
 func (m *queueManager) pruneRequeueStatus() {
