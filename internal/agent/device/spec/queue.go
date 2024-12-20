@@ -110,7 +110,7 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 	requeue, exists := m.requeueLookup[item.Version]
 	if exists && now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d is not yet ready. Will retry at: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
+		m.log.Debugf("Template version %d is not yet ready. Available after: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
 		return nil, false
 	}
 	if m.updatePolicy(ctx, requeue) {
@@ -268,7 +268,7 @@ func newQueue(log *log.PrefixLogger, maxSize int) *queue {
 func (q *queue) Add(item *Item) {
 	version := item.Version
 	if _, exists := q.items[version]; exists {
-		q.log.Debugf("Skipping item with version %d already in queue", version)
+		q.log.Tracef("Skipping item with version %d already in queue", version)
 		return
 	}
 
@@ -282,7 +282,7 @@ func (q *queue) Add(item *Item) {
 
 	q.items[version] = item
 	heap.Push(&q.heap, item)
-	q.log.Debugf("Added item version %d, heap size now %d", version, q.heap.Len())
+	q.log.Tracef("Added item version %d, heap size now %d", version, q.heap.Len())
 }
 
 func (q *queue) Pop() (*Item, bool) {
@@ -291,7 +291,7 @@ func (q *queue) Pop() (*Item, bool) {
 	}
 	item := heap.Pop(&q.heap).(*Item)
 	delete(q.items, item.Version)
-	q.log.Debugf("Popped item version %d, heap size now %d", item.Version, q.heap.Len())
+	q.log.Tracef("Popped item version %d, heap size now %d", item.Version, q.heap.Len())
 	return item, true
 }
 
