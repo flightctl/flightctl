@@ -27,8 +27,17 @@ func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string) 
 	}
 }
 
-func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string) *http.Server {
-	server := NewHTTPServer(router, log, address)
+func NewAgentHTTPServer(router http.Handler, log logrus.FieldLogger, address string) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       15 * time.Minute,
+	}
+}
+
+func NewHTTPAgentServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string) *http.Server {
+	server := NewAgentHTTPServer(router, log, address)
 	server.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
 		tc := c.(*tls.Conn)
 		// We need to ensure TLS handshake is complete before

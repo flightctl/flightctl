@@ -330,7 +330,7 @@ func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request serv
 	if !allowed {
 		return server.GetRenderedDeviceSpec403JSONResponse{Message: Forbidden}, nil
 	}
-	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.consoleGrpcEndpoint)
+	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.agentEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})

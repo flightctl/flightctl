@@ -633,9 +633,6 @@ type Duration = string
 type EnrollmentConfig struct {
 	// EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
 	EnrollmentService EnrollmentService `json:"enrollment-service"`
-
-	// GrpcManagementEndpoint The gRPC endpoint for the management service.
-	GrpcManagementEndpoint string `json:"grpc-management-endpoint"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.

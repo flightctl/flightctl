@@ -36,9 +36,6 @@ spec:
             - containerPort: 7443
               name: agent-api
               protocol: TCP
-            - containerPort: 7444
-              name: agent-grpc
-              protocol: TCP
             - containerPort: 15690
               name: api-prom-target
               protocol: TCP

@@ -46,6 +46,5 @@ func (h *ServiceHandler) EnrollmentConfig(ctx context.Context, request server.En
 			},
 			EnrollmentUiEndpoint: h.uiUrl,
 		},
-		GrpcManagementEndpoint: h.consoleGrpcEndpoint,
 	}, nil
 }
