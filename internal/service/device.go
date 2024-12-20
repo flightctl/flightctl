@@ -28,6 +28,11 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 		return server.CreateDevice403JSONResponse{Message: Forbidden}, nil
 	}
 
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
+		return server.CreateDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -195,6 +200,12 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 	if !allowed {
 		return server.ReplaceDevice403JSONResponse{Message: Forbidden}, nil
 	}
+
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
+		return server.ReplaceDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -348,6 +359,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	}
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
 		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
+	}
+	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
+		return server.PatchDevice400JSONResponse{Message: "spec.decommissioning cannot be changed via patch request"}, nil
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
