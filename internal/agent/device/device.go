@@ -132,6 +132,12 @@ func (a *Agent) Stop(ctx context.Context) error {
 }
 
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+	// to ensure that the agent is able correct for an invalid policy, it is reconciled first.
+	// the new policy will go into affect on the next sync.
+	if err := a.policyManager.Sync(ctx, desired); err != nil {
+		return fmt.Errorf("policy: %w", err)
+	}
+
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.RenderedVersion); err != nil {
 		return fmt.Errorf("download policy: %w", err)
 	}
@@ -400,9 +406,8 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 		return fmt.Errorf("systemd: %w", err)
 	}
 
-	if err := a.policyManager.Sync(ctx, desired); err != nil {
-		return fmt.Errorf("policy: %w", err)
-	}
+	// NOTE: policy manager is reconciled early in sync() so that the agent
+	// can correct for an invalid policy.
 
 	return nil
 }
