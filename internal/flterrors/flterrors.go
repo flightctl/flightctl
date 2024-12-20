@@ -23,6 +23,7 @@ var (
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
 	ErrInvalidTemplateVersion = errors.New("device's templateVersion is not valid")
 	ErrNoRenderedVersion      = errors.New("no rendered version for device")
+	ErrDecommissioned         = errors.New("decommissioned device cannot be created or updated")
 
 	// csr
 	ErrInvalidPEMBlock = errors.New("not a valid PEM block")

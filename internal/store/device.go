@@ -313,11 +313,15 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	if resource.Metadata.Name == nil {
 		return nil, false, false, flterrors.ErrResourceNameIsNil
 	}
+	if resource.Spec.DecommissionRequested != nil {
+		return nil, false, false, flterrors.ErrDecommissioned
+	}
 
 	device, err := model.NewDeviceFromApiResource(resource)
 	if err != nil {
 		return nil, false, false, err
 	}
+
 	device.OrgID = orgId
 
 	// Use the dedicated API to update annotations
