@@ -117,12 +117,6 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 		m.log.Debugf("Template version policy updated: %d", item.Version)
 	}
 
-	if !m.isUpdatePolicyReady(requeue) {
-		m.log.Debugf("Template version %d is not ready due to policy", item.Version)
-		m.queue.Add(item)
-		return nil, false
-	}
-
 	if exists {
 		requeue.nextAvailable = time.Time{}
 		m.log.Debugf("Template version is now available for retrieval: %d", item.Version)
@@ -134,10 +128,6 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 		return item.Spec, true
 	}
 	return nil, false
-}
-
-func (m *queueManager) isUpdatePolicyReady(requeue *requeueState) bool {
-	return requeue.downloadPolicySatisfied || requeue.updatePolicySatisfied
 }
 
 func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
