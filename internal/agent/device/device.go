@@ -526,6 +526,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
 
 		a.specManager.SetUpgradeFailed()
+		a.log.Error(util.FromPtr(statusUpdate.Info))
 	} else {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
 		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
@@ -533,6 +534,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
+		a.log.Warn(util.FromPtr(statusUpdate.Info))
 	}
 
 	if _, err := a.statusManager.Update(ctx, status.SetDeviceSummary(statusUpdate)); err != nil {
@@ -542,6 +544,4 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
 	}
-
-	a.log.Error(*statusUpdate.Info)
 }

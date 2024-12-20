@@ -28,8 +28,8 @@ func (m *manager) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	m.log.Debug("Starting Policy Sync")
-	defer m.log.Debug("Policy Sync Complete")
+	m.log.Debug("Syncing policy")
+	defer m.log.Debug("Finished syncing policy")
 
 	if desired.UpdatePolicy == nil {
 		m.log.Debugf("no update policy defined")
@@ -132,6 +132,8 @@ func (s *schedule) Parse(updateSchedule *v1alpha1.UpdateSchedule) error {
 			return fmt.Errorf("invalid start grace duration: %w", err)
 		}
 		s.startGraceDuration = duration
+	} else {
+		s.startGraceDuration = 0
 	}
 
 	return nil
@@ -142,12 +144,14 @@ func (s *schedule) IsReady(log *log.PrefixLogger) bool {
 	now := s.nowFn().In(s.location)
 	lastRun := s.cron.Next(now.Add(-s.interval))
 	graceEnd := lastRun.Add(s.startGraceDuration)
+	nextRun := s.cron.Next(now)
+	log.Debugf("Policy %s current time: %s, last run: %s, next run: %s, grace ends: %s", s.policyType, now, lastRun, nextRun, graceEnd)
 
 	if now.Equal(lastRun) || (now.After(lastRun) && !now.After(graceEnd)) {
-		log.Infof("Policy %s schedule is ready to run. Current time: %s, last run: %s, grace ends: %s", s.policyType, now, lastRun, graceEnd)
+		log.Infof("Policy %s schedule is ready", s.policyType)
 		return true
 	}
 
-	log.Debugf("Policy %s schedule is not ready. Current time: %s, last run: %s, grace ends: %s", s.policyType, now, lastRun, graceEnd)
+	log.Debugf("Policy %s schedule is not ready", s.policyType)
 	return false
 }
