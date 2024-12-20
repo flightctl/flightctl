@@ -264,6 +264,11 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 }
 
 func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
+	// do not update devices with a decommission requested
+	if existingRecord.Spec != nil && existingRecord.Spec.Data.DecommissionRequested != nil {
+		return false, flterrors.ErrDecommission
+	}
+
 	sameSpec := api.DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
@@ -312,6 +317,9 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	}
 	if resource.Metadata.Name == nil {
 		return nil, false, false, flterrors.ErrResourceNameIsNil
+	}
+	if resource.Spec != nil && resource.Spec.DecommissionRequested != nil {
+		return nil, false, false, flterrors.ErrDecommission
 	}
 
 	device, err := model.NewDeviceFromApiResource(resource)

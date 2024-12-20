@@ -4440,6 +4440,8 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+        decommissionRequested:
+          $ref: '#/components/schemas/DeviceDecommission'
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.

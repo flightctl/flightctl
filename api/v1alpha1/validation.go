@@ -11,6 +11,7 @@ import (
 	"text/template/parse"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -68,6 +69,11 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
 		}
 	}
+
+	if r.DecommissionRequested != nil {
+		allErrs = append(allErrs, flterrors.ErrDecommission)
+	}
+
 	return allErrs
 }
 
