@@ -2689,38 +2689,11 @@ type CreateCertificateSigningRequestResponseObject interface {
 	VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error
 }
 
-type CreateCertificateSigningRequest200JSONResponse CertificateSigningRequest
-
-func (response CreateCertificateSigningRequest200JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
 type CreateCertificateSigningRequest201JSONResponse CertificateSigningRequest
 
 func (response CreateCertificateSigningRequest201JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateCertificateSigningRequest202JSONResponse CertificateSigningRequest
-
-func (response CreateCertificateSigningRequest202JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(202)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type CreateCertificateSigningRequest208JSONResponse EnrollmentRequest
-
-func (response CreateCertificateSigningRequest208JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(208)
 
 	return json.NewEncoder(w).Encode(response)
 }
