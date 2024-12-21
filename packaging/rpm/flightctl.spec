@@ -1,6 +1,9 @@
 %define debug_package %{nil}
 
 Name: flightctl
+# PLEASE READ BEFORE CHANGING the Version: field
+# https://docs.fedoraproject.org/en-US/packaging-guidelines/Versioning/
+# TL;DR With upstream releases 0.4.0, 0.4.1, 0.5.0-rc1, 0.5.0-rc2, 0.5.0, the two "release candidates" should use 0.5.0~rc1 and 0.5.0~rc2 in the Version: field
 Version: 0.3.0
 Release: 1%{?dist}
 Summary: Flightctl CLI
@@ -27,6 +30,9 @@ Flightctl Agent is a component of the flightctl tool.
 %prep
 %setup -q -n flightctl-0.0.1
 
+%define source_git_tag $(git describe --tags --exclude latest)
+%define source_git_commit $(git rev-parse --short "HEAD^{commit}" 2>/dev/null)
+
 %build
 
 # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -35,7 +41,7 @@ GOENVFILE=$(go env GOROOT)/go.env
 if [[ ! -f "{$GOENVFILE}" ]]; then
     export GOPROXY='https://proxy.golang.org,direct'
 fi
-make build
+SOURCE_GIT_TAG=%{source_git_tag} SOURCE_GIT_COMMIT=%{source_git_commit} make build
 
 %install
 mkdir -p %{buildroot}/usr/bin
