@@ -71,6 +71,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 			Os:           fleet.Spec.Template.Spec.Os,
 			Resources:    fleet.Spec.Template.Spec.Resources,
 			Systemd:      fleet.Spec.Template.Spec.Systemd,
+			UpdatePolicy: fleet.Spec.Template.Spec.UpdatePolicy,
 		},
 	}
 
