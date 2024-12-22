@@ -64,7 +64,10 @@ publish: build-containers
 .PHONY: publish
 
 generate:
-	go generate -v $(shell go list ./...)
+	go generate -v $(shell go list ./... | grep -v -e api/grpc)
+
+generate-proto:
+	go generate -v ./api/grpc/...
 
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
