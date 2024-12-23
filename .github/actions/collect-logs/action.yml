@@ -1,0 +1,34 @@
+name: 'Collect Logs and Upload'
+description: 'Collect logs from Kubernetes pods and upload them as artifacts'
+inputs:
+  namespace-external:
+    description: 'The external namespace for logs'
+    required: true
+    default: 'flightctl-external'
+  namespace-internal:
+    description: 'The internal namespace for logs'
+    required: true
+    default: 'flightctl-internal'
+  log-directory:
+    description: 'The directory to store log files'
+    required: false
+    default: 'logs'
+runs:
+  using: 'composite'
+  steps:
+    - name: Collect logs
+      shell: bash
+      run: |
+        mkdir -p ${{ inputs.log-directory }}
+
+        kubectl logs -n ${{ inputs.namespace-external }} deployment/flightctl-api > ${{ inputs.log-directory }}/flightctl-api.log
+        kubectl logs -n ${{ inputs.namespace-internal }} deployment/flightctl-db > ${{ inputs.log-directory }}/flightctl-db.log
+        kubectl logs -n ${{ inputs.namespace-internal }} deployment/flightctl-periodic > ${{ inputs.log-directory }}/flightctl-periodic.log
+        kubectl logs -n ${{ inputs.namespace-internal }} deployment/flightctl-worker > ${{ inputs.log-directory }}/flightctl-worker.log
+        kubectl logs -n ${{ inputs.namespace-internal }} statefulset/flightctl-kv > ${{ inputs.log-directory }}/flightctl-kv.log
+        kubectl logs -n ${{ inputs.namespace-internal }} statefulset/flightctl-rabbitmq > ${{ inputs.log-directory }}/flightctl-rabbitmq.log
+    - name: Upload logs as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: deploy-logs
+        path: ${{ inputs.log-directory }}
