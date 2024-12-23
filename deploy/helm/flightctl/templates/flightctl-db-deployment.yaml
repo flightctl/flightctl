@@ -17,6 +17,10 @@ spec:
       labels:
         flightctl.service: flightctl-db
     spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       containers:
         - env:
             - name: PGPASSWORD

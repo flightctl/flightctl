@@ -4,6 +4,10 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 METHOD=install
 ONLY_DB=
 DB_SIZE_PARAMS=
+# If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
+# IMAGE_PULL_SECRET_PATH=
+SQL_VERSION=${SQL_VERSION:-"latest"}
+SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-12-c8s"}
 RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
 VALKEY_VERSION=${VALKEY_VERSION:-"8.0.1"}
@@ -20,7 +24,7 @@ usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
 
 while true; do
   case "$1" in
-    -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false --set flightctl.kv.enabled=false" ; shift ;;
+    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set rabbitmq.enabled=false --set kv.enabled=false" ; shift ;;
     -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
     --db-size)
       db_size=$2
@@ -42,8 +46,9 @@ while true; do
   esac
 done
 
-RABBITMQ_ARG="--set flightctl.rabbitmq.image.image=${RABBITMQ_IMAGE} --set flightctl.rabbitmq.image.tag=${RABBITMQ_VERSION}"
-VALKEY_ARG="--set flightctl.kv.image.image=${VALKEY_IMAGE} --set flightctl.kv.image.tag=${VALKEY_VERSION}"
+SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
+RABBITMQ_ARG="--set rabbitmq.image.image=${RABBITMQ_IMAGE} --set rabbitmq.image.tag=${RABBITMQ_VERSION}"
+VALKEY_ARG="--set kv.image.image=${VALKEY_IMAGE} --set kv.image.tag=${VALKEY_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -62,17 +67,20 @@ if [ -z "$ONLY_DB" ]; then
   kind_load_image "${VALKEY_IMAGE}:${VALKEY_VERSION}" keep-tar
 fi
 
+if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
+  PULL_SECRET_NAME=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.name)
+  PULL_SECRET_NAMESPACE=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.namespace)
 
+  if [ "$PULL_SECRET_NAMESPACE" != "flightctl-internal" ]; then
+    echo "Namespace for IMAGE_PULL_SECRET_PATH must be flightctl-internal"
+    exit 1
+  fi
 
-# if we need another database image we can set it with PGSQL_IMAGE (i.e. arm64 images)
-if [ ! -z "$PGSQL_IMAGE" ]; then
-  DB_IMG="localhost/flightctl-db:latest"
-  # we send the image directly to kind, so we don't need to inject the credentials in the kind cluster
-  podman pull "${PGSQL_IMAGE}"
-  podman tag "${PGSQL_IMAGE}" "${DB_IMG}"
-  kind_load_image ${DB_IMG}
-  HELM_DB_IMG="--set flightctl.db.image.image=${DB_IMG} --set flightctl.db.image.tag=latest"
+  SQL_ARG="$SQL_ARG --set global.imagePullSecretName=${PULL_SECRET_NAME}"
+  kubectl apply -f "$IMAGE_PULL_SECRET_PATH"
 fi
+
+kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
 
 API_PORT=3443
 KEYCLOAK_PORT=8080
@@ -93,7 +101,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${VALKEY_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${VALKEY_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s
