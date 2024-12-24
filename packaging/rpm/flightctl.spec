@@ -10,10 +10,12 @@ Name:       flightctl
 Release:    1%{?dist}
 Summary:    Flightctl is a manager of the edge device fleets.
 
-License:    Apache-2.0
+License:    Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:        %{gourl}
 Source0:    %{gosource}
 Source1:    %{archivename}-vendor.tar.bz2
+Source2:    get-git-sources.sh
+Source3:    get-vendored-sources.sh
 
 BuildRequires: go-rpm-macros
 BuildRequires: git
@@ -40,6 +42,8 @@ Flightctl Agent is a component of the flightctl tool.
 
 %prep
 %goprep -A
+./get-git-sources.sh
+./get-vendored-sources.sh
 %setup -q -n flightctl-0.0.1
 
 %build
@@ -79,6 +83,15 @@ install -Dpm 0644 flightctl-completion.fish -t %{buildroot}/%{_datadir}/fish/ven
 %{buildroot}%{_bindir}/flightctl completion zsh > _flightctl-completion
 install -Dpm 0644 _flightctl-completion -t %{buildroot}/%{_datadir}/zsh/site-functions/_flightctl-completion
 
+rm -f licenses.list
+
+find -type f -name LICENSE -or -name License | while read LICENSE_FILE; do
+    install -Dv -m0644 "${LICENSE_FILE}" "%{buildroot}%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}"
+    echo "%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
+done
+
+cat licenses.list
+
 mkdir -vp "%{buildroot}%{_docdir}/%{NAME}"
 
 for DOC in docs examples .markdownlint-cli2.yaml README.md; do
@@ -92,7 +105,8 @@ done
 # File listings
 # No %files section for the main package, so it won't be built
 
-%files cli
+%files cli -f licenses.list
+%license vendor/modules.txt
 %{_bindir}/flightctl
 %{_datadir}/bash-completion/completions/flightctl-completion.bash
 %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
@@ -100,7 +114,8 @@ done
 %{_docdir}/%{NAME}/*
 %{_docdir}/%{NAME}/.markdownlint-cli2.yaml
 
-%files agent
+%files agent -f licenses.list
+%license LICENSE
 %{_bindir}/flightctl-agent
 %{_bindir}/flightctl-must-gather
 /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
