@@ -52,7 +52,7 @@ var _ = Describe("Low level server behavior", func() {
 		listener, err = middleware.NewTLSListener("", tlsConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		srv := middleware.NewHTTPServerWithTLSContext(testTLSCNServer{}, serverLog, listener.Addr().String())
+		srv := middleware.NewHTTPServerWithTLSContext(testTLSCNServer{}, serverLog, listener.Addr().String(), config)
 
 		go func() {
 			defer GinkgoRecover()

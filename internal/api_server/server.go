@@ -104,6 +104,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Use(
 		middleware.RequestID,
 		middleware.Logger,
+		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
+		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.Recoverer,
 		authMiddleware,
 	)
@@ -126,7 +128,7 @@ func (s *Server) Run(ctx context.Context) error {
 	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
 	ws.RegisterRoutes(router)
 
-	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
+	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {
 		<-ctx.Done()
