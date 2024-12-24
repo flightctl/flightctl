@@ -83,6 +83,9 @@ build: bin build-cli
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-worker
 
+build-agent:
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
+
 build-cli:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
