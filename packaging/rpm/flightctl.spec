@@ -59,7 +59,6 @@ MAJOR=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $1}') \
 MINOR=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $2}') \
 PATCH=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $3}')
 
-
 %install
 install -m 0755 -vd %{buildroot}%{_bindir} \
                     %{buildroot}/usr/lib/systemd/system \
