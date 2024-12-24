@@ -14,8 +14,6 @@ License:    Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:        %{gourl}
 Source0:    %{gosource}
 Source1:    %{archivename}-vendor.tar.bz2
-Source2:    get-git-sources.sh
-Source3:    get-vendored-sources.sh
 
 BuildRequires: go-rpm-macros
 BuildRequires: git
@@ -42,9 +40,9 @@ Flightctl Agent is a component of the flightctl tool.
 
 %prep
 %goprep -A
+%setup -q -n flightctl-0.0.1
 ./packaging/rpm/get-git-sources.sh
 ./packaging/rpm/get-vendored-sources.sh
-%setup -q -n flightctl-0.0.1
 
 %build
 # if this is a buggy version of go we need to set GOPROXY as workaround

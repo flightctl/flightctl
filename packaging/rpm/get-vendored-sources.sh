@@ -6,7 +6,7 @@ NAME="flightctl"
 SPEC="$(rpmspec -P "./packaging/rpm/${NAME}.spec")"
 VERSION="$(grep '^Version:' <<< "${SPEC}" | awk '{print $2}')"
 
-spectool --get-files "${NAME}.spec"
+spectool --get-files "./packaging/rpm/${NAME}.spec"
 
 tar xf "${NAME}-${VERSION}.tar.gz"
 
