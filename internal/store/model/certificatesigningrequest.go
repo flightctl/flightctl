@@ -47,7 +47,8 @@ func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSignin
 	return &CertificateSigningRequest{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -65,15 +66,14 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 		status = csr.Status.Data
 	}
 
-	metadataLabels := util.LabelArrayToMap(csr.Resource.Labels)
-
 	return api.CertificateSigningRequest{
 		ApiVersion: api.CertificateSigningRequestAPI,
 		Kind:       api.CertificateSigningRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(csr.Name),
 			CreationTimestamp: util.TimeToPtr(csr.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(csr.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(csr.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(csr.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(csr.ResourceVersion), 10)), nil),
 		},
 		Spec:   csr.Spec.Data,

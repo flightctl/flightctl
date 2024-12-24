@@ -41,7 +41,37 @@ func NewTemplateVersion(db *gorm.DB, log logrus.FieldLogger) TemplateVersion {
 }
 
 func (s *TemplateVersionStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.TemplateVersion{})
+	if err := s.db.AutoMigrate(&model.TemplateVersion{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for TemplateVersion labels
+	if !s.db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_template_versions_labels ON template_versions USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.TemplateVersion{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for TemplateVersion annotations
+	if !s.db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_template_versions_annotations ON template_versions USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.TemplateVersion{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error) {

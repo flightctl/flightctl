@@ -43,7 +43,37 @@ func NewCertificateSigningRequest(db *gorm.DB, log logrus.FieldLogger) Certifica
 }
 
 func (s *CertificateSigningRequestStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.CertificateSigningRequest{})
+	if err := s.db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for CertificateSigningRequest labels
+	if !s.db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_csr_labels ON certificate_signing_requests USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.CertificateSigningRequest{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for CertificateSigningRequest annotations
+	if !s.db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_csr_annotations ON certificate_signing_requests USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.CertificateSigningRequest{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // Warning: this is a user-facing function and will set the Status to nil
@@ -175,6 +205,7 @@ func (s *CertificateSigningRequestStore) createOrUpdate(orgId uuid.UUID, resourc
 	}
 	certificatesigningrequest.OrgID = orgId
 	certificatesigningrequest.Status = nil
+	certificatesigningrequest.Annotations = nil
 
 	existingRecord, err := getExistingRecord[model.CertificateSigningRequest](s.db, certificatesigningrequest.Name, orgId)
 	if err != nil {
