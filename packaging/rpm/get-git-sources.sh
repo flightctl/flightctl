@@ -3,7 +3,7 @@
 set -oeux pipefail
 
 NAME="flightctl"
-SPEC="$(rpmspec -P "${NAME}.spec")"
+SPEC="$(rpmspec -P "./packaging/rpm/${NAME}.spec")"
 VERSION="$(grep '^Version:' <<< "${SPEC}" | awk '{print $2}')"
 URL="$(grep '^URL:' <<< "${SPEC}" | awk '{print $2}')"
 

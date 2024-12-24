@@ -42,8 +42,8 @@ Flightctl Agent is a component of the flightctl tool.
 
 %prep
 %goprep -A
-./get-git-sources.sh
-./get-vendored-sources.sh
+./packaging/rpm/get-git-sources.sh
+./packaging/rpm/get-vendored-sources.sh
 %setup -q -n flightctl-0.0.1
 
 %build
