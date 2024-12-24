@@ -1,0 +1,58 @@
+[archive]
+
+[licensing]
+detector = "askalono"
+[[licensing.licenses]]
+path = "vendor/github.com/cloudflare/circl/LICENSE"
+sha256sum = "b0da1764fe4d13d610b695536fc3f2ebc362482d053a1cd258e36975bc6b97a7"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/github.com/emirpasic/gods/LICENSE"
+sha256sum = "871b440e9b348d6b2485c72e15f1d18f4cf8ee7bb424cbcd854b6a4a772b61d8"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/github.com/getkin/kin-openapi/openapi3/license.go"
+sha256sum = "461a755290a85b6f02cf53567b298b8f8317ceded60b6a37082d066ac4205531"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/github.com/grpc-ecosystem/go-grpc-middleware/v2/COPYRIGHT"
+sha256sum = "8befb41eac649775143c81fddaf84b7d7e1197899d968b8b51cfec405f2ff72f"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/github.com/invopop/yaml/LICENSE"
+sha256sum = "24653fd8a39354396da1a265d68316399edc39b1df48c5866d55f9f06484fa9a"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/github.com/kevinburke/ssh_config/LICENSE"
+sha256sum = "a15a6f732df3a033a71853ce1d255bd671f00fbc537fa629b78d71baecda0ace"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/gopkg.in/yaml.v3/LICENSE"
+sha256sum = "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/gorm.io/plugin/prometheus/License"
+sha256sum = "59f62caa972078dc1664ce928b5e5d51b78633fc43b78894d2dab83bc504edee"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/gorm.io/driver/sqlite/License"
+sha256sum = "59f62caa972078dc1664ce928b5e5d51b78633fc43b78894d2dab83bc504edee"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/gorm.io/driver/postgres/License"
+sha256sum = "59f62caa972078dc1664ce928b5e5d51b78633fc43b78894d2dab83bc504edee"
+expression = ""
+
+[[licensing.licenses]]
+path = "vendor/github.com/jinzhu/now/License"
+sha256sum = "59f62caa972078dc1664ce928b5e5d51b78633fc43b78894d2dab83bc504edee"
+expression = ""

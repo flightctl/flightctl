@@ -9,7 +9,7 @@ fi
 
 # our RPM build process works in rpm bases systems so we wrap it if necessary
 if ! command -v packit 2>&1 >/dev/null ]; then
-    echo "Building RPMs on a system without packtit, using container"
+    echo "Building RPMs on a system without packit, using container"
     cat >bin/build_rpms.sh <<EOF
 #!/usr/bin/env bash
 cd /work
