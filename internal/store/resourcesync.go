@@ -46,7 +46,37 @@ func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 }
 
 func (s *ResourceSyncStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.ResourceSync{})
+	if err := s.db.AutoMigrate(&model.ResourceSync{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for ResourceSync labels
+	if !s.db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_resource_syncs_labels ON resource_syncs USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.ResourceSync{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for ResourceSync annotations
+	if !s.db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_resource_syncs_annotations ON resource_syncs USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.ResourceSync{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
@@ -182,6 +212,7 @@ func (s *ResourceSyncStore) createOrUpdate(orgId uuid.UUID, resource *api.Resour
 	}
 	resourceSync.OrgID = orgId
 	resourceSync.Status = nil
+	resourceSync.Annotations = nil
 
 	existingRecord, err := getExistingRecord[model.ResourceSync](s.db, resourceSync.Name, orgId)
 	if err != nil {

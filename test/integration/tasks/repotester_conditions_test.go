@@ -3,6 +3,7 @@ package tasks_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -22,7 +23,7 @@ type MockRepoTester struct {
 }
 
 func (r *MockRepoTester) TestAccess(repository *model.Repository) error {
-	if repository.Labels[0] == "status=OK" {
+	if v, ok := repository.Labels["status"]; ok && strings.EqualFold(v, "OK") {
 		return nil
 	}
 	return errors.New("fail")
