@@ -410,7 +410,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decomission", "update")
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decommission", "update")
 	if err != nil {
 		h.log.WithError(err).Error("failed to check authorization permission")
 		return server.DecommissionDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
