@@ -51,16 +51,15 @@ GOENVFILE=$(go env GOROOT)/go.env
 if [[ ! -f "{$GOENVFILE}" ]]; then
     export GOPROXY='https://proxy.golang.org,direct'
 fi
-#SOURCE_GIT_TAG=$(git describe --tags --exclude latest) \
-#SOURCE_GIT_TREE_STATE=$(( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty') \
-#SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null) \
-#BIN_TIMESTAMP=$(date +'%Y%m%d') \
-#SOURCE_GIT_TAG_NO_V=$(echo ${SOURCE_GIT_TAG} | sed 's/^v//') \
-#MAJOR=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $1}') \
-#MINOR=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $2}') \
-#PATCH=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $3}') \
-
-make build-cli build-agent
+make build-cli build-agent \
+SOURCE_GIT_TAG=$(git describe --tags --exclude latest) \
+SOURCE_GIT_TREE_STATE=$(( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty') \
+SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null) \
+BIN_TIMESTAMP=$(date +'%Y%m%d') \
+SOURCE_GIT_TAG_NO_V=$(echo ${SOURCE_GIT_TAG} | sed 's/^v//') \
+MAJOR=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $1}') \
+MINOR=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $2}') \
+PATCH=$(echo ${SOURCE_GIT_TAG_NO_V} | awk -F'[._~-]' '{print $3}')
 
 %install
 install -m 0755 -vd %{buildroot}%{_bindir} \
