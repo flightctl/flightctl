@@ -339,11 +339,8 @@ func writeCertFile(data []byte, path string) error {
 }
 
 func createReferenceConfig(name string, currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.EnrollmentConfigResponse, path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err := os.MkdirAll(path, 0644)
-		if err != nil {
-			return fmt.Errorf("creating directory %s: %w\n", path, err)
-		}
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", path, err)
 	}
 
 	// write out agent cert

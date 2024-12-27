@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"reflect"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -25,7 +27,7 @@ func NewCmdDeny() *cobra.Command {
 	o := DefaultDenyOptions()
 	cmd := &cobra.Command{
 		Use:   "deny TYPE/NAME",
-		Short: "Deny a request.",
+		Short: "Deny a certificate signing or enrollment request.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -87,10 +89,34 @@ func (o *DenyOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	var response interface{}
+	var getResponse *apiclient.ReadCertificateSigningRequestResponse
 
 	switch {
 	case kind == CertificateSigningRequestKind:
-		response, err = c.DenyCertificateSigningRequest(ctx, name)
+		getResponse, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+		if err != nil {
+			return fmt.Errorf("getting certificate signing request: %w", err)
+		}
+		if getResponse.HTTPResponse != nil {
+			defer getResponse.HTTPResponse.Body.Close()
+		}
+		if getResponse.StatusCode() != http.StatusOK {
+			return fmt.Errorf("getting certificate signing request: %d", getResponse.StatusCode())
+		}
+		if getResponse.JSON200 == nil {
+			return fmt.Errorf("getting certificate signing request: empty response")
+		}
+		csr := getResponse.JSON200
+
+		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
+			Type:    api.CertificateSigningRequestDenied,
+			Status:  api.ConditionStatusTrue,
+			Reason:  "Denied",
+			Message: "Denied",
+		})
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestApproved)
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestFailed)
+		response, err = c.UpdateCertificateSigningRequestApproval(ctx, name, *csr)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
