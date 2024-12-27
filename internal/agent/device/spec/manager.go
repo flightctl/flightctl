@@ -220,7 +220,7 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 	// which contains the rendered version and the OS image.
 	rollback := &v1alpha1.RenderedDeviceSpec{
 		RenderedVersion: current.RenderedVersion,
-		Os:              &v1alpha1.DeviceOSSpec{Image: currentOSImage},
+		Os:              &v1alpha1.DeviceOsSpec{Image: currentOSImage},
 	}
 
 	if err := s.write(Rollback, rollback); err != nil {

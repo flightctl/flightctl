@@ -3683,13 +3683,13 @@ components:
             - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
-        - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+        - $ref: '#/components/schemas/CpuResourceMonitorSpec'
         - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
         - $ref: '#/components/schemas/DiskResourceMonitorSpec'
       discriminator:
         propertyName: monitorType
         mapping:
-          CPU: '#/components/schemas/CPUResourceMonitorSpec'
+          CPU: '#/components/schemas/CpuResourceMonitorSpec'
           Memory: '#/components/schemas/MemoryResourceMonitorSpec'
           Disk: '#/components/schemas/DiskResourceMonitorSpec'
     ResourceMonitorSpec:
@@ -3712,7 +3712,7 @@ components:
         - monitorType
         - alertRules
         - samplingInterval
-    CPUResourceMonitorSpec:
+    CpuResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
           type: object
@@ -3915,9 +3915,9 @@ components:
         - kind
         - metadata
         - items
-    DeviceOSSpec:
+    DeviceOsSpec:
       type: object
-      description: DeviceOSSpec describes the target OS for the device.
+      description: DeviceOsSpec describes the target OS for the device.
       properties:
         image:
           type: string
@@ -3962,7 +3962,7 @@ components:
         config:
           $ref: "#/components/schemas/DeviceConfigStatus"
         os:
-          $ref: "#/components/schemas/DeviceOSStatus"
+          $ref: "#/components/schemas/DeviceOsStatus"
         updated:
           $ref: "#/components/schemas/DeviceUpdatedStatus"
         summary:
@@ -4050,7 +4050,7 @@ components:
         - "ApplicationStatusError"
         - "ApplicationStatusUnknown"
         - "ApplicationStatusCompleted"
-    DeviceOSStatus:
+    DeviceOsStatus:
       type: object
       description: Current status of the device OS.
       required:
@@ -4588,7 +4588,7 @@ components:
         updatePolicy:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
-          $ref: '#/components/schemas/DeviceOSSpec'
+          $ref: '#/components/schemas/DeviceOsSpec'
         config:
           type: string
           description: The configuration to apply, in Ignition format.
@@ -4625,7 +4625,7 @@ components:
         updatePolicy:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
-          $ref: '#/components/schemas/DeviceOSSpec'
+          $ref: '#/components/schemas/DeviceOsSpec'
         config:
           type: array
           description: List of config providers.

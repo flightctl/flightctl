@@ -210,9 +210,6 @@ type BatchSequence struct {
 	Sequence *[]Batch `json:"sequence,omitempty"`
 }
 
-// CPUResourceMonitorSpec Specification for monitoring a resource.
-type CPUResourceMonitorSpec = ResourceMonitorSpec
-
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
 type CertificateSigningRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -310,6 +307,9 @@ type ConditionType string
 type ConfigProviderSpec struct {
 	union json.RawMessage
 }
+
+// CpuResourceMonitorSpec Specification for monitoring a resource.
+type CpuResourceMonitorSpec = ResourceMonitorSpec
 
 // CronExpression Cron expression format for scheduling times.
 // The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
@@ -446,14 +446,14 @@ type DeviceList struct {
 	Summary *DevicesSummary `json:"summary,omitempty"`
 }
 
-// DeviceOSSpec DeviceOSSpec describes the target OS for the device.
-type DeviceOSSpec struct {
+// DeviceOsSpec DeviceOsSpec describes the target OS for the device.
+type DeviceOsSpec struct {
 	// Image The target OS image name or URL.
 	Image string `json:"image"`
 }
 
-// DeviceOSStatus Current status of the device OS.
-type DeviceOSStatus struct {
+// DeviceOsStatus Current status of the device OS.
+type DeviceOsStatus struct {
 	// Image Version of the OS image.
 	Image string `json:"image"`
 
@@ -484,8 +484,8 @@ type DeviceSpec struct {
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
 
-	// Os DeviceOSSpec describes the target OS for the device.
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -524,7 +524,7 @@ type DeviceStatus struct {
 	Lifecycle DeviceLifecycleStatus `json:"lifecycle"`
 
 	// Os Current status of the device OS.
-	Os DeviceOSStatus `json:"os"`
+	Os DeviceOsStatus `json:"os"`
 
 	// Resources Current status of the resources of the device.
 	Resources DeviceResourceStatus `json:"resources"`
@@ -1106,8 +1106,8 @@ type RenderedDeviceSpec struct {
 	// Decommission Metadata about a device decommissioning request.
 	Decommission *DeviceDecommission `json:"decommission,omitempty"`
 
-	// Os DeviceOSSpec describes the target OS for the device.
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// RenderedVersion Version of the rendered device spec.
 	RenderedVersion string `json:"renderedVersion"`
@@ -1372,8 +1372,8 @@ type TemplateVersionStatus struct {
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
 
-	// Os DeviceOSSpec describes the target OS for the device.
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -2206,23 +2206,23 @@ func (t *RepositorySpec) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsCPUResourceMonitorSpec returns the union data inside the ResourceMonitor as a CPUResourceMonitorSpec
-func (t ResourceMonitor) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
-	var body CPUResourceMonitorSpec
+// AsCpuResourceMonitorSpec returns the union data inside the ResourceMonitor as a CpuResourceMonitorSpec
+func (t ResourceMonitor) AsCpuResourceMonitorSpec() (CpuResourceMonitorSpec, error) {
+	var body CpuResourceMonitorSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromCPUResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided CPUResourceMonitorSpec
-func (t *ResourceMonitor) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+// FromCpuResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided CpuResourceMonitorSpec
+func (t *ResourceMonitor) FromCpuResourceMonitorSpec(v CpuResourceMonitorSpec) error {
 	v.MonitorType = "CPU"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeCPUResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided CPUResourceMonitorSpec
-func (t *ResourceMonitor) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+// MergeCpuResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided CpuResourceMonitorSpec
+func (t *ResourceMonitor) MergeCpuResourceMonitorSpec(v CpuResourceMonitorSpec) error {
 	v.MonitorType = "CPU"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -2305,7 +2305,7 @@ func (t ResourceMonitor) ValueByDiscriminator() (interface{}, error) {
 	}
 	switch discriminator {
 	case "CPU":
-		return t.AsCPUResourceMonitorSpec()
+		return t.AsCpuResourceMonitorSpec()
 	case "Disk":
 		return t.AsDiskResourceMonitorSpec()
 	case "Memory":

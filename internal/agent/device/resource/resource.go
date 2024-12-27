@@ -301,7 +301,7 @@ func getHighestSeverityResourceStatusFromAlerts(resource string, alerts []v1alph
 }
 
 func defaultCPUResourceMonitor() (*v1alpha1.ResourceMonitor, error) {
-	spec := v1alpha1.CPUResourceMonitorSpec{
+	spec := v1alpha1.CpuResourceMonitorSpec{
 		SamplingInterval: DefaultSamplingInterval.String(),
 		MonitorType:      CPUMonitorType,
 		AlertRules: []v1alpha1.ResourceAlertRule{
@@ -320,7 +320,7 @@ func defaultCPUResourceMonitor() (*v1alpha1.ResourceMonitor, error) {
 		},
 	}
 	rm := &v1alpha1.ResourceMonitor{}
-	err := rm.FromCPUResourceMonitorSpec(spec)
+	err := rm.FromCpuResourceMonitorSpec(spec)
 	return rm, err
 }
 
