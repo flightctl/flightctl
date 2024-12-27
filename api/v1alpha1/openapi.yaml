@@ -2426,18 +2426,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests/{name}/approval:
-    post:
+    put:
       tags:
         - certificatesigningrequest
-      description: approve the specified CertificateSigningRequest
-      operationId: approveCertificateSigningRequest
+      description: Approve or deny a CertificateSigningRequest.
+      operationId: updateCertificateSigningRequestApproval
       parameters:
         - name: name
           in: path
-          description: The name of the CertificateSigningRequest resource to approve or deny.
+          description: The name of the CertificateSigningRequest to approve or deny.
           required: true
           schema:
             type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateSigningRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -2471,62 +2477,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "500":
-          description: InternalServerError
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    delete:
-      tags:
-        - certificatesigningrequest
-      description: deny the specified CertificateSigningRequest
-      operationId: denyCertificateSigningRequest
-      parameters:
-        - name: name
-          in: path
-          description: The name of the CertificateSigningRequest resource to delete.
-          required: true
-          schema:
-            type: string
-            uniqueItems: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: NotFound
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "409":
-          description: Conflict
           content:
             application/json:
               schema:

@@ -1553,6 +1553,9 @@ type PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody = Pat
 // ReplaceCertificateSigningRequestJSONRequestBody defines body for ReplaceCertificateSigningRequest for application/json ContentType.
 type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
+// UpdateCertificateSigningRequestApprovalJSONRequestBody defines body for UpdateCertificateSigningRequestApproval for application/json ContentType.
+type UpdateCertificateSigningRequestApprovalJSONRequestBody = CertificateSigningRequest
+
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
