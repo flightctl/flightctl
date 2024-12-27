@@ -3715,13 +3715,9 @@ components:
     CpuResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
-          type: object
-          description: Specification for monitoring CPU resource load.
     MemoryResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
-          type: object
-          description: Specification for monitoring Memory resource usage.
     DiskResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
@@ -3852,13 +3848,11 @@ components:
       properties:
         downloadSchedule:
           $ref: '#/components/schemas/UpdateSchedule'
-          description: Defines the schedule for downloading updates.
         updateSchedule:
           $ref: '#/components/schemas/UpdateSchedule'
-          description: Defines the schedule for applying updates.
     UpdateSchedule:
       type: object
-      description: Defines the schedule for automatic updates, including timing and optional timeout.
+      description: Defines the schedule for automatic downloading and updates, including timing and optional timeout.
       properties:
         timeZone:
           $ref: '#/components/schemas/TimeZone'
@@ -4190,13 +4184,10 @@ components:
       properties:
         cpu:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: Status of the device CPU resources.
         memory:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: Status of the device memory resources.
         disk:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: Status of the device disk resources.
     DeviceResourceStatusType:
       type: string
       description: The types of resource statuses.

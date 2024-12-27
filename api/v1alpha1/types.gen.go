@@ -565,10 +565,10 @@ type DeviceSystemInfo struct {
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
 type DeviceUpdatePolicySpec struct {
-	// DownloadSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+	// DownloadSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 	DownloadSchedule *UpdateSchedule `json:"downloadSchedule,omitempty"`
 
-	// UpdateSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+	// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 	UpdateSchedule *UpdateSchedule `json:"updateSchedule,omitempty"`
 }
 
@@ -1394,7 +1394,7 @@ type TemplateVersionStatus struct {
 // TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 type TimeZone = string
 
-// UpdateSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 type UpdateSchedule struct {
 	// At Cron expression format for scheduling times.
 	// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
