@@ -4688,7 +4688,7 @@ type PatchEnrollmentRequestStatusResponseObject interface {
 	VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error
 }
 
-type PatchEnrollmentRequestStatus200JSONResponse Repository
+type PatchEnrollmentRequestStatus200JSONResponse EnrollmentRequest
 
 func (response PatchEnrollmentRequestStatus200JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")

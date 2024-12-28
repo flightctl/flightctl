@@ -5641,7 +5641,7 @@ func (r ReadEnrollmentRequestStatusResponse) StatusCode() int {
 type PatchEnrollmentRequestStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Repository
+	JSON200      *EnrollmentRequest
 	JSON400      *Error
 	JSON401      *Error
 	JSON403      *Error
@@ -9196,7 +9196,7 @@ func ParsePatchEnrollmentRequestStatusResponse(rsp *http.Response) (*PatchEnroll
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Repository
+		var dest EnrollmentRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -45,29 +45,15 @@ func (s *EnrollmentRequestStore) InitialMigration() error {
 }
 
 func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	enrollmentrequest, err := model.NewEnrollmentRequestFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	enrollmentrequest.OrgID = orgId
-	_, err = s.createEnrollmentRequest(enrollmentrequest)
-	return resource, err
+	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, ModeCreateOnly)
+	return updatedResource, err
 }
 
 func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	enrollmentrequest, err := model.NewEnrollmentRequestFromApiResource(resource)
-	if err != nil {
-		return nil, err
-	}
-	enrollmentrequest.OrgID = orgId
-	_, err = s.createEnrollmentRequest(enrollmentrequest)
-	return resource, err
+	updatedResource, _, err := retryCreateOrUpdate(func() (*api.EnrollmentRequest, bool, bool, error) {
+		return s.createOrUpdate(orgId, resource, ModeUpdateOnly)
+	})
+	return updatedResource, err
 }
 
 func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error) {
@@ -174,7 +160,7 @@ func (s *EnrollmentRequestStore) updateEnrollmentRequest(existingRecord, enrollm
 	return false, nil
 }
 
-func (s *EnrollmentRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, bool, error) {
+func (s *EnrollmentRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.EnrollmentRequest, mode CreateOrUpdateMode) (*api.EnrollmentRequest, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -194,6 +180,14 @@ func (s *EnrollmentRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.E
 		return nil, false, false, err
 	}
 	exists := existingRecord != nil
+
+	if exists && mode == ModeCreateOnly {
+		return nil, false, false, flterrors.ErrDuplicateName
+	}
+	if !exists && mode == ModeUpdateOnly {
+		return nil, false, false, flterrors.ErrResourceNotFound
+	}
+
 	if !exists {
 		if retry, err := s.createEnrollmentRequest(enrollmentrequest); err != nil {
 			return nil, false, retry, err
@@ -210,7 +204,7 @@ func (s *EnrollmentRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.E
 
 func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error) {
 	return retryCreateOrUpdate(func() (*api.EnrollmentRequest, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource)
+		return s.createOrUpdate(orgId, resource, ModeCreateOrUpdate)
 	})
 }
 

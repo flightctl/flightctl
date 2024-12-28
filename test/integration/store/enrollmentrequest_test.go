@@ -37,6 +37,10 @@ func createEnrollmentRequests(numEnrollmentRequests int, ctx context.Context, st
 		if err != nil {
 			log.Fatalf("creating enrollmentrequest: %v", err)
 		}
+		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource)
+		if err != nil {
+			log.Fatalf("updating enrollmentrequest status: %v", err)
+		}
 	}
 }
 
@@ -58,7 +62,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		numEnrollmentRequests = 3
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 
-		createEnrollmentRequests(3, ctx, storeInst, orgId)
+		createEnrollmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
 	})
 
 	AfterEach(func() {
@@ -209,6 +213,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(er.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("new csr string"))
+			Expect(er.Status.Certificate).ToNot(BeNil())
 			Expect(*er.Status.Certificate).To(Equal("cert"))
 		})
 
