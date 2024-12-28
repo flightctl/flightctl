@@ -341,6 +341,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -737,6 +738,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -1109,6 +1111,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -1172,6 +1175,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - device
+      description: Patch the status of a Device resource.
+      operationId: patchDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1442,6 +1500,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "403":
           description: Forbidden
           content:
@@ -1450,12 +1514,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
           content:
             application/json:
               schema:
@@ -1541,12 +1599,6 @@ paths:
       responses:
         "201":
           description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
-        "208":
-          description: Already Reported
           content:
             application/json:
               schema:
@@ -1722,6 +1774,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - enrollmentrequest
+      description: Patch an EnrollmentRequest resource.
+      operationId: patchEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentRequest resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -1858,24 +1971,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/enrollmentrequests/{name}/approval:
-    post:
+    patch:
       tags:
         - enrollmentrequest
-      description: Approve or deny an EnrollmentRequest.
-      operationId: approveEnrollmentRequest
+      description: Patch the status of an EnrollmentRequest resource.
+      operationId: patchEnrollmentRequestStatus
       parameters:
         - name: name
           in: path
-          description: The name of the EnrollmentRequest to approve or deny.
+          description: The name of the EnrollmentRequest resource to patch.
           required: true
           schema:
             type: string
       requestBody:
         content:
-          application/json:
+          application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequestApproval'
+              $ref: '#/components/schemas/PatchRequest'
         required: true
       responses:
         "200":
@@ -1883,13 +1995,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestApproval'
-        "422":
-          description: UnprocessableEntity
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Repository'
         "400":
           description: Bad Request
           content:
@@ -1914,8 +2020,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "500":
-          description: InternalServerError
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/enrollmentrequests/{name}/approval:
+    put:
+      tags:
+        - enrollmentrequest
+      description: Approve or deny an EnrollmentRequest.
+      operationId: approveEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentRequest to approve or deny.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequestApproval'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequestApproval'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
           content:
             application/json:
               schema:
@@ -2023,6 +2185,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "503":
           description: ServiceUnavailable
           content:
@@ -2077,15 +2245,10 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
           content:
             application/json:
               schema:
@@ -2677,6 +2840,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -2757,12 +2921,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "409":
-          description: Conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "503":
           description: ServiceUnavailable
           content:
@@ -2789,6 +2947,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - fleet
+      description: Patch the status of a Fleet resource.
+      operationId: patchFleetStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:

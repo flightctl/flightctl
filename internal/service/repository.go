@@ -44,9 +44,10 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 	switch err {
 	case nil:
 		return server.CreateRepository201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateRepository400JSONResponse{Message: err.Error()}, nil
-
+	case flterrors.ErrDuplicateName:
+		return server.CreateRepository409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}

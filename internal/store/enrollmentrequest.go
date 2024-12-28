@@ -18,6 +18,7 @@ import (
 
 type EnrollmentRequest interface {
 	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
+	Update(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, error)
@@ -44,6 +45,19 @@ func (s *EnrollmentRequestStore) InitialMigration() error {
 }
 
 func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
+	if resource == nil {
+		return nil, flterrors.ErrResourceIsNil
+	}
+	enrollmentrequest, err := model.NewEnrollmentRequestFromApiResource(resource)
+	if err != nil {
+		return nil, err
+	}
+	enrollmentrequest.OrgID = orgId
+	_, err = s.createEnrollmentRequest(enrollmentrequest)
+	return resource, err
+}
+
+func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}

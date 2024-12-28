@@ -49,8 +49,10 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -406,6 +408,11 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	default:
 		return nil, err
 	}
+}
+
+// (PATCH /api/v1/devices/{name}/status)
+func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, request server.PatchDeviceStatusRequestObject) (server.PatchDeviceStatusResponseObject, error) {
+	return nil, fmt.Errorf("not yet implemented")
 }
 
 // (PUT /api/v1/devices/{name}/decommission)

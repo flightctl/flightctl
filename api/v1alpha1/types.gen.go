@@ -1571,17 +1571,26 @@ type ReplaceDeviceJSONRequestBody = Device
 // DecommissionDeviceJSONRequestBody defines body for DecommissionDevice for application/json ContentType.
 type DecommissionDeviceJSONRequestBody = DeviceDecommission
 
+// PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchDeviceStatus for application/json-patch+json ContentType.
+type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = Device
 
 // CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
 type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
+// PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentRequest for application/json-patch+json ContentType.
+type PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
 type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
 // ApproveEnrollmentRequestJSONRequestBody defines body for ApproveEnrollmentRequest for application/json ContentType.
 type ApproveEnrollmentRequestJSONRequestBody = EnrollmentRequestApproval
+
+// PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentRequestStatus for application/json-patch+json ContentType.
+type PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
 type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest
@@ -1594,6 +1603,9 @@ type PatchFleetApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceFleetJSONRequestBody defines body for ReplaceFleet for application/json ContentType.
 type ReplaceFleetJSONRequestBody = Fleet
+
+// PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchFleetStatus for application/json-patch+json ContentType.
+type PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceFleetStatusJSONRequestBody defines body for ReplaceFleetStatus for application/json ContentType.
 type ReplaceFleetStatusJSONRequestBody = Fleet

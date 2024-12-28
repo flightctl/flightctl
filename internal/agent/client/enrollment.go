@@ -43,17 +43,15 @@ func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 		e.rpcMetricsCallbackFunc("create_enrollmentrequest_duration", time.Since(start).Seconds(), err)
 	}
 
-	if resp.StatusCode() != http.StatusCreated && resp.StatusCode() != http.StatusAlreadyReported {
-		return nil, fmt.Errorf("create enrollmentrequest failed: %s", resp.Status())
+	switch resp.StatusCode() {
+	case http.StatusCreated:
+		if resp.JSON201 != nil {
+			return resp.JSON201, nil
+		}
+	case http.StatusConflict:
+		// An enrollment request already exists, so get and return it
+		return e.GetEnrollmentRequest(ctx, *req.Metadata.Name)
 	}
-
-	if resp.JSON201 != nil {
-		return resp.JSON201, nil
-	}
-	if resp.JSON208 != nil {
-		return resp.JSON208, nil
-	}
-
 	return nil, fmt.Errorf("create enrollmentrequest failed: %s", ErrEmptyResponse)
 }
 
