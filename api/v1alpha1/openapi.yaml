@@ -1416,19 +1416,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/enrollmentconfig/{name}:
+  /api/v1/enrollmentconfig:
     get:
       tags:
         - enrollmentrequest
-      description: Get an EnrollmentConfig.
-      operationId: enrollmentConfig
-      parameters:
-        - name: name
-          in: path
-          description: The name of approved CertificateSigningRequest.
-          required: true
-          schema:
-            type: string
+      description: Get enrollment information.
+      operationId: getEnrollmentConfig
       responses:
         "200":
           description: OK
@@ -1436,32 +1429,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentConfig'
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "503":
-          description: ServiceUnavailable
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:

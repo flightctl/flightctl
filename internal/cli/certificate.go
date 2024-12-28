@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -192,7 +194,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	// get URIs and other data from enrollmentconfig API
-	response, err := c.EnrollmentConfigWithResponse(ctx, name)
+	response, err := c.GetEnrollmentConfigWithResponse(ctx)
 	if err != nil {
 		return fmt.Errorf("getting enrollment config for %s: %w", name, err)
 	}
@@ -203,9 +205,9 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	switch o.OutputFormat {
 	case "embedded":
-		err = createEmbeddedConfig(name, ctx, priv, response)
+		err = createEmbeddedConfig(currentCsr, priv, response)
 	default:
-		err = createReferenceConfig(name, currentCsr, priv, response, o.OutputDir)
+		err = createReferenceConfig(name, currentCsr, response, o.OutputDir)
 
 	}
 	if err != nil {
@@ -304,47 +306,52 @@ func getCsr(o *CertificateOptions, name string, c *apiclient.ClientWithResponses
 	return &currentCsr, nil
 }
 
-func createEmbeddedConfig(name string, ctx context.Context, priv crypto.PrivateKey, response *apiclient.EnrollmentConfigResponse) error {
+func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.GetEnrollmentConfigResponse) error {
 	pemPriv, err := fccrypto.PEMEncodeKey(priv)
 	if err != nil {
 		return err
 	}
-	response.JSON200.EnrollmentService.Authentication.ClientKeyData = base64.StdEncoding.EncodeToString(pemPriv)
 
-	marshalled, err := yaml.Marshal(response.JSON200)
+	// print config to stdout
+	config := agent.NewDefault()
+	config.EnrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
+	config.EnrollmentService.AuthInfo.ClientKeyData = []byte(base64.StdEncoding.EncodeToString(pemPriv))
+	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
+	config.EnrollmentService.Service.CertificateAuthorityData = []byte(response.JSON200.EnrollmentService.Service.CertificateAuthorityData)
+	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	if err := config.Complete(); err != nil {
+		return fmt.Errorf("completing agent config: %w", err)
+	}
+	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling resource: %w", err)
+		return fmt.Errorf("marshalling agent config: %w", err)
 	}
 
-	_, err = fmt.Print(string(marshalled))
-	if err != nil {
-		return err
-	}
-
+	fmt.Print(marshalled)
 	return nil
 }
 
 func writeCertFile(data []byte, path string) error {
 	f, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("creating file %s\n", path)
+		return fmt.Errorf("creating file %s", path)
 	}
 	defer f.Close()
 	_, err = f.Write(data)
 	if err != nil {
-		return fmt.Errorf("writing data to %s: %w\n", path, err)
+		return fmt.Errorf("writing data to %s: %w", path, err)
 	}
 
 	return nil
 }
 
-func createReferenceConfig(name string, currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.EnrollmentConfigResponse, path string) error {
+func createReferenceConfig(name string, currentCsr *api.CertificateSigningRequest, response *apiclient.GetEnrollmentConfigResponse, path string) error {
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return fmt.Errorf("creating directory %s: %w", path, err)
 	}
 
 	// write out agent cert
-	certpath := path + name + ".crt"
+	certpath := filepath.Join(path, name+".crt")
 	cert := currentCsr.Status.Certificate
 	err := writeCertFile(*cert, certpath)
 	if err != nil {
@@ -352,7 +359,7 @@ func createReferenceConfig(name string, currentCsr *api.CertificateSigningReques
 	}
 
 	// write out ca bundle
-	capath := path + "ca.crt"
+	capath := filepath.Join(path, "ca.crt")
 	cadata, err := base64.StdEncoding.DecodeString(response.JSON200.EnrollmentService.Service.CertificateAuthorityData)
 	if err != nil {
 		return fmt.Errorf("decoding CA data: %w", err)
@@ -363,27 +370,21 @@ func createReferenceConfig(name string, currentCsr *api.CertificateSigningReques
 	}
 
 	// print config to stdout
-	response.JSON200.EnrollmentService.Authentication.ClientKeyData = agentPath + name + ".key"
-	response.JSON200.EnrollmentService.Authentication.ClientCertificateData = agentPath + name + ".crt"
-	response.JSON200.EnrollmentService.Service.CertificateAuthorityData = agentPath + "ca.crt"
-
-	marshalled, err := yaml.Marshal(response.JSON200)
+	config := agent.NewDefault()
+	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
+	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
+	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
+	config.EnrollmentService.Service.CertificateAuthority = filepath.Join(agentPath, "ca.crt")
+	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	if err := config.Complete(); err != nil {
+		return fmt.Errorf("completing agent config: %w", err)
+	}
+	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling resource: %w\n", err)
+		return fmt.Errorf("marshalling agent config: %w", err)
 	}
 
-	s := string(marshalled)
-	// these replacements are necessary only because the enrollmentconfig API struct fields do not 1:1 match
-	// the agent.Config and client.Config fields, which maybe should change
-	updateCert := strings.Replace(s, "client-certificate-data", "client-certificate", -1)
-	updateKey := strings.Replace(updateCert, "client-key-data", "client-key", -1)
-	stringOut := strings.Replace(updateKey, "certificate-authority-data", "certificate-authority", -1)
-
-	_, err = fmt.Print(stringOut)
-	if err != nil {
-		return err
-	}
-
+	fmt.Print(marshalled)
 	return nil
 }
 

@@ -174,8 +174,8 @@ type ClientInterface interface {
 
 	ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// EnrollmentConfig request
-	EnrollmentConfig(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentConfig request
+	GetEnrollmentConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteEnrollmentRequests request
 	DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -686,8 +686,8 @@ func (c *Client) ReplaceDeviceStatus(ctx context.Context, name string, body Repl
 	return c.Client.Do(req)
 }
 
-func (c *Client) EnrollmentConfig(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewEnrollmentConfigRequest(c.Server, name)
+func (c *Client) GetEnrollmentConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentConfigRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -2332,23 +2332,16 @@ func NewReplaceDeviceStatusRequestWithBody(server string, name string, contentTy
 	return req, nil
 }
 
-// NewEnrollmentConfigRequest generates requests for EnrollmentConfig
-func NewEnrollmentConfigRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentConfigRequest generates requests for GetEnrollmentConfig
+func NewGetEnrollmentConfigRequest(server string) (*http.Request, error) {
 	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
 
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/enrollmentconfig/%s", pathParam0)
+	operationPath := fmt.Sprintf("/api/v1/enrollmentconfig")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4249,8 +4242,8 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceStatusWithResponse(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
 
-	// EnrollmentConfigWithResponse request
-	EnrollmentConfigWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*EnrollmentConfigResponse, error)
+	// GetEnrollmentConfigWithResponse request
+	GetEnrollmentConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error)
 
 	// DeleteEnrollmentRequestsWithResponse request
 	DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error)
@@ -4970,19 +4963,16 @@ func (r ReplaceDeviceStatusResponse) StatusCode() int {
 	return 0
 }
 
-type EnrollmentConfigResponse struct {
+type GetEnrollmentConfigResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentConfig
-	JSON400      *Error
 	JSON401      *Error
 	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r EnrollmentConfigResponse) Status() string {
+func (r GetEnrollmentConfigResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -4990,7 +4980,7 @@ func (r EnrollmentConfigResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r EnrollmentConfigResponse) StatusCode() int {
+func (r GetEnrollmentConfigResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6225,13 +6215,13 @@ func (c *ClientWithResponses) ReplaceDeviceStatusWithResponse(ctx context.Contex
 	return ParseReplaceDeviceStatusResponse(rsp)
 }
 
-// EnrollmentConfigWithResponse request returning *EnrollmentConfigResponse
-func (c *ClientWithResponses) EnrollmentConfigWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*EnrollmentConfigResponse, error) {
-	rsp, err := c.EnrollmentConfig(ctx, name, reqEditors...)
+// GetEnrollmentConfigWithResponse request returning *GetEnrollmentConfigResponse
+func (c *ClientWithResponses) GetEnrollmentConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error) {
+	rsp, err := c.GetEnrollmentConfig(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseEnrollmentConfigResponse(rsp)
+	return ParseGetEnrollmentConfigResponse(rsp)
 }
 
 // DeleteEnrollmentRequestsWithResponse request returning *DeleteEnrollmentRequestsResponse
@@ -7921,15 +7911,15 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 	return response, nil
 }
 
-// ParseEnrollmentConfigResponse parses an HTTP response from a EnrollmentConfigWithResponse call
-func ParseEnrollmentConfigResponse(rsp *http.Response) (*EnrollmentConfigResponse, error) {
+// ParseGetEnrollmentConfigResponse parses an HTTP response from a GetEnrollmentConfigWithResponse call
+func ParseGetEnrollmentConfigResponse(rsp *http.Response) (*GetEnrollmentConfigResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &EnrollmentConfigResponse{
+	response := &GetEnrollmentConfigResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -7941,13 +7931,6 @@ func ParseEnrollmentConfigResponse(rsp *http.Response) (*EnrollmentConfigRespons
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Error
@@ -7962,20 +7945,6 @@ func ParseEnrollmentConfigResponse(rsp *http.Response) (*EnrollmentConfigRespons
 			return nil, err
 		}
 		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
 
 	}
 
