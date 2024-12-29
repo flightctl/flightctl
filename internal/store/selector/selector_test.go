@@ -27,7 +27,10 @@ type goodTestModel struct {
 
 func (m *goodTestModel) MapSelectorName(selector SelectorName) []SelectorName {
 	if strings.EqualFold("mappedselector", selector.String()) {
-		return []SelectorName{"model.field6", "model.field17"}
+		return []SelectorName{
+			NewSelectorName("model.field6"),
+			NewSelectorName("model.field17"),
+		}
 	}
 	return nil
 }
@@ -35,7 +38,6 @@ func (m *goodTestModel) MapSelectorName(selector SelectorName) []SelectorName {
 func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, error) {
 	if strings.EqualFold("customfield1", selector.String()) {
 		return &SelectorField{
-			Name:      "customfield1",
 			Type:      String,
 			FieldName: "goodfield",
 			FieldType: gormschema.String,
@@ -43,7 +45,6 @@ func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, 
 	}
 	if strings.EqualFold("customfield2", selector.String()) {
 		return &SelectorField{
-			Name:      "customfield2",
 			Type:      Timestamp,
 			FieldName: "goodfield.key",
 			FieldType: "jsonb",
@@ -51,7 +52,6 @@ func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, 
 	}
 	if strings.EqualFold("customfield3", selector.String()) {
 		return &SelectorField{
-			Name:      "customfield3",
 			Type:      Jsonb,
 			FieldName: "goodfield.key",
 			FieldType: "jsonb",
@@ -59,7 +59,6 @@ func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, 
 	}
 	if strings.EqualFold("customfield4.some.array[5]", selector.String()) {
 		return &SelectorField{
-			Name:      "customfield4.some.array[5]",
 			Type:      String,
 			FieldName: "goodfield.some.array[5]",
 			FieldType: "jsonb",
@@ -67,7 +66,6 @@ func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, 
 	}
 	if strings.EqualFold("customfield5.approved", selector.String()) {
 		return &SelectorField{
-			Name:      "customfield5.approved",
 			Type:      Bool,
 			FieldName: "goodfield.path.approved",
 			FieldType: "jsonb",
@@ -77,8 +75,14 @@ func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, 
 }
 
 func (m *goodTestModel) ListSelectors() SelectorNameSet {
-	return NewSelectorFieldNameSet().Add("mappedselector", "customfield1", "customfield2",
-		"customfield3", "customfield4.some.array[5]", "customfield5.approved")
+	return NewSelectorFieldNameSet().Add(
+		NewSelectorName("mappedselector"),
+		NewSelectorName("customfield1"),
+		NewSelectorName("customfield2"),
+		NewSelectorName("customfield3"),
+		NewSelectorName("customfield4.some.array[5]"),
+		NewSelectorName("customfield5.approved"),
+	)
 }
 
 type badTestModel struct {
@@ -87,7 +91,6 @@ type badTestModel struct {
 func (m *badTestModel) ResolveSelector(selector SelectorName) (*SelectorField, error) {
 	if strings.EqualFold("customfield4", selector.String()) {
 		return &SelectorField{
-			Name:      "customfield4",
 			Type:      TextArray, //Not supported
 			FieldName: "badfield.key",
 			FieldType: "jsonb",
@@ -95,7 +98,6 @@ func (m *badTestModel) ResolveSelector(selector SelectorName) (*SelectorField, e
 	}
 	if strings.EqualFold("customfield5", selector.String()) {
 		return &SelectorField{
-			Name:      "customfield5.key",
 			Type:      16, //Not supported
 			FieldName: "badfield.key",
 			FieldType: "jsonb",
@@ -105,7 +107,10 @@ func (m *badTestModel) ResolveSelector(selector SelectorName) (*SelectorField, e
 }
 
 func (m *badTestModel) ListSelectors() SelectorNameSet {
-	return NewSelectorFieldNameSet().Add("customfield4", "customfield5")
+	return NewSelectorFieldNameSet().Add(
+		NewSelectorName("customfield4"),
+		NewSelectorName("customfield5"),
+	)
 }
 
 type conflictTestModel struct {
@@ -145,7 +150,7 @@ func TestResolveFields(t *testing.T) {
 		}
 	}
 
-	if _, err := fr.ResolveFields("unknownselector"); err == nil {
+	if _, err := fr.ResolveFields(NewSelectorName("unknownselector")); err == nil {
 		t.Errorf("unknownselector: did not get expected error\n")
 	}
 

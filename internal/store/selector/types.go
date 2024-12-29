@@ -83,14 +83,38 @@ type SelectorResolver interface {
 }
 
 // SelectorName represents the name of a selector.
-type SelectorName string
-
-func (sf SelectorName) TrimSpace() SelectorName {
-	return SelectorName(strings.TrimSpace(sf.String()))
+type SelectorName interface {
+	String() string // Returns the string representation of the selector name.
 }
 
-func (sf SelectorName) String() string {
-	return string(sf)
+// selectorName is the default implementation of SelectorName.
+type selectorName struct {
+	name string
+}
+
+// NewSelectorName creates a new SelectorName instance.
+func NewSelectorName(name string) SelectorName {
+	return selectorName{strings.TrimSpace(name)}
+}
+
+// String returns the string representation of the selector name.
+func (sn selectorName) String() string {
+	return sn.name
+}
+
+// hiddenSelectorName represents a hidden selector that is not exposed.
+type hiddenSelectorName struct {
+	name string
+}
+
+// NewHiddenSelectorName creates a new hidden selector.
+func NewHiddenSelectorName(name string) SelectorName {
+	return hiddenSelectorName{strings.TrimSpace(name)}
+}
+
+// String returns the string representation of the hidden selector name.
+func (sn hiddenSelectorName) String() string {
+	return sn.name
 }
 
 // SelectorType represents the type of a selector.
@@ -167,11 +191,15 @@ func (t SelectorType) String() string {
 	}
 }
 
+// SelectorOpt represents a set of options for a selector.
+type SelectorOpt = map[string]struct{}
+
 type SelectorField struct {
 	Name      SelectorName
 	Type      SelectorType
 	FieldName string
 	FieldType gormschema.DataType
+	Options   SelectorOpt
 }
 
 // IsJSONBCast returns true if the field's data type is 'jsonb' and the expected type is not Jsonb.

@@ -25,11 +25,11 @@ type Resource struct {
 
 	// Labels associated with the resource, used for selecting and querying objects.
 	// Labels are stored as a JSONB object, supporting flexible indexing and querying capabilities.
-	Labels JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.labels"`
+	Labels JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
 
 	// Annotations associated with the resource, used for storing additional metadata.
 	// Similar to labels, annotations are stored as a JSONB object to support flexible indexing and querying.
-	Annotations JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.annotations"`
+	Annotations JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.annotations,hidden,private"`
 
 	Generation      *int64
 	ResourceVersion *int64

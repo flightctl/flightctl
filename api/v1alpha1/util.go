@@ -344,3 +344,54 @@ func ExecuteGoTemplateOnDevice(t *template.Template, dev *Device) (string, error
 	}
 	return buf.String(), nil
 }
+
+// MatchExpressionsToString converts a list of MatchExpressions into a formatted string.
+// Each MatchExpression is represented by its string form, separated by ", ".
+func MatchExpressionsToString(exprs ...MatchExpression) string {
+	if len(exprs) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	for i, e := range exprs {
+		sb.WriteString(e.String())
+		if i < len(exprs)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	return sb.String()
+}
+
+// String converts a MatchExpression into its string representation.
+// Example formats:
+// - Exists: "key"
+// - DoesNotExist: "!key"
+// - In: "key in (val1, val2)"
+// - NotIn: "key notin (val1, val2)"
+func (e MatchExpression) String() string {
+	var sb strings.Builder
+
+	switch e.Operator {
+	case Exists:
+		sb.WriteString(e.Key) // Exists: Just the key
+	case DoesNotExist:
+		sb.WriteString("!") // Prepend the "not exists" operator
+		sb.WriteString(e.Key)
+	case In:
+		if e.Values != nil {
+			sb.WriteString(e.Key)
+			sb.WriteString(" in ")
+			sb.WriteString("(" + strings.Join(*e.Values, ", ") + ")")
+		}
+	case NotIn:
+		if e.Values != nil {
+			sb.WriteString(e.Key)
+			sb.WriteString(" notin ")
+			sb.WriteString("(" + strings.Join(*e.Values, ", ") + ")")
+		}
+	default:
+		// Return empty string for unsupported operators
+		return ""
+	}
+	return sb.String()
+}
