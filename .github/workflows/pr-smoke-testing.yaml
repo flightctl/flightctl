@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
-  kind-cluster:
+  smoke:
     runs-on: "ubuntu-24.04"
     steps:
       - name: Checkout
@@ -79,4 +79,4 @@ jobs:
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'logs'
+          log-directory: 'smoke-logs'

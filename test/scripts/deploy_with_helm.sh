@@ -10,8 +10,8 @@ SQL_VERSION=${SQL_VERSION:-"latest"}
 SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-12-c8s"}
 RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
-VALKEY_VERSION=${VALKEY_VERSION:-"8.0.1"}
-VALKEY_IMAGE=${VALKEY_IMAGE:-"docker.io/valkey/valkey"}
+KV_VERSION=${KV_VERSION:-"7.4.1"}
+KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -48,7 +48,7 @@ done
 
 SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
 RABBITMQ_ARG="--set rabbitmq.image.image=${RABBITMQ_IMAGE} --set rabbitmq.image.tag=${RABBITMQ_VERSION}"
-VALKEY_ARG="--set kv.image.image=${VALKEY_IMAGE} --set kv.image.tag=${VALKEY_VERSION}"
+KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -64,7 +64,7 @@ if [ -z "$ONLY_DB" ]; then
   done
 
   kind_load_image "${RABBITMQ_IMAGE}:${RABBITMQ_VERSION}" keep-tar
-  kind_load_image "${VALKEY_IMAGE}:${VALKEY_VERSION}" keep-tar
+  kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
 fi
 
 if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
@@ -101,7 +101,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${VALKEY_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s

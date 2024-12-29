@@ -35,7 +35,7 @@ type ConsoleSessionManager struct {
 	callbackManager tasks.CallbackManager
 	kvStore         kvstore.KVStore
 	// This one is the gRPC Handler of the agent for now, in the next iteration
-	// this should be split so we funnel traffic through a queue in valkey
+	// this should be split so we funnel traffic through a queue in redis/valkey
 	sessionRegistration InternalSessionRegistration
 }
 
