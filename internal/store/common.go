@@ -95,6 +95,15 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 		query = query.Where(q, p...)
 	}
 
+	if listParams.AnnotationSelector != nil {
+		q, p, err := listParams.AnnotationSelector.Parse(ctx, lq.dest,
+			selector.NewHiddenSelectorName("metadata.annotations"))
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where(q, p...)
+	}
+
 	return query, nil
 }
 
