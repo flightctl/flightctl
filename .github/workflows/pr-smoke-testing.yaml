@@ -12,10 +12,18 @@ permissions:
   pull-requests: read
 
 jobs:
-  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
-  kind-cluster:
+  smoke:
+    strategy:
+      matrix:
+        config: ['private-images', 'public-images']
+      # Allow both matrix jobs to run to completion even if one fails
+      fail-fast: false
     runs-on: "ubuntu-24.04"
     steps:
+      - name: Set environment
+        if: ${{ matrix.config == 'private-images' }}
+        run: echo "ENVIRONMENT=private-images" >> $GITHUB_ENV
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -32,18 +40,58 @@ jobs:
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
+      - name: Setup registry.redhat.io auth
+        if: ${{ steps.filter.outputs.notdocs == 'true' && matrix.config == 'private-images' }}
+        run: |
+          if [ -z "${{ secrets.DOCKER_CONFIG_JSON }}" ]; then
+            echo "Docker config.json is not available."
+            exit 0
+          fi
+          mkdir -p ~/.docker
+          echo "${{ secrets.DOCKER_CONFIG_JSON }}" > ~/.docker/config.json
+          chmod 600 ~/.docker/config.json
+
       - name: Create cluster
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make cluster
-      
-      - name: Deploy
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+
+      - name: Setup pull secret
+        if: ${{ steps.filter.outputs.notdocs == 'true' && matrix.config == 'private-images' }}
+        run: |
+          if [ -z "${{ secrets.PULL_SECRET }}" ]; then
+            echo "Pull secret is not available."
+            exit 0
+          fi
+          echo "${{ secrets.PULL_SECRET }}" > /tmp/pull-secret.txt
+          chmod 600 /tmp/pull-secret.txt
+
+      - name: Deploy the flightctl server
+        if: ${{ steps.filter.outputs.notdocs == 'true' && matrix.config == 'private-images' }}
+        env:
+          IMAGE_PULL_SECRET_PATH: /tmp/pull-secret.txt
+          SQL_IMAGE: registry.redhat.io/rhel8/postgresql-12
+          SQL_VERSION: 1-181
+          KV_IMAGE: registry.redhat.io/rhel9/redis-7
+          KV_VERSION: 9.5
         run: make deploy
+
+      - name: Deploy the flightctl server (public images)
+        if: ${{ steps.filter.outputs.notdocs == 'true' && matrix.config == 'public-images' }}
+        run: make deploy
+
+      - name: Cleanup pull secret
+        if: ${{ always() && steps.filter.outputs.notdocs == 'true' && matrix.config == 'private-images' }}
+        run: |
+          # Ensure pull secret is securely removed
+          if [ -f /tmp/pull-secret.txt ]; then
+            shred -u /tmp/pull-secret.txt
+          fi
+          # Cleanup podman login credentials
+          podman logout registry.redhat.io || true
 
       - name: Check
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: |
-          kubectl get pods --all-namespaces
+        run: kubectl get pods --all-namespaces
 
       - name: Make the cmdline tool
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
@@ -74,7 +122,7 @@ jobs:
         run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
 
       - name: Collect and Upload Logs
-        if: always() && steps.filter.outputs.notdocs == 'true'
+        if: ${{ always() && steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/collect-logs
         with:
           namespace-external: 'flightctl-external'

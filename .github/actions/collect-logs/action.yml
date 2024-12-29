@@ -68,3 +68,4 @@ runs:
         name: deploy-logs
         path: ${{ inputs.log-directory }}
         retention-days: 7
+        compress: true
