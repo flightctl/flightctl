@@ -73,7 +73,10 @@ func (s *AgentServer) Run(ctx context.Context) error {
 		ErrorHandler: oapiErrorHandler,
 	}
 
+	// request size limits should come before logging to prevent DoS attacks from filling logs
 	middlewares := [](func(http.Handler) http.Handler){
+		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
+		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
@@ -89,7 +92,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	h := service.NewAgentServiceHandler(s.store, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl)
 	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
 
-	srv := tlsmiddleware.NewHTTPServerWithTLSContext(router, s.log, s.cfg.Service.AgentEndpointAddress)
+	srv := tlsmiddleware.NewHTTPServerWithTLSContext(router, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
 		<-ctx.Done()

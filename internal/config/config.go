@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
@@ -33,20 +34,27 @@ type dbConfig struct {
 }
 
 type svcConfig struct {
-	Address              string   `json:"address,omitempty"`
-	AgentEndpointAddress string   `json:"agentEndpointAddress,omitempty"`
-	AgentGrpcAddress     string   `json:"agentGrpcAddress,omitempty"`
-	CertStore            string   `json:"cert,omitempty"`
-	BaseUrl              string   `json:"baseUrl,omitempty"`
-	BaseAgentEndpointUrl string   `json:"baseAgentEndpointUrl,omitempty"`
-	BaseAgentGrpcUrl     string   `json:"baseAgentGrpcUrl,omitempty"`
-	BaseUIUrl            string   `json:"baseUIUrl,omitempty"`
-	CaCertFile           string   `json:"caCertFile,omitempty"`
-	CaKeyFile            string   `json:"caKeyFile,omitempty"`
-	SrvCertFile          string   `json:"srvCertFile,omitempty"`
-	SrvKeyFile           string   `json:"srvKeyFile,omitempty"`
-	AltNames             []string `json:"altNames,omitempty"`
-	LogLevel             string   `json:"logLevel,omitempty"`
+	Address               string        `json:"address,omitempty"`
+	AgentEndpointAddress  string        `json:"agentEndpointAddress,omitempty"`
+	AgentGrpcAddress      string        `json:"agentGrpcAddress,omitempty"`
+	CertStore             string        `json:"cert,omitempty"`
+	BaseUrl               string        `json:"baseUrl,omitempty"`
+	BaseAgentEndpointUrl  string        `json:"baseAgentEndpointUrl,omitempty"`
+	BaseAgentGrpcUrl      string        `json:"baseAgentGrpcUrl,omitempty"`
+	BaseUIUrl             string        `json:"baseUIUrl,omitempty"`
+	CaCertFile            string        `json:"caCertFile,omitempty"`
+	CaKeyFile             string        `json:"caKeyFile,omitempty"`
+	SrvCertFile           string        `json:"srvCertFile,omitempty"`
+	SrvKeyFile            string        `json:"srvKeyFile,omitempty"`
+	AltNames              []string      `json:"altNames,omitempty"`
+	LogLevel              string        `json:"logLevel,omitempty"`
+	HttpReadTimeout       util.Duration `json:"httpReadTimeout,omitempty"`
+	HttpReadHeaderTimeout util.Duration `json:"httpReadHeaderTimeout,omitempty"`
+	HttpWriteTimeout      util.Duration `json:"httpWriteTimeout,omitempty"`
+	HttpMaxNumHeaders     int           `json:"httpMaxNumHeaders,omitempty"`
+	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
+	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
+	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
 }
 
 type queueConfig struct {
@@ -102,14 +110,21 @@ func NewDefault() *Config {
 			Password: "adminpass",
 		},
 		Service: &svcConfig{
-			Address:              ":3443",
-			AgentEndpointAddress: ":7443",
-			AgentGrpcAddress:     ":7444",
-			CertStore:            CertificateDir(),
-			BaseUrl:              "https://localhost:3443",
-			BaseAgentEndpointUrl: "https://localhost:7443",
-			BaseAgentGrpcUrl:     "grpcs://localhost:7444",
-			LogLevel:             "info",
+			Address:               ":3443",
+			AgentEndpointAddress:  ":7443",
+			AgentGrpcAddress:      ":7444",
+			CertStore:             CertificateDir(),
+			BaseUrl:               "https://localhost:3443",
+			BaseAgentEndpointUrl:  "https://localhost:7443",
+			BaseAgentGrpcUrl:      "grpcs://localhost:7444",
+			LogLevel:              "info",
+			HttpReadTimeout:       util.Duration(5 * time.Minute),
+			HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
+			HttpWriteTimeout:      util.Duration(5 * time.Minute),
+			HttpMaxNumHeaders:     32,
+			HttpMaxHeaderBytes:    32 * 1024, // 32KB
+			HttpMaxUrlLength:      2000,
+			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
 		},
 		Queue: &queueConfig{
 			AmqpURL: "amqp://localhost:5672",
@@ -156,7 +171,7 @@ func Load(cfgFile string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %v", err)
 	}
-	c := &Config{}
+	c := NewDefault()
 	if err := yaml.Unmarshal(contents, c); err != nil {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
