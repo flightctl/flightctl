@@ -87,9 +87,9 @@ services:
     restart: unless-stopped
 
   flightctl-kv:
-    container_name: flightctl-kv
-    image: valkey/valkey:latest
-    command: valkey-server
+    container_name: flightctl-redis
+    image: docker.io/redis:7.4.1
+    command: redis-server
     ports:
       - 6379:6379
 

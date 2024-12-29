@@ -88,13 +88,15 @@ db:
 kv:
   enabled: true
   image:
-    image: valkey/valkey
-    tag: latest
+    image: docker.io/redis
+    tag: 7.4.1
     pullPolicy: Always
-  # Save a snapshot of the DB every 60 seconds if at least 1 write operation was performed.
-  # Each snapshot replaces the previous one.
   password: adminpass
-  flags: --save 60 1 --loglevel warning --requirepass {{ .Values.kv.password }}
+  # Save if at least 1 key changed in 15 minutes
+  save:
+    - seconds: 900
+      keys: 1
+  loglevel: warning
 api:
   enabled: true
   image:

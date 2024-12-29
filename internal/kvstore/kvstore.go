@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/valkey-io/valkey-go"
+	"github.com/redis/go-redis/v9"
 )
 
 type KVStore interface {
@@ -18,31 +18,36 @@ type KVStore interface {
 }
 
 type kvStore struct {
-	client         valkey.Client
-	getSetNxScript *valkey.Lua
+	client         *redis.Client
+	getSetNxScript *redis.Script
 }
 
 func NewKVStore(hostname string, port uint, password string) (KVStore, error) {
-	client, err := valkey.NewClient(valkey.ClientOption{
-		InitAddress: []string{fmt.Sprintf("%s:%d", hostname, port)},
-		Password:    password,
+	client := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", hostname, port),
+		Password: password,
+		DB:       0,
 	})
-	if err != nil {
-		return nil, err
+
+	// Test the connection
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
 	// Lua script to get the value if it exists, otherwise set and return it
-	luaScript := `
+	luaScript := redis.NewScript(`
 		local value = redis.call('get', KEYS[1])
 		if not value then
 			redis.call('set', KEYS[1], ARGV[1], 'NX')
 			value = ARGV[1]
 		end
 		return value
-	`
-	getSetNxScript := valkey.NewLuaScript(luaScript)
+	`)
 
-	return &kvStore{client: client, getSetNxScript: getSetNxScript}, nil
+	return &kvStore{
+		client:         client,
+		getSetNxScript: luaScript,
+	}, nil
 }
 
 func (s *kvStore) Close() {
@@ -50,52 +55,77 @@ func (s *kvStore) Close() {
 }
 
 func (s *kvStore) DeleteAllKeys(ctx context.Context) {
-	s.client.Do(ctx, s.client.B().Flushall().Build())
+	s.client.FlushAll(ctx)
 }
 
 // Sets the key to value only if the key does Not eXist. Returns a boolean indicating if the value was updated by this call.
 func (s *kvStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
-	err := s.client.Do(ctx, s.client.B().Set().Key(key).Value(valkey.BinaryString(value)).Nx().Build()).Error()
+	success, err := s.client.SetNX(ctx, key, value, 0).Result()
 	if err != nil {
-		if err != valkey.Nil {
-			return false, fmt.Errorf("failed storing key: %w", err)
-		} else {
-			return false, nil
-		}
+		return false, fmt.Errorf("failed storing key: %w", err)
 	}
-	return true, nil
+	return success, nil
 }
 
 // Gets the value for the specified key.
 func (s *kvStore) Get(ctx context.Context, key string) ([]byte, error) {
-	ret, err := s.client.Do(ctx, s.client.B().Get().Key(key).Build()).AsBytes()
-	if err == valkey.Nil {
+	result, err := s.client.Get(ctx, key).Bytes()
+	if err == redis.Nil {
 		return nil, nil
 	}
-	return ret, err
+	if err != nil {
+		return nil, fmt.Errorf("failed getting key: %w", err)
+	}
+	return result, nil
 }
 
 func (s *kvStore) GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error) {
-	return s.getSetNxScript.Exec(ctx, s.client, []string{key}, []string{string(value)}).AsBytes()
+	result, err := s.getSetNxScript.Run(ctx, s.client, []string{key}, value).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed executing GetOrSetNX: %w", err)
+	}
+
+	// Convert the result to a byte slice
+	switch v := result.(type) {
+	case string:
+		return []byte(v), nil
+	case []byte:
+		return v, nil
+	default:
+		return nil, fmt.Errorf("unexpected type for result: %T", result)
+	}
 }
 
 func (s *kvStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error {
-	prefix := fmt.Sprintf("%s*", key)
-	v, err := s.client.Do(ctx, s.client.B().Scan().Cursor(0).Match(prefix).Build()).AsScanEntry()
-	if err != nil {
+	pattern := fmt.Sprintf("%s*", key)
+	iter := s.client.Scan(ctx, 0, pattern, 0).Iterator()
+
+	var keys []string
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
 		return fmt.Errorf("failed listing keys: %w", err)
 	}
-	err = s.client.Do(ctx, s.client.B().Del().Key(v.Elements...).Build()).Error()
-	if err != nil {
-		return fmt.Errorf("failed deleting keys: %w", err)
+
+	if len(keys) > 0 {
+		if err := s.client.Del(ctx, keys...).Err(); err != nil {
+			return fmt.Errorf("failed deleting keys: %w", err)
+		}
 	}
+
 	return nil
 }
 
 func (s *kvStore) PrintAllKeys(ctx context.Context) {
-	v, err := s.client.Do(ctx, s.client.B().Scan().Cursor(0).Build()).AsScanEntry()
-	if err != nil {
-		fmt.Printf("failed listing keys: %v\n", err)
+	var keys []string
+	iter := s.client.Scan(ctx, 0, "*", 0).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
 	}
-	fmt.Printf("Keys: %v\n", v.Elements)
+	if err := iter.Err(); err != nil {
+		fmt.Printf("failed listing keys: %v\n", err)
+		return
+	}
+	fmt.Printf("Keys: %v\n", keys)
 }
