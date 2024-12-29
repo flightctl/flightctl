@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -161,8 +162,8 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 		It("List with paging", func() {
 			listParams := store.ListParams{
-				Limit:  1000,
-				Labels: map[string]string{"key": "value-1"}}
+				Limit:         1000,
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
 			enrollmentrequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(enrollmentrequests.Items)).To(Equal(1))

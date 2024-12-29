@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -232,8 +233,8 @@ var _ = Describe("FleetStore create", func() {
 
 		It("List by label", func() {
 			listParams := store.ListParams{
-				Limit:  1000,
-				Labels: map[string]string{"key": "value-1"}}
+				Limit:         1000,
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(1))
@@ -243,13 +244,13 @@ var _ = Describe("FleetStore create", func() {
 		It("List by in match expression", func() {
 			listParams := store.ListParams{
 				Limit: 1000,
-				LabelMatchExpressions: api.MatchExpressions{
-					{
+				LabelSelector: selector.NewLabelSelectorOrDie(
+					api.MatchExpression{
 						Key:      "key",
 						Operator: api.In,
 						Values:   lo.ToPtr([]string{"value-1"}),
-					},
-				}}
+					}.String()),
+			}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(1))
@@ -258,13 +259,13 @@ var _ = Describe("FleetStore create", func() {
 		It("List by not in match expression", func() {
 			listParams := store.ListParams{
 				Limit: 1000,
-				LabelMatchExpressions: api.MatchExpressions{
-					{
+				LabelSelector: selector.NewLabelSelectorOrDie(
+					api.MatchExpression{
 						Key:      "key",
 						Operator: api.NotIn,
 						Values:   lo.ToPtr([]string{"value-1"}),
-					},
-				}}
+					}.String()),
+			}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(2))
@@ -275,12 +276,12 @@ var _ = Describe("FleetStore create", func() {
 		It("List by exists match expression", func() {
 			listParams := store.ListParams{
 				Limit: 1000,
-				LabelMatchExpressions: api.MatchExpressions{
-					{
+				LabelSelector: selector.NewLabelSelectorOrDie(
+					api.MatchExpression{
 						Key:      "key",
 						Operator: api.Exists,
-					},
-				}}
+					}.String()),
+			}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
@@ -292,12 +293,12 @@ var _ = Describe("FleetStore create", func() {
 		It("List by exists match expression where key doesn't exist", func() {
 			listParams := store.ListParams{
 				Limit: 1000,
-				LabelMatchExpressions: api.MatchExpressions{
-					{
+				LabelSelector: selector.NewLabelSelectorOrDie(
+					api.MatchExpression{
 						Key:      "key1",
 						Operator: api.Exists,
-					},
-				}}
+					}.String()),
+			}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(0))
@@ -306,12 +307,12 @@ var _ = Describe("FleetStore create", func() {
 		It("List by does not exist match expression", func() {
 			listParams := store.ListParams{
 				Limit: 1000,
-				LabelMatchExpressions: api.MatchExpressions{
-					{
+				LabelSelector: selector.NewLabelSelectorOrDie(
+					api.MatchExpression{
 						Key:      "key",
 						Operator: api.DoesNotExist,
-					},
-				}}
+					}.String()),
+			}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(0))
@@ -320,12 +321,12 @@ var _ = Describe("FleetStore create", func() {
 		It("List by does not exist match expression where key does not exist", func() {
 			listParams := store.ListParams{
 				Limit: 1000,
-				LabelMatchExpressions: api.MatchExpressions{
-					{
+				LabelSelector: selector.NewLabelSelectorOrDie(
+					api.MatchExpression{
 						Key:      "key1",
 						Operator: api.DoesNotExist,
-					},
-				}}
+					}.String()),
+			}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))

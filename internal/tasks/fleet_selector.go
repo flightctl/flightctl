@@ -9,6 +9,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -117,8 +118,8 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 
 	// List the devices that now match the fleet's selector
 	listParams := store.ListParams{
-		Labels: getMatchLabelsSafe(fleet),
-		Limit:  ItemsPerPage,
+		LabelSelector: selector.NewLabelSelectorFromMapOrDie(getMatchLabelsSafe(fleet)),
+		Limit:         ItemsPerPage,
 	}
 	errors := 0
 
@@ -241,10 +242,9 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx conte
 func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.Context, fleet *api.Fleet) error {
 	// Remove the owner from devices that don't match the label selector but still have this owner
 	listParams := store.ListParams{
-		Labels:       getMatchLabelsSafe(fleet),
-		InvertLabels: util.BoolToPtr(true),
-		Owners:       []string{*util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)},
-		Limit:        ItemsPerPage,
+		LabelSelector: selector.NewLabelSelectorFromMapOrDie(getMatchLabelsSafe(fleet), true),
+		Owners:        []string{*util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)},
+		Limit:         ItemsPerPage,
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
 }

@@ -18,6 +18,8 @@ var (
 	ErrFieldSelectorSyntax                 = errors.New("invalid field selector syntax")
 	ErrFieldSelectorParseFailed            = errors.New("failed to parse field selector")
 	ErrFieldSelectorUnknownSelector        = errors.New("unknown or unsupported selector")
+	ErrLabelSelectorSyntax                 = errors.New("invalid label selector syntax")
+	ErrLabelSelectorParseFailed            = errors.New("failed to parse label selector")
 
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")

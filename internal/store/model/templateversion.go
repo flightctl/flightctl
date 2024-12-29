@@ -18,8 +18,8 @@ type TemplateVersion struct {
 	Name            string                  `gorm:"primary_key;" selector:"metadata.name"`
 	FleetName       string                  `gorm:"primary_key;" selector:"metadata.owner"`
 	Fleet           Fleet                   `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
-	Labels          JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.labels"`
-	Annotations     JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.annotations"`
+	Labels          JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
+	Annotations     JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.annotations,hidden,private"`
 	Generation      *int64
 	ResourceVersion *int64
 	CreatedAt       time.Time `selector:"metadata.creationTimestamp"`
