@@ -1,0 +1,88 @@
+name: "CI Tests"
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  test-private-images:
+    runs-on: "ubuntu-24.04"
+    environment: private-images
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_kvm: yes
+
+      - name: Setup registry.redhat.io auth
+        run: |
+          if [ -z "${{ secrets.DOCKER_CONFIG_JSON }}" ]; then
+            echo "Docker config.json is not available."
+            exit 1
+          fi
+          mkdir -p ~/.docker
+          echo "${{ secrets.DOCKER_CONFIG_JSON }}" > ~/.docker/config.json
+          chmod 600 ~/.docker/config.json
+
+      - name: Create kind cluster
+        run: make cluster
+
+      - name: Setup pull secret
+        run: |
+          if [ -z "${{ secrets.PULL_SECRET }}" ]; then
+            echo "Pull secret is not available."
+            exit 1
+          fi
+          echo "${{ secrets.PULL_SECRET }}" > /tmp/pull-secret.txt
+          chmod 600 /tmp/pull-secret.txt
+
+      - name: Deploy the flightctl server
+        env:
+          IMAGE_PULL_SECRET_PATH: /tmp/pull-secret.txt
+          SQL_IMAGE: registry.redhat.io/rhel8/postgresql-12
+          SQL_VERSION: 1-181
+          KV_IMAGE: registry.redhat.io/rhel9/redis-7
+          KV_VERSION: 9.5
+          RABBITMQ_IMAGE: registry.redhat.io/rhoso/openstack-rabbitmq-rhel9
+          RABBITMQ_VERSION: 18.0.3-3
+        run: make deploy
+
+      - name: Cleanup pull secret
+        run: |
+          # Ensure pull secret is securely removed
+          if [ -f /tmp/pull-secret.txt ]; then
+            shred -u /tmp/pull-secret.txt
+          fi
+          # Cleanup podman login credentials
+          podman logout registry.redhat.io || true
+
+      - name: Deploy the E2E side services, registry and git
+        run: make deploy-e2e-extras
+
+      - name: Make rpm, and agent images
+        run: |
+          make e2e-agent-images
+
+      - name: Make sure the images are owned by the runner user
+        run: |
+          sudo chown -R runner:runner bin/output || true
+
+      - name: Run E2E Tests
+        run:  make run-e2e-test VERBOSE=true
+
+      - name: Collect and Upload Logs
+        if: always()
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'ci-e2e-logs'

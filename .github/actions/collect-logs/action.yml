@@ -68,3 +68,4 @@ runs:
         name: ${{ inputs.log-directory }}
         path: ${{ inputs.log-directory }}
         retention-days: 7
+        compress: true
