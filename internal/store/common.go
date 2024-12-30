@@ -67,17 +67,6 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	query := db.Model(lq.dest).Order("name")
 	query = query.Where("org_id = ?", orgId)
 
-	query = FieldFilterSelectionQuery(query, listParams.Filter)
-
-	queryStr, args := createOrQuery("owner", listParams.Owners)
-	if len(queryStr) > 0 {
-		query = query.Where(queryStr, args...)
-	}
-
-	if listParams.FleetName != nil {
-		query = query.Where("fleet_name = ?", *listParams.FleetName)
-	}
-
 	if listParams.FieldSelector != nil {
 		q, p, err := listParams.FieldSelector.Parse(ctx, lq.dest)
 		if err != nil {
@@ -184,45 +173,6 @@ func GetNonNilFieldsFromResource(resource model.Resource) []string {
 	return ret
 }
 
-// FieldFilterSelectionQuery takes a GORM DB query and a map of search parameters. To search for a key-value pair in the
-// in a JSON object use the key to reflect location in the JSON data and the value to reflect the value to search for.
-// example map[string]string{"status.config.summary.status": "UpToDate"} will search status.config.summary.status for the
-// value "UpToDate".
-// To search for multiple values in the same field, separate the values with a comma.
-func FieldFilterSelectionQuery(query *gorm.DB, fieldMap map[string][]string) *gorm.DB {
-	queryStr, args := createQueryFromFilterMap(fieldMap)
-	if len(queryStr) > 0 {
-		query = query.Where(queryStr, args...)
-	}
-
-	return query
-}
-
-func createQueryFromFilterMap(fieldMap map[string][]string) (string, []interface{}) {
-	var queryParams []string
-	var args []interface{}
-
-	for key, values := range fieldMap {
-		if key == "" || values == nil || len(values) == 0 {
-			continue
-		}
-
-		orQuery, queryArgs := createOrQuery(createParamsFromKey(key), values)
-		if len(orQuery) > 0 {
-			queryParams = append(queryParams, orQuery)
-			args = append(args, queryArgs...)
-		}
-	}
-
-	var query string
-	// join all query conditions with 'OR'
-	if len(queryParams) > 0 {
-		query = strings.Join(queryParams, " OR ")
-	}
-
-	return query, args
-}
-
 func createParamsFromKey(key string) string {
 	parts := strings.Split(key, ".")
 	params := ""
@@ -238,32 +188,6 @@ func createParamsFromKey(key string) string {
 		}
 	}
 	return params
-}
-
-// createOrQuery can return empty `queryStr`/`args` (ie if `key` or `values` params are empty).
-// The caller is expected to check the size of `queryStr`/`args` before constructing a GORM query.
-func createOrQuery(key string, values []string) (string, []interface{}) {
-	var queryStr string
-	var queryParams []string
-	var args []interface{}
-
-	if key == "" {
-		return queryStr, args
-	}
-
-	for _, val := range values {
-		val = strings.TrimSpace(val)
-		if val == "" {
-			continue
-		}
-		queryParams = append(queryParams, fmt.Sprintf("%s = ?", key))
-		args = append(args, val)
-	}
-
-	if len(queryParams) > 0 {
-		queryStr = strings.Join(queryParams, " OR ")
-	}
-	return queryStr, args
 }
 
 func getExistingRecord[R any](db *gorm.DB, name string, orgId uuid.UUID) (*R, error) {

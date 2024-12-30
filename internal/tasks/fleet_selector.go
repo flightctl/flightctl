@@ -116,9 +116,15 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 		f.log.Errorf("failed disowning orphaned devices: %v", err)
 	}
 
+	// Create a new LabelSelector from the fleet's match labels.
+	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet))
+	if err != nil {
+		return err
+	}
+
 	// List the devices that now match the fleet's selector
 	listParams := store.ListParams{
-		LabelSelector: selector.NewLabelSelectorFromMapOrDie(getMatchLabelsSafe(fleet)),
+		LabelSelector: ls,
 		Limit:         ItemsPerPage,
 	}
 	errors := 0
@@ -232,19 +238,38 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 }
 
 func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx context.Context) error {
+	fs, err := selector.NewFieldSelectorFromMap(
+		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)}, false)
+	if err != nil {
+		return err
+	}
+
 	// Remove the owner from devices that have this owner
 	listParams := store.ListParams{
-		Owners: []string{*util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)},
+		FieldSelector: fs,
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
 }
 
 func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.Context, fleet *api.Fleet) error {
+	// Create a new LabelSelector from the fleet's match labels.
+	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet), true)
+	if err != nil {
+		return err
+	}
+
+	// Construct the FieldSelector to match devices owned by the fleet.
+	fs, err := selector.NewFieldSelectorFromMap(
+		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)}, false)
+	if err != nil {
+		return err
+	}
+
 	// Remove the owner from devices that don't match the label selector but still have this owner
 	listParams := store.ListParams{
-		LabelSelector: selector.NewLabelSelectorFromMapOrDie(getMatchLabelsSafe(fleet), true),
-		Owners:        []string{*util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)},
 		Limit:         ItemsPerPage,
+		LabelSelector: ls,
+		FieldSelector: fs,
 	}
 	return f.removeOwnerFromMatchingDevices(ctx, listParams)
 }

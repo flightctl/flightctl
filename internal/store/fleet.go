@@ -11,6 +11,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -239,8 +240,13 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		Total: fleet.DeviceCount,
 	}
 	if options.withSummary {
-		deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId,
-			ListParams{Owners: []string{*util.SetResourceOwner(api.FleetKind, name)}})
+		fs, err := selector.NewFieldSelectorFromMap(
+			map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, name)}, false)
+		if err != nil {
+			return nil, err
+		}
+
+		deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, ListParams{FieldSelector: fs})
 		if err != nil {
 			return nil, err
 		}

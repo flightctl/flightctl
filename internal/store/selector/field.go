@@ -140,6 +140,23 @@ func NewFieldSelector(input string, opts ...FieldSelectorOption) (*FieldSelector
 	return fs, nil
 }
 
+// Add merges the requirements from the given FieldSelector into the current FieldSelector.
+func (fs *FieldSelector) Add(src *FieldSelector) *FieldSelector {
+	if src == nil || src.selector == nil {
+		return fs // No-op if the source selector is nil
+	}
+
+	requirements, selectable := src.selector.Requirements()
+	if !selectable {
+		return fs
+	}
+
+	if len(requirements) > 0 {
+		fs.selector = fs.selector.Add(requirements...)
+	}
+	return fs
+}
+
 // Parse translates a FieldSelector into a SQL query with parameters.
 // This method is responsible for resolving field names, operators, and values
 // from the FieldSelector and generating a corresponding SQL query that can be

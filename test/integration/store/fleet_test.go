@@ -655,8 +655,9 @@ var _ = Describe("FleetStore create", func() {
 		It("List with owner param", func() {
 			owner := "owner"
 			listParams := store.ListParams{
-				Limit:  100,
-				Owners: []string{owner},
+				Limit: 100,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+					map[string]string{"metadata.owner": owner}, false, selector.WithPrivateSelectors()),
 			}
 
 			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {})

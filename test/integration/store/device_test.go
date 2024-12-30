@@ -289,10 +289,8 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("List with status field filter paging", func() {
 			listParams := store.ListParams{
-				Filter: map[string][]string{
-					"status.updated.status": {"Unknown", "Updating"},
-				},
-				Limit: 1000,
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorOrDie("status.updated.status in (Unknown, Updating)", selector.WithPrivateSelectors()),
 			}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
@@ -303,24 +301,26 @@ var _ = Describe("DeviceStore create", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", util.StrToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", util.StrToPtr("Fleet/fleet-b"), nil, nil)
 			listParams := store.ListParams{
-				Owners: []string{"Fleet/fleet-a"},
-				Limit:  1000,
+				Limit: 1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+					map[string]string{"metadata.owner": "Fleet/fleet-a"}, false, selector.WithPrivateSelectors()),
 			}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
 			listParams = store.ListParams{
-				Owners: []string{"Fleet/fleet-b"},
-				Limit:  1000,
+				Limit: 1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+					map[string]string{"metadata.owner": "Fleet/fleet-b"}, false, selector.WithPrivateSelectors()),
 			}
 			devices, err = devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
 			listParams = store.ListParams{
-				Owners: []string{"Fleet/fleet-a", "Fleet/fleet-b"},
-				Limit:  1000,
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorOrDie("metadata.owner in (Fleet/fleet-a, Fleet/fleet-b)", selector.WithPrivateSelectors()),
 			}
 			devices, err = devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())

@@ -42,11 +42,19 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	}
 
 	var fieldSelector *selector.FieldSelector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
-		}
+	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}, false); err != nil {
+		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 	}
+
+	// If additional field selectors are provided, merge them
+	if request.Params.FieldSelector != nil {
+		additionalSelector, err := selector.NewFieldSelector(*request.Params.FieldSelector)
+		if err != nil {
+			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse additional field selector: %v", err)}, nil
+		}
+		fieldSelector.Add(additionalSelector)
+	}
+
 	var labelSelector *selector.LabelSelector
 	if request.Params.LabelSelector != nil {
 		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
@@ -56,7 +64,6 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	listParams := store.ListParams{
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
-		FleetName:     &request.Fleet,
 		FieldSelector: fieldSelector,
 		LabelSelector: labelSelector,
 	}
@@ -93,8 +100,17 @@ func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request ser
 		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
-	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's keys from the kvstore
-	listParams := store.ListParams{Limit: 100, FleetName: &request.Fleet}
+
+	var fieldSelector *selector.FieldSelector
+	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}, false); err != nil {
+		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
+	}
+
+	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's config storage
+	listParams := store.ListParams{
+		Limit:         100,
+		FieldSelector: fieldSelector,
+	}
 	for {
 		result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
 		if err != nil {
