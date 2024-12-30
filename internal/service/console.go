@@ -158,7 +158,7 @@ func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.Requ
 	// create a new console session
 	return server.RequestConsole200JSONResponse{
 		SessionID:    sessionId,
-		GRPCEndpoint: h.consoleGrpcEndpoint,
+		GRPCEndpoint: h.agentEndpoint,
 	}, nil
 
 }

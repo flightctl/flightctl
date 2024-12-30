@@ -27,6 +27,7 @@ func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, 
 		ReadTimeout:       time.Duration(cfg.Service.HttpReadTimeout),
 		ReadHeaderTimeout: time.Duration(cfg.Service.HttpReadHeaderTimeout),
 		WriteTimeout:      time.Duration(cfg.Service.HttpWriteTimeout),
+		IdleTimeout:       time.Duration(cfg.Service.HttpIdleTimeout),
 		MaxHeaderBytes:    cfg.Service.HttpMaxHeaderBytes,
 	}
 }
