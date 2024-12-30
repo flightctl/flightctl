@@ -117,7 +117,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}()
 
 	go func() {
-		err := workerServer.Run()
+		err := workerServer.Run(ctx)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
 			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))

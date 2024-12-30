@@ -4,9 +4,11 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/kvstore"
+	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("FleetSelector", func() {
@@ -14,18 +16,21 @@ var _ = Describe("FleetSelector", func() {
 		ctx     context.Context
 		orgId   uuid.UUID
 		kvStore kvstore.KVStore
+		log     *logrus.Logger
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
+		log = flightlog.InitLogs()
 		var err error
-		kvStore, err = kvstore.NewKVStore("localhost", 6379, "adminpass")
+		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		kvStore.DeleteAllKeys(ctx)
+		err := kvStore.DeleteAllKeys(ctx)
+		Expect(err).ToNot(HaveOccurred())
 		kvStore.Close()
 	})
 
