@@ -7,8 +7,8 @@ metadata:
   name: flightctl-kv-secret
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 type: Opaque
-stringData:
-  REDIS_PASSWORD: {{ .Values.kv.password }}
+data:
+  REDIS_PASSWORD: {{ .Values.kv.password | b64enc }}
 ---
 # ConfigMap for Redis configuration
 apiVersion: v1
@@ -56,6 +56,10 @@ spec:
     spec:
       securityContext:
         fsGroup: 1001
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       containers:
         - name: flightctl-kv
           image: {{ .Values.kv.image.image }}:{{ .Values.kv.image.tag }}
