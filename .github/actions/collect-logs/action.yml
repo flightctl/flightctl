@@ -65,6 +65,6 @@ runs:
       continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
-        name: deploy-logs
+        name: ${{ inputs.log-directory }}
         path: ${{ inputs.log-directory }}
         retention-days: 7

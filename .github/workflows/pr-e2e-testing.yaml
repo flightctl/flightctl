@@ -71,4 +71,4 @@ jobs:
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'logs'
+          log-directory: 'e2e-logs'

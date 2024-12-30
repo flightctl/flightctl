@@ -3,8 +3,10 @@ package kvstore
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/valkey-io/valkey-go"
+	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 )
 
 type KVStore interface {
@@ -13,89 +15,131 @@ type KVStore interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error)
 	DeleteKeysForTemplateVersion(ctx context.Context, key string) error
-	DeleteAllKeys(ctx context.Context)
+	DeleteAllKeys(ctx context.Context) error
 	PrintAllKeys(ctx context.Context) // For debugging
 }
 
 type kvStore struct {
-	client         valkey.Client
-	getSetNxScript *valkey.Lua
+	log            logrus.FieldLogger
+	client         *redis.Client
+	getSetNxScript *redis.Script
 }
 
-func NewKVStore(hostname string, port uint, password string) (KVStore, error) {
-	client, err := valkey.NewClient(valkey.ClientOption{
-		InitAddress: []string{fmt.Sprintf("%s:%d", hostname, port)},
-		Password:    password,
+func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (KVStore, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", hostname, port),
+		Password: password,
+		DB:       0,
 	})
-	if err != nil {
-		return nil, err
+
+	// Test the connection
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := client.Ping(timeoutCtx).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect to KV store: %w", err)
 	}
+	log.Info("successfully connected to the KV store")
 
 	// Lua script to get the value if it exists, otherwise set and return it
-	luaScript := `
+	luaScript := redis.NewScript(`
 		local value = redis.call('get', KEYS[1])
 		if not value then
 			redis.call('set', KEYS[1], ARGV[1], 'NX')
 			value = ARGV[1]
 		end
 		return value
-	`
-	getSetNxScript := valkey.NewLuaScript(luaScript)
+	`)
 
-	return &kvStore{client: client, getSetNxScript: getSetNxScript}, nil
+	return &kvStore{
+		log:            log,
+		client:         client,
+		getSetNxScript: luaScript,
+	}, nil
 }
 
 func (s *kvStore) Close() {
-	s.client.Close()
-}
-
-func (s *kvStore) DeleteAllKeys(ctx context.Context) {
-	s.client.Do(ctx, s.client.B().Flushall().Build())
-}
-
-// Sets the key to value only if the key does Not eXist. Returns a boolean indicating if the value was updated by this call.
-func (s *kvStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
-	err := s.client.Do(ctx, s.client.B().Set().Key(key).Value(valkey.BinaryString(value)).Nx().Build()).Error()
+	err := s.client.Close()
 	if err != nil {
-		if err != valkey.Nil {
-			return false, fmt.Errorf("failed storing key: %w", err)
-		} else {
-			return false, nil
-		}
+		s.log.Errorf("failed closing connection to KV store: %v", err)
 	}
-	return true, nil
 }
 
-// Gets the value for the specified key.
-func (s *kvStore) Get(ctx context.Context, key string) ([]byte, error) {
-	ret, err := s.client.Do(ctx, s.client.B().Get().Key(key).Build()).AsBytes()
-	if err == valkey.Nil {
-		return nil, nil
-	}
-	return ret, err
-}
-
-func (s *kvStore) GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error) {
-	return s.getSetNxScript.Exec(ctx, s.client, []string{key}, []string{string(value)}).AsBytes()
-}
-
-func (s *kvStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error {
-	prefix := fmt.Sprintf("%s*", key)
-	v, err := s.client.Do(ctx, s.client.B().Scan().Cursor(0).Match(prefix).Build()).AsScanEntry()
+func (s *kvStore) DeleteAllKeys(ctx context.Context) error {
+	_, err := s.client.FlushAll(ctx).Result()
 	if err != nil {
-		return fmt.Errorf("failed listing keys: %w", err)
-	}
-	err = s.client.Do(ctx, s.client.B().Del().Key(v.Elements...).Build()).Error()
-	if err != nil {
-		return fmt.Errorf("failed deleting keys: %w", err)
+		return fmt.Errorf("failed deleting all keys: %w", err)
 	}
 	return nil
 }
 
-func (s *kvStore) PrintAllKeys(ctx context.Context) {
-	v, err := s.client.Do(ctx, s.client.B().Scan().Cursor(0).Build()).AsScanEntry()
+// Sets the key to value only if the key does Not eXist. Returns a boolean indicating if the value was updated by this call.
+func (s *kvStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
+	success, err := s.client.SetNX(ctx, key, value, 0).Result()
 	if err != nil {
-		fmt.Printf("failed listing keys: %v\n", err)
+		return false, fmt.Errorf("failed storing key: %w", err)
 	}
-	fmt.Printf("Keys: %v\n", v.Elements)
+	return success, nil
+}
+
+// Gets the value for the specified key.
+func (s *kvStore) Get(ctx context.Context, key string) ([]byte, error) {
+	result, err := s.client.Get(ctx, key).Bytes()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed getting key: %w", err)
+	}
+	return result, nil
+}
+
+func (s *kvStore) GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error) {
+	result, err := s.getSetNxScript.Run(ctx, s.client, []string{key}, value).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed executing GetOrSetNX: %w", err)
+	}
+
+	// Convert the result to a byte slice
+	switch v := result.(type) {
+	case string:
+		return []byte(v), nil
+	case []byte:
+		return v, nil
+	default:
+		return nil, fmt.Errorf("unexpected type for result: %T", result)
+	}
+}
+
+func (s *kvStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error {
+	pattern := fmt.Sprintf("%s*", key)
+	iter := s.client.Scan(ctx, 0, pattern, 0).Iterator()
+
+	var keys []string
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return fmt.Errorf("failed listing keys: %w", err)
+	}
+
+	if len(keys) > 0 {
+		if err := s.client.Del(ctx, keys...).Err(); err != nil {
+			return fmt.Errorf("failed deleting keys: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *kvStore) PrintAllKeys(ctx context.Context) {
+	var keys []string
+	iter := s.client.Scan(ctx, 0, "*", 0).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		fmt.Printf("failed listing keys: %v\n", err)
+		return
+	}
+	fmt.Printf("Keys: %v\n", keys)
 }
