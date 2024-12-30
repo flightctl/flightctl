@@ -130,11 +130,8 @@ func (s *DataStore) Close() error {
 }
 
 type ListParams struct {
-	Filter             map[string][]string
-	Owners             []string
 	Limit              int
 	Continue           *Continue
-	FleetName          *string
 	FieldSelector      *selector.FieldSelector
 	LabelSelector      *selector.LabelSelector
 	AnnotationSelector *selector.AnnotationSelector

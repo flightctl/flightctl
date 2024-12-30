@@ -98,7 +98,6 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 	listParams := store.ListParams{
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
-		Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
 		FieldSelector: fieldSelector,
 		LabelSelector: labelSelector,
 	}

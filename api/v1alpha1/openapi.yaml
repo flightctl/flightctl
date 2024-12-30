@@ -99,11 +99,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: repository
-          in: query
-          description: The name of the repository to filter results by.
-          schema:
-            type: string
       responses:
         "200":
           description: OK
@@ -805,13 +800,6 @@ paths:
           description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
             type: string
-        - name: statusFilter
-          in: query
-          description: A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
-          schema:
-            type: array
-            items:
-              type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -819,12 +807,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: owner
-          in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
-          required: false
-          schema:
-            type: string
         - name: summaryOnly
           in: query
           description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
@@ -2585,12 +2567,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: owner
-          in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
-          required: false
-          schema:
-            type: string
         - name: addDevicesCount
           in: query
           description: Include the number of devices in each fleet.

@@ -1441,14 +1441,8 @@ type ListDevicesParams struct {
 	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
-	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
-	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
-
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
@@ -1488,9 +1482,6 @@ type ListFleetsParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// AddDevicesCount Include the number of devices in each fleet.
 	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
@@ -1545,9 +1536,6 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Repository The name of the repository to filter results by.
-	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.

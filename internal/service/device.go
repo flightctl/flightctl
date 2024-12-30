@@ -14,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 )
 
@@ -67,18 +66,6 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	orgId := store.NullOrgId
 
-	statusFilter := []string{}
-	if request.Params.StatusFilter != nil {
-		for _, filter := range *request.Params.StatusFilter {
-			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
-		}
-	}
-
-	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
-	}
-
 	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
 		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
@@ -104,8 +91,6 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		}
 
 		result, err := h.store.Device().Summary(ctx, orgId, store.ListParams{
-			Filter:        filterMap,
-			Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
 			FieldSelector: fieldSelector,
 			LabelSelector: labelSelector,
 		})
@@ -127,10 +112,8 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	}
 
 	listParams := store.ListParams{
-		Filter:        filterMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
-		Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
 		FieldSelector: fieldSelector,
 		LabelSelector: labelSelector,
 	}
