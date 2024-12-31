@@ -64,7 +64,7 @@ publish: build-containers
 
 .PHONY: publish
 
-generate:
+generate: vendor
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
 
 generate-proto:
@@ -72,6 +72,7 @@ generate-proto:
 
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
+	go mod vendor
 
 lint: tools
 	$(GOBIN)/golangci-lint run -v
