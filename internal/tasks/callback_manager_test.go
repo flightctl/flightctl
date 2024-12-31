@@ -292,7 +292,7 @@ var _ = Describe("RepositoryUpdatedCallback", func() {
 
 	It("submits RepositoryUpdatesTask", func() {
 		repository := CreateTestingRepository(orgId, "name", "url")
-		callbacksManager.RepositoryUpdatedCallback(repository)
+		callbacksManager.RepositoryUpdatedCallback(nil, repository)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -373,7 +373,7 @@ var _ = Describe("TemplateVersionCreatedCallback", func() {
 
 	It("submits FleetRolloutTask", func() {
 		templateVersion := CreateTestingTemplateVersion(orgId, "name", "template")
-		callbacksManager.TemplateVersionCreatedCallback(templateVersion)
+		callbacksManager.TemplateVersionCreatedCallback(nil, templateVersion)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 

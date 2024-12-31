@@ -76,7 +76,7 @@ var _ = Describe("FleetValidate", func() {
 			Spec: specHttp,
 		}
 
-		repoCallback := store.RepositoryStoreCallback(func(*model.Repository) {})
+		repoCallback := store.RepositoryStoreCallback(func(before, after *model.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)

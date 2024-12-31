@@ -68,6 +68,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	serverCfg := *config.NewDefault()
 	serverLog := log.InitLogs()
 	serverLog.SetLevel(logrus.DebugLevel)
+	serverLog.SetOutput(os.Stdout)
 
 	// create store
 	store, dbName, err := testutil.NewTestStore(serverCfg, serverLog)

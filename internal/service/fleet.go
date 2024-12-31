@@ -193,7 +193,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -235,7 +235,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 		return server.DeleteFleet403JSONResponse{Message: "unauthorized to delete fleet because it is owned by another resource"}, nil
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, h.callbackManager.FleetUpdatedCallback, request.Name)
+	err = h.store.Fleet().Delete(ctx, orgId, request.Name, h.callbackManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil
@@ -347,7 +347,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
-	result, err := h.store.Fleet().Update(ctx, orgId, newObj, updateCallback)
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback)
 
 	switch err {
 	case nil:

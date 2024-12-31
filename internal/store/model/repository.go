@@ -2,11 +2,13 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
@@ -28,8 +30,8 @@ type Repository struct {
 
 type RepositoryList []Repository
 
-func (d Repository) String() string {
-	val, _ := json.Marshal(d)
+func (r Repository) String() string {
+	val, _ := json.Marshal(r)
 	return string(val)
 }
 
@@ -68,19 +70,19 @@ func hideValue(value *string) {
 	}
 }
 
-func (f *Repository) ToApiResource() (api.Repository, error) {
-	if f == nil {
-		return api.Repository{}, nil
+func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, error) {
+	if r == nil {
+		return &api.Repository{}, nil
 	}
 
 	var spec api.RepositorySpec
-	if f.Spec != nil {
-		spec = f.Spec.Data
+	if r.Spec != nil {
+		spec = r.Spec.Data
 	}
 
 	status := api.RepositoryStatus{Conditions: []api.Condition{}}
-	if f.Status != nil {
-		status = f.Status.Data
+	if r.Status != nil {
+		status = r.Status.Data
 	}
 
 	_, err := spec.GetGenericRepoSpec()
@@ -91,7 +93,7 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 			hideValue(gitHttpSpec.HttpConfig.TlsKey)
 			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
 			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
-				return api.Repository{}, err
+				return &api.Repository{}, err
 			}
 
 		} else {
@@ -100,29 +102,29 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
 				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
 				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
-					return api.Repository{}, err
+					return &api.Repository{}, err
 				}
 			}
 		}
 	}
 
-	return api.Repository{
+	return &api.Repository{
 		ApiVersion: api.RepositoryAPIVersion,
 		Kind:       api.RepositoryKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(f.Name),
-			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
-			Labels:            lo.ToPtr(util.EnsureMap(f.Resource.Labels)),
-			Annotations:       lo.ToPtr(util.EnsureMap(f.Resource.Annotations)),
-			ResourceVersion:   lo.Ternary(f.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(f.ResourceVersion), 10)), nil),
+			Name:              util.StrToPtr(r.Name),
+			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
+			Labels:            lo.ToPtr(util.EnsureMap(r.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(r.Resource.Annotations)),
+			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
 		Status: &status,
 	}, nil
 }
 
-func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) (api.RepositoryList, error) {
-	if dl == nil {
+func (rl *RepositoryList) ToApiResource(cont *string, numRemaining *int64) (api.RepositoryList, error) {
+	if rl == nil {
 		return api.RepositoryList{
 			ApiVersion: api.RepositoryAPIVersion,
 			Kind:       api.RepositoryListKind,
@@ -130,8 +132,8 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) (api.R
 		}, nil
 	}
 
-	repositoryList := make([]api.Repository, len(dl))
-	for i, repository := range dl {
+	repositoryList := make([]api.Repository, len(*rl))
+	for i, repository := range *rl {
 		repo, err := repository.ToApiResource()
 		if err != nil {
 			return api.RepositoryList{
@@ -140,7 +142,7 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) (api.R
 				Items:      []api.Repository{},
 			}, err
 		}
-		repositoryList[i] = repo
+		repositoryList[i] = *repo
 	}
 	ret := api.RepositoryList{
 		ApiVersion: api.RepositoryAPIVersion,
@@ -153,4 +155,98 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) (api.R
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
 	return ret, nil
+}
+
+func RepositoryPtrReturnSelf(r *Repository) *Repository {
+	return r
+}
+
+func (r *Repository) GetKind() string {
+	return api.RepositoryKind
+}
+
+func (r *Repository) GetName() string {
+	return r.Name
+}
+
+func (r *Repository) GetOrgID() uuid.UUID {
+	return r.OrgID
+}
+
+func (r *Repository) SetOrgID(orgId uuid.UUID) {
+	r.OrgID = orgId
+}
+
+func (r *Repository) GetResourceVersion() *int64 {
+	return r.ResourceVersion
+}
+
+func (r *Repository) SetResourceVersion(version *int64) {
+	r.ResourceVersion = version
+}
+
+func (r *Repository) GetGeneration() *int64 {
+	return r.Generation
+}
+
+func (r *Repository) SetGeneration(generation *int64) {
+	r.Generation = generation
+}
+
+func (r *Repository) GetOwner() *string {
+	return r.Owner
+}
+
+func (r *Repository) SetOwner(owner *string) {
+	r.Owner = owner
+}
+
+func (r *Repository) GetLabels() JSONMap[string, string] {
+	return r.Labels
+}
+
+func (r *Repository) SetLabels(labels JSONMap[string, string]) {
+	r.Labels = labels
+}
+
+func (r *Repository) GetAnnotations() JSONMap[string, string] {
+	return r.Annotations
+}
+
+func (r *Repository) SetAnnotations(annotations JSONMap[string, string]) {
+	r.Annotations = annotations
+}
+
+func (r *Repository) HasNilSpec() bool {
+	return r.Spec == nil
+}
+
+func (r *Repository) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*Repository) // Assert that the other resource is a *Repository
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (r.Spec == nil && other.Spec != nil) || (r.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return reflect.DeepEqual(r.Spec.Data, other.Spec.Data)
+}
+
+func (r *Repository) GetStatusAsJson() ([]byte, error) {
+	return r.Status.MarshalJSON()
+}
+
+func (rl *RepositoryList) Length() int {
+	return len(*rl)
+}
+
+func (rl *RepositoryList) GetItem(i int) Generic {
+	return &((*rl)[i])
+}
+
+func (rl *RepositoryList) RemoveLast() {
+	*rl = (*rl)[:len(*rl)-1]
 }

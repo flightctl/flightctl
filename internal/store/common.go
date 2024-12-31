@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -188,17 +187,6 @@ func createParamsFromKey(key string) string {
 		}
 	}
 	return params
-}
-
-func getExistingRecord[R any](db *gorm.DB, name string, orgId uuid.UUID) (*R, error) {
-	var existingRecord R
-	if err := db.Where("name = ? and org_id = ?", name, orgId).First(&existingRecord).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, ErrorFromGormError(err)
-	}
-	return &existingRecord, nil
 }
 
 func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, error)) (*A, bool, error) {

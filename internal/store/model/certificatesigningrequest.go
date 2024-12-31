@@ -2,28 +2,30 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
 type CertificateSigningRequest struct {
 	Resource
 
-	// The desired state of the enrollment request, stored as opaque JSON object.
+	// The desired state of the certificate signing request, stored as opaque JSON object.
 	Spec *JSONField[api.CertificateSigningRequestSpec] `gorm:"type:jsonb"`
 
-	// The last reported state of the enrollment request, stored as opaque JSON object.
+	// The last reported state of the certificate signing request, stored as opaque JSON object.
 	Status *JSONField[api.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
 }
 
 type CertificateSigningRequestList []CertificateSigningRequest
 
-func (e CertificateSigningRequest) String() string {
-	val, _ := json.Marshal(e)
+func (csr CertificateSigningRequest) String() string {
+	val, _ := json.Marshal(csr)
 	return string(val)
 }
 
@@ -56,9 +58,9 @@ func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSignin
 	}, nil
 }
 
-func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequest {
+func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (*api.CertificateSigningRequest, error) {
 	if csr == nil {
-		return api.CertificateSigningRequest{}
+		return &api.CertificateSigningRequest{}, nil
 	}
 
 	status := api.CertificateSigningRequestStatus{Conditions: []api.Condition{}}
@@ -66,7 +68,7 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 		status = csr.Status.Data
 	}
 
-	return api.CertificateSigningRequest{
+	return &api.CertificateSigningRequest{
 		ApiVersion: api.CertificateSigningRequestAPI,
 		Kind:       api.CertificateSigningRequestKind,
 		Metadata: api.ObjectMeta{
@@ -78,21 +80,22 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 		},
 		Spec:   csr.Spec.Data,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaining *int64) api.CertificateSigningRequestList {
+func (csrl *CertificateSigningRequestList) ToApiResource(cont *string, numRemaining *int64) (api.CertificateSigningRequestList, error) {
 	if csrl == nil {
 		return api.CertificateSigningRequestList{
 			ApiVersion: api.CertificateSigningRequestAPI,
 			Kind:       api.CertificateSigningRequestListKind,
 			Items:      []api.CertificateSigningRequest{},
-		}
+		}, nil
 	}
 
-	certificateSigningRequestList := make([]api.CertificateSigningRequest, len(csrl))
-	for i, certificateSigningRequest := range csrl {
-		certificateSigningRequestList[i] = certificateSigningRequest.ToApiResource()
+	certificateSigningRequestList := make([]api.CertificateSigningRequest, len(*csrl))
+	for i, certificateSigningRequest := range *csrl {
+		apiResource, _ := certificateSigningRequest.ToApiResource()
+		certificateSigningRequestList[i] = *apiResource
 	}
 	ret := api.CertificateSigningRequestList{
 		ApiVersion: api.CertificateSigningRequestAPI,
@@ -104,5 +107,96 @@ func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaini
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
+}
+
+func CertificateSigningRequestPtrToCertificateSigningRequest(p *CertificateSigningRequest) *CertificateSigningRequest {
+	return p
+}
+
+func (csr *CertificateSigningRequest) GetKind() string {
+	return api.CertificateSigningRequestKind
+}
+
+func (csr *CertificateSigningRequest) GetName() string {
+	return csr.Name
+}
+
+func (csr *CertificateSigningRequest) GetOrgID() uuid.UUID {
+	return csr.OrgID
+}
+
+func (csr *CertificateSigningRequest) SetOrgID(orgId uuid.UUID) {
+	csr.OrgID = orgId
+}
+
+func (csr *CertificateSigningRequest) GetResourceVersion() *int64 {
+	return csr.ResourceVersion
+}
+
+func (csr *CertificateSigningRequest) SetResourceVersion(version *int64) {
+	csr.ResourceVersion = version
+}
+
+func (csr *CertificateSigningRequest) GetGeneration() *int64 {
+	return csr.Generation
+}
+
+func (csr *CertificateSigningRequest) SetGeneration(generation *int64) {
+	csr.Generation = generation
+}
+
+func (csr *CertificateSigningRequest) GetOwner() *string {
+	return csr.Owner
+}
+
+func (csr *CertificateSigningRequest) SetOwner(owner *string) {
+	csr.Owner = owner
+}
+
+func (csr *CertificateSigningRequest) GetLabels() JSONMap[string, string] {
+	return csr.Labels
+}
+
+func (csr *CertificateSigningRequest) SetLabels(labels JSONMap[string, string]) {
+	csr.Labels = labels
+}
+
+func (csr *CertificateSigningRequest) GetAnnotations() JSONMap[string, string] {
+	return csr.Annotations
+}
+
+func (csr *CertificateSigningRequest) SetAnnotations(annotations JSONMap[string, string]) {
+	csr.Annotations = annotations
+}
+
+func (csr *CertificateSigningRequest) HasNilSpec() bool {
+	return csr.Spec == nil
+}
+
+func (csr *CertificateSigningRequest) HasSameSpecAs(otherResource any) bool {
+	otherDev, ok := otherResource.(*CertificateSigningRequest) // Assert that the other resource is a *CertificateSigningRequest
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if otherDev == nil || otherDev.Spec == nil {
+		return false
+	}
+	return reflect.DeepEqual(csr.Spec.Data, otherDev.Spec.Data)
+}
+
+func (csr *CertificateSigningRequest) GetStatusAsJson() ([]byte, error) {
+	return csr.Status.MarshalJSON()
+}
+
+func (csrl *CertificateSigningRequestList) Length() int {
+	return len(*csrl)
+}
+
+func (csrl *CertificateSigningRequestList) GetItem(i int) Generic {
+	return &((*csrl)[i])
+}
+
+func (csrl *CertificateSigningRequestList) RemoveLast() {
+	*csrl = (*csrl)[:len(*csrl)-1]
 }
