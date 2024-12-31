@@ -75,7 +75,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 			logic.SetItemsPerPage(2)
@@ -111,7 +110,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			logic.SetItemsPerPage(2)
@@ -180,7 +178,6 @@ var _ = Describe("FleetRollout", func() {
 				fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-				Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 				devices, err := deviceStore.List(ctx, orgId, store.ListParams{})
 				Expect(err).ToNot(HaveOccurred())
@@ -246,7 +243,6 @@ var _ = Describe("FleetRollout", func() {
 				fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-				Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 				// Roll out to the single device
 				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
@@ -287,7 +283,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
@@ -331,7 +326,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)

@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - flightctl-db:/var/lib/pgsql/data
+      - flightctl-db:/var/lib/pgsql/data:z
     networks:
       - flightctl-network
     restart: unless-stopped
@@ -32,7 +32,7 @@ services:
     ports:
       - "5433:5433"
     volumes:
-      - flightctl-auth-db:/var/lib/pgsql/data
+      - flightctl-auth-db:/var/lib/pgsql/data:z
     networks:
       - flightctl-network
     restart: unless-stopped
@@ -71,7 +71,7 @@ services:
       DB_USER: keycloak
       DB_PASSWORD: keycloak
     volumes:
-      - ./keycloak/realm-flightctl.json:/opt/keycloak/data/import/realm.json
+      - ./keycloak/realm-flightctl.json:/opt/keycloak/data/import/realm.json:z
     networks:
       - flightctl-network
     restart: unless-stopped
@@ -91,7 +91,7 @@ services:
     image: docker.io/redis:7.4.1
     command: redis-server
     volumes:
-      - flightctl-kv:/var/lib/redis/data
+      - flightctl-kv:/var/lib/redis/data:z
     ports:
       - 6379:6379
     networks:
