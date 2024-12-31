@@ -491,7 +491,7 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api
 		}
 
 		device.Spec = newDeviceSpec
-		_, err = f.devStore.Update(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
+		_, err = f.devStore.Update(ctx, f.resourceRef.OrgID, device, nil, false, nil, f.callbackManager.DeviceUpdatedCallback)
 		if err != nil {
 			if errors.Is(err, flterrors.ErrResourceVersionConflict) {
 				device, err = f.devStore.Get(ctx, f.resourceRef.OrgID, *device.Metadata.Name)

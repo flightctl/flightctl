@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
+	"github.com/google/uuid"
 )
 
 // (POST /api/v1/repositories)
@@ -237,7 +237,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 		}
 	}
 
-	newObj := &v1alpha1.Repository{}
+	newObj := &api.Repository{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/repositories/"+request.Name)
 	if err != nil {
 		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
@@ -259,7 +259,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(repo *model.Repository)
+	var updateCallback func(uuid.UUID, *api.Repository, *api.Repository)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.RepositoryUpdatedCallback

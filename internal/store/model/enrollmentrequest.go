@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -19,8 +20,6 @@ type EnrollmentRequest struct {
 	// The last reported state of the enrollment request, stored as opaque JSON object.
 	Status *JSONField[api.EnrollmentRequestStatus] `gorm:"type:jsonb"`
 }
-
-type EnrollmentRequestList []EnrollmentRequest
 
 func (e EnrollmentRequest) String() string {
 	val, _ := json.Marshal(e)
@@ -56,9 +55,14 @@ func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) (*Enro
 	}, nil
 }
 
-func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
+func (e *EnrollmentRequest) ToApiResource(opts ...APIResourceOption) (*api.EnrollmentRequest, error) {
 	if e == nil {
-		return api.EnrollmentRequest{}
+		return &api.EnrollmentRequest{}, nil
+	}
+
+	spec := api.EnrollmentRequestSpec{}
+	if e.Spec != nil {
+		spec = e.Spec.Data
 	}
 
 	status := api.EnrollmentRequestStatus{Conditions: []api.Condition{}}
@@ -66,7 +70,7 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 		status = e.Status.Data
 	}
 
-	return api.EnrollmentRequest{
+	return &api.EnrollmentRequest{
 		ApiVersion: api.EnrollmentRequestAPIVersion,
 		Kind:       api.EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
@@ -76,23 +80,16 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 			Annotations:       lo.ToPtr(util.EnsureMap(e.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(e.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(e.ResourceVersion), 10)), nil),
 		},
-		Spec:   e.Spec.Data,
+		Spec:   spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (el EnrollmentRequestList) ToApiResource(cont *string, numRemaining *int64) api.EnrollmentRequestList {
-	if el == nil {
-		return api.EnrollmentRequestList{
-			ApiVersion: api.EnrollmentRequestAPIVersion,
-			Kind:       api.EnrollmentRequestListKind,
-			Items:      []api.EnrollmentRequest{},
-		}
-	}
-
-	enrollmentRequestList := make([]api.EnrollmentRequest, len(el))
-	for i, enrollmentRequest := range el {
-		enrollmentRequestList[i] = enrollmentRequest.ToApiResource()
+func EnrollmentRequestsToApiResource(ers []EnrollmentRequest, cont *string, numRemaining *int64) (api.EnrollmentRequestList, error) {
+	enrollmentRequestList := make([]api.EnrollmentRequest, len(ers))
+	for i, enrollmentRequest := range ers {
+		apiResource, _ := enrollmentRequest.ToApiResource()
+		enrollmentRequestList[i] = *apiResource
 	}
 	ret := api.EnrollmentRequestList{
 		ApiVersion: api.EnrollmentRequestAPIVersion,
@@ -104,5 +101,31 @@ func (el EnrollmentRequestList) ToApiResource(cont *string, numRemaining *int64)
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
+}
+
+func (e *EnrollmentRequest) GetKind() string {
+	return api.EnrollmentRequestKind
+}
+
+func (e *EnrollmentRequest) HasNilSpec() bool {
+	return e.Spec == nil
+}
+
+func (e *EnrollmentRequest) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*EnrollmentRequest) // Assert that the other resource is a *EnrollmentRequest
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (e.Spec == nil && other.Spec != nil) || (e.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return reflect.DeepEqual(e.Spec.Data, other.Spec.Data)
+}
+
+func (e *EnrollmentRequest) GetStatusAsJson() ([]byte, error) {
+	return e.Status.MarshalJSON()
 }

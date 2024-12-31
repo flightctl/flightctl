@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -33,10 +34,8 @@ type TemplateVersion struct {
 	Status *JSONField[api.TemplateVersionStatus] `gorm:"type:jsonb"`
 }
 
-type TemplateVersionList []TemplateVersion
-
-func (t TemplateVersion) String() string {
-	val, _ := json.Marshal(t)
+func (tv TemplateVersion) String() string {
+	val, _ := json.Marshal(tv)
 	return string(val)
 }
 
@@ -72,51 +71,44 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) (*Template
 	}, nil
 }
 
-func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
+func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.TemplateVersion, error) {
 	// Shouldn't happen, but just to be safe
-	if t == nil {
-		return api.TemplateVersion{}
+	if tv == nil {
+		return &api.TemplateVersion{}, nil
 	}
 
 	var spec api.TemplateVersionSpec
-	if t.Spec != nil {
-		spec = t.Spec.Data
+	if tv.Spec != nil {
+		spec = tv.Spec.Data
 	}
 
 	status := api.TemplateVersionStatus{}
-	if t.Status != nil {
-		status = t.Status.Data
+	if tv.Status != nil {
+		status = tv.Status.Data
 	}
 
-	return api.TemplateVersion{
+	return &api.TemplateVersion{
 		ApiVersion: api.TemplateVersionAPIVersion,
 		Kind:       api.TemplateVersionKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(t.Name),
-			CreationTimestamp: util.TimeToPtr(t.CreatedAt.UTC()),
-			Labels:            lo.ToPtr(util.EnsureMap(t.Labels)),
-			Annotations:       lo.ToPtr(util.EnsureMap(t.Annotations)),
-			Generation:        t.Generation,
-			Owner:             util.SetResourceOwner(api.FleetKind, t.FleetName),
-			ResourceVersion:   lo.Ternary(t.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(t.ResourceVersion), 10)), nil),
+			Name:              util.StrToPtr(tv.Name),
+			CreationTimestamp: util.TimeToPtr(tv.CreatedAt.UTC()),
+			Labels:            lo.ToPtr(util.EnsureMap(tv.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(tv.Annotations)),
+			Generation:        tv.Generation,
+			Owner:             util.SetResourceOwner(api.FleetKind, tv.FleetName),
+			ResourceVersion:   lo.Ternary(tv.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(tv.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (tl TemplateVersionList) ToApiResource(cont *string, numRemaining *int64) api.TemplateVersionList {
-	// Shouldn't happen, but just to be safe
-	if tl == nil {
-		return api.TemplateVersionList{
-			ApiVersion: api.TemplateVersionAPIVersion,
-			Kind:       api.TemplateVersionListKind,
-		}
-	}
-
-	deviceList := make([]api.TemplateVersion, len(tl))
-	for i, device := range tl {
-		deviceList[i] = device.ToApiResource()
+func TemplateVersionsToApiResource(tvs []TemplateVersion, cont *string, numRemaining *int64) (api.TemplateVersionList, error) {
+	deviceList := make([]api.TemplateVersion, len(tvs))
+	for i, device := range tvs {
+		apiResource, _ := device.ToApiResource()
+		deviceList[i] = *apiResource
 	}
 	ret := api.TemplateVersionList{
 		ApiVersion: api.TemplateVersionAPIVersion,
@@ -127,5 +119,104 @@ func (tl TemplateVersionList) ToApiResource(cont *string, numRemaining *int64) a
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
+	return ret, nil
+}
+
+func (tv *TemplateVersion) GetKind() string {
+	return api.TemplateVersionKind
+}
+
+func (tv *TemplateVersion) GetName() string {
+	return tv.Name
+}
+
+func (tv *TemplateVersion) GetOrgID() uuid.UUID {
+	return tv.OrgID
+}
+
+func (tv *TemplateVersion) SetOrgID(orgId uuid.UUID) {
+	tv.OrgID = orgId
+}
+
+func (tv *TemplateVersion) GetResourceVersion() *int64 {
+	return tv.ResourceVersion
+}
+
+func (tv *TemplateVersion) SetResourceVersion(version *int64) {
+	tv.ResourceVersion = version
+}
+
+func (tv *TemplateVersion) GetGeneration() *int64 {
+	return tv.Generation
+}
+
+func (tv *TemplateVersion) SetGeneration(generation *int64) {
+	tv.Generation = generation
+}
+
+func (tv *TemplateVersion) GetOwner() *string {
+	return nil
+}
+
+func (tv *TemplateVersion) SetOwner(owner *string) {}
+
+func (tv *TemplateVersion) GetLabels() JSONMap[string, string] {
+	return tv.Labels
+}
+
+func (tv *TemplateVersion) SetLabels(labels JSONMap[string, string]) {
+	tv.Labels = labels
+}
+
+func (tv *TemplateVersion) GetAnnotations() JSONMap[string, string] {
+	return tv.Annotations
+}
+
+func (tv *TemplateVersion) SetAnnotations(annotations JSONMap[string, string]) {
+	tv.Annotations = annotations
+}
+
+func (tv *TemplateVersion) GetNonNilFieldsFromResource() []string {
+	ret := []string{}
+	if tv.GetGeneration() != nil {
+		ret = append(ret, "generation")
+	}
+	if tv.GetLabels() != nil {
+		ret = append(ret, "labels")
+	}
+	if tv.GetAnnotations() != nil {
+		ret = append(ret, "annotations")
+	}
+	if tv.GetResourceVersion() != nil {
+		ret = append(ret, "resource_version")
+	}
 	return ret
+}
+
+func (tv *TemplateVersion) HasNilSpec() bool {
+	return tv.Spec == nil
+}
+
+func (tv *TemplateVersion) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*TemplateVersion) // Assert that the other resource is a *TemplateVersion
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if tv.Spec == nil && other.Spec == nil {
+		return true
+	}
+	if (tv.Spec == nil && other.Spec != nil) || (tv.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return reflect.DeepEqual(tv.Spec.Data, other.Spec.Data)
+}
+
+func (tv *TemplateVersion) GetStatusAsJson() ([]byte, error) {
+	if tv.Status == nil {
+		return []byte("{}"), nil
+	}
+	return tv.Status.MarshalJSON()
 }

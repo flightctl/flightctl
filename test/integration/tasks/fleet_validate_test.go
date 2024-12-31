@@ -8,7 +8,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -76,7 +75,7 @@ var _ = Describe("FleetValidate", func() {
 			Spec: specHttp,
 		}
 
-		repoCallback := store.RepositoryStoreCallback(func(*model.Repository) {})
+		repoCallback := store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)
@@ -134,7 +133,7 @@ var _ = Describe("FleetValidate", func() {
 		badHttpConfig.HttpRef.FilePath = "http-path"
 		badHttpConfig.HttpRef.Suffix = util.StrToPtr("/suffix")
 
-		callback = store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+		callback = store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
 	})
 
 	AfterEach(func() {

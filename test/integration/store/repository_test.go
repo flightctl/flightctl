@@ -40,7 +40,7 @@ var _ = Describe("RepositoryStore create", func() {
 		numRepositories = 3
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
 		callbackCalled = false
-		callback = store.RepositoryStoreCallback(func(*model.Repository) { callbackCalled = true })
+		callback = store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
 
 		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())

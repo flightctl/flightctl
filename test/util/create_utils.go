@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 )
@@ -75,8 +74,8 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
-	callback := store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {})
-	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, callback)
+	callback := store.DeviceStoreCallback(func(uuid.UUID, *api.Device, *api.Device) {})
+	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
@@ -111,7 +110,7 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 	if selector != nil {
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
-	callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+	callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
 	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
@@ -144,7 +143,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		resource.Status = status
 	}
 
-	callback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
+	callback := store.TemplateVersionStoreCallback(func(uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
 	_, err := tvStore.Create(ctx, orgId, &resource, callback)
 
 	return err
@@ -178,7 +177,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 			Spec: spec,
 		}
 
-		callback := store.RepositoryStoreCallback(func(*model.Repository) {})
+		callback := store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			return err
