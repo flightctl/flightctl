@@ -2,7 +2,7 @@ GOBASE=$(shell pwd)
 GOBIN=$(GOBASE)/bin
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
-GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
+GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*" -not -path "./vendor/*" )
 GO_CACHE := -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -v $${HOME}/go/flightctl-go-cache/.cache:/opt/app-root/src/.cache:Z
 TIMEOUT ?= 30m
 GOOS := $(shell go env GOOS)
@@ -38,6 +38,7 @@ help:
 	@echo "Targets:"
 	@echo "    generate:        regenerate all generated files"
 	@echo "    tidy:            tidy go mod"
+	@echo "    vendor:          go mod vendor"
 	@echo "    lint:            run golangci-lint"
 	@echo "    lint-docs:       run markdownlint on documentation"
 	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
@@ -75,7 +76,7 @@ tidy:
 lint: tools
 	$(GOBIN)/golangci-lint run -v
 
-build: bin build-cli
+build: bin vendor build-cli
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
 		./cmd/devicesimulator \
 		./cmd/flightctl-agent \
@@ -121,11 +122,13 @@ flightctl-periodic-container: bin/.flightctl-periodic-container
 
 build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container
 
-.PHONY: build-containers
-
+.PHONY: build-containers vendor bin
 
 bin:
 	mkdir -p bin
+
+vendor:
+	go mod vendor
 
 # only trigger the rpm build when not built before or changes happened to the codebase
 bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
@@ -170,6 +173,7 @@ clean: clean-agent-vm clean-e2e-agent-images
 	- rm -f -r $(shell uname -m)
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
+	- rm -f -r vendor
 
 clean-quadlets:
 	- sudo systemctl stop flightctl.slice

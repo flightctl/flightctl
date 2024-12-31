@@ -1,0 +1,19 @@
+---
+# ls-lint configuration file. More information on the file format can be found on https://ls-lint.org/
+ls:
+  .md: screamingsnakecase   # README.md or CODE_OF_CONDUCT.md
+  .OLD: screamingsnakecase  # LICENSE.OLD
+  .good.txt: pascalcase
+  .bad.txt: pascalcase
+  .yml: pascalcase
+  .yaml: pascalcase
+
+ignore:
+  # .git folder cannot be linted
+  - .git
+  # .github folder contains configuration files with specific name, and should not be linted
+  - .github
+  # dot files are usually configuration files with specific name
+  - .ls-lint.yml
+  - .markdownlint.yml
+  - .yamllint.yml
