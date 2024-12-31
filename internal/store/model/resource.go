@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -24,12 +23,13 @@ type Resource struct {
 	// The "kind/name" of the resource owner of this resource.
 	Owner *string `gorm:"index:owner_idx,priority:1" selector:"metadata.owner"`
 
-	// User-defined labels, used to select resources in queries.
-	// Labels are inserted in the device column as a string array, in a way
-	// that we can perform indexing and queries on them.
-	Labels pq.StringArray `gorm:"type:text[]" selector:"metadata.labels"`
+	// Labels associated with the resource, used for selecting and querying objects.
+	// Labels are stored as a JSONB object, supporting flexible indexing and querying capabilities.
+	Labels JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
 
-	Annotations pq.StringArray `gorm:"type:text[]" selector:"metadata.annotations"`
+	// Annotations associated with the resource, used for storing additional metadata.
+	// Similar to labels, annotations are stored as a JSONB object to support flexible indexing and querying.
+	Annotations JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.annotations,hidden,private"`
 
 	Generation      *int64
 	ResourceVersion *int64

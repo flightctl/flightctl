@@ -854,27 +854,11 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// ------------- Optional query parameter "statusFilter" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "statusFilter", r.URL.Query(), &params.StatusFilter)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "statusFilter", Err: err})
-		return
-	}
-
 	// ------------- Optional query parameter "limit" -------------
 
 	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		return
-	}
-
-	// ------------- Optional query parameter "owner" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "owner", r.URL.Query(), &params.Owner)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
 		return
 	}
 
@@ -1477,14 +1461,6 @@ func (siw *ServerInterfaceWrapper) ListFleets(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// ------------- Optional query parameter "owner" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "owner", r.URL.Query(), &params.Owner)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
-		return
-	}
-
 	// ------------- Optional query parameter "addDevicesCount" -------------
 
 	err = runtime.BindQueryParameter("form", true, false, "addDevicesCount", r.URL.Query(), &params.AddDevicesCount)
@@ -2082,14 +2058,6 @@ func (siw *ServerInterfaceWrapper) ListResourceSync(w http.ResponseWriter, r *ht
 	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		return
-	}
-
-	// ------------- Optional query parameter "repository" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "repository", r.URL.Query(), &params.Repository)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "repository", Err: err})
 		return
 	}
 

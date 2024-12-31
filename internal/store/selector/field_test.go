@@ -4,11 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/flightctl/flightctl/pkg/queryparser"
 )
 
-func TestFieldTypes(t *testing.T) {
+func TestFieldSelectorTypes(t *testing.T) {
 	testGoodStrings := []string{
 		"model.field1=true",                                            // Boolean
 		"model.field2=1",                                               // Integer
@@ -45,27 +44,34 @@ func TestFieldTypes(t *testing.T) {
 		"model.field15=aa", // Timestamp Array
 	}
 
-	f, err := NewFieldSelector(&goodTestModel{})
-	if err != nil {
-		t.Errorf("%v: error %v (%#v)\n", f, err, err)
-	}
-
 	for _, test := range testGoodStrings {
-		_, _, err := f.ParseFromString(context.Background(), test)
+		f, err := NewFieldSelector(test)
+		if err != nil {
+			t.Errorf("%v: error %v (%#v)\n", test, err, err)
+			continue
+		}
+
+		_, _, err = f.Parse(context.Background(), &goodTestModel{})
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", test, err, err)
 		}
 	}
 
 	for _, test := range testBadStrings {
-		_, _, err := f.ParseFromString(context.Background(), test)
+		f, err := NewFieldSelector(test)
+		if err != nil {
+			t.Errorf("%v: error %v (%#v)\n", test, err, err)
+			continue
+		}
+
+		_, _, err = f.Parse(context.Background(), &goodTestModel{})
 		if err == nil {
 			t.Errorf("%v: did not get expected error\n", test)
 		}
 	}
 }
 
-func TestOperations(t *testing.T) {
+func TestFieldSelectorQueries(t *testing.T) {
 	ctx := context.Background()
 	/*
 		DoesNotExist        Operator = "!"
@@ -234,20 +240,20 @@ func TestOperations(t *testing.T) {
 		"model.field16.badfield$$=text",
 	}
 
-	f, err := NewFieldSelector(&goodTestModel{})
-	if err != nil {
-		t.Errorf("%v: error %v (%#v)\n", f, err, err)
-		return
-	}
-
 	for k8s, qp := range testGoodOperations {
-		selector, err := fields.ParseSelector(k8s)
+		f, err := NewFieldSelector(k8s)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", k8s, err, err)
 			continue
 		}
 
-		set1, err := f.Tokenize(ctx, selector)
+		f.fieldResolver, err = SelectorFieldResolver(&goodTestModel{})
+		if err != nil {
+			t.Errorf("%v: error %v (%#v)\n", k8s, err, err)
+			continue
+		}
+
+		set1, err := f.Tokenize(ctx, f.selector)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", k8s, err, err)
 			continue
@@ -265,9 +271,67 @@ func TestOperations(t *testing.T) {
 	}
 
 	for _, test := range testBadOperations {
-		_, _, err := f.ParseFromString(context.Background(), test)
+		f, err := NewFieldSelector(test)
+		if err != nil {
+			t.Errorf("%v: error %v (%#v)\n", test, err, err)
+			continue
+		}
+		_, _, err = f.Parse(context.Background(), &goodTestModel{})
 		if err == nil {
 			t.Errorf("%v: did not get expected error\n", test)
+		}
+	}
+}
+
+func TestFieldSelectorMap(t *testing.T) {
+	ctx := context.Background()
+
+	testCases := []testMapOperation{
+		{
+			Input:    map[string]string{"model.field6": "val"},
+			Expected: "EQ(K(field6),V(val))",
+		},
+		{
+			Input:    map[string]string{"model.field6": "val", "model.field1": "true"},
+			Expected: "AND(EQ(K(field1),V(true)),EQ(K(field6),V(val)))",
+		},
+		{
+			Input:    map[string]string{"model.field2": "5", "model.field7": "2024-10-14T22:47:31+03:00"},
+			Expected: "AND(EQ(K(field2),V(5)),EQ(K(field7),V(2024-10-14T22:47:31+03:00)))",
+		},
+		{
+			Input:    map[string]string{},
+			Expected: "",
+		},
+	}
+
+	for _, op := range testCases {
+		fr, err := NewFieldSelectorFromMap(op.Input, false)
+		if err != nil {
+			t.Errorf("%v: error %v (%#v)\n", op, err, err)
+			continue
+		}
+
+		fr.fieldResolver, err = SelectorFieldResolver(&goodTestModel{})
+		if err != nil {
+			t.Errorf("error %v (%#v)\n", err, err)
+			return
+		}
+
+		set1, err := fr.Tokenize(ctx, fr.selector)
+		if err != nil {
+			t.Errorf("%v: error %v (%#v)\n", op, err, err)
+			continue
+		}
+
+		set2, err := queryparser.Tokenize(ctx, op.Expected)
+		if err != nil {
+			t.Errorf("%v: error %v (%#v)\n", op, err, err)
+			continue
+		}
+
+		if !set1.Matches(set2) {
+			t.Errorf("%v: %v not match %v\n", op, set1, set2)
 		}
 	}
 }

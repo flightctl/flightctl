@@ -124,18 +124,11 @@ var _ = Describe("Field Selectors in Flight Control", func() {
 	})
 
 	Context("Advanced Functionality Tests", Label("77947"), func() {
-		It("filters devices by label with contains operator", func() {
-			deviceName := extractDeviceName()
-			out, err := harness.CLI("get", "devices", "--field-selector", "metadata.labels contains region=eu-west-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(deviceName))
-		})
-
 		It("filters devices by multiple field selectors", func() {
 			deviceName := extractDeviceName()
 			startTimestamp, _ := generateTimestamps()
-			out, err := harness.CLI("get", "devices", "--field-selector",
-				fmt.Sprintf("metadata.labels contains region=eu-west-1,metadata.creationTimestamp>=%s", startTimestamp))
+			out, err := harness.CLI("get", "devices", "-l", "region=eu-west-1", "--field-selector",
+				fmt.Sprintf("metadata.creationTimestamp>=%s", startTimestamp))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring(deviceName))
 		})
