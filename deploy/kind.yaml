@@ -17,8 +17,8 @@ nodes:
     protocol: TCP
   - containerPort: 7444 # flightctl agent grpc endpoint API
     hostPort: 7444
-  - containerPort: 8080 # keycloak
-    hostPort: 8080
+  - containerPort: 8081 # keycloak
+    hostPort: 8081
     protocol: TCP
   - containerPort: 9000 # ui
     hostPort: 9000

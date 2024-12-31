@@ -12,7 +12,7 @@ metadata:
 spec:
   host: auth.{{ include "flightctl.getBaseDomain" . }}
   port:
-    targetPort: 8080
+    targetPort: 8081
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect

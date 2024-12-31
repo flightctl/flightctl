@@ -263,7 +263,7 @@ enrollment-service:
   authentication:
     client-certificate-data: LS0tLS1CRUdJTiBD...
     client-key-data: LS0tLS1CRUdJTiBF...
-  enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8080
+  enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8081
 ```
 
 Create a `Containerfile` with the following content:

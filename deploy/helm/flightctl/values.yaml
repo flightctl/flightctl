@@ -53,7 +53,7 @@ global:
     agent: 7443
     grpc: 7444
     ui: 9000
-    keycloak: 8080
+    keycloak: 8081
   gatewayPorts:
     tls: 443
     http: 80
