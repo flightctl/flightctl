@@ -226,9 +226,12 @@ func MergeLabels(labels ...map[string]string) map[string]string {
 	return result
 }
 
+func ResourceOwner(kind string, name string) string {
+	return fmt.Sprintf("%s/%s", kind, name)
+}
+
 func SetResourceOwner(kind string, name string) *string {
-	owner := fmt.Sprintf("%s/%s", kind, name)
-	return &owner
+	return lo.ToPtr(ResourceOwner(kind, name))
 }
 
 func GetResourceOwner(owner *string) (string, string, error) {
