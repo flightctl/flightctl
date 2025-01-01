@@ -95,8 +95,8 @@ func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest v1
 }
 
 // ConvertFieldFilterParamsToMap converts filter query params to to a validated filterMap map.
-func ConvertFieldFilterParamsToMap(params []string) (map[string][]string, error) {
-	fieldMap := make(map[string][]string)
+func ConvertFieldFilterParamsToMap(params []string) (map[string][]any, error) {
+	fieldMap := make(map[string][]any)
 	if len(params) == 0 {
 		return fieldMap, nil
 	}
