@@ -11,27 +11,27 @@ func TestConvertSelectorToFieldsMap(t *testing.T) {
 	tests := []struct {
 		name        string
 		fieldFilter []string
-		want        map[string][]string
+		want        map[string][]any
 		wantErr     error
 	}{
 		{
 			name:        "valid key and value",
 			fieldFilter: []string{"example.key=value"},
-			want: map[string][]string{
+			want: map[string][]any{
 				"example.key": {"value"},
 			},
 		},
 		{
 			name:        "valid key and value whitespace",
 			fieldFilter: []string{" example.key=value "},
-			want: map[string][]string{
+			want: map[string][]any{
 				"example.key": {"value"},
 			},
 		},
 		{
 			name:        "valid value with hyphen and dot",
 			fieldFilter: []string{"example.key=val-u.e"},
-			want: map[string][]string{
+			want: map[string][]any{
 				"example.key": {"val-u.e"},
 			},
 		},
@@ -54,7 +54,7 @@ func TestConvertSelectorToFieldsMap(t *testing.T) {
 				"example.key=value2",
 				"example.key=value3",
 			},
-			want: map[string][]string{
+			want: map[string][]any{
 				"example.key": {"value1", "value2", "value3"},
 			},
 		},
@@ -66,7 +66,7 @@ func TestConvertSelectorToFieldsMap(t *testing.T) {
 				"example.key=value3",
 				"example.complex.key=value4",
 			},
-			want: map[string][]string{
+			want: map[string][]any{
 				"example.key":         {"value1", "value2", "value3"},
 				"example.complex.key": {"value4"},
 			},

@@ -54,6 +54,8 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
+type queryModifier func(db *gorm.DB) *gorm.DB
+
 type listQuery struct {
 	dest any
 }
@@ -62,8 +64,8 @@ func ListQuery(model any) *listQuery {
 	return &listQuery{dest: model}
 }
 
-func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
-	query := db.Model(lq.dest).Order("name")
+func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	query := db.Model(lq.dest)
 	query = query.Where("org_id = ?", orgId)
 
 	if listParams.FieldSelector != nil {
@@ -93,6 +95,14 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	}
 
 	return query, nil
+}
+
+func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	query, err := lq.BuildNoOrder(ctx, db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+	return query.Order("name"), nil
 }
 
 func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
