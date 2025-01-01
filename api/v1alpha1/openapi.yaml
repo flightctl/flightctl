@@ -4413,11 +4413,14 @@ components:
           type: array
           items:
             type: string
+            pattern: '^([A-Za-z0-9][-A-Za-z0-9_/.]*)?[A-Za-z0-9]$'
           description: List of label keys to perform grouping for the disruption allowance.
         minAvailable:
           type: integer
+          minimum: 0
           description: The maximum number of unavailable devices allowed during rollout.
         maxUnavailable:
+          minimum: 1
           type: integer
           description: The minimum number of required available devices during rollout.
       description: DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
@@ -4447,10 +4450,19 @@ components:
       description: 'The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.'
       default: "0s"
 
+    RolloutStrategy:
+      type: string
+      description: The strategy of choice for device selection in rollout policy.
+      enum: ['BatchSequence']
+
     BatchSequence:
       type: object
       description: BatchSequence defines the list of batches to be executed in sequence.
+      required:
+        - strategy
       properties:
+        strategy:
+          $ref: '#/components/schemas/RolloutStrategy'
         sequence:
           type: array
           description: A list of batch definitions.
@@ -4461,16 +4473,12 @@ components:
     RolloutDeviceSelection:
       type: object
       description: Describes how to select devices for rollout.
-      required:
-        - strategy
-      properties:
-        strategy:
-          type: string
-          description: The rollout strategy to use.
       oneOf:
         - $ref: '#/components/schemas/BatchSequence'
       discriminator:
         propertyName: strategy
+        mapping:
+          BatchSequence: '#/components/schemas/BatchSequence'
 
     RolloutPolicy:
       type: object
