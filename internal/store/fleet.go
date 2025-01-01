@@ -23,6 +23,8 @@ type Fleet interface {
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
 	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
+	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
+	ListDisruptionAllowanceFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error)
 	CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, fleets ...*api.Fleet) error
@@ -92,6 +94,67 @@ func fleetSelectStr(withDeviceCount bool) string {
 	return lo.Ternary(withDeviceCount,
 		fmt.Sprintf("*, (select count(*) from devices where org_id = fleets.org_id and owner = CONCAT('%s/', fleets.name)) as device_count", api.FleetKind),
 		"*")
+}
+
+// ListRolloutDeviceSelection attempts to get all relevant fleets for rollout device selection.
+// A relevant fleet contains at least 1 device that at least one of the conditions below is true:
+// - marked as selected for rollout
+// - the template version of the fleet is not the same the template version in the annotation 'device-controller/renderedTemplateVersion'
+// - the field 'status.config.renderedVersion' is not the same as the annotation 'device-controller/renderedVersion'
+func (s *FleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
+	var fleets model.FleetList
+	err := s.db.Raw(fmt.Sprintf(`select * from 
+             (select *, (select substr(ann,length('%s=')+1) from unnest(annotations) as ann 
+                    where ann like '%s=%%') as tv from fleets where org_id = ?) as main_query
+         where 
+             exists 
+                 (select 1 from devices d where
+                           (selected_for_rollout = true or
+                                 main_query.tv not in  (
+                                 SELECT substr(ann, length('%s=')+1) AS template_version
+                                  FROM UNNEST(annotations) AS ann
+                                   WHERE substr(ann, 1, length('%s=')) = '%s='
+                                   LIMIT 1)  or
+                           status -> 'config' ->> 'renderedVersion' not in (
+                                 SELECT substr(ann, length('%s=')+1) AS rendered_version
+                                  FROM UNNEST(annotations) AS ann
+                                   WHERE substr(ann, 1, length('%s=')) = '%s='
+                                   LIMIT 1)) and
+                           org_id = ? and owner = CONCAT('%s/', main_query.name) limit 1)`, model.FleetAnnotationTemplateVersion, model.FleetAnnotationTemplateVersion,
+		api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationRenderedTemplateVersion,
+		api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedVersion,
+		api.FleetKind), orgId, orgId).Scan(&fleets).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return lo.ToPtr(fleets.ToApiResource(nil, nil)), nil
+}
+
+// ListDisruptionAllowanceFleets attempts to get fleets for disruption allowance.  Since the disruption allowance acts like
+// a gate to device rendering, the query searches for fleets that each contains at least 1 device that has different value set
+// between tha annotation 'device-controller/templateVersion' which is set before rollout and 'device-controller/renderedTemplateVersion'
+// which is set after rollout.
+func (s *FleetStore) ListDisruptionAllowanceFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
+	var fleets model.FleetList
+	err := s.db.Raw(fmt.Sprintf(`select * from 
+             (select *, (select substr(ann,length('%s=')+1) from unnest(annotations) as ann 
+                    where ann like '%s=%%') as tv from fleets where org_id = ?) as main_query
+         where 
+             exists 
+                 (select 1 from devices where org_id = ? and owner = CONCAT('%s/', main_query.name) and
+					main_query.tv in (select substr(ann,length('%s=')+1) 
+                                       from 
+                                       unnest(annotations) as ann where ann like '%s=%%' limit 1) and
+                    main_query.tv not in (select substr(ann,length('%s=')+1) 
+                                       from 
+                                       unnest(annotations) as ann where ann like '%s=%%' limit 1))`,
+		model.FleetAnnotationTemplateVersion, model.FleetAnnotationTemplateVersion,
+		api.FleetKind, api.DeviceAnnotationTemplateVersion, api.DeviceAnnotationTemplateVersion,
+		api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationRenderedTemplateVersion), orgId, orgId).Scan(&fleets).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return lo.ToPtr(fleets.ToApiResource(nil, nil)), nil
 }
 
 func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error) {

@@ -194,7 +194,7 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 		return ErrorFromGormError(result.Error)
 	}
 
-	if valid != nil && *valid {
+	if valid != nil && *valid && callback != nil {
 		callback(&templateVersion)
 	}
 	return nil

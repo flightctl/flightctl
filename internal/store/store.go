@@ -134,7 +134,7 @@ type ListParams struct {
 	Labels                      map[string]string
 	LabelMatchExpressions       v1alpha1.MatchExpressions
 	AnnotationsMatchExpressions v1alpha1.MatchExpressions
-	Filter                      map[string][]string
+	Filter                      map[string][]any
 	InvertLabels                *bool
 	Owners                      []string
 	Limit                       int

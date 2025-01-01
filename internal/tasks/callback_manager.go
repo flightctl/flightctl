@@ -36,10 +36,12 @@ type CallbackManager interface {
 	AllRepositoriesDeletedCallback(orgId uuid.UUID)
 	AllFleetsDeletedCallback(orgId uuid.UUID)
 	AllDevicesDeletedCallback(orgId uuid.UUID)
+	DeviceUpdatedNoRenderCallback(before *model.Device, after *model.Device)
 	DeviceUpdatedCallback(before *model.Device, after *model.Device)
 	TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion)
 	FleetSourceUpdated(orgId uuid.UUID, name string)
 	DeviceSourceUpdated(orgId uuid.UUID, name string)
+	FleetRolloutSelectionUpdated(fleet *model.Fleet)
 }
 
 type callbackManager struct {
@@ -140,10 +142,9 @@ func (t *callbackManager) AllDevicesDeletedCallback(orgId uuid.UUID) {
 	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.DeviceKind}, FleetSelectorMatchOpDeleteAll)
 }
 
-func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *model.Device) {
+func (t *callbackManager) DeviceUpdatedNoRenderCallback(before *model.Device, after *model.Device) {
 	var labelsUpdated bool
 	var ownerUpdated bool
-	var specUpdated bool
 	var device *model.Device
 
 	if before == nil && after == nil {
@@ -157,18 +158,15 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 			labelsUpdated = true
 		}
 		ownerUpdated = false
-		specUpdated = true
 	} else if after == nil {
 		// Deleted device
 		device = before
 		labelsUpdated = true
 		ownerUpdated = false // Nothing to roll out
-		specUpdated = false  // Nothing to render
 	} else {
 		device = after
 		labelsUpdated = !reflect.DeepEqual(before.Labels, after.Labels)
 		ownerUpdated = util.DefaultIfNil(before.Owner, "") != util.DefaultIfNil(after.Owner, "")
-		specUpdated = !reflect.DeepEqual(before.Spec, after.Spec)
 	}
 
 	ref := ResourceReference{OrgID: device.OrgID, Kind: api.DeviceKind, Name: device.Name}
@@ -186,8 +184,13 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)
 	}
-	if specUpdated {
-		t.submitTask(DeviceRenderTask, ref, DeviceRenderOpUpdate)
+
+}
+
+func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *model.Device) {
+	t.DeviceUpdatedNoRenderCallback(before, after)
+	if after != nil && (before == nil || !reflect.DeepEqual(before.Spec, after.Spec)) {
+		t.DeviceSourceUpdated(after.OrgID, after.Name)
 	}
 }
 
@@ -201,6 +204,15 @@ func (t *callbackManager) TemplateVersionCreatedCallback(templateVersion *model.
 		OrgID: templateVersion.OrgID,
 		Kind:  api.FleetKind,
 		Name:  templateVersion.FleetName,
+	}
+	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
+}
+
+func (t *callbackManager) FleetRolloutSelectionUpdated(fleet *model.Fleet) {
+	resourceRef := ResourceReference{
+		OrgID: fleet.OrgID,
+		Kind:  model.FleetKind,
+		Name:  fleet.Name,
 	}
 	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
 }

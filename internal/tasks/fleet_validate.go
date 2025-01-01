@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
@@ -73,8 +74,13 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 			Systemd:      fleet.Spec.Template.Spec.Systemd,
 		},
 	}
-
-	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.callbackManager.TemplateVersionCreatedCallback)
+	var callback store.TemplateVersionStoreCallback = func(m *model.TemplateVersion) {
+		t.log.Infof("fleet %v/%s: template version %s created without rollout", t.resourceRef.OrgID, t.resourceRef.Name, m.Name)
+	}
+	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
+		callback = t.callbackManager.TemplateVersionCreatedCallback
+	}
+	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, callback)
 	if err != nil {
 		return t.setStatus(ctx, fmt.Errorf("creating templateVersion for valid fleet: %w", err))
 	}
