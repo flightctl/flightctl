@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -57,6 +58,8 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
+type queryModifier func(db *gorm.DB) *gorm.DB
+
 type listQuery struct {
 	dest any
 }
@@ -65,9 +68,9 @@ func ListQuery(model any) *listQuery {
 	return &listQuery{dest: model}
 }
 
-func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
 	var err error
-	query := db.Model(lq.dest).Order("name")
+	query := db.Model(lq.dest)
 	query = query.Where("org_id = ?", orgId)
 
 	var invertLabels bool
@@ -84,7 +87,7 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 
 	query = FieldFilterSelectionQuery(query, listParams.Filter)
 
-	queryStr, args := createOrQuery("owner", listParams.Owners)
+	queryStr, args := createOrQuery("owner", lo.ToAnySlice(listParams.Owners))
 	if len(queryStr) > 0 {
 		query = query.Where(queryStr, args...)
 	}
@@ -107,6 +110,14 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	}
 
 	return query, nil
+}
+
+func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	query, err := lq.BuildNoOrder(ctx, db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+	return query.Order("name"), nil
 }
 
 func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
@@ -140,7 +151,8 @@ func matchInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName s
 
 func matchNotInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
 	whereStr, args := matchExpressionQueryAndArgs(matchExpression, colName)
-	return query.Not(whereStr, args...)
+	existsQueryStr := existsQuery(colName)
+	return query.Where(fmt.Sprintf("(not %s or not %s)", whereStr, existsQueryStr), append(args, matchExpression.Key+"=%")...)
 }
 
 func existsQuery(colName string) string {
@@ -287,7 +299,7 @@ func LabelSelectionQuery(query *gorm.DB, labels map[string]string, inverse bool)
 // example map[string]string{"status.config.summary.status": "UpToDate"} will search status.config.summary.status for the
 // value "UpToDate".
 // To search for multiple values in the same field, separate the values with a comma.
-func FieldFilterSelectionQuery(query *gorm.DB, fieldMap map[string][]string) *gorm.DB {
+func FieldFilterSelectionQuery(query *gorm.DB, fieldMap map[string][]any) *gorm.DB {
 	queryStr, args := createQueryFromFilterMap(fieldMap)
 	if len(queryStr) > 0 {
 		query = query.Where(queryStr, args...)
@@ -296,7 +308,7 @@ func FieldFilterSelectionQuery(query *gorm.DB, fieldMap map[string][]string) *go
 	return query
 }
 
-func createQueryFromFilterMap(fieldMap map[string][]string) (string, []interface{}) {
+func createQueryFromFilterMap(fieldMap map[string][]any) (string, []interface{}) {
 	var queryParams []string
 	var args []interface{}
 
@@ -338,9 +350,17 @@ func createParamsFromKey(key string) string {
 	return params
 }
 
+func isEmpty(v any) bool {
+	switch val := v.(type) {
+	case string:
+		return strings.TrimSpace(val) == ""
+	}
+	return false
+}
+
 // createOrQuery can return empty `queryStr`/`args` (ie if `key` or `values` params are empty).
 // The caller is expected to check the size of `queryStr`/`args` before constructing a GORM query.
-func createOrQuery(key string, values []string) (string, []interface{}) {
+func createOrQuery(key string, values []any) (string, []interface{}) {
 	var queryStr string
 	var queryParams []string
 	var args []interface{}
@@ -350,8 +370,7 @@ func createOrQuery(key string, values []string) (string, []interface{}) {
 	}
 
 	for _, val := range values {
-		val = strings.TrimSpace(val)
-		if val == "" {
+		if val == nil || isEmpty(val) {
 			continue
 		}
 		queryParams = append(queryParams, fmt.Sprintf("%s = ?", key))
