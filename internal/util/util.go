@@ -226,9 +226,12 @@ func MergeLabels(labels ...map[string]string) map[string]string {
 	return result
 }
 
+func ResourceOwner(kind string, name string) string {
+	return fmt.Sprintf("%s/%s", kind, name)
+}
+
 func SetResourceOwner(kind string, name string) *string {
-	owner := fmt.Sprintf("%s/%s", kind, name)
-	return &owner
+	return lo.ToPtr(ResourceOwner(kind, name))
 }
 
 func GetResourceOwner(owner *string) (string, string, error) {
@@ -296,4 +299,15 @@ func Min[N Number](n1, n2 N) N {
 
 func Max[N Number](n1, n2 N) N {
 	return lo.Ternary(n1 > n2, n1, n2)
+}
+
+func GetFromMap[K comparable, V any](in map[K]V, key K) (V, bool) {
+	if in == nil {
+		return lo.Empty[V](), false
+	}
+	v, ok := in[key]
+	if !ok {
+		return lo.Empty[V](), false
+	}
+	return v, true
 }

@@ -54,8 +54,6 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
-type queryModifier func(db *gorm.DB) *gorm.DB
-
 type listQuery struct {
 	dest any
 }

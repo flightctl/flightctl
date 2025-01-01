@@ -11,11 +11,15 @@ const (
 	DeviceKind       = "Device"
 	DeviceListKind   = "DeviceList"
 
-	DeviceAnnotationConsole                 = "device-controller/console"
-	DeviceAnnotationRenderedVersion         = "device-controller/renderedVersion"
-	DeviceAnnotationTemplateVersion         = "fleet-controller/templateVersion"
-	DeviceAnnotationRenderedTemplateVersion = "device-controller/renderedTemplateVersion"
-	DeviceAnnotationLastRolloutError        = "fleet-controller/lastRolloutError"
+	DeviceAnnotationConsole         = "device-controller/console"
+	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	// This annotation is populated after a device was rolled out by the fleet-rollout task
+	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	// This annotation is populated after a device was rendered by the device-render task
+	DeviceAnnotationRenderedTemplateVersion = "fleet-controller/renderedTemplateVersion"
+	// When this annotation is present, it means that the device has been selected for rollout in a batch
+	DeviceAnnotationSelectedForRollout = "fleet-controller/selectedForRollout"
+	DeviceAnnotationLastRolloutError   = "fleet-controller/lastRolloutError"
 
 	// TODO: make configurable
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
@@ -30,6 +34,17 @@ const (
 	FleetListKind   = "FleetList"
 
 	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	// The last template version that has been processed by device selection reconciler.  It is used for new rollout detection
+	FleetAnnotationDeployingTemplateVersion = "fleet-controller/deployingTemplateVersion"
+	// The index to the current batch.  Contains an integer
+	FleetAnnotationBatchNumber = "fleet-controller/batchNumber"
+	// Indicates if the current batch has been approved
+	FleetAnnotationRolloutApproved = "fleet-controller/rolloutApproved"
+	// What is the active approval method: If automatic then it is based in the last batch success percentage.  Otherwise
+	// it requires manual approval
+	FleetAnnotationRolloutApprovalMethod = "fleet-controller/rolloutApprovalMethod"
+	// An integer value indicating what was the success rate of the last batch
+	FleetAnnotationLastBatchSuccessPercentage = "fleet-controller/lastBatchSuccessPercentage"
 
 	RepositoryAPIVersion = "v1alpha1"
 	RepositoryKind       = "Repository"

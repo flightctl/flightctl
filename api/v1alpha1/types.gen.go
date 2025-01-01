@@ -625,9 +625,9 @@ type DiskResourceMonitorSpec struct {
 	SamplingInterval string `json:"samplingInterval"`
 }
 
-// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
-type DisruptionAllowance struct {
-	// GroupBy List of label keys to perform grouping for the disruption allowance.
+// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
+type DisruptionBudget struct {
+	// GroupBy List of label keys to perform grouping for the disruption budget.
 	GroupBy *[]string `json:"groupBy,omitempty"`
 
 	// MaxUnavailable The minimum number of required available devices during rollout.
@@ -1297,8 +1297,8 @@ type RolloutPolicy struct {
 	// DeviceSelection Describes how to select devices for rollout.
 	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
 
-	// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
-	DisruptionAllowance *DisruptionAllowance `json:"disruptionAllowance,omitempty"`
+	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
+	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
 
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`

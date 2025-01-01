@@ -4406,7 +4406,7 @@ components:
         - items
       description: FleetList is a list of Fleets.
 
-    DisruptionAllowance:
+    DisruptionBudget:
       type: object
       properties:
         groupBy:
@@ -4414,7 +4414,7 @@ components:
           items:
             type: string
             pattern: '^([A-Za-z0-9][-A-Za-z0-9_/.]*)?[A-Za-z0-9]$'
-          description: List of label keys to perform grouping for the disruption allowance.
+          description: List of label keys to perform grouping for the disruption budget.
         minAvailable:
           type: integer
           minimum: 0
@@ -4423,7 +4423,7 @@ components:
           minimum: 1
           type: integer
           description: The minimum number of required available devices during rollout.
-      description: DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+      description: DisruptionBudget defines the level of allowed disruption when rollout is in progress.
 
     Percentage:
       type: string
@@ -4483,8 +4483,8 @@ components:
     RolloutPolicy:
       type: object
       properties:
-        disruptionAllowance:
-          $ref: '#/components/schemas/DisruptionAllowance'
+        disruptionBudget:
+          $ref: '#/components/schemas/DisruptionBudget'
         deviceSelection:
           $ref: '#/components/schemas/RolloutDeviceSelection'
         successThreshold:
