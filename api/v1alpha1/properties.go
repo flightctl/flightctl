@@ -74,7 +74,7 @@ func (d *Device) IsUpdatedToFleetSpec(f *Fleet) bool {
 	if !ok {
 		return false
 	}
-	deviceTemplateVersion, ok := (*d.Metadata.Annotations)[FleetAnnotationTemplateVersion]
+	deviceTemplateVersion, ok := (*d.Metadata.Annotations)[DeviceAnnotationRenderedTemplateVersion]
 	if !ok {
 		return false
 	}

@@ -153,6 +153,11 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for RolloutStrategy.
+const (
+	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -207,7 +212,8 @@ type Batch_Limit struct {
 // BatchSequence BatchSequence defines the list of batches to be executed in sequence.
 type BatchSequence struct {
 	// Sequence A list of batch definitions.
-	Sequence *[]Batch `json:"sequence,omitempty"`
+	Sequence *[]Batch        `json:"sequence,omitempty"`
+	Strategy RolloutStrategy `json:"strategy"`
 }
 
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
@@ -1269,9 +1275,7 @@ type ResourceSyncStatus struct {
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
-	// Strategy The rollout strategy to use.
-	Strategy string `json:"strategy"`
-	union    json.RawMessage
+	union json.RawMessage
 }
 
 // RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
@@ -1288,6 +1292,9 @@ type RolloutPolicy struct {
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
+
+// RolloutStrategy defines model for RolloutStrategy.
+type RolloutStrategy string
 
 // SshConfig Configuration for SSH transport.
 type SshConfig struct {
@@ -2337,8 +2344,7 @@ func (t RolloutDeviceSelection) AsBatchSequence() (BatchSequence, error) {
 
 // FromBatchSequence overwrites any union data inside the RolloutDeviceSelection as the provided BatchSequence
 func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
-	t.Strategy = "BatchSequence"
-
+	v.Strategy = "BatchSequence"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -2346,8 +2352,7 @@ func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
 
 // MergeBatchSequence performs a merge with any union data inside the RolloutDeviceSelection, using the provided BatchSequence
 func (t *RolloutDeviceSelection) MergeBatchSequence(v BatchSequence) error {
-	t.Strategy = "BatchSequence"
-
+	v.Strategy = "BatchSequence"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -2381,43 +2386,10 @@ func (t RolloutDeviceSelection) ValueByDiscriminator() (interface{}, error) {
 
 func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	object["strategy"], err = json.Marshal(t.Strategy)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'strategy': %w", err)
-	}
-
-	b, err = json.Marshal(object)
 	return b, err
 }
 
 func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["strategy"]; found {
-		err = json.Unmarshal(raw, &t.Strategy)
-		if err != nil {
-			return fmt.Errorf("error reading 'strategy': %w", err)
-		}
-	}
-
 	return err
 }
