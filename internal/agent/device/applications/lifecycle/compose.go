@@ -29,105 +29,84 @@ func NewCompose(log *log.PrefixLogger, podman *client.Podman) *Compose {
 }
 
 func (c *Compose) add(ctx context.Context, action *Action) error {
-	c.log.Debugf("Starting application %s", action.Name)
+	appName := action.Name
+	c.log.Debugf("Starting application %s", appName)
+
 	appPath, err := action.ApplicationPath()
 	if err != nil {
 		return err
 	}
 
 	noRecreate := true
-	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate); err != nil {
+	projectName := client.SanitizePodmanLabel(appName)
+	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, projectName, noRecreate); err != nil {
 		return err
 	}
 
-	c.log.Infof("Started application %s", action.Name)
+	c.log.Infof("Started application %s", appName)
 	return nil
 }
 
 func (c *Compose) remove(ctx context.Context, action *Action) error {
-	c.log.Debugf("Removing application %s", action.Name)
+	appName := action.Name
+	c.log.Debugf("Removing application %s", appName)
 
-	// by using podman directly we can avoid the need to parse the compose file.
-	// this makes the reconciliation process faster and more reliable as the
-	// compose file is not required.
-	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", action.Name)}
-
-	var errs []error
-	// get networks from the running containers for the app
-	networks, err := c.podman.ListNetworks(ctx, labels)
-	if err != nil {
-		errs = append(errs, err)
+	if err := c.stopAndRemoveContainers(ctx, appName); err != nil {
+		return err
 	}
 
-	// stop containers
-	if err := c.podman.StopContainers(ctx, labels); err != nil {
-		errs = append(errs, err)
-	}
-
-	// remove containers
-	if err := c.podman.RemoveContainer(ctx, labels); err != nil {
-		errs = append(errs, err)
-	}
-
-	// remove networks
-	if err := c.podman.RemoveNetworks(ctx, networks...); err != nil {
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	c.log.Infof("Removed application %s", action.Name)
+	c.log.Infof("Removed application %s", appName)
 	return nil
 }
 
 func (c *Compose) update(ctx context.Context, action *Action) error {
-	c.log.Debugf("Updating application %s", action.Name)
+	appName := action.Name
+	c.log.Debugf("Updating application %s", appName)
 
 	appPath, err := action.ApplicationPath()
 	if err != nil {
 		return err
 	}
-	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", action.Name)}
 
+	if err := c.stopAndRemoveContainers(ctx, appName); err != nil {
+		return err
+	}
+
+	// change to work dir and run `docker compose up -d`
+	noRecreate := true
+	projectName := client.SanitizePodmanLabel(appName)
+	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, projectName, noRecreate); err != nil {
+		return err
+	}
+
+	c.log.Infof("Updated application %s", action.Name)
+
+	return nil
+}
+
+// stopAndRemoveContainers stops and removes all containers and networks created by the compose application.
+func (c *Compose) stopAndRemoveContainers(ctx context.Context, appName string) error {
 	var errs []error
-	// get networks from the running containers for the app
+
+	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", client.SanitizePodmanLabel(appName))}
 	networks, err := c.podman.ListNetworks(ctx, labels)
 	if err != nil {
 		errs = append(errs, err)
 	}
 
-	// stop containers
 	if err := c.podman.StopContainers(ctx, labels); err != nil {
 		errs = append(errs, err)
 	}
-
-	// do not remove volumes as they are not removed by `docker-compose down`
-	// this is to ensure that data is not lost when the application is updated
-
-	// remove containers
 	if err := c.podman.RemoveContainer(ctx, labels); err != nil {
 		errs = append(errs, err)
 	}
-
-	// remove networks
 	if err := c.podman.RemoveNetworks(ctx, networks...); err != nil {
-		errs = append(errs, err)
-	}
-
-	// change to work dir and run `docker compose up -d`
-	noRecreate := true
-	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, noRecreate); err != nil {
 		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
-
-	c.log.Infof("Updated application %s", action.Name)
-
 	return nil
 }
 

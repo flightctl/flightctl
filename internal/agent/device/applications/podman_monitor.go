@@ -63,6 +63,8 @@ type PodmanMonitor struct {
 	cancelFn    context.CancelFunc
 	initialized bool
 
+	// apps is a map of project name to application. the project name is
+	// injected/read from the label com.docker.compose.project=projectName.
 	apps    map[string]Application
 	actions []lifecycle.Action
 
@@ -173,12 +175,13 @@ func (m *PodmanMonitor) ensure(app Application) error {
 	defer m.mu.Unlock()
 
 	appName := app.Name()
-	_, ok := m.apps[appName]
+	projectName := client.SanitizePodmanLabel(appName)
+	_, ok := m.apps[projectName]
 	if ok {
 		// app already exists
 		return nil
 	}
-	m.apps[appName] = app
+	m.apps[projectName] = app
 
 	handler, err := app.Type().ActionHandler()
 	if err != nil {
@@ -201,7 +204,8 @@ func (m *PodmanMonitor) remove(app Application) error {
 	defer m.mu.Unlock()
 
 	appName := app.Name()
-	if _, ok := m.apps[appName]; !ok {
+	projectName := client.SanitizePodmanLabel(appName)
+	if _, ok := m.apps[projectName]; !ok {
 		// app is already removed
 		return nil
 	}
@@ -211,7 +215,7 @@ func (m *PodmanMonitor) remove(app Application) error {
 		return err
 	}
 
-	delete(m.apps, appName)
+	delete(m.apps, projectName)
 
 	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
@@ -229,7 +233,8 @@ func (m *PodmanMonitor) update(app Application) error {
 	defer m.mu.Unlock()
 
 	appName := app.Name()
-	existingApp, ok := m.apps[appName]
+	projectName := client.SanitizePodmanLabel(appName)
+	existingApp, ok := m.apps[projectName]
 	if !ok {
 		return errors.ErrAppNotFound
 	}
@@ -254,11 +259,11 @@ func (m *PodmanMonitor) update(app Application) error {
 	return nil
 }
 
-func (m *PodmanMonitor) get(name string) (Application, bool) {
+func (m *PodmanMonitor) get(projectName string) (Application, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	app, ok := m.apps[name]
+	app, ok := m.apps[projectName]
 	if ok {
 		return app, true
 	}
@@ -404,15 +409,15 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 		return
 	}
 
-	appName, ok := event.Attributes["com.docker.compose.project"]
+	projectName, ok := event.Attributes["com.docker.compose.project"]
 	if !ok {
 		m.log.Debugf("Application name not found in event attributes: %v", event)
 		return
 	}
 
-	app, ok := m.get(appName)
+	app, ok := m.apps[projectName]
 	if !ok {
-		m.log.Debugf("Application not found: %s", appName)
+		m.log.Debugf("Application project not found: %s", projectName)
 		return
 	}
 	m.updateAppStatus(ctx, app, &event)

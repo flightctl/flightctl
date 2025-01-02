@@ -12,19 +12,26 @@ import (
 
 const defaultPodmanTimeout = 2 * time.Minute
 
+type ComposeSpec struct {
+	Name     string                 `yaml:"name,omitempty"`
+	Services map[string]interface{} `yaml:"services,omitempty"`
+}
+
 type Compose struct {
 	*Podman
 }
 
 // UpFromWorkDir runs `docker-compose up -d` or `podman-compose up -d` from the
-// given workDir. The third argument is a flag to prevent recreation of existing
+// given workDir. The fourth argument is a flag to prevent recreation of existing
 // containers.
-func (p *Compose) UpFromWorkDir(ctx context.Context, workDir string, noRecreate bool) error {
+func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string, noRecreate bool) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
 	args := []string{
 		"compose",
+		"-p",
+		projectName,
 		"up",
 		"-d",
 	}
