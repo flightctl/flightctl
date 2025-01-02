@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
@@ -31,7 +32,7 @@ func NewCmdApprove() *cobra.Command {
 	o := DefaultApproveOptions()
 	cmd := &cobra.Command{
 		Use:   "approve TYPE/NAME",
-		Short: "Approve a request.",
+		Short: "Approve a certificate signing or enrollment request.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -99,6 +100,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	var response *http.Response
+	var getResponse *apiclient.ReadCertificateSigningRequestResponse
 
 	switch {
 	case kind == EnrollmentRequestKind:
@@ -109,7 +111,30 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		}
 		response, err = c.ApproveEnrollmentRequest(ctx, name, approval)
 	case kind == CertificateSigningRequestKind:
-		response, err = c.ApproveCertificateSigningRequest(ctx, name)
+		getResponse, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+		if err != nil {
+			return fmt.Errorf("getting certificate signing request: %w", err)
+		}
+		if getResponse.HTTPResponse != nil {
+			defer getResponse.HTTPResponse.Body.Close()
+		}
+		if getResponse.StatusCode() != http.StatusOK {
+			return fmt.Errorf("getting certificate signing request: %d", getResponse.StatusCode())
+		}
+		if getResponse.JSON200 == nil {
+			return fmt.Errorf("getting certificate signing request: empty response")
+		}
+		csr := getResponse.JSON200
+
+		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
+			Type:    api.CertificateSigningRequestApproved,
+			Status:  api.ConditionStatusTrue,
+			Reason:  "Approved",
+			Message: "Approved",
+		})
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestDenied)
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestFailed)
+		response, err = c.UpdateCertificateSigningRequestApproval(ctx, name, *csr)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
