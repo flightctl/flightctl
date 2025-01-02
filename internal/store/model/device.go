@@ -33,6 +33,9 @@ type Device struct {
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
+
+	// Indicate if the current device is selected for rollout
+	SelectedForRollout *bool
 }
 
 type ServiceConditions struct {

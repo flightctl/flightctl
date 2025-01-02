@@ -10,6 +10,19 @@ import (
 	"github.com/samber/lo"
 )
 
+var (
+	FleetAPI      = "v1alpha1"
+	FleetKind     = "Fleet"
+	FleetListKind = "FleetList"
+
+	FleetAnnotationTemplateVersion            = "fleet-controller/templateVersion"
+	FleetAnnotationDeployingTemplateVersion   = "fleet-controller/deployingTemplateVersion"
+	FleetAnnotationBatchNumber                = "fleet-controller/batchNumber"
+	FleetAnnotationRolloutApproved            = "fleet-controller/rolloutApproved"
+	FleetAnnotationRolloutApprovalMethod      = "fleet-controller/rolloutApprovalMethod"
+	FleetAnnotationLastBatchSuccessPercentage = "fleet-controller/lastBatchSuccessPercentage"
+)
+
 type Fleet struct {
 	Resource
 

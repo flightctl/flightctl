@@ -25,6 +25,11 @@ type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
 	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
+	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
+	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string) ([]CompletionCount, error)
+	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, modifiers ...queryModifier) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
@@ -197,6 +202,135 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
 	return &apiDevicelist, ErrorFromGormError(result.Error)
+}
+
+func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
+	query, err := ListQuery(&model.DeviceList{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return 0, err
+	}
+	var devicesCount int64
+	if err := query.Count(&devicesCount).Error; err != nil {
+		return 0, ErrorFromGormError(err)
+	}
+	return devicesCount, nil
+}
+
+type CompletionCount struct {
+	Count                   int64
+	SameRenderedVersion     bool
+	RenderedTemplateVersion string
+	UpdatingReason          string
+	SummaryStatus           string
+}
+
+// CompletionCounts is used for finding if a rollout batch is complete or to set the success percentage of the batch.
+// The result is a count of devices grouped by some fields:
+// - rendered_template_version: taken from the annotation 'device-controller/renderedTemplateVersion'
+// - summary_status: taken from the field 'status.summary.status'
+// - updating_reason: it is the reason field from a condition having type 'Updating'
+// - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion'
+func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string) ([]CompletionCount, error) {
+	var results []CompletionCount
+	err := s.db.Raw(fmt.Sprintf(`select count(*) as count, 
+                                 status -> 'config' ->> 'renderedVersion' = rendered_version as same_rendered_version, 
+                                 elem ->> 'reason' as updating_reason,
+                                 status -> 'summary' ->> 'status' as summary_status,
+                                 rendered_template_version
+                          from devices d LEFT JOIN LATERAL (
+                            SELECT elem
+						    FROM jsonb_array_elements(d.status->'conditions') AS elem
+						    WHERE elem->>'type' = 'Updating'
+						    LIMIT 1
+							) subquery ON TRUE 
+							LEFT JOIN LATERAL (
+                                 SELECT substr(ann, length('%s=')+1) AS rendered_template_version
+                                  FROM UNNEST(annotations) AS ann
+                                   WHERE substr(ann, 1, length('%s=')) = '%s='
+                                   LIMIT 1) AS tv_tab ON true
+							LEFT JOIN LATERAL (
+                                 SELECT substr(ann, length('%s=')+1) AS rendered_version
+                                  FROM UNNEST(annotations) AS ann
+                                   WHERE substr(ann, 1, length('%s=')) = '%s='
+                                   LIMIT 1) AS rv_tab ON true
+						     where
+						       selected_for_rollout = true and org_id = ? and owner = ? group by same_rendered_version, updating_reason, summary_status, rendered_template_version`,
+		api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationRenderedTemplateVersion,
+		api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedVersion), orgId, owner).Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
+}
+
+// UnmarkRolloutSelection unmarks all previously marked devices for rollout in a fleet
+func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
+	err := s.db.Model(&model.Device{}).Where("org_id = ? and owner = ? and selected_for_rollout is not null", orgId, fmt.Sprintf("%s/%s", model.FleetKind, fleetName)).Update("selected_for_rollout", nil).Error
+	return ErrorFromGormError(err)
+}
+
+// MarkRolloutSelection marks all devices that can be filtered by the list params.  If limit is provided then the number of marked devices
+// will not be greater than the provided limit.
+func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error {
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return err
+	}
+	if limit != nil {
+		query = query.Limit(*limit)
+	}
+	err = s.db.Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId,
+		query.Select("name")).Update("selected_for_rollout", true).Error
+	return ErrorFromGormError(err)
+}
+
+func labelKeyToSymbol(labelKey string) string {
+	return strings.Replace(strings.Replace(labelKey, "-", "_dash_", -1), "/", "_slash_", -1)
+}
+
+// createLabelJoins is a helper function to add labels as selected columns that can be used for selection and grouping
+// by the function CountByLabels.  Every join sub-statement is used to represent a single label.
+func createLabelJoins(query *gorm.DB, groupBy []string) *gorm.DB {
+	format := `LEFT JOIN LATERAL (
+    SELECT substr(label, length('%s=')+1) AS %s
+    FROM UNNEST(labels) AS label
+    WHERE substr(label, 1, length('%s') + 1) = '%s='
+    LIMIT 1) AS %s_tab ON true`
+	return query.Joins(strings.Join(lo.Map(groupBy, func(labelKey string, _ int) string {
+		labelSymbol := labelKeyToSymbol(labelKey)
+		return fmt.Sprintf(format, labelKey, labelSymbol, labelKey, labelKey, labelSymbol)
+	}), " "))
+}
+
+// CountByLabels is used for rollout policy disruption allowance to provide device count values grouped by the label values.
+func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, modifiers ...queryModifier) ([]map[string]any, error) {
+	query, err := ListQuery(&model.DeviceList{}).BuildNoOrder(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range modifiers {
+		query = m(query)
+	}
+	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
+	selectList := append(labelSymbols, "count(*) as count")
+	query.Select(strings.Join(selectList, ","))
+	for _, g := range labelSymbols {
+		query = query.Group(g)
+	}
+	if len(groupBy) > 0 {
+		query = createLabelJoins(query, groupBy)
+	}
+	var results []map[string]any
+	err = query.Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	ret := lo.Map(results, func(m map[string]any, _ int) map[string]any {
+		return lo.SliceToMap(append(groupBy, "count"), func(s string) (string, any) {
+			return s, m[labelKeyToSymbol(s)]
+		})
+	})
+	return ret, nil
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
@@ -503,6 +637,9 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 	}
 
 	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+	if lo.HasKey(existingAnnotations, api.DeviceAnnotationTemplateVersion) {
+		existingAnnotations[api.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[api.DeviceAnnotationTemplateVersion]
+	}
 	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	renderedApplicationsJSON := renderedApplications

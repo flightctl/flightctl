@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
+	"golang.org/x/exp/constraints"
 	"k8s.io/klog/v2"
 )
 
@@ -108,8 +110,12 @@ func SliceToPtrWithNilDefault(s []string) *[]string {
 	return &s
 }
 
+func TimeStampString() string {
+	return time.Now().Format(time.RFC3339Nano)
+}
+
 func TimeStampStringPtr() *string {
-	return StrToPtr(time.Now().Format(time.RFC3339Nano))
+	return StrToPtr(TimeStampString())
 }
 
 func BoolToStr(b bool, ifTrue string, ifFalse string) string {
@@ -268,4 +274,16 @@ func DefaultIfNotInMap(m map[string]string, key string, def string) string {
 		return def
 	}
 	return val
+}
+
+type Number interface {
+	constraints.Integer | constraints.Float
+}
+
+func Min[N Number](n1, n2 N) N {
+	return lo.Ternary(n1 < n2, n1, n2)
+}
+
+func Max[N Number](n1, n2 N) N {
+	return lo.Ternary(n1 > n2, n1, n2)
 }

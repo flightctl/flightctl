@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/rollout/device_selection"
+	"github.com/flightctl/flightctl/internal/rollout/disruption_allowance"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -64,6 +66,20 @@ func (s *Server) Run() error {
 		s.log.WithField("pkg", "device-disconnected"), "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
 	deviceDisconnectedThread.Start()
 	defer deviceDisconnectedThread.Stop()
+
+	// Rollout device selection
+	rolloutDeviceSelection := device_selection.NewReconciler(s.store, callbackManager, s.log)
+	rolloutDeviceSelectionThread := thread.New(
+		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
+	rolloutDeviceSelectionThread.Start()
+	defer rolloutDeviceSelectionThread.Stop()
+
+	// Rollout disruption allowance
+	disruptionAllowance := disruption_allowance.NewReconciler(s.store, callbackManager, s.log)
+	disruptionAllowanceThread := thread.New(
+		s.log.WithField("pkg", "disruption-allowance"), "Disruption allowance", disruption_allowance.DisruptionAllowanceReconcilationInterval, disruptionAllowance.Reconcile)
+	disruptionAllowanceThread.Start()
+	defer disruptionAllowanceThread.Stop()
 
 	sigShutdown := make(chan os.Signal, 1)
 
