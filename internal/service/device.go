@@ -432,5 +432,12 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	if !allowed {
 		return server.DecommissionDevice403JSONResponse{Message: Forbidden}, nil
 	}
-	return nil, fmt.Errorf("not yet implemented")
+
+	orgId := store.NullOrgId
+	err = h.store.Device().SetDecommission(ctx, orgId, request.Name, request.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return server.DecommissionDevice200JSONResponse{}, nil
 }
