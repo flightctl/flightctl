@@ -36,6 +36,7 @@ type Device interface {
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	SetDecommission(ctx context.Context, orgId uuid.UUID, name string, request *api.DeviceDecommission) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	InitialMigration() error
@@ -264,6 +265,11 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 }
 
 func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
+	// do not update devices with a decommission requested
+	if existingRecord.Spec != nil && existingRecord.Spec.Data.DecommissionRequested != nil {
+		return false, flterrors.ErrDecommission
+	}
+
 	sameSpec := api.DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
@@ -312,6 +318,9 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	}
 	if resource.Metadata.Name == nil {
 		return nil, false, false, flterrors.ErrResourceNameIsNil
+	}
+	if resource.Spec != nil && resource.Spec.DecommissionRequested != nil {
+		return nil, false, false, flterrors.ErrDecommission
 	}
 
 	device, err := model.NewDeviceFromApiResource(resource)
@@ -627,6 +636,35 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 	return retryUpdate(func() (bool, error) {
 		return s.setServiceConditions(orgId, name, conditions)
 	})
+}
+
+func (s *DeviceStore) SetDecommission(ctx context.Context, orgId uuid.UUID, name string, request *api.DeviceDecommission) error {
+	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.db.First(&existingRecord)
+	if result.Error != nil {
+		return ErrorFromGormError(result.Error)
+	}
+
+	if existingRecord.Spec == nil {
+		existingRecord.Spec = model.MakeJSONField(api.DeviceSpec{})
+	}
+	if existingRecord.Spec.Data.DecommissionRequested != nil {
+		return fmt.Errorf("decommission request on already decommissioning device")
+	}
+	existingRecord.Spec.Data.DecommissionRequested = request
+
+	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"spec":             existingRecord.Spec,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	err := ErrorFromGormError(result.Error)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected == 0 {
+		return flterrors.ErrNoRowsUpdated
+	}
+	return nil
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
