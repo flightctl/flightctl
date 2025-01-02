@@ -88,10 +88,15 @@ services:
 
   flightctl-kv:
     container_name: flightctl-kv
-    image: valkey/valkey:latest
-    command: valkey-server
+    image: docker.io/redis:7.4.1
+    command: redis-server
+    volumes:
+      - flightctl-kv:/var/lib/redis/data
     ports:
       - 6379:6379
+    networks:
+      - flightctl-network
+    restart: unless-stopped
 
 volumes:
   flightctl-db:

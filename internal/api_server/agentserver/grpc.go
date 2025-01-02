@@ -2,10 +2,8 @@ package agentserver
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"io"
-	"net"
 	"sync"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
@@ -18,7 +16,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -27,7 +24,6 @@ type AgentGrpcServer struct {
 	pb.UnimplementedRouterServiceServer
 	log            logrus.FieldLogger
 	cfg            *config.Config
-	tlsConfig      *tls.Config
 	pendingStreams *sync.Map
 }
 
@@ -35,37 +31,18 @@ type AgentGrpcServer struct {
 func NewAgentGrpcServer(
 	log logrus.FieldLogger,
 	cfg *config.Config,
-	tlsConfig *tls.Config,
 ) *AgentGrpcServer {
 	return &AgentGrpcServer{
 		log:            log,
 		cfg:            cfg,
-		tlsConfig:      tlsConfig,
 		pendingStreams: &sync.Map{},
 	}
 }
 
-func (s *AgentGrpcServer) Run(ctx context.Context) error {
-	s.log.Infof("Initializing Agent-side gRPC server: %s", s.cfg.Service.AgentGrpcAddress)
-	tlsCredentials := credentials.NewTLS(s.tlsConfig)
-	server := grpc.NewServer(
-		grpc.Creds(tlsCredentials),
-		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
-	)
+func (s *AgentGrpcServer) PrepareGRPCService() *grpc.Server {
+	server := grpc.NewServer(grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)))
 	pb.RegisterRouterServiceServer(server, s)
-
-	listener, err := net.Listen("tcp", s.cfg.Service.AgentGrpcAddress)
-
-	if err != nil {
-		s.log.Fatalf("cannot start server: %s", err)
-	}
-
-	go func() {
-		<-ctx.Done()
-		server.Stop()
-	}()
-
-	return server.Serve(listener)
+	return server
 }
 
 type streamCtx struct {

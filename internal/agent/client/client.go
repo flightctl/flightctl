@@ -29,8 +29,8 @@ func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, erro
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
 }
 
-func NewGRPCClientFromConfig(config *baseclient.Config, endpoint string) (grpc_v1.RouterServiceClient, error) {
-	return baseclient.NewGRPCClientFromConfig(config, endpoint)
+func NewGRPCClientFromConfig(config *baseclient.Config) (grpc_v1.RouterServiceClient, error) {
+	return baseclient.NewGRPCClientFromConfig(config, "")
 }
 
 type Config = baseclient.Config

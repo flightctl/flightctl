@@ -75,7 +75,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	kvStore, err := kvstore.NewKVStore(s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,10 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// general middleware stack for all route groups
+	// request size limits should come before logging to prevent DoS attacks from filling logs
 	router.Use(
+		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
+		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
@@ -118,7 +121,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
-		h := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+		h := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
 		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
 	})
 
@@ -126,7 +129,7 @@ func (s *Server) Run(ctx context.Context) error {
 	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
 	ws.RegisterRoutes(router)
 
-	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
+	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {
 		<-ctx.Done()

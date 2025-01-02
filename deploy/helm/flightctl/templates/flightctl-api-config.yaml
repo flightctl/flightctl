@@ -17,6 +17,13 @@ data:
         address: :3443
         agentEndpointAddress: :7443
         agentGrpcAddress: :7444
+        httpReadTimeout: {{ .Values.api.httpReadTimeout | default "5m" | quote }}
+        httpReadHeaderTimeout: {{ .Values.api.httpReadHeaderTimeout | default "5m" | quote }}
+        httpWriteTimeout: {{ .Values.api.httpWriteTimeout | default "5m" | quote }}
+        httpMaxNumHeaders: {{ default 32 .Values.api.httpMaxNumHeaders }}
+        httpMaxHeaderBytes: {{ default 33010 .Values.api.httpMaxHeaderBytes }}
+        httpMaxUrlLength: {{ default 2000 .Values.api.httpMaxUrlLength }}
+        httpMaxRequestSize: {{ default 53137200 .Values.api.httpMaxRequestSize }}
         {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
