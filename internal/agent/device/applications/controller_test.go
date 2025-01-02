@@ -23,10 +23,12 @@ type testApp struct {
 func TestParseApps(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
-		name    string
-		apps    []testApp
-		labels  map[string]string
-		wantErr error
+		name      string
+		apps      []testApp
+		labels    map[string]string
+		wantNames []string
+		wantIDs   []string
+		wantErr   error
 	}{
 		{
 			name: "valid app type",
@@ -34,6 +36,8 @@ func TestParseApps(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: string(AppCompose),
 			},
+			wantNames: []string{"app1"},
+			wantIDs:   []string{"app1"},
 		},
 		{
 			name: "unsupported app type",
@@ -55,10 +59,25 @@ func TestParseApps(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: string(AppCompose),
 			},
+			wantNames: []string{"quay.io/org/app1:latest"},
+			wantIDs:   []string{"quay_io_org_app1_latest"},
 		},
 		{
 			name: "no apps",
 			apps: []testApp{},
+		},
+		{
+			name: "multiple apps",
+			apps: []testApp{
+				{name: "app1", image: "quay.io/org/app1:latest"},
+				{name: "", image: "quay.io/org/app2:latest"},
+				{name: "app2", image: "quay.io/org/app2:latest"},
+			},
+			labels: map[string]string{
+				AppTypeLabel: string(AppCompose),
+			},
+			wantNames: []string{"app1", "quay.io/org/app2:latest", "app2"},
+			wantIDs:   []string{"app1", "quay_io_org_app2_latest", "app2"},
 		},
 	}
 
@@ -87,8 +106,14 @@ func TestParseApps(t *testing.T) {
 			require.NoError(err)
 			require.Equal(len(tc.apps), len(apps.ImageBased()))
 			// ensure name is populated
-			for _, app := range apps.ImageBased() {
+			for i, app := range apps.ImageBased() {
 				require.NotEmpty(app.Name())
+				if len(tc.wantNames) > 0 {
+					require.Equal(tc.wantNames[i], app.Name())
+				}
+				if len(tc.wantIDs) > 0 {
+					require.Equal(tc.wantIDs[i], app.ID())
+				}
 			}
 		})
 	}

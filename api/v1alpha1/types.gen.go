@@ -155,16 +155,16 @@ const (
 
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
-	// EnvVars Environment variable key-value pairs, injected during runtime.
+	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
 // ApplicationSpec defines model for ApplicationSpec.
 type ApplicationSpec struct {
-	// EnvVars Environment variable key-value pairs, injected during runtime.
+	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
-	// Name The name of the application.
+	// Name The name of the application must be between 1 and 253 characters and start with a letter or number.
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
 }
@@ -1087,7 +1087,7 @@ type Percentage = string
 
 // RenderedApplicationSpec defines model for RenderedApplicationSpec.
 type RenderedApplicationSpec struct {
-	// EnvVars Environment variable key-value pairs, injected during runtime.
+	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
 	// Name An application name.

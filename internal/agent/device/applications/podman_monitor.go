@@ -63,6 +63,7 @@ type PodmanMonitor struct {
 	cancelFn    context.CancelFunc
 	initialized bool
 
+	// apps is a map of application ID to application.
 	apps    map[string]Application
 	actions []lifecycle.Action
 
@@ -172,23 +173,25 @@ func (m *PodmanMonitor) ensure(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	appName := app.Name()
-	_, ok := m.apps[appName]
+	appID := app.ID()
+	_, ok := m.apps[appID]
 	if ok {
 		// app already exists
 		return nil
 	}
-	m.apps[appName] = app
+	m.apps[appID] = app
 
 	handler, err := app.Type().ActionHandler()
 	if err != nil {
 		return err
 	}
 
+	appName := app.Name()
 	action := lifecycle.Action{
 		Handler:  handler,
 		Type:     lifecycle.ActionAdd,
 		Name:     appName,
+		ID:       appID,
 		Embedded: app.IsEmbedded(),
 	}
 
@@ -200,8 +203,8 @@ func (m *PodmanMonitor) remove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	appName := app.Name()
-	if _, ok := m.apps[appName]; !ok {
+	appID := app.ID()
+	if _, ok := m.apps[appID]; !ok {
 		// app is already removed
 		return nil
 	}
@@ -211,13 +214,14 @@ func (m *PodmanMonitor) remove(app Application) error {
 		return err
 	}
 
-	delete(m.apps, appName)
+	delete(m.apps, appID)
 
 	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
 		Handler: handler,
 		Type:    lifecycle.ActionRemove,
-		Name:    appName,
+		Name:    app.Name(),
+		ID:      appID,
 	}
 
 	m.actions = append(m.actions, action)
@@ -228,8 +232,9 @@ func (m *PodmanMonitor) update(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	appID := app.ID()
 	appName := app.Name()
-	existingApp, ok := m.apps[appName]
+	existingApp, ok := m.apps[appID]
 	if !ok {
 		return errors.ErrAppNotFound
 	}
@@ -248,17 +253,18 @@ func (m *PodmanMonitor) update(app Application) error {
 		Handler: handler,
 		Type:    lifecycle.ActionUpdate,
 		Name:    appName,
+		ID:      appID,
 	}
 
 	m.actions = append(m.actions, action)
 	return nil
 }
 
-func (m *PodmanMonitor) get(name string) (Application, bool) {
+func (m *PodmanMonitor) getByID(appID string) (Application, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	app, ok := m.apps[name]
+	app, ok := m.apps[appID]
 	if ok {
 		return app, true
 	}
@@ -404,15 +410,15 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 		return
 	}
 
-	appName, ok := event.Attributes["com.docker.compose.project"]
+	projectName, ok := event.Attributes["com.docker.compose.project"]
 	if !ok {
 		m.log.Debugf("Application name not found in event attributes: %v", event)
 		return
 	}
 
-	app, ok := m.get(appName)
+	app, ok := m.apps[projectName]
 	if !ok {
-		m.log.Debugf("Application not found: %s", appName)
+		m.log.Debugf("Application project not found: %s", projectName)
 		return
 	}
 	m.updateAppStatus(ctx, app, &event)

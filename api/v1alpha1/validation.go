@@ -552,8 +552,11 @@ func validateSshConfig(config *SshConfig) []error {
 
 func (a ApplicationSpec) Validate() []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
+	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
+	// name must be between 1 and 253 characters and start with a letter or number.
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 253, pattern, "")...)
+	// envVars keys and values must be between 1 and 253 characters
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 253, nil, "")...)
 	return allErrs
 }
 
