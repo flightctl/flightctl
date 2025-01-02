@@ -53,6 +53,9 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 
 	spec := api.DeviceSpec{}
 	if resource.Spec != nil {
+		if resource.Spec.DecommissionRequested != nil {
+			return nil, flterrors.ErrDecommission
+		}
 		spec = *resource.Spec
 	}
 
