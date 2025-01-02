@@ -8,7 +8,7 @@ VERSION="$(echo "${SPEC}" | awk '/^Version:/ {print $2; exit}')"
 URL="$(grep '^URL:' <<< "${SPEC}" | awk '{print $2}')"
 
 cleanup() {
-  rm -rf "${NAME}-${VERSION}" "${NAME}-${VERSION}.tar.gz"
+  rm -rf "${NAME}-${VERSION}" "${NAME}-${VERSION}.tar.gz" "${NAME}-${VERSION}-vendor.tar.bz2"
 }
 trap cleanup EXIT
 

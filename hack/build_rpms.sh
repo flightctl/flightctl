@@ -18,4 +18,3 @@ EOF
 else
     ./hack/build_rpms_packit.sh
 fi
-
