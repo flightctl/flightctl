@@ -45,7 +45,7 @@ func TestCPUMonitor(t *testing.T) {
 	go cpuMonitor.Run(ctx)
 
 	samplingInterval := 100 * time.Millisecond
-	monitorSpec := v1alpha1.CPUResourceMonitorSpec{
+	monitorSpec := v1alpha1.CpuResourceMonitorSpec{
 		SamplingInterval: samplingInterval.String(),
 		MonitorType:      CPUMonitorType,
 		AlertRules: []v1alpha1.ResourceAlertRule{
@@ -71,7 +71,7 @@ func TestCPUMonitor(t *testing.T) {
 	}
 
 	rm := &v1alpha1.ResourceMonitor{}
-	err = rm.FromCPUResourceMonitorSpec(monitorSpec)
+	err = rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 	updated, err := cpuMonitor.Update(rm)
 	require.NoError(err)
@@ -91,7 +91,7 @@ func TestCPUMonitor(t *testing.T) {
 	// update the monitor to remove all alerts
 	monitorSpec.AlertRules = monitorSpec.AlertRules[:0]
 	rm = &v1alpha1.ResourceMonitor{}
-	err = rm.FromCPUResourceMonitorSpec(monitorSpec)
+	err = rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
 	updated, err = cpuMonitor.Update(rm)

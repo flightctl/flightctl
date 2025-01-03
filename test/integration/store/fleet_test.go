@@ -438,7 +438,7 @@ var _ = Describe("FleetStore create", func() {
 		It("CreateOrUpdate update mode updated spec", func() {
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
+			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
 			fleet.Status = nil
 
 			called := false
@@ -464,7 +464,7 @@ var _ = Describe("FleetStore create", func() {
 		It("CreateOrUpdate wrong owner", func() {
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			fleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS"}
+			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
 			fleet.Status = nil
 
 			called := false
@@ -503,7 +503,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 
 			updatedFleet.Metadata.Owner = util.StrToPtr("test")
-			updatedFleet.Spec.Template.Spec.Os = &api.DeviceOSSpec{Image: "my new OS2"}
+			updatedFleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS2"}
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, callback)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())

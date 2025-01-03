@@ -58,8 +58,10 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 	switch err {
 	case nil:
 		return server.CreateFleet201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -236,7 +238,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 	}
 	if f.Metadata.Owner != nil {
 		// Can't delete via api
-		return server.DeleteFleet409JSONResponse{Message: "could not delete fleet because it is owned by another resource"}, nil
+		return server.DeleteFleet403JSONResponse{Message: "unauthorized to delete fleet because it is owned by another resource"}, nil
 	}
 
 	err = h.store.Fleet().Delete(ctx, orgId, h.callbackManager.FleetUpdatedCallback, request.Name)
@@ -365,4 +367,9 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	default:
 		return nil, err
 	}
+}
+
+// (PATCH /api/v1/fleets/{name}/status)
+func (h *ServiceHandler) PatchFleetStatus(ctx context.Context, request server.PatchFleetStatusRequestObject) (server.PatchFleetStatusResponseObject, error) {
+	return nil, fmt.Errorf("not yet implemented")
 }

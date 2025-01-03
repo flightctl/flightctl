@@ -53,7 +53,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 			Owner:  owner,
 		},
 		Spec: &api.DeviceSpec{
-			Os: &api.DeviceOSSpec{
+			Os: &api.DeviceOsSpec{
 				Image: "os",
 			},
 			Config: &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
@@ -152,7 +152,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 
 func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tvStore store.TemplateVersion, orgId uuid.UUID, fleet string) error {
 	for i := 1; i <= numTemplateVersions; i++ {
-		status := api.TemplateVersionStatus{Os: &api.DeviceOSSpec{Image: "myimage"}}
+		status := api.TemplateVersionStatus{Os: &api.DeviceOsSpec{Image: "myimage"}}
 		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), &status)
 		if err != nil {
 			return err

@@ -49,8 +49,10 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -408,9 +410,14 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	}
 }
 
+// (PATCH /api/v1/devices/{name}/status)
+func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, request server.PatchDeviceStatusRequestObject) (server.PatchDeviceStatusResponseObject, error) {
+	return nil, fmt.Errorf("not yet implemented")
+}
+
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decomission", "update")
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decommission", "update")
 	if err != nil {
 		h.log.WithError(err).Error("failed to check authorization permission")
 		return server.DecommissionDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil

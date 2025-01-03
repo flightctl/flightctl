@@ -85,7 +85,6 @@ paths:
           required: false
           schema:
             type: string
-
       responses:
         "200":
           description: OK
@@ -141,8 +140,20 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -166,12 +177,6 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
-        "208":
-          description: Already Reported
-          content:
-            application/json:
-              schema:
-                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
         "400":
           description: Bad Request
           content:
@@ -184,8 +189,20 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:

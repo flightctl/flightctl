@@ -158,13 +158,13 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 	errs := []error{}
 
-	var osSpec *api.DeviceOSSpec
+	var osSpec *api.DeviceOsSpec
 	if templateVersion.Status.Os != nil {
 		img, err := replaceParametersInString(templateVersion.Status.Os.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))
 		} else {
-			osSpec = &api.DeviceOSSpec{Image: img}
+			osSpec = &api.DeviceOsSpec{Image: img}
 		}
 	}
 

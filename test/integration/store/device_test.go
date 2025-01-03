@@ -68,7 +68,7 @@ var _ = Describe("DeviceStore create", func() {
 				Name: util.StrToPtr("newresourcename"),
 			},
 			Spec: &api.DeviceSpec{
-				Os: &api.DeviceOSSpec{Image: imageName},
+				Os: &api.DeviceOsSpec{Image: imageName},
 			},
 			Status: nil,
 		}
@@ -96,7 +96,7 @@ var _ = Describe("DeviceStore create", func() {
 				Name: util.StrToPtr("mydevice-1"),
 			},
 			Spec: &api.DeviceSpec{
-				Os: &api.DeviceOSSpec{
+				Os: &api.DeviceOsSpec{
 					Image: "newos",
 				},
 			},
@@ -108,7 +108,7 @@ var _ = Describe("DeviceStore create", func() {
 			if raceCalled {
 				return
 			}
-			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOSSpec{Image: "bah"}}}
+			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "bah"}}}
 			device, err := model.NewDeviceFromApiResource(&otherupdate)
 			device.OrgID = orgId
 			device.ResourceVersion = lo.ToPtr(int64(5))
@@ -333,7 +333,7 @@ var _ = Describe("DeviceStore create", func() {
 					Name: util.StrToPtr("newresourcename"),
 				},
 				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOSSpec{Image: imageName},
+					Os: &api.DeviceOsSpec{Image: imageName},
 				},
 				Status: nil,
 			}
@@ -352,7 +352,7 @@ var _ = Describe("DeviceStore create", func() {
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOSSpec{
+					Os: &api.DeviceOsSpec{
 						Image: "newos",
 					},
 				},
@@ -410,7 +410,7 @@ var _ = Describe("DeviceStore create", func() {
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOSSpec{Image: "newos"},
+					Os: &api.DeviceOsSpec{Image: "newos"},
 				},
 				Status: &status,
 			}

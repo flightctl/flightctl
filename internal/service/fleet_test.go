@@ -64,7 +64,7 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 			}{
 				Spec: v1alpha1.DeviceSpec{
-					Os: &v1alpha1.DeviceOSSpec{
+					Os: &v1alpha1.DeviceOsSpec{
 						Image: "img",
 					},
 				},
@@ -164,7 +164,7 @@ func TestFleetPatchSpec(t *testing.T) {
 		Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 	}{
 		Spec: v1alpha1.DeviceSpec{
-			Os: &v1alpha1.DeviceOSSpec{
+			Os: &v1alpha1.DeviceOsSpec{
 				Image: "newimg",
 			},
 		},

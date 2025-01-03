@@ -1078,7 +1078,7 @@ func createTestSpec(image string) ([]byte, error) {
 func createRenderedTestSpec(image string) *v1alpha1.RenderedDeviceSpec {
 	spec := v1alpha1.RenderedDeviceSpec{
 		RenderedVersion: "1",
-		Os: &v1alpha1.DeviceOSSpec{
+		Os: &v1alpha1.DeviceOsSpec{
 			Image: image,
 		},
 	}

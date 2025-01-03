@@ -84,6 +84,9 @@ type ServerInterface interface {
 	// (GET /api/v1/devices/{name}/status)
 	ReadDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
+	// (PATCH /api/v1/devices/{name}/status)
+	PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
+
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
@@ -105,14 +108,20 @@ type ServerInterface interface {
 	// (GET /api/v1/enrollmentrequests/{name})
 	ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
+	// (PATCH /api/v1/enrollmentrequests/{name})
+	PatchEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+
 	// (PUT /api/v1/enrollmentrequests/{name})
 	ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (POST /api/v1/enrollmentrequests/{name}/approval)
+	// (PUT /api/v1/enrollmentrequests/{name}/approval)
 	ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/enrollmentrequests/{name}/status)
 	ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PATCH /api/v1/enrollmentrequests/{name}/status)
+	PatchEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
 
 	// (PUT /api/v1/enrollmentrequests/{name}/status)
 	ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
@@ -152,6 +161,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/fleets/{name}/status)
 	ReadFleetStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PATCH /api/v1/fleets/{name}/status)
+	PatchFleetStatus(w http.ResponseWriter, r *http.Request, name string)
 
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string)
@@ -313,6 +325,11 @@ func (_ Unimplemented) ReadDeviceStatus(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (PATCH /api/v1/devices/{name}/status)
+func (_ Unimplemented) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (PUT /api/v1/devices/{name}/status)
 func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -348,18 +365,28 @@ func (_ Unimplemented) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (PATCH /api/v1/enrollmentrequests/{name})
+func (_ Unimplemented) PatchEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (PUT /api/v1/enrollmentrequests/{name})
 func (_ Unimplemented) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/enrollmentrequests/{name}/approval)
+// (PUT /api/v1/enrollmentrequests/{name}/approval)
 func (_ Unimplemented) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // (GET /api/v1/enrollmentrequests/{name}/status)
 func (_ Unimplemented) ReadEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /api/v1/enrollmentrequests/{name}/status)
+func (_ Unimplemented) PatchEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -425,6 +452,11 @@ func (_ Unimplemented) ReplaceFleet(w http.ResponseWriter, r *http.Request, name
 
 // (GET /api/v1/fleets/{name}/status)
 func (_ Unimplemented) ReadFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /api/v1/fleets/{name}/status)
+func (_ Unimplemented) PatchFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1131,6 +1163,32 @@ func (siw *ServerInterfaceWrapper) ReadDeviceStatus(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// PatchDeviceStatus operation middleware
+func (siw *ServerInterfaceWrapper) PatchDeviceStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchDeviceStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // ReplaceDeviceStatus operation middleware
 func (siw *ServerInterfaceWrapper) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1317,6 +1375,32 @@ func (siw *ServerInterfaceWrapper) ReadEnrollmentRequest(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// PatchEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) PatchEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchEnrollmentRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // ReplaceEnrollmentRequest operation middleware
 func (siw *ServerInterfaceWrapper) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1386,6 +1470,32 @@ func (siw *ServerInterfaceWrapper) ReadEnrollmentRequestStatus(w http.ResponseWr
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReadEnrollmentRequestStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// PatchEnrollmentRequestStatus operation middleware
+func (siw *ServerInterfaceWrapper) PatchEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchEnrollmentRequestStatus(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1808,6 +1918,32 @@ func (siw *ServerInterfaceWrapper) ReadFleetStatus(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReadFleetStatus(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// PatchFleetStatus operation middleware
+func (siw *ServerInterfaceWrapper) PatchFleetStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchFleetStatus(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2403,6 +2539,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReadDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.PatchDeviceStatus)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
@@ -2424,13 +2563,19 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReadEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.PatchEnrollmentRequest)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReplaceEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approval", wrapper.ApproveEnrollmentRequest)
+		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approval", wrapper.ApproveEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.ReadEnrollmentRequestStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.PatchEnrollmentRequestStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.ReplaceEnrollmentRequestStatus)
@@ -2470,6 +2615,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReadFleetStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.PatchFleetStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReplaceFleetStatus)
@@ -2725,6 +2873,15 @@ func (response CreateCertificateSigningRequest403JSONResponse) VisitCreateCertif
 	return json.NewEncoder(w).Encode(response)
 }
 
+type CreateCertificateSigningRequest409JSONResponse Error
+
+func (response CreateCertificateSigningRequest409JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type CreateCertificateSigningRequest503JSONResponse Error
 
 func (response CreateCertificateSigningRequest503JSONResponse) VisitCreateCertificateSigningRequestResponse(w http.ResponseWriter) error {
@@ -2854,15 +3011,6 @@ type PatchCertificateSigningRequest200JSONResponse CertificateSigningRequest
 func (response PatchCertificateSigningRequest200JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type PatchCertificateSigningRequest201JSONResponse CertificateSigningRequest
-
-func (response PatchCertificateSigningRequest201JSONResponse) VisitPatchCertificateSigningRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3810,6 +3958,69 @@ func (response ReadDeviceStatus503JSONResponse) VisitReadDeviceStatusResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchDeviceStatusRequestObject struct {
+	Name string `json:"name"`
+	Body *PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody
+}
+
+type PatchDeviceStatusResponseObject interface {
+	VisitPatchDeviceStatusResponse(w http.ResponseWriter) error
+}
+
+type PatchDeviceStatus200JSONResponse Device
+
+func (response PatchDeviceStatus200JSONResponse) VisitPatchDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchDeviceStatus400JSONResponse Error
+
+func (response PatchDeviceStatus400JSONResponse) VisitPatchDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchDeviceStatus401JSONResponse Error
+
+func (response PatchDeviceStatus401JSONResponse) VisitPatchDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchDeviceStatus403JSONResponse Error
+
+func (response PatchDeviceStatus403JSONResponse) VisitPatchDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchDeviceStatus404JSONResponse Error
+
+func (response PatchDeviceStatus404JSONResponse) VisitPatchDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchDeviceStatus503JSONResponse Error
+
+func (response PatchDeviceStatus503JSONResponse) VisitPatchDeviceStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceDeviceStatusRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceDeviceStatusJSONRequestBody
@@ -4048,15 +4259,6 @@ func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest208JSONResponse EnrollmentRequest
-
-func (response CreateEnrollmentRequest208JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(208)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
 type CreateEnrollmentRequest400JSONResponse Error
 
 func (response CreateEnrollmentRequest400JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
@@ -4208,6 +4410,78 @@ func (response ReadEnrollmentRequest503JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PatchEnrollmentRequestRequestObject struct {
+	Name string `json:"name"`
+	Body *PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody
+}
+
+type PatchEnrollmentRequestResponseObject interface {
+	VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type PatchEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response PatchEnrollmentRequest200JSONResponse) VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequest400JSONResponse Error
+
+func (response PatchEnrollmentRequest400JSONResponse) VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequest401JSONResponse Error
+
+func (response PatchEnrollmentRequest401JSONResponse) VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequest403JSONResponse Error
+
+func (response PatchEnrollmentRequest403JSONResponse) VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequest404JSONResponse Error
+
+func (response PatchEnrollmentRequest404JSONResponse) VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequest409JSONResponse Error
+
+func (response PatchEnrollmentRequest409JSONResponse) VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequest503JSONResponse Error
+
+func (response PatchEnrollmentRequest503JSONResponse) VisitPatchEnrollmentRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ReplaceEnrollmentRequestRequestObject struct {
 	Name string `json:"name"`
 	Body *ReplaceEnrollmentRequestJSONRequestBody
@@ -4343,24 +4617,6 @@ func (response ApproveEnrollmentRequest404JSONResponse) VisitApproveEnrollmentRe
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ApproveEnrollmentRequest422JSONResponse Error
-
-func (response ApproveEnrollmentRequest422JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ApproveEnrollmentRequest500JSONResponse Error
-
-func (response ApproveEnrollmentRequest500JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
 type ApproveEnrollmentRequest503JSONResponse Error
 
 func (response ApproveEnrollmentRequest503JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
@@ -4417,6 +4673,78 @@ func (response ReadEnrollmentRequestStatus404JSONResponse) VisitReadEnrollmentRe
 type ReadEnrollmentRequestStatus503JSONResponse Error
 
 func (response ReadEnrollmentRequestStatus503JSONResponse) VisitReadEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequestStatusRequestObject struct {
+	Name string `json:"name"`
+	Body *PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody
+}
+
+type PatchEnrollmentRequestStatusResponseObject interface {
+	VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error
+}
+
+type PatchEnrollmentRequestStatus200JSONResponse EnrollmentRequest
+
+func (response PatchEnrollmentRequestStatus200JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequestStatus400JSONResponse Error
+
+func (response PatchEnrollmentRequestStatus400JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequestStatus401JSONResponse Error
+
+func (response PatchEnrollmentRequestStatus401JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequestStatus403JSONResponse Error
+
+func (response PatchEnrollmentRequestStatus403JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequestStatus404JSONResponse Error
+
+func (response PatchEnrollmentRequestStatus404JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequestStatus409JSONResponse Error
+
+func (response PatchEnrollmentRequestStatus409JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchEnrollmentRequestStatus503JSONResponse Error
+
+func (response PatchEnrollmentRequestStatus503JSONResponse) VisitPatchEnrollmentRequestStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
 
@@ -4885,15 +5213,6 @@ func (response DeleteFleet404JSONResponse) VisitDeleteFleetResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteFleet409JSONResponse Error
-
-func (response DeleteFleet409JSONResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
 type DeleteFleet503JSONResponse Error
 
 func (response DeleteFleet503JSONResponse) VisitDeleteFleetResponse(w http.ResponseWriter) error {
@@ -5157,6 +5476,69 @@ func (response ReadFleetStatus404JSONResponse) VisitReadFleetStatusResponse(w ht
 type ReadFleetStatus503JSONResponse Error
 
 func (response ReadFleetStatus503JSONResponse) VisitReadFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchFleetStatusRequestObject struct {
+	Name string `json:"name"`
+	Body *PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody
+}
+
+type PatchFleetStatusResponseObject interface {
+	VisitPatchFleetStatusResponse(w http.ResponseWriter) error
+}
+
+type PatchFleetStatus200JSONResponse Fleet
+
+func (response PatchFleetStatus200JSONResponse) VisitPatchFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchFleetStatus400JSONResponse Error
+
+func (response PatchFleetStatus400JSONResponse) VisitPatchFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchFleetStatus401JSONResponse Error
+
+func (response PatchFleetStatus401JSONResponse) VisitPatchFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchFleetStatus403JSONResponse Error
+
+func (response PatchFleetStatus403JSONResponse) VisitPatchFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchFleetStatus404JSONResponse Error
+
+func (response PatchFleetStatus404JSONResponse) VisitPatchFleetStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchFleetStatus503JSONResponse Error
+
+func (response PatchFleetStatus503JSONResponse) VisitPatchFleetStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
 
@@ -6120,6 +6502,9 @@ type StrictServerInterface interface {
 	// (GET /api/v1/devices/{name}/status)
 	ReadDeviceStatus(ctx context.Context, request ReadDeviceStatusRequestObject) (ReadDeviceStatusResponseObject, error)
 
+	// (PATCH /api/v1/devices/{name}/status)
+	PatchDeviceStatus(ctx context.Context, request PatchDeviceStatusRequestObject) (PatchDeviceStatusResponseObject, error)
+
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(ctx context.Context, request ReplaceDeviceStatusRequestObject) (ReplaceDeviceStatusResponseObject, error)
 
@@ -6141,14 +6526,20 @@ type StrictServerInterface interface {
 	// (GET /api/v1/enrollmentrequests/{name})
 	ReadEnrollmentRequest(ctx context.Context, request ReadEnrollmentRequestRequestObject) (ReadEnrollmentRequestResponseObject, error)
 
+	// (PATCH /api/v1/enrollmentrequests/{name})
+	PatchEnrollmentRequest(ctx context.Context, request PatchEnrollmentRequestRequestObject) (PatchEnrollmentRequestResponseObject, error)
+
 	// (PUT /api/v1/enrollmentrequests/{name})
 	ReplaceEnrollmentRequest(ctx context.Context, request ReplaceEnrollmentRequestRequestObject) (ReplaceEnrollmentRequestResponseObject, error)
 
-	// (POST /api/v1/enrollmentrequests/{name}/approval)
+	// (PUT /api/v1/enrollmentrequests/{name}/approval)
 	ApproveEnrollmentRequest(ctx context.Context, request ApproveEnrollmentRequestRequestObject) (ApproveEnrollmentRequestResponseObject, error)
 
 	// (GET /api/v1/enrollmentrequests/{name}/status)
 	ReadEnrollmentRequestStatus(ctx context.Context, request ReadEnrollmentRequestStatusRequestObject) (ReadEnrollmentRequestStatusResponseObject, error)
+
+	// (PATCH /api/v1/enrollmentrequests/{name}/status)
+	PatchEnrollmentRequestStatus(ctx context.Context, request PatchEnrollmentRequestStatusRequestObject) (PatchEnrollmentRequestStatusResponseObject, error)
 
 	// (PUT /api/v1/enrollmentrequests/{name}/status)
 	ReplaceEnrollmentRequestStatus(ctx context.Context, request ReplaceEnrollmentRequestStatusRequestObject) (ReplaceEnrollmentRequestStatusResponseObject, error)
@@ -6188,6 +6579,9 @@ type StrictServerInterface interface {
 
 	// (GET /api/v1/fleets/{name}/status)
 	ReadFleetStatus(ctx context.Context, request ReadFleetStatusRequestObject) (ReadFleetStatusResponseObject, error)
+
+	// (PATCH /api/v1/fleets/{name}/status)
+	PatchFleetStatus(ctx context.Context, request PatchFleetStatusRequestObject) (PatchFleetStatusResponseObject, error)
 
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(ctx context.Context, request ReplaceFleetStatusRequestObject) (ReplaceFleetStatusResponseObject, error)
@@ -6876,6 +7270,39 @@ func (sh *strictHandler) ReadDeviceStatus(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// PatchDeviceStatus operation middleware
+func (sh *strictHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
+	var request PatchDeviceStatusRequestObject
+
+	request.Name = name
+
+	var body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchDeviceStatus(ctx, request.(PatchDeviceStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchDeviceStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchDeviceStatusResponseObject); ok {
+		if err := validResponse.VisitPatchDeviceStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ReplaceDeviceStatus operation middleware
 func (sh *strictHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var request ReplaceDeviceStatusRequestObject
@@ -7068,6 +7495,39 @@ func (sh *strictHandler) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// PatchEnrollmentRequest operation middleware
+func (sh *strictHandler) PatchEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	var request PatchEnrollmentRequestRequestObject
+
+	request.Name = name
+
+	var body PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchEnrollmentRequest(ctx, request.(PatchEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitPatchEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ReplaceEnrollmentRequest operation middleware
 func (sh *strictHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var request ReplaceEnrollmentRequestRequestObject
@@ -7153,6 +7613,39 @@ func (sh *strictHandler) ReadEnrollmentRequestStatus(w http.ResponseWriter, r *h
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReadEnrollmentRequestStatusResponseObject); ok {
 		if err := validResponse.VisitReadEnrollmentRequestStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchEnrollmentRequestStatus operation middleware
+func (sh *strictHandler) PatchEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
+	var request PatchEnrollmentRequestStatusRequestObject
+
+	request.Name = name
+
+	var body PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchEnrollmentRequestStatus(ctx, request.(PatchEnrollmentRequestStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchEnrollmentRequestStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchEnrollmentRequestStatusResponseObject); ok {
+		if err := validResponse.VisitPatchEnrollmentRequestStatusResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7519,6 +8012,39 @@ func (sh *strictHandler) ReadFleetStatus(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReadFleetStatusResponseObject); ok {
 		if err := validResponse.VisitReadFleetStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchFleetStatus operation middleware
+func (sh *strictHandler) PatchFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	var request PatchFleetStatusRequestObject
+
+	request.Name = name
+
+	var body PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchFleetStatus(ctx, request.(PatchFleetStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchFleetStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchFleetStatusResponseObject); ok {
+		if err := validResponse.VisitPatchFleetStatusResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

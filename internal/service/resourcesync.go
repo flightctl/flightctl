@@ -43,10 +43,10 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 	switch err {
 	case nil:
 		return server.CreateResourceSync201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrDuplicateName:
-		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
+		return server.CreateResourceSync409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
