@@ -22,10 +22,10 @@ import (
 type Fleet interface {
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
 	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error)
 	CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, fleets ...*api.Fleet) error
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 	UpdateStatusMultiple(ctx context.Context, orgId uuid.UUID, fleets ...*api.Fleet) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error
@@ -41,8 +41,9 @@ type Fleet interface {
 }
 
 type FleetStore struct {
-	db  *gorm.DB
-	log logrus.FieldLogger
+	db           *gorm.DB
+	log          logrus.FieldLogger
+	genericStore *GenericStore[*model.Fleet, model.Fleet, api.Fleet]
 }
 
 type FleetStoreCallback func(before *model.Fleet, after *model.Fleet)
@@ -52,7 +53,14 @@ type FleetStoreAllDeletedCallback func(orgId uuid.UUID)
 var _ Fleet = (*FleetStore)(nil)
 
 func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
-	return &FleetStore{db: db, log: log}
+	genericStore := NewGenericStore[*model.Fleet, model.Fleet, api.Fleet](
+		db,
+		log,
+		model.NewFleetFromApiResource,
+		(*model.Fleet).ToApiResource,
+		model.FleetPtrToFleet,
+	)
+	return &FleetStore{db: db, log: log, genericStore: genericStore}
 }
 
 func (s *FleetStore) InitialMigration() error {
@@ -60,15 +68,27 @@ func (s *FleetStore) InitialMigration() error {
 }
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
-	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, ModeCreateOnly, callback)
-	return updatedResource, err
+	return s.genericStore.Create(ctx, orgId, resource, callback)
 }
 
 func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
-	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Fleet, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, ModeUpdateOnly, callback)
-	})
-	return updatedResource, err
+	return s.genericStore.Update(ctx, orgId, resource, nil, true, callback)
+}
+
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error) {
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, callback)
+}
+
+func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, resources ...*api.Fleet) error {
+	var errs []error
+	for _, resource := range resources {
+		_, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, false, callback)
+		if err == flterrors.ErrUpdatingResourceWithOwnerNotAllowed {
+			err = fmt.Errorf("one or more fleets are managed by a different resource. %w", err)
+		}
+		errs = append(errs, err)
+	}
+	return errors.Join(lo.Uniq(errs)...)
 }
 
 type ListOption func(*listOptions)
@@ -234,128 +254,8 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		summary.UpdateStatus = updateStatus
 	}
 
-	apiFleet := fleet.ToApiResource(model.WithSummary(&summary))
-	return &apiFleet, nil
-}
-
-func (s *FleetStore) createFleet(fleet *model.Fleet) (bool, error) {
-	if fleet.Spec.Data.Template.Metadata == nil {
-		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
-	}
-	fleet.Spec.Data.Template.Metadata.Generation = lo.ToPtr[int64](1)
-	fleet.Generation = lo.ToPtr[int64](1)
-	fleet.ResourceVersion = lo.ToPtr[int64](1)
-	if result := s.db.Create(fleet); result.Error != nil {
-		err := ErrorFromGormError(result.Error)
-		return err == flterrors.ErrDuplicateName, err
-	}
-	return false, nil
-}
-
-func (s *FleetStore) updateFleet(existingRecord, fleet *model.Fleet) (bool, error) {
-	if existingRecord.Owner != nil && *existingRecord.Owner != lo.FromPtr(fleet.Owner) {
-		return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-	}
-	if fleet.ResourceVersion != nil && lo.FromPtr(existingRecord.ResourceVersion) != lo.FromPtr(fleet.ResourceVersion) {
-		return false, flterrors.ErrResourceVersionConflict
-	}
-
-	sameSpec := api.FleetSpecsAreEqual(fleet.Spec.Data, existingRecord.Spec.Data)
-
-	// Update the generation if the spec was updated
-	fleet.Generation = lo.Ternary(!sameSpec, lo.ToPtr(lo.FromPtr(existingRecord.Generation)+1), existingRecord.Generation)
-
-	sameTemplateSpec := api.DeviceSpecsAreEqual(fleet.Spec.Data.Template.Spec, existingRecord.Spec.Data.Template.Spec)
-	if fleet.Spec.Data.Template.Metadata == nil {
-		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
-	}
-	var existingMetadataGeneration int64
-	if existingRecord.Spec.Data.Template.Metadata != nil {
-		existingMetadataGeneration = lo.FromPtr(existingRecord.Spec.Data.Template.Metadata.Generation)
-	}
-	fleet.Spec.Data.Template.Metadata.Generation = lo.Ternary(!sameTemplateSpec, lo.ToPtr(existingMetadataGeneration+1), lo.ToPtr(existingMetadataGeneration))
-
-	fleet.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
-
-	query := s.db.Model(&model.Fleet{}).Where("org_id = ? and name = ? and resource_version = ?", fleet.OrgID, fleet.Name, lo.FromPtr(existingRecord.ResourceVersion))
-
-	selectFields := []string{"spec"}
-	selectFields = append(selectFields, GetNonNilFieldsFromResource(fleet.Resource)...)
-	query = query.Select(selectFields)
-	result := query.Updates(&fleet)
-	if result.Error != nil {
-		return false, ErrorFromGormError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
-	}
-	return false, nil
-}
-
-func (s *FleetStore) createOrUpdate(orgId uuid.UUID, resource *api.Fleet, mode CreateOrUpdateMode, callback FleetStoreCallback) (*api.Fleet, bool, bool, error) {
-	if resource == nil {
-		return nil, false, false, flterrors.ErrResourceIsNil
-	}
-	if resource.Metadata.Name == nil {
-		return nil, false, false, flterrors.ErrResourceNameIsNil
-	}
-
-	fleet, err := model.NewFleetFromApiResource(resource)
-	if err != nil {
-		return nil, false, false, err
-	}
-	fleet.OrgID = orgId
-
-	// Use the dedicated API to update annotations
-	fleet.Annotations = nil
-
-	fleet.Owner = resource.Metadata.Owner
-
-	existingRecord, err := getExistingRecord[model.Fleet](s.db, fleet.Name, orgId)
-	if err != nil {
-		return nil, false, false, err
-	}
-	exists := existingRecord != nil
-
-	if exists && mode == ModeCreateOnly {
-		return nil, false, false, flterrors.ErrDuplicateName
-	}
-	if !exists && mode == ModeUpdateOnly {
-		return nil, false, false, flterrors.ErrResourceNotFound
-	}
-
-	if !exists {
-		if retry, err := s.createFleet(fleet); err != nil {
-			return nil, false, retry, err
-		}
-	} else {
-		if retry, err := s.updateFleet(existingRecord, fleet); err != nil {
-			return nil, false, retry, err
-		}
-	}
-
-	callback(existingRecord, fleet)
-
-	updatedResource := fleet.ToApiResource()
-	return &updatedResource, !exists, false, nil
-}
-
-func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, bool, error) {
-	return retryCreateOrUpdate(func() (*api.Fleet, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, ModeCreateOrUpdate, callback)
-	})
-}
-
-func (s *FleetStore) CreateOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, callback FleetStoreCallback, resources ...*api.Fleet) error {
-	var errs []error
-	for _, resource := range resources {
-		_, _, err := s.CreateOrUpdate(ctx, orgId, resource, callback)
-		if err == flterrors.ErrUpdatingResourceWithOwnerNotAllowed {
-			err = fmt.Errorf("one or more fleets are managed by a different resource. %w", err)
-		}
-		errs = append(errs, err)
-	}
-	return errors.Join(lo.Uniq(errs)...)
+	apiFleet := fleet.ToApiResource(model.WithDevicesSummary(&summary))
+	return apiFleet, nil
 }
 
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
