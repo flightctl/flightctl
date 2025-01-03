@@ -552,7 +552,9 @@ func validateSshConfig(config *SshConfig) []error {
 
 func (a ApplicationSpec) Validate() []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
+	// name must start with a letter or number
+	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, pattern, "")...)
 	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
 	return allErrs
 }
