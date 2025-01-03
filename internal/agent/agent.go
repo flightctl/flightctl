@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -118,10 +119,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create shutdown manager
 	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
 
+	policyManager := policy.NewManager(a.log)
+
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
 		a.config.DataDir,
+		policyManager,
 		deviceReadWriter,
 		bootcClient,
 		backoff,
@@ -229,6 +233,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.StatusUpdateInterval,
 		hookManager,
 		osManager,
+		policyManager,
 		applicationsController,
 		configController,
 		resourceController,
