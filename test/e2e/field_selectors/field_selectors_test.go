@@ -182,12 +182,6 @@ var _ = Describe("Field Selectors in Flight Control", func() {
 			Expect(out).To(ContainSubstring(unknownSelector))
 		})
 
-		It("Deleting resources", func() {
-			_, _ = harness.CLI("delete", "repo")
-			_, _ = harness.CLI("delete", "fleet")
-			_, _ = harness.CLI("delete", "device")
-		})
-
 	})
 })
 

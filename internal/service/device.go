@@ -148,23 +148,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 // (DELETE /api/v1/devices)
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteDevices503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteDevices403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
-
-	err = h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
-	switch err {
-	case nil:
-		return server.DeleteDevices200JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	return nil, fmt.Errorf("delete all operations on devices are not permitted")
 }
 
 // (GET /api/v1/devices/{name})
@@ -253,6 +237,19 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 		return server.DeleteDevice403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
+
+	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceNotFound:
+			return server.DeleteDevice404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+	if currentObj.Spec == nil || currentObj.Spec.Decommissioning == nil {
+		return nil, fmt.Errorf("device must be decommissioned before it can be deleted")
+	}
 
 	err = h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
