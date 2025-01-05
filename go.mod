@@ -23,7 +23,6 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/lestrrat-go/jwx/v2 v2.1.0
-	github.com/lib/pq v1.10.9
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/mackerelio/go-osstat v0.2.5
 	github.com/oapi-codegen/nethttp-middleware v1.0.1

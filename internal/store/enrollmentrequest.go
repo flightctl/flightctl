@@ -41,7 +41,37 @@ func NewEnrollmentRequest(db *gorm.DB, log logrus.FieldLogger) EnrollmentRequest
 }
 
 func (s *EnrollmentRequestStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.EnrollmentRequest{})
+	if err := s.db.AutoMigrate(&model.EnrollmentRequest{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for EnrollmentRequest labels
+	if !s.db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_enrollment_requests_labels ON enrollment_requests USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for EnrollmentRequest annotations
+	if !s.db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_enrollment_requests_annotations ON enrollment_requests USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
@@ -174,6 +204,7 @@ func (s *EnrollmentRequestStore) createOrUpdate(orgId uuid.UUID, resource *api.E
 	}
 	enrollmentrequest.OrgID = orgId
 	enrollmentrequest.Status = nil
+	enrollmentrequest.Annotations = nil
 
 	existingRecord, err := getExistingRecord[model.EnrollmentRequest](s.db, enrollmentrequest.Name, orgId)
 	if err != nil {

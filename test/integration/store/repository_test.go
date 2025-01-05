@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -168,8 +169,8 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("List with labels", func() {
 			listParams := store.ListParams{
-				Limit:  1000,
-				Labels: map[string]string{"key": "value-1"}}
+				Limit:         1000,
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}, false)}
 			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))

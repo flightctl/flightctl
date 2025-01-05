@@ -9,18 +9,17 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
 type TemplateVersion struct {
-	OrgID           uuid.UUID      `gorm:"type:uuid;primary_key;"`
-	Name            string         `gorm:"primary_key;" selector:"metadata.name"`
-	FleetName       string         `gorm:"primary_key;" selector:"metadata.owner"`
-	Fleet           Fleet          `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
-	Labels          pq.StringArray `gorm:"type:text[]" selector:"metadata.labels"`
-	Annotations     pq.StringArray `gorm:"type:text[]" selector:"metadata.annotations"`
+	OrgID           uuid.UUID               `gorm:"type:uuid;primary_key;"`
+	Name            string                  `gorm:"primary_key;" selector:"metadata.name"`
+	FleetName       string                  `gorm:"primary_key;" selector:"metadata.owner"`
+	Fleet           Fleet                   `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
+	Labels          JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
+	Annotations     JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.annotations,hidden,private"`
 	Generation      *int64
 	ResourceVersion *int64
 	CreatedAt       time.Time `selector:"metadata.creationTimestamp"`
@@ -65,7 +64,8 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) (*Template
 		Name:            *resource.Metadata.Name,
 		Generation:      resource.Metadata.Generation,
 		FleetName:       ownerName,
-		Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
+		Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+		Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 		Spec:            MakeJSONField(resource.Spec),
 		Status:          MakeJSONField(status),
 		ResourceVersion: resourceVersion,
@@ -88,17 +88,16 @@ func (t *TemplateVersion) ToApiResource() api.TemplateVersion {
 		status = t.Status.Data
 	}
 
-	metadataAnnotations := util.LabelArrayToMap(t.Annotations)
-
 	return api.TemplateVersion{
 		ApiVersion: api.TemplateVersionAPIVersion,
 		Kind:       api.TemplateVersionKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(t.Name),
 			CreationTimestamp: util.TimeToPtr(t.CreatedAt.UTC()),
+			Labels:            lo.ToPtr(util.EnsureMap(t.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(t.Annotations)),
 			Generation:        t.Generation,
 			Owner:             util.SetResourceOwner(api.FleetKind, t.FleetName),
-			Annotations:       &metadataAnnotations,
 			ResourceVersion:   lo.Ternary(t.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(t.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,

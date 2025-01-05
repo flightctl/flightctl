@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -66,40 +64,29 @@ func ListQuery(model any) *listQuery {
 }
 
 func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
-	var err error
 	query := db.Model(lq.dest).Order("name")
 	query = query.Where("org_id = ?", orgId)
 
-	var invertLabels bool
-	if listParams.InvertLabels != nil && *listParams.InvertLabels {
-		invertLabels = true
-	}
-	query = LabelSelectionQuery(query, listParams.Labels, invertLabels)
-	if query, err = LabelMatchExpressionsQuery(query, listParams.LabelMatchExpressions); err != nil {
-		return nil, err
-	}
-	if query, err = AnnotationsMatchExpressionsQuery(query, listParams.AnnotationsMatchExpressions); err != nil {
-		return nil, err
-	}
-
-	query = FieldFilterSelectionQuery(query, listParams.Filter)
-
-	queryStr, args := createOrQuery("owner", listParams.Owners)
-	if len(queryStr) > 0 {
-		query = query.Where(queryStr, args...)
-	}
-
-	if listParams.FleetName != nil {
-		query = query.Where("fleet_name = ?", *listParams.FleetName)
-	}
-
 	if listParams.FieldSelector != nil {
-		fs, err := selector.NewFieldSelector(lq.dest)
+		q, p, err := listParams.FieldSelector.Parse(ctx, lq.dest)
 		if err != nil {
 			return nil, err
 		}
+		query = query.Where(q, p...)
+	}
 
-		q, p, err := fs.Parse(ctx, listParams.FieldSelector)
+	if listParams.LabelSelector != nil {
+		q, p, err := listParams.LabelSelector.Parse(ctx, lq.dest,
+			selector.NewHiddenSelectorName("metadata.labels"))
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where(q, p...)
+	}
+
+	if listParams.AnnotationSelector != nil {
+		q, p, err := listParams.AnnotationSelector.Parse(ctx, lq.dest,
+			selector.NewHiddenSelectorName("metadata.annotations"))
 		if err != nil {
 			return nil, err
 		}
@@ -119,74 +106,6 @@ func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
 	}
 
 	return query
-}
-
-func matchExpressionQueryAndArgs(matchExpression api.MatchExpression, colName string) (string, []any) {
-	var params []string
-	var args []any
-
-	for _, val := range *matchExpression.Values {
-		params = append(params, "?")
-		args = append(args, matchExpression.Key+"="+val)
-	}
-
-	return fmt.Sprintf("%s && ARRAY[%s]", colName, strings.Join(params, ",")), args
-}
-
-func matchInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
-	whereStr, args := matchExpressionQueryAndArgs(matchExpression, colName)
-	return query.Where(whereStr, args...)
-}
-
-func matchNotInQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
-	whereStr, args := matchExpressionQueryAndArgs(matchExpression, colName)
-	return query.Not(whereStr, args...)
-}
-
-func existsQuery(colName string) string {
-	return fmt.Sprintf("exists (select 1 from unnest(%s) as element where element like ?)", colName)
-}
-
-func matchExistsQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
-	return query.Where(existsQuery(colName), matchExpression.Key+"=%")
-}
-
-func matchDoesNotExistQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) *gorm.DB {
-	return query.Not(existsQuery(colName), matchExpression.Key+"=%")
-}
-
-func matchExpressionQuery(query *gorm.DB, matchExpression api.MatchExpression, colName string) (*gorm.DB, error) {
-	switch matchExpression.Operator {
-	case api.In:
-		return matchInQuery(query, matchExpression, colName), nil
-	case api.NotIn:
-		return matchNotInQuery(query, matchExpression, colName), nil
-	case api.Exists:
-		return matchExistsQuery(query, matchExpression, colName), nil
-	case api.DoesNotExist:
-		return matchDoesNotExistQuery(query, matchExpression, colName), nil
-	default:
-		return nil, fmt.Errorf("unexpected operator %s", matchExpression.Operator)
-	}
-}
-
-func matchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions, colName string) (*gorm.DB, error) {
-	var err error
-	for _, me := range matchExpressions {
-		if query, err = matchExpressionQuery(query, me, colName); err != nil {
-			return nil, err
-		}
-	}
-	return query, nil
-
-}
-
-func LabelMatchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions) (*gorm.DB, error) {
-	return matchExpressionsQuery(query, matchExpressions, "labels")
-}
-
-func AnnotationsMatchExpressionsQuery(query *gorm.DB, matchExpressions api.MatchExpressions) (*gorm.DB, error) {
-	return matchExpressionsQuery(query, matchExpressions, "annotations")
 }
 
 func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
@@ -254,73 +173,6 @@ func GetNonNilFieldsFromResource(resource model.Resource) []string {
 	return ret
 }
 
-// LabelSelectionQuery applies a label-based selection query to the given GORM DB query.
-// It takes a map of labels and a GORM DB query as input.
-// The function returns the modified DB query.
-func LabelSelectionQuery(query *gorm.DB, labels map[string]string, inverse bool) *gorm.DB {
-	if len(labels) == 0 {
-		return query
-	}
-
-	arrayLabels := util.LabelMapToArray(&labels)
-
-	// we do this instead of constructing the query string directly because of the Where
-	// function implementation, finding a ? in the string will trigger one path, @ in the
-	// string will trigger another path that looks for a pre-stored  database query.
-	arrayPlaceholders := []string{}
-	arrayValues := []interface{}{}
-	for _, v := range arrayLabels {
-		arrayPlaceholders = append(arrayPlaceholders, "?")
-		arrayValues = append(arrayValues, v)
-	}
-
-	queryString := fmt.Sprintf("labels @> ARRAY[%s]", strings.Join(arrayPlaceholders, ","))
-
-	if inverse {
-		return query.Not(queryString, arrayValues...)
-	}
-	return query.Where(queryString, arrayValues...)
-}
-
-// FieldFilterSelectionQuery takes a GORM DB query and a map of search parameters. To search for a key-value pair in the
-// in a JSON object use the key to reflect location in the JSON data and the value to reflect the value to search for.
-// example map[string]string{"status.config.summary.status": "UpToDate"} will search status.config.summary.status for the
-// value "UpToDate".
-// To search for multiple values in the same field, separate the values with a comma.
-func FieldFilterSelectionQuery(query *gorm.DB, fieldMap map[string][]string) *gorm.DB {
-	queryStr, args := createQueryFromFilterMap(fieldMap)
-	if len(queryStr) > 0 {
-		query = query.Where(queryStr, args...)
-	}
-
-	return query
-}
-
-func createQueryFromFilterMap(fieldMap map[string][]string) (string, []interface{}) {
-	var queryParams []string
-	var args []interface{}
-
-	for key, values := range fieldMap {
-		if key == "" || values == nil || len(values) == 0 {
-			continue
-		}
-
-		orQuery, queryArgs := createOrQuery(createParamsFromKey(key), values)
-		if len(orQuery) > 0 {
-			queryParams = append(queryParams, orQuery)
-			args = append(args, queryArgs...)
-		}
-	}
-
-	var query string
-	// join all query conditions with 'OR'
-	if len(queryParams) > 0 {
-		query = strings.Join(queryParams, " OR ")
-	}
-
-	return query, args
-}
-
 func createParamsFromKey(key string) string {
 	parts := strings.Split(key, ".")
 	params := ""
@@ -336,32 +188,6 @@ func createParamsFromKey(key string) string {
 		}
 	}
 	return params
-}
-
-// createOrQuery can return empty `queryStr`/`args` (ie if `key` or `values` params are empty).
-// The caller is expected to check the size of `queryStr`/`args` before constructing a GORM query.
-func createOrQuery(key string, values []string) (string, []interface{}) {
-	var queryStr string
-	var queryParams []string
-	var args []interface{}
-
-	if key == "" {
-		return queryStr, args
-	}
-
-	for _, val := range values {
-		val = strings.TrimSpace(val)
-		if val == "" {
-			continue
-		}
-		queryParams = append(queryParams, fmt.Sprintf("%s = ?", key))
-		args = append(args, val)
-	}
-
-	if len(queryParams) > 0 {
-		queryStr = strings.Join(queryParams, " OR ")
-	}
-	return queryStr, args
 }
 
 func getExistingRecord[R any](db *gorm.DB, name string, orgId uuid.UUID) (*R, error) {
