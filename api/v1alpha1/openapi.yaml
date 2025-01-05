@@ -1456,17 +1456,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/enrollmentconfig/{name}:
+  /api/v1/enrollmentconfig:
     get:
       tags:
         - enrollmentrequest
-      description: Get an EnrollmentConfig.
-      operationId: enrollmentConfig
+      description: Get enrollment information.
+      operationId: getEnrollmentConfig
       parameters:
-        - name: name
-          in: path
-          description: The name of approved CertificateSigningRequest.
-          required: true
+        - name: csr
+          in: query
+          description: The name of a CertificateSigningRequest resource to query for an issued certificate. If provided, the service will check if the CertificateSigningRequest contains an issued certificate and in this case include it the returned EnrollmentConfig. In all other case, the enrollment certificate field will be empty.
+          required: false
           schema:
             type: string
       responses:

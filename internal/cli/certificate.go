@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -113,8 +114,11 @@ func (o *CertificateOptions) Validate(args []string) error {
 		return err
 	}
 
-	errs := validation.ValidateSignerName(o.SignerName)
-	if len(errs) > 0 {
+	if errs := validation.ValidateResourceName(&o.Name); len(errs) > 0 {
+		return fmt.Errorf("invalid resource name: %s", errors.Join(errs...).Error())
+	}
+
+	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
 		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
 	}
 
@@ -195,7 +199,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	// get URIs and other data from enrollmentconfig API
-	response, err := c.GetEnrollmentConfigWithResponse(ctx)
+	response, err := c.GetEnrollmentConfigWithResponse(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("getting enrollment config: %w", err)
 	}
