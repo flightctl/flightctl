@@ -25,15 +25,15 @@ type LabelSelector struct {
 // Parameters:
 //
 //	labels - A map where keys are label names and values are label values.
-//	invert - (Optional) If true, inverts the operator to "!=" instead of "=".
+//	invert - If true, inverts the operator to "!=" instead of "=".
 //
 // Example:
 //
 //	labels := map[string]string{"env": "prod", "tier": "backend"}
 //	selector := NewLabelSelectorFromMapOrDie(labels)
 //	// selector represents: "env=prod,tier=backend"
-func NewLabelSelectorFromMapOrDie(labels map[string]string, invert ...bool) *LabelSelector {
-	ls, err := NewLabelSelectorFromMap(labels, invert...)
+func NewLabelSelectorFromMapOrDie(labels map[string]string, invert bool) *LabelSelector {
+	ls, err := NewLabelSelectorFromMap(labels, invert)
 	if err != nil {
 		panic(err)
 	}
@@ -46,20 +46,20 @@ func NewLabelSelectorFromMapOrDie(labels map[string]string, invert ...bool) *Lab
 // Parameters:
 //
 //	labels - A map where keys are label names and values are label values.
-//	invert - (Optional) If true, inverts the operator to "!=" instead of "=".
+//	invert - If true, inverts the operator to "!=" instead of "=".
 //
 // Example:
 //
 //	labels := map[string]string{"env": "prod", "tier": "backend"}
 //	selector, err := NewLabelSelectorFromMap(labels, true)
 //	// selector represents: "env!=prod,tier!=backend"
-func NewLabelSelectorFromMap(labels map[string]string, invert ...bool) (*LabelSelector, error) {
+func NewLabelSelectorFromMap(labels map[string]string, invert bool) (*LabelSelector, error) {
 	if len(labels) == 0 {
 		return NewLabelSelector("")
 	}
 
 	operator := selection.Equals
-	if len(invert) > 0 && invert[0] {
+	if invert {
 		operator = selection.NotEquals
 	}
 

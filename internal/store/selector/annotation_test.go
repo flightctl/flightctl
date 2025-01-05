@@ -152,7 +152,7 @@ func TestAnnotationSelectorMap(t *testing.T) {
 	}
 
 	for _, op := range testCases {
-		ls, err := NewAnnotationSelectorFromMap(op.Input)
+		ls, err := NewAnnotationSelectorFromMap(op.Input, false)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", op, err, err)
 			continue

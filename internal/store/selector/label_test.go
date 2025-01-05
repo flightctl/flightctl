@@ -158,7 +158,7 @@ func TestLabelSelectorMap(t *testing.T) {
 	}
 
 	for _, op := range testCases {
-		ls, err := NewLabelSelectorFromMap(op.Input)
+		ls, err := NewLabelSelectorFromMap(op.Input, false)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", op, err, err)
 			continue

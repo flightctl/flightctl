@@ -27,15 +27,15 @@ type AnnotationSelector struct {
 // Parameters:
 //
 //	annotations - A map where keys are annotation names and values are annotation values.
-//	invert - (Optional) If true, inverts the operator to "!=" instead of "=".
+//	invert - If true, inverts the operator to "!=" instead of "=".
 //
 // Example:
 //
 //	annotations := map[string]string{"env": "prod", "tier": "backend"}
 //	selector := NewAnnotationSelectorFromMapOrDie(annotations)
 //	// selector represents: "env=prod,tier=backend"
-func NewAnnotationSelectorFromMapOrDie(annotations map[string]string, invert ...bool) *AnnotationSelector {
-	ls, err := NewAnnotationSelectorFromMap(annotations, invert...)
+func NewAnnotationSelectorFromMapOrDie(annotations map[string]string, invert bool) *AnnotationSelector {
+	ls, err := NewAnnotationSelectorFromMap(annotations, invert)
 	if err != nil {
 		panic(err)
 	}
@@ -48,20 +48,20 @@ func NewAnnotationSelectorFromMapOrDie(annotations map[string]string, invert ...
 // Parameters:
 //
 //	annotations - A map where keys are annotation names and values are annotation values.
-//	invert - (Optional) If true, inverts the operator to "!=" instead of "=".
+//	invert - If true, inverts the operator to "!=" instead of "=".
 //
 // Example:
 //
 //	annotations := map[string]string{"env": "prod", "tier": "backend"}
 //	selector, err := NewAnnotationSelectorFromMap(annotations, true)
 //	// selector represents: "env!=prod,tier!=backend"
-func NewAnnotationSelectorFromMap(annotations map[string]string, invert ...bool) (*AnnotationSelector, error) {
+func NewAnnotationSelectorFromMap(annotations map[string]string, invert bool) (*AnnotationSelector, error) {
 	if len(annotations) == 0 {
 		return NewAnnotationSelector("")
 	}
 
 	operator := selection.Equals
-	if len(invert) > 0 && invert[0] {
+	if invert {
 		operator = selection.NotEquals
 	}
 

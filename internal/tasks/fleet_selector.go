@@ -117,7 +117,7 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 	}
 
 	// Create a new LabelSelector from the fleet's match labels.
-	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet))
+	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet), false)
 	if err != nil {
 		return err
 	}
