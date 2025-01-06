@@ -23,7 +23,7 @@ spec:
         imagePullPolicy: {{ .Values.imagePullPolicy }}
         args:
         - start-dev
-        - --http-port=8080
+        - --http-port=8081
         - --proxy=edge
         - --import-realm
         env:
@@ -55,7 +55,7 @@ spec:
                 name: keycloak-db-pguser-keycloak
                 key: password
         ports:
-        - containerPort: 8080
+        - containerPort: 8081
         - containerPort: 8443
         resources: {}
         volumeMounts:

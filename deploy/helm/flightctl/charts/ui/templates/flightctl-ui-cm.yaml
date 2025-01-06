@@ -16,7 +16,7 @@ data:
   {{- end }}
   {{- if eq (.Values.global).target "standalone" }}
   {{- if eq ((.Values.global).auth).type "builtin" }}
-  INTERNAL_OIDC_URL: http://keycloak:8080/realms/flightctl
+  INTERNAL_OIDC_URL: http://keycloak:8081/realms/flightctl
   {{- else }}
   INTERNAL_OIDC_URL: {{ default ((.Values.global).auth).internalOidcAuthority .Values.auth.internalOidcAuthority | quote }}
   {{- end }}

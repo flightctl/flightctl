@@ -66,7 +66,7 @@ data:
         {{- if .Values.global.auth.oidcAuthority }}
         internalOidcAuthority: {{ .Values.global.auth.internalOidcAuthority }}
         {{- else }}
-        internalOidcAuthority: http://keycloak:8080/realms/flightctl
+        internalOidcAuthority: http://keycloak:8081/realms/flightctl
         {{- end }}
         oidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
