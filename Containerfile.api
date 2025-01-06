@@ -13,12 +13,13 @@ COPY ./Makefile .
 USER 0
 RUN make build-api
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal as certs
-RUN microdnf update --nodocs -y  && microdnf install ca-certificates --nodocs -y
+FROM registry.access.redhat.com/ubi9/ubi as certs
+RUN dnf update --nodocs -y  && dnf install ca-certificates tzdata --nodocs -y
 
 FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
 COPY --from=build /app/bin/flightctl-api .
 COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
+COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
 
 CMD ./flightctl-api

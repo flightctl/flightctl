@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -19,7 +20,7 @@ const (
 
 	// defaultMaxRetries is the default number of retries for a spec item set to 0 for infinite retries.
 	defaultSpecRequeueMaxRetries = 0
-	defaultSpecQueueSize         = 1
+	defaultSpecQueueMaxSize      = 1
 	defaultSpecRequeueThreshold  = 1
 	// defaultSpecRequeueDelay is the default delay between requeue attempts.
 	defaultSpecRequeueDelay = 5 * time.Minute
@@ -60,26 +61,24 @@ type Manager interface {
 	SetClient(client.Management)
 	// GetDesired returns the desired rendered device spec from the management API.
 	GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error)
+	// CheckPolicy validates the update policy is ready to process.
+	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
 	status.Exporter
 }
 
 type PriorityQueue interface {
-	// Add adds an item to the queue. If the item is already in the queue, it will be skipped.
-	Add(item *Item) error
-	// Remove removes an item from the queue.
+	// Add adds a new spec to the scheduler
+	Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec)
+	// Next returns the next spec to process
+	Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool)
+	// Remove removes a spec from the scheduler
 	Remove(version string)
-	// Next returns the next item to process.
-	Next() (*Item, bool)
-	// Size returns the size of the queue.
-	Size() int
-	// Clear removes all items from the queue.
-	Clear()
-	// IsEmpty returns true if the queue is empty.
-	IsEmpty() bool
-	// SetVersionFailed marks a template version as failed. Failed versions will not be requeued.
-	SetVersionFailed(version string)
-	// IsVersionFailed returns true if a template version is marked as failed.
-	IsVersionFailed(version string) bool
+	// SetFailed marks a rendered spec version as failed
+	SetFailed(version string)
+	// IsFailed returns true if a version is marked as failed
+	IsFailed(version string) bool
+	// CheckPolicy validates the update policy is ready to process.
+	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
 }
 
 var initRenderedDeviceSpec = &v1alpha1.RenderedDeviceSpec{
