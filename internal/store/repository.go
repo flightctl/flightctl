@@ -47,7 +47,37 @@ func NewRepository(db *gorm.DB, log logrus.FieldLogger) Repository {
 }
 
 func (s *RepositoryStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.Repository{})
+	if err := s.db.AutoMigrate(&model.Repository{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for Repository labels
+	if !s.db.Migrator().HasIndex(&model.Repository{}, "idx_repositories_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_repositories_labels ON repositories USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Repository{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for Repository annotations
+	if !s.db.Migrator().HasIndex(&model.Repository{}, "idx_repositories_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_repositories_annotations ON repositories USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Repository{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
@@ -208,6 +238,7 @@ func (s *RepositoryStore) createOrUpdate(orgId uuid.UUID, resource *api.Reposito
 	}
 	repository.OrgID = orgId
 	repository.Status = nil
+	repository.Annotations = nil
 
 	existingRecord, err := getExistingRecord[model.Repository](s.db, repository.Name, orgId)
 	if err != nil {

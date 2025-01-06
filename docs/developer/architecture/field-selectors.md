@@ -19,6 +19,16 @@ Name string `gorm:"primary_key;" selector:"metadata.name"`
 ```
 Once the field is tagged with a selector name, it can be resolved using the field-selector corresponding to that name. The field name (or DBName) and type will be automatically detected by the field-selector.
 
+#### Using Hidden and Private Selectors
+Selectors can be further annotated as hidden or private to control their behavior:
+```go
+Labels JSONMap[string, string] `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
+
+```
+* `hidden`: The selector will not be exposed to end-users during discovery. It will not appear in the list of available selectors.
+
+* `private`: The selector cannot be directly used by the field-selector. However, it may still be utilized internally by other selectors, such as the label selector.
+
 ### 2. Adding Selector Mapping
 
 A resource model can define a resolvable selector name mapped to an existing selector defined by the resource model.
@@ -39,19 +49,23 @@ This is useful in cases where:
 ```go
 func (m *Device) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
 	if strings.EqualFold("metadata.nameoralias", name.String()) {
-		return []selector.SelectorName{"metadata.name", "metadata.alias"}
+		return []selector.SelectorName{
+			selector.NewSelectorName("metadata.name"),
+			selector.NewSelectorName("metadata.alias"),
+		}
 	}
 	return nil
 }
 
 func (m *Device) ListSelectors() selector.SelectorNameSet {
-	return selector.NewSelectorFieldNameSet().Add("metadata.nameoralias")
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameoralias"))
 }
 ```
 
 > [!NOTE]
 > - Mapping to multiple selectors will result in an OR condition between them.
 > - A mapped selector will be resolved first. It can override or hide an existing resolver defined by the resource model.
+> - `NewSelectorName` can be replaced with `NewHiddenSelectorName` to mark the selector as hidden. This ensures it won't be exposed during discovery but can still be used internally (see the explanation above).
 
 ### 3. Custom Selector Resolution
 
@@ -96,7 +110,6 @@ Adding Custom Selector for `status.updated.status`
 func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
   if strings.EqualFold("status.updated.status", name.String()) {
 		return &selector.SelectorField{
-			Name:      name,
 			Type:      selector.String,
 			FieldName: "status.updated.status",
 			FieldType: "jsonb",

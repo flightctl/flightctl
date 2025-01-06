@@ -11,9 +11,9 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -56,7 +56,37 @@ func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
 }
 
 func (s *FleetStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.Fleet{})
+	if err := s.db.AutoMigrate(&model.Fleet{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for Fleet labels
+	if !s.db.Migrator().HasIndex(&model.Fleet{}, "idx_fleet_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_fleet_labels ON fleets USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Fleet{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for Fleet annotations
+	if !s.db.Migrator().HasIndex(&model.Fleet{}, "idx_fleet_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_fleet_annotations ON fleets USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Fleet{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
@@ -210,8 +240,13 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		Total: fleet.DeviceCount,
 	}
 	if options.withSummary {
-		deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId,
-			ListParams{Owners: []string{*util.SetResourceOwner(api.FleetKind, name)}})
+		fs, err := selector.NewFieldSelectorFromMap(
+			map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, name)}, false)
+		if err != nil {
+			return nil, err
+		}
+
+		deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, ListParams{FieldSelector: fs})
 		if err != nil {
 			return nil, err
 		}
@@ -476,16 +511,15 @@ func (s *FleetStore) updateAnnotations(orgId uuid.UUID, name string, annotations
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
-	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
 	}
-	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"annotations":      pq.StringArray(annotationsArray),
+		"annotations":      model.MakeJSONMap(existingAnnotations),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 	err := ErrorFromGormError(result.Error)

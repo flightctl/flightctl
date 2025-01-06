@@ -81,10 +81,10 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	return &Device{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
-			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
 		Alias:  alias,
@@ -115,9 +115,6 @@ func (d *Device) ToApiResource() api.Device {
 		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 	}
 
-	metadataLabels := util.LabelArrayToMap(d.Resource.Labels)
-	metadataAnnotations := util.LabelArrayToMap(d.Resource.Annotations)
-
 	var resourceVersion *string
 	if d.ResourceVersion != nil {
 		resourceVersion = lo.ToPtr(strconv.FormatInt(*d.ResourceVersion, 10))
@@ -128,10 +125,10 @@ func (d *Device) ToApiResource() api.Device {
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(d.Name),
 			CreationTimestamp: util.TimeToPtr(d.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(d.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(d.Resource.Annotations)),
 			Generation:        d.Generation,
 			Owner:             d.Owner,
-			Annotations:       &metadataAnnotations,
 			ResourceVersion:   resourceVersion,
 		},
 		Spec:   &spec,

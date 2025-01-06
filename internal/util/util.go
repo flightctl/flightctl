@@ -269,3 +269,13 @@ func DefaultIfNotInMap(m map[string]string, key string, def string) string {
 	}
 	return val
 }
+
+// EnsureMap takes a map as input and guarantees that it is not nil.
+// If the input map is nil, it initializes and returns a new empty map of the same type.
+// If the input map is already initialized, it simply returns the map unchanged.
+func EnsureMap[T comparable, U any](m map[T]U) map[T]U {
+	if m == nil {
+		return make(map[T]U)
+	}
+	return m
+}

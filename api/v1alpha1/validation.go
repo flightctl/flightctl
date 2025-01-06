@@ -206,7 +206,7 @@ func (r ResourceMonitor) Validate() []error {
 
 	switch monitorType {
 	case "CPU":
-		spec, err := r.AsCPUResourceMonitorSpec()
+		spec, err := r.AsCpuResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}

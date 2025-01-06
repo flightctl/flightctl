@@ -53,7 +53,8 @@ func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error)
 	return &Repository{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -104,7 +105,6 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 			}
 		}
 	}
-	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
 
 	return api.Repository{
 		ApiVersion: api.RepositoryAPIVersion,
@@ -112,7 +112,8 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(f.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(f.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(f.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(f.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,

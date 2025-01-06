@@ -13,10 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 // (POST /api/v1/resourcesyncs)
@@ -43,10 +40,10 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 	switch err {
 	case nil:
 		return server.CreateResourceSync201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrDuplicateName:
-		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
+		return server.CreateResourceSync409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -63,48 +60,37 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		return server.ListResourceSync403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
-	if err != nil {
-		return server.ListResourceSync400JSONResponse{Message: err.Error()}, nil
-	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector k8sselector.Selector
+	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 		}
 	}
 
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:        labelMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
 		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
-	}
-
-	if request.Params.Repository != nil {
-		specFilter := []string{fmt.Sprintf("spec.repository=%s", *request.Params.Repository)}
-		filterMap, err := ConvertFieldFilterParamsToMap(specFilter)
-		if err != nil {
-			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to convert repository filter: %v", err)}, nil
-		}
-		listParams.Filter = filterMap
 	}
 
 	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)

@@ -187,7 +187,7 @@ func SetConfig(configStatus v1alpha1.DeviceConfigStatus) UpdateStatusFn {
 	}
 }
 
-func SetOSImage(osStatus v1alpha1.DeviceOSStatus) UpdateStatusFn {
+func SetOSImage(osStatus v1alpha1.DeviceOsStatus) UpdateStatusFn {
 	return func(status *v1alpha1.DeviceStatus) error {
 		status.Os.Image = osStatus.Image
 		status.Os.ImageDigest = osStatus.ImageDigest

@@ -95,7 +95,7 @@ func getMonitorSpec(monitor *v1alpha1.ResourceMonitor) (*MonitorSpec, error) {
 
 	switch monitorType {
 	case CPUMonitorType:
-		spec, err := monitor.AsCPUResourceMonitorSpec()
+		spec, err := monitor.AsCpuResourceMonitorSpec()
 		if err != nil {
 			return nil, err
 		}

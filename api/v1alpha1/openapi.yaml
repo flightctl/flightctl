@@ -99,11 +99,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: repository
-          in: query
-          description: The name of the repository to filter results by.
-          schema:
-            type: string
       responses:
         "200":
           description: OK
@@ -341,6 +336,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -737,6 +733,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -803,13 +800,6 @@ paths:
           description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
             type: string
-        - name: statusFilter
-          in: query
-          description: A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
-          schema:
-            type: array
-            items:
-              type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -817,12 +807,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: owner
-          in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
-          required: false
-          schema:
-            type: string
         - name: summaryOnly
           in: query
           description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
@@ -1109,6 +1093,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -1172,6 +1157,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - device
+      description: Patch the status of a Device resource.
+      operationId: patchDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -1442,6 +1482,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "403":
           description: Forbidden
           content:
@@ -1450,12 +1496,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         "404":
           description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
           content:
             application/json:
               schema:
@@ -1541,12 +1581,6 @@ paths:
       responses:
         "201":
           description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
-        "208":
-          description: Already Reported
           content:
             application/json:
               schema:
@@ -1722,6 +1756,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - enrollmentrequest
+      description: Patch an EnrollmentRequest resource.
+      operationId: patchEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentRequest resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
@@ -1858,24 +1953,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/enrollmentrequests/{name}/approval:
-    post:
+    patch:
       tags:
         - enrollmentrequest
-      description: Approve or deny an EnrollmentRequest.
-      operationId: approveEnrollmentRequest
+      description: Patch the status of an EnrollmentRequest resource.
+      operationId: patchEnrollmentRequestStatus
       parameters:
         - name: name
           in: path
-          description: The name of the EnrollmentRequest to approve or deny.
+          description: The name of the EnrollmentRequest resource to patch.
           required: true
           schema:
             type: string
       requestBody:
         content:
-          application/json:
+          application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequestApproval'
+              $ref: '#/components/schemas/PatchRequest'
         required: true
       responses:
         "200":
@@ -1883,13 +1977,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestApproval'
-        "422":
-          description: UnprocessableEntity
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/EnrollmentRequest'
         "400":
           description: Bad Request
           content:
@@ -1914,8 +2002,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "500":
-          description: InternalServerError
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/enrollmentrequests/{name}/approval:
+    put:
+      tags:
+        - enrollmentrequest
+      description: Approve or deny an EnrollmentRequest.
+      operationId: approveEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentRequest to approve or deny.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequestApproval'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequestApproval'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
           content:
             application/json:
               schema:
@@ -2023,6 +2167,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "503":
           description: ServiceUnavailable
           content:
@@ -2077,15 +2227,10 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
           content:
             application/json:
               schema:
@@ -2422,12 +2567,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: owner
-          in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
-          required: false
-          schema:
-            type: string
         - name: addDevicesCount
           in: query
           description: Include the number of devices in each fleet.
@@ -2677,6 +2816,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -2757,12 +2897,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "409":
-          description: Conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "503":
           description: ServiceUnavailable
           content:
@@ -2789,6 +2923,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - fleet
+      description: Patch the status of a Fleet resource.
+      operationId: patchFleetStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
           content:
@@ -3470,13 +3659,13 @@ components:
             - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
-        - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+        - $ref: '#/components/schemas/CpuResourceMonitorSpec'
         - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
         - $ref: '#/components/schemas/DiskResourceMonitorSpec'
       discriminator:
         propertyName: monitorType
         mapping:
-          CPU: '#/components/schemas/CPUResourceMonitorSpec'
+          CPU: '#/components/schemas/CpuResourceMonitorSpec'
           Memory: '#/components/schemas/MemoryResourceMonitorSpec'
           Disk: '#/components/schemas/DiskResourceMonitorSpec'
     ResourceMonitorSpec:
@@ -3499,16 +3688,12 @@ components:
         - monitorType
         - alertRules
         - samplingInterval
-    CPUResourceMonitorSpec:
+    CpuResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
-          type: object
-          description: Specification for monitoring CPU resource load.
     MemoryResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
-          type: object
-          description: Specification for monitoring Memory resource usage.
     DiskResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
@@ -3639,13 +3824,11 @@ components:
       properties:
         downloadSchedule:
           $ref: '#/components/schemas/UpdateSchedule'
-          description: Defines the schedule for downloading updates.
         updateSchedule:
           $ref: '#/components/schemas/UpdateSchedule'
-          description: Defines the schedule for applying updates.
     UpdateSchedule:
       type: object
-      description: Defines the schedule for automatic updates, including timing and optional timeout.
+      description: Defines the schedule for automatic downloading and updates, including timing and optional timeout.
       properties:
         timeZone:
           $ref: '#/components/schemas/TimeZone'
@@ -3702,9 +3885,9 @@ components:
         - kind
         - metadata
         - items
-    DeviceOSSpec:
+    DeviceOsSpec:
       type: object
-      description: DeviceOSSpec describes the target OS for the device.
+      description: DeviceOsSpec describes the target OS for the device.
       properties:
         image:
           type: string
@@ -3749,7 +3932,7 @@ components:
         config:
           $ref: "#/components/schemas/DeviceConfigStatus"
         os:
-          $ref: "#/components/schemas/DeviceOSStatus"
+          $ref: "#/components/schemas/DeviceOsStatus"
         updated:
           $ref: "#/components/schemas/DeviceUpdatedStatus"
         summary:
@@ -3837,7 +4020,7 @@ components:
         - "ApplicationStatusError"
         - "ApplicationStatusUnknown"
         - "ApplicationStatusCompleted"
-    DeviceOSStatus:
+    DeviceOsStatus:
       type: object
       description: Current status of the device OS.
       required:
@@ -3977,13 +4160,10 @@ components:
       properties:
         cpu:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: Status of the device CPU resources.
         memory:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: Status of the device memory resources.
         disk:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: Status of the device disk resources.
     DeviceResourceStatusType:
       type: string
       description: The types of resource statuses.
@@ -4375,7 +4555,7 @@ components:
         updatePolicy:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
-          $ref: '#/components/schemas/DeviceOSSpec'
+          $ref: '#/components/schemas/DeviceOsSpec'
         config:
           type: string
           description: The configuration to apply, in Ignition format.
@@ -4412,7 +4592,7 @@ components:
         updatePolicy:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
-          $ref: '#/components/schemas/DeviceOSSpec'
+          $ref: '#/components/schemas/DeviceOsSpec'
         config:
           type: array
           description: List of config providers.

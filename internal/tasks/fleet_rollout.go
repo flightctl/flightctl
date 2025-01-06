@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 )
@@ -77,7 +78,15 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	owner := util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)
 	f.owner = *owner
 
-	listParams := store.ListParams{Owners: []string{*owner}, Limit: ItemsPerPage}
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner}, false)
+	if err != nil {
+		return err
+	}
+
+	listParams := store.ListParams{
+		Limit:         ItemsPerPage,
+		FieldSelector: fs,
+	}
 
 	for {
 		devices, err := f.devStore.List(ctx, f.resourceRef.OrgID, listParams)
@@ -158,13 +167,13 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 	errs := []error{}
 
-	var osSpec *api.DeviceOSSpec
+	var osSpec *api.DeviceOsSpec
 	if templateVersion.Status.Os != nil {
 		img, err := replaceParametersInString(templateVersion.Status.Os.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))
 		} else {
-			osSpec = &api.DeviceOSSpec{Image: img}
+			osSpec = &api.DeviceOsSpec{Image: img}
 		}
 	}
 

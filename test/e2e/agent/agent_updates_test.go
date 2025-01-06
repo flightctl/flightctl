@@ -40,7 +40,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				logrus.Infof("current image for %s is %s", deviceId, currentImage)
 				repo, _ := parseImageReference(currentImage)
 				newImageReference = repo + ":v2"
-				device.Spec.Os = &v1alpha1.DeviceOSSpec{Image: newImageReference}
+				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 				logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 			})
 

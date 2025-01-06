@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -15,11 +16,8 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
-	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 const ClientCertExpiryDays = 365
@@ -121,33 +119,31 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		return server.ListEnrollmentRequests403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
-	if err != nil {
-		return server.ListEnrollmentRequests400JSONResponse{Message: err.Error()}, nil
-	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector k8sselector.Selector
+	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 		}
 	}
 
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:        labelMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -247,6 +243,71 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 	}
 }
 
+// (PATCH /api/v1/enrollmentrequests/{name})
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
+func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request server.PatchEnrollmentRequestRequestObject) (server.PatchEnrollmentRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "patch")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.PatchEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.PatchEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
+	}
+	orgId := store.NullOrgId
+
+	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.PatchEnrollmentRequest404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+
+	newObj := &v1alpha1.EnrollmentRequest{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/enrollmentrequests/"+request.Name)
+	if err != nil {
+		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+	}
+
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return server.PatchEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
+		return server.PatchEnrollmentRequest400JSONResponse{Message: "metadata.name is immutable"}, nil
+	}
+	if currentObj.ApiVersion != newObj.ApiVersion {
+		return server.PatchEnrollmentRequest400JSONResponse{Message: "apiVersion is immutable"}, nil
+	}
+	if currentObj.Kind != newObj.Kind {
+		return server.PatchEnrollmentRequest400JSONResponse{Message: "kind is immutable"}, nil
+	}
+	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
+		return server.PatchEnrollmentRequest400JSONResponse{Message: "status is immutable"}, nil
+	}
+
+	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
+
+	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
+	switch err {
+	case nil:
+		return server.PatchEnrollmentRequest200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.PatchEnrollmentRequest404JSONResponse{}, nil
+	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict, flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+		return server.PatchEnrollmentRequest409JSONResponse{}, nil
+	default:
+		return nil, err
+	}
+}
+
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
 	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "delete")
@@ -339,7 +400,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			return server.ApproveEnrollmentRequest500JSONResponse{Message: fmt.Sprintf("Error creating device from enrollment request: %v", err.Error())}, nil
+			return nil, fmt.Errorf("Error creating device from enrollment request: %v", err.Error())
 		}
 	}
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
@@ -378,4 +439,9 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 	default:
 		return nil, err
 	}
+}
+
+// (PATCH /api/v1/enrollmentrequests/{name}/status)
+func (h *ServiceHandler) PatchEnrollmentRequestStatus(ctx context.Context, request server.PatchEnrollmentRequestStatusRequestObject) (server.PatchEnrollmentRequestStatusResponseObject, error) {
+	return nil, fmt.Errorf("not yet implemented")
 }

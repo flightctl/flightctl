@@ -238,7 +238,7 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 			return err
 		}
 
-		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOSStatus{
+		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOsStatus{
 			Image:       desired.Os.Image,
 			ImageDigest: bootcStatus.GetBootedImageDigest(),
 		}))

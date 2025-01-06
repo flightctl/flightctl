@@ -210,9 +210,6 @@ type BatchSequence struct {
 	Sequence *[]Batch `json:"sequence,omitempty"`
 }
 
-// CPUResourceMonitorSpec Specification for monitoring a resource.
-type CPUResourceMonitorSpec = ResourceMonitorSpec
-
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
 type CertificateSigningRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -310,6 +307,9 @@ type ConditionType string
 type ConfigProviderSpec struct {
 	union json.RawMessage
 }
+
+// CpuResourceMonitorSpec Specification for monitoring a resource.
+type CpuResourceMonitorSpec = ResourceMonitorSpec
 
 // CronExpression Cron expression format for scheduling times.
 // The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
@@ -446,14 +446,14 @@ type DeviceList struct {
 	Summary *DevicesSummary `json:"summary,omitempty"`
 }
 
-// DeviceOSSpec DeviceOSSpec describes the target OS for the device.
-type DeviceOSSpec struct {
+// DeviceOsSpec DeviceOsSpec describes the target OS for the device.
+type DeviceOsSpec struct {
 	// Image The target OS image name or URL.
 	Image string `json:"image"`
 }
 
-// DeviceOSStatus Current status of the device OS.
-type DeviceOSStatus struct {
+// DeviceOsStatus Current status of the device OS.
+type DeviceOsStatus struct {
 	// Image Version of the OS image.
 	Image string `json:"image"`
 
@@ -484,8 +484,8 @@ type DeviceSpec struct {
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
 
-	// Os DeviceOSSpec describes the target OS for the device.
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -524,7 +524,7 @@ type DeviceStatus struct {
 	Lifecycle DeviceLifecycleStatus `json:"lifecycle"`
 
 	// Os Current status of the device OS.
-	Os DeviceOSStatus `json:"os"`
+	Os DeviceOsStatus `json:"os"`
 
 	// Resources Current status of the resources of the device.
 	Resources DeviceResourceStatus `json:"resources"`
@@ -565,10 +565,10 @@ type DeviceSystemInfo struct {
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
 type DeviceUpdatePolicySpec struct {
-	// DownloadSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+	// DownloadSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 	DownloadSchedule *UpdateSchedule `json:"downloadSchedule,omitempty"`
 
-	// UpdateSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+	// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 	UpdateSchedule *UpdateSchedule `json:"updateSchedule,omitempty"`
 }
 
@@ -1106,8 +1106,8 @@ type RenderedDeviceSpec struct {
 	// Decommission Metadata about a device decommissioning request.
 	Decommission *DeviceDecommission `json:"decommission,omitempty"`
 
-	// Os DeviceOSSpec describes the target OS for the device.
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// RenderedVersion Version of the rendered device spec.
 	RenderedVersion string `json:"renderedVersion"`
@@ -1372,8 +1372,8 @@ type TemplateVersionStatus struct {
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
 
-	// Os DeviceOSSpec describes the target OS for the device.
-	Os *DeviceOSSpec `json:"os,omitempty"`
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -1394,7 +1394,7 @@ type TemplateVersionStatus struct {
 // TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 type TimeZone = string
 
-// UpdateSchedule Defines the schedule for automatic updates, including timing and optional timeout.
+// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 type UpdateSchedule struct {
 	// At Cron expression format for scheduling times.
 	// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
@@ -1441,14 +1441,8 @@ type ListDevicesParams struct {
 	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
-	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
-	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
-
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
@@ -1488,9 +1482,6 @@ type ListFleetsParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// AddDevicesCount Include the number of devices in each fleet.
 	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
@@ -1545,9 +1536,6 @@ type ListResourceSyncParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Repository The name of the repository to filter results by.
-	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
@@ -1571,17 +1559,26 @@ type ReplaceDeviceJSONRequestBody = Device
 // DecommissionDeviceJSONRequestBody defines body for DecommissionDevice for application/json ContentType.
 type DecommissionDeviceJSONRequestBody = DeviceDecommission
 
+// PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchDeviceStatus for application/json-patch+json ContentType.
+type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = Device
 
 // CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
 type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
+// PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentRequest for application/json-patch+json ContentType.
+type PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
 type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
 // ApproveEnrollmentRequestJSONRequestBody defines body for ApproveEnrollmentRequest for application/json ContentType.
 type ApproveEnrollmentRequestJSONRequestBody = EnrollmentRequestApproval
+
+// PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentRequestStatus for application/json-patch+json ContentType.
+type PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
 type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest
@@ -1594,6 +1591,9 @@ type PatchFleetApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceFleetJSONRequestBody defines body for ReplaceFleet for application/json ContentType.
 type ReplaceFleetJSONRequestBody = Fleet
+
+// PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchFleetStatus for application/json-patch+json ContentType.
+type PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceFleetStatusJSONRequestBody defines body for ReplaceFleetStatus for application/json ContentType.
 type ReplaceFleetStatusJSONRequestBody = Fleet
@@ -2194,23 +2194,23 @@ func (t *RepositorySpec) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsCPUResourceMonitorSpec returns the union data inside the ResourceMonitor as a CPUResourceMonitorSpec
-func (t ResourceMonitor) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
-	var body CPUResourceMonitorSpec
+// AsCpuResourceMonitorSpec returns the union data inside the ResourceMonitor as a CpuResourceMonitorSpec
+func (t ResourceMonitor) AsCpuResourceMonitorSpec() (CpuResourceMonitorSpec, error) {
+	var body CpuResourceMonitorSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromCPUResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided CPUResourceMonitorSpec
-func (t *ResourceMonitor) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+// FromCpuResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided CpuResourceMonitorSpec
+func (t *ResourceMonitor) FromCpuResourceMonitorSpec(v CpuResourceMonitorSpec) error {
 	v.MonitorType = "CPU"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeCPUResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided CPUResourceMonitorSpec
-func (t *ResourceMonitor) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+// MergeCpuResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided CpuResourceMonitorSpec
+func (t *ResourceMonitor) MergeCpuResourceMonitorSpec(v CpuResourceMonitorSpec) error {
 	v.MonitorType = "CPU"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -2293,7 +2293,7 @@ func (t ResourceMonitor) ValueByDiscriminator() (interface{}, error) {
 	}
 	switch discriminator {
 	case "CPU":
-		return t.AsCPUResourceMonitorSpec()
+		return t.AsCpuResourceMonitorSpec()
 	case "Disk":
 		return t.AsDiskResourceMonitorSpec()
 	case "Memory":

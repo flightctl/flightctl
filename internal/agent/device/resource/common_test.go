@@ -263,19 +263,19 @@ func TestUpdateAlerts(t *testing.T) {
 }
 
 func newEmptyMonitor(require *require.Assertions, samplingInterval time.Duration) v1alpha1.ResourceMonitor {
-	monitorSpec := v1alpha1.CPUResourceMonitorSpec{
+	monitorSpec := v1alpha1.CpuResourceMonitorSpec{
 		SamplingInterval: samplingInterval.String(),
 		MonitorType:      CPUMonitorType,
 		AlertRules:       []v1alpha1.ResourceAlertRule{},
 	}
 	rm := v1alpha1.ResourceMonitor{}
-	err := rm.FromCPUResourceMonitorSpec(monitorSpec)
+	err := rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 	return rm
 }
 
 func newMockCPUResourceMonitor(require *require.Assertions, samplingInterval time.Duration) v1alpha1.ResourceMonitor {
-	monitorSpec := v1alpha1.CPUResourceMonitorSpec{
+	monitorSpec := v1alpha1.CpuResourceMonitorSpec{
 		SamplingInterval: samplingInterval.String(),
 		MonitorType:      CPUMonitorType,
 		AlertRules: []v1alpha1.ResourceAlertRule{
@@ -300,7 +300,7 @@ func newMockCPUResourceMonitor(require *require.Assertions, samplingInterval tim
 		},
 	}
 	rm := v1alpha1.ResourceMonitor{}
-	err := rm.FromCPUResourceMonitorSpec(monitorSpec)
+	err := rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 	return rm
 }
