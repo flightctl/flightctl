@@ -7,12 +7,13 @@ data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
   FLIGHTCTL_GRPC_SERVER: {{ .Values.api.grpcUrl | quote }}
   FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.api.insecureSkipTlsVerify | quote }}
-  {{- if not (eq (.Values.global).target "acm") }}
+  {{- if eq (.Values.global).target "acm" }}
+  K8S_RBAC_NS: {{ default .Release.Namespace .Values.global.auth.k8sRbacNs | quote }}
+  {{- else }}
   {{- if .Values.baseURL }}
   BASE_UI_URL: {{ .Values.baseURL | quote }}
   {{- else }}
   BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
-  K8S_RBAC_NS: {{ default .Release.Namespace .Values.global.auth.k8sRbacNs }}
   {{- end }}
   {{- if eq (.Values.global).target "standalone" }}
   {{- if eq ((.Values.global).auth).type "builtin" }}
