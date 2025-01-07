@@ -40,6 +40,9 @@ type manager struct {
 }
 
 // NewManager creates a new device spec manager.
+//
+// Note: This manager is designed for sequential operations only and is not
+// thread-safe.
 func NewManager(
 	deviceName string,
 	dataDir string,

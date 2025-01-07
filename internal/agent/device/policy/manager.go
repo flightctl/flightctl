@@ -18,6 +18,9 @@ type manager struct {
 	log *log.PrefixLogger
 }
 
+// NewManager returns a new device policy manager.
+// Note: This manager is designed for sequential operations only and is not
+// thread-safe.
 func NewManager(log *log.PrefixLogger) Manager {
 	return &manager{
 		log: log,
@@ -39,7 +42,7 @@ func (m *manager) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec
 	}
 	if desired.UpdatePolicy.DownloadSchedule != nil {
 		schedule := newSchedule(Download)
-		if err := schedule.Parse(desired.UpdatePolicy.DownloadSchedule); err != nil {
+		if err := schedule.Parse(m.log, desired.UpdatePolicy.DownloadSchedule); err != nil {
 			return fmt.Errorf("failed to parse download schedule: %w", err)
 		}
 		m.download = schedule
@@ -49,7 +52,7 @@ func (m *manager) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec
 
 	if desired.UpdatePolicy.UpdateSchedule != nil {
 		schedule := newSchedule(Update)
-		if err := schedule.Parse(desired.UpdatePolicy.UpdateSchedule); err != nil {
+		if err := schedule.Parse(m.log, desired.UpdatePolicy.UpdateSchedule); err != nil {
 			return fmt.Errorf("failed to parse update schedule: %w", err)
 		}
 		m.update = schedule
@@ -100,7 +103,7 @@ func newSchedule(policyType Type) *schedule {
 	}
 }
 
-func (s *schedule) Parse(updateSchedule *v1alpha1.UpdateSchedule) error {
+func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1alpha1.UpdateSchedule) error {
 	// parse time zone
 	if updateSchedule.TimeZone != nil {
 		loc, err := time.LoadLocation(util.FromPtr(updateSchedule.TimeZone))
@@ -112,6 +115,8 @@ func (s *schedule) Parse(updateSchedule *v1alpha1.UpdateSchedule) error {
 		s.location = time.Local
 	}
 
+	now := s.normalizeTime(log, s.nowFn().In(s.location))
+
 	// parse cron expression
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	cronExpr, err := parser.Parse(updateSchedule.At)
@@ -119,9 +124,10 @@ func (s *schedule) Parse(updateSchedule *v1alpha1.UpdateSchedule) error {
 		return fmt.Errorf("invalid cron expression: %w", err)
 	}
 	s.cron = cronExpr
+	log.Debugf("Parsed cron expression: %s", s.cron)
 
 	// calculate cron interval
-	nextRun := s.cron.Next(s.nowFn().In(s.location))
+	nextRun := s.cron.Next(now)
 	secondRun := s.cron.Next(nextRun)
 	s.interval = secondRun.Sub(nextRun)
 
@@ -154,4 +160,26 @@ func (s *schedule) IsReady(log *log.PrefixLogger) bool {
 
 	log.Debugf("Policy %s schedule is not ready", s.policyType)
 	return false
+}
+
+// normalizeTime ensures that DST is properly handled.
+func (s *schedule) normalizeTime(log *log.PrefixLogger, t time.Time) time.Time {
+	if s.location == nil {
+		return t
+	}
+
+	localTime := t.In(s.location)
+	if localTime.IsDST() {
+		// dst adjusted ok to return
+		return localTime
+	}
+
+	// ensure fall DST is handled
+	previousHour := localTime.Add(-time.Hour)
+	if previousHour.IsDST() {
+		log.Warnf("Time %s falls within a DST transition, adjusting to %s", t, localTime)
+		return localTime.Add(time.Hour)
+	}
+
+	return localTime
 }
