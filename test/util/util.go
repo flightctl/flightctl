@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -105,7 +106,7 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
 func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig, provider queues.Provider) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port
-	tlsConfig, _, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestServer: error creating TLS certs: %w", err)
 	}
@@ -116,24 +117,28 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, provider), listener, nil
+	metrics := instrumentation.NewApiMetrics(cfg)
+
+	return apiserver.New(log, cfg, store, ca, listener, provider, metrics, nil), listener, nil
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
 func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
-	_, tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
 	// create a listener using the next available port
-	listener, err := middleware.NewTLSListener("", tlsConfig)
+	listener, err := net.Listen("tcp", "")
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	return agentserver.New(log, cfg, store, ca, listener), listener, nil
+	metrics := instrumentation.NewApiMetrics(cfg)
+
+	return agentserver.New(log, cfg, store, ca, listener, tlsConfig, metrics), listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
@@ -176,7 +181,7 @@ func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig,
 
 	// default certificate hostnames to localhost if nothing else is configured
 	if len(cfg.Service.AltNames) == 0 {
-		cfg.Service.AltNames = []string{"localhost", "127.0.0.1"}
+		cfg.Service.AltNames = []string{"localhost", "127.0.0.1", "::"}
 	}
 
 	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(cfg.Service.CertStore, "server.crt"), filepath.Join(cfg.Service.CertStore, "server.key"), cfg.Service.AltNames, serverCertValidityDays)

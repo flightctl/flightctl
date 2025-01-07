@@ -20,9 +20,6 @@ const (
 	// Task to set devices' owners
 	FleetSelectorMatchTask = "fleet-selector-match"
 
-	// Task to populate a template version
-	TemplateVersionPopulateTask = "template-version-populate"
-
 	// Task to validate a fleet template
 	FleetValidateTask = "fleet-template-validate"
 
@@ -41,7 +38,6 @@ type CallbackManager interface {
 	AllDevicesDeletedCallback(orgId uuid.UUID)
 	DeviceUpdatedCallback(before *model.Device, after *model.Device)
 	TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion)
-	TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion)
 	FleetSourceUpdated(orgId uuid.UUID, name string)
 	DeviceSourceUpdated(orgId uuid.UUID, name string)
 }
@@ -104,7 +100,7 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 		selectorUpdated = !reflect.DeepEqual(before.Spec.Data.Selector, after.Spec.Data.Selector)
 	}
 
-	ref := ResourceReference{OrgID: fleet.OrgID, Kind: model.FleetKind, Name: fleet.Name}
+	ref := ResourceReference{OrgID: fleet.OrgID, Kind: api.FleetKind, Name: fleet.Name}
 	if templateUpdated {
 		// If the template was updated, start rolling out the new spec
 		t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
@@ -119,29 +115,29 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 }
 
 func (t *callbackManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
-	ref := ResourceReference{OrgID: orgId, Kind: model.FleetKind, Name: name}
+	ref := ResourceReference{OrgID: orgId, Kind: api.FleetKind, Name: name}
 	t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
 }
 
 func (t *callbackManager) RepositoryUpdatedCallback(repository *model.Repository) {
 	resourceRef := ResourceReference{
 		OrgID: repository.OrgID,
-		Kind:  model.RepositoryKind,
+		Kind:  api.RepositoryKind,
 		Name:  repository.Name,
 	}
 	t.submitTask(RepositoryUpdatesTask, resourceRef, RepositoryUpdateOpUpdate)
 }
 
 func (t *callbackManager) AllRepositoriesDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}, RepositoryUpdateOpDeleteAll)
+	t.submitTask(RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}, RepositoryUpdateOpDeleteAll)
 }
 
 func (t *callbackManager) AllFleetsDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: model.FleetKind}, FleetSelectorMatchOpDeleteAll)
+	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.FleetKind}, FleetSelectorMatchOpDeleteAll)
 }
 
 func (t *callbackManager) AllDevicesDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: model.DeviceKind}, FleetSelectorMatchOpDeleteAll)
+	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.DeviceKind}, FleetSelectorMatchOpDeleteAll)
 }
 
 func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *model.Device) {
@@ -175,7 +171,7 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 		specUpdated = !reflect.DeepEqual(before.Spec, after.Spec)
 	}
 
-	ref := ResourceReference{OrgID: device.OrgID, Kind: model.DeviceKind, Name: device.Name}
+	ref := ResourceReference{OrgID: device.OrgID, Kind: api.DeviceKind, Name: device.Name}
 	if ownerUpdated || labelsUpdated {
 		// If the device's owner was updated, or if labels were updating that might affect parametrers,
 		// check if we need to update its spec according to its new fleet
@@ -196,24 +192,14 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 }
 
 func (t *callbackManager) DeviceSourceUpdated(orgId uuid.UUID, name string) {
-	ref := ResourceReference{OrgID: orgId, Kind: model.DeviceKind, Name: name}
+	ref := ResourceReference{OrgID: orgId, Kind: api.DeviceKind, Name: name}
 	t.submitTask(DeviceRenderTask, ref, DeviceRenderOpUpdate)
 }
 
 func (t *callbackManager) TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion) {
 	resourceRef := ResourceReference{
 		OrgID: templateVersion.OrgID,
-		Kind:  model.TemplateVersionKind,
-		Name:  templateVersion.Name,
-		Owner: *util.SetResourceOwner(model.FleetKind, templateVersion.FleetName),
-	}
-	t.submitTask(TemplateVersionPopulateTask, resourceRef, TemplateVersionPopulateOpCreated)
-}
-
-func (t *callbackManager) TemplateVersionValidatedCallback(templateVersion *model.TemplateVersion) {
-	resourceRef := ResourceReference{
-		OrgID: templateVersion.OrgID,
-		Kind:  model.FleetKind,
+		Kind:  api.FleetKind,
 		Name:  templateVersion.FleetName,
 	}
 	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)

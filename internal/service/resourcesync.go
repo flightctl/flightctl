@@ -8,15 +8,24 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 // (POST /api/v1/resourcesyncs)
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.CreateResourceSyncRequestObject) (server.CreateResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "create")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.CreateResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.CreateResourceSync403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -31,10 +40,10 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 	switch err {
 	case nil:
 		return server.CreateResourceSync201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrDuplicateName:
-		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
+		return server.CreateResourceSync409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -42,26 +51,40 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 
 // (GET /api/v1/resourcesyncs)
 func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.ListResourceSyncRequestObject) (server.ListResourceSyncResponseObject, error) {
-	orgId := store.NullOrgId
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "list")
 	if err != nil {
-		return server.ListResourceSync400JSONResponse{Message: err.Error()}, nil
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ListResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
 	}
+	if !allowed {
+		return server.ListResourceSync403JSONResponse{Message: Forbidden}, nil
+	}
+	orgId := store.NullOrgId
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector *selector.FieldSelector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		FieldSelector: fieldSelector,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -70,19 +93,16 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
-	if request.Params.Repository != nil {
-		specFilter := []string{fmt.Sprintf("spec.repository=%s", *request.Params.Repository)}
-		filterMap, err := ConvertFieldFilterParamsToMap(specFilter)
-		if err != nil {
-			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to convert repository filter: %v", err)}, nil
-		}
-		listParams.Filter = filterMap
+	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
+	if err == nil {
+		return server.ListResourceSync200JSONResponse(*result), nil
 	}
 
-	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
-		return server.ListResourceSync200JSONResponse(*result), nil
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return server.ListResourceSync400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -90,9 +110,17 @@ func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.Li
 
 // (DELETE /api/v1/resourcesyncs)
 func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server.DeleteResourceSyncsRequestObject) (server.DeleteResourceSyncsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "deletecollection")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteResourceSyncs503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteResourceSyncs403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
+	err = h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
 	switch err {
 	case nil:
 		return server.DeleteResourceSyncs200JSONResponse{}, nil
@@ -103,6 +131,14 @@ func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server
 
 // (GET /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.ReadResourceSyncRequestObject) (server.ReadResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReadResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReadResourceSync403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
@@ -118,6 +154,14 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 
 // (PUT /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server.ReplaceResourceSyncRequestObject) (server.ReplaceResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceResourceSync403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -153,8 +197,16 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 
 // (DELETE /api/v1/resourcesyncs/{name})
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.DeleteResourceSyncRequestObject) (server.DeleteResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "delete")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteResourceSync403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
-	err := h.store.ResourceSync().Delete(ctx, orgId, request.Name, h.store.Fleet().UnsetOwner)
+	err = h.store.ResourceSync().Delete(ctx, orgId, request.Name, h.store.Fleet().UnsetOwner)
 	switch err {
 	case nil:
 		return server.DeleteResourceSync200JSONResponse{}, nil
@@ -168,6 +220,14 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.
 // (PATCH /api/v1/resourcesyncs/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.PatchResourceSyncRequestObject) (server.PatchResourceSyncResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "patch")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.PatchResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.PatchResourceSync403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)

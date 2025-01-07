@@ -1,0 +1,12 @@
+{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+{{ if .Values.global.baseDomainTls.cert }}
+kind: Secret
+apiVersion: v1
+metadata:
+  name: gateway-cert
+  namespace: {{ .Release.Namespace }}
+stringData:
+  tls.crt: {{ .Values.global.baseDomainTls.cert | quote }}
+  tls.key: {{ .Values.global.baseDomainTls.key | quote }}
+{{ end }}
+{{ end }}

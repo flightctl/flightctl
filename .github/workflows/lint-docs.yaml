@@ -1,37 +1,37 @@
 name: "Documentation Quality"
+
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-    paths:
-      - README.md
-      - docs/**
   pull_request:
 
-permissions:
-  contents: read
-  pull-requests: read
 jobs:
-  lint:
-    runs-on: "ubuntu-latest"
+  lint-docs:
+    runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Checkout
-        run: |
-          commits=${{ github.event.pull_request.commits }}
-          if [[ -n "$commits" ]]; then
-            # Prepare enough depth for diffs with master
-            git fetch --depth="$(( commits + 1 ))"
-          fi
+          fetch-depth: 1
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            docs:
+              - '.spelling'
+              - 'README.md'
+              - 'docs/**'
 
       - name: Running Markdown Linter
+        if: ${{ steps.filter.outputs.docs == 'true' }}
         run: make lint-docs
 
       - name: Running Spellchecker
+        if: ${{ steps.filter.outputs.docs == 'true' }}
         run: make spellcheck-docs
 
       - name: Verifying diagrams have source embedded
+        if: ${{ steps.filter.outputs.docs == 'true' }}
         run: make lint-diagrams

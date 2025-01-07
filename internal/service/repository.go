@@ -8,16 +8,25 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 // (POST /api/v1/repositories)
 func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.CreateRepositoryRequestObject) (server.CreateRepositoryResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "repositories", "create")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.CreateRepository503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.CreateRepository403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -32,9 +41,10 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 	switch err {
 	case nil:
 		return server.CreateRepository201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateRepository400JSONResponse{Message: err.Error()}, nil
-
+	case flterrors.ErrDuplicateName:
+		return server.CreateRepository409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -42,26 +52,40 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 
 // (GET /api/v1/repositories)
 func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.ListRepositoriesRequestObject) (server.ListRepositoriesResponseObject, error) {
-	orgId := store.NullOrgId
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "repositories", "list")
 	if err != nil {
-		return server.ListRepositories400JSONResponse{Message: err.Error()}, nil
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ListRepositories503JSONResponse{Message: AuthorizationServerUnavailable}, nil
 	}
+	if !allowed {
+		return server.ListRepositories403JSONResponse{Message: Forbidden}, nil
+	}
+	orgId := store.NullOrgId
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
+	var fieldSelector *selector.FieldSelector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:   labelMap,
-		Limit:    int(swag.Int32Value(request.Params.Limit)),
-		Continue: cont,
+		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Continue:      cont,
+		FieldSelector: fieldSelector,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -71,9 +95,15 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 	}
 
 	result, err := h.store.Repository().List(ctx, orgId, listParams)
-	switch err {
-	case nil:
+	if err == nil {
 		return server.ListRepositories200JSONResponse(*result), nil
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return server.ListRepositories400JSONResponse{Message: se.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -81,9 +111,17 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 
 // (DELETE /api/v1/repositories)
 func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.DeleteRepositoriesRequestObject) (server.DeleteRepositoriesResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "repositories", "deletecollection")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteRepositories503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteRepositories403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().DeleteAll(ctx, orgId, h.callbackManager.AllRepositoriesDeletedCallback)
+	err = h.store.Repository().DeleteAll(ctx, orgId, h.callbackManager.AllRepositoriesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteRepositories200JSONResponse{}, nil
@@ -109,6 +147,14 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 
 // (PUT /api/v1/repositories/{name})
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.ReplaceRepositoryRequestObject) (server.ReplaceRepositoryResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "repositories", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceRepository503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceRepository403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -145,9 +191,17 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 
 // (DELETE /api/v1/repositories/{name})
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.DeleteRepositoryRequestObject) (server.DeleteRepositoryResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "repositories", "delete")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteRepository503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteRepository403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().Delete(ctx, orgId, request.Name, h.callbackManager.RepositoryUpdatedCallback)
+	err = h.store.Repository().Delete(ctx, orgId, request.Name, h.callbackManager.RepositoryUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteRepository200JSONResponse{}, nil
@@ -161,6 +215,14 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.De
 // (PATCH /api/v1/repositories/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.PatchRepositoryRequestObject) (server.PatchRepositoryResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "repositories", "patch")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.PatchRepository503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.PatchRepository403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.Repository().Get(ctx, orgId, request.Name)

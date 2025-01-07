@@ -4,45 +4,50 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"path/filepath"
+	"syscall"
 
+	"github.com/ccoveille/go-safecast"
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
 type managedFile struct {
 	ign3types.File
-	initialized bool
-	exists      bool
-	size        int64
-	contents    []byte
-	rootDir     string
+	exists   bool
+	size     int64
+	perms    os.FileMode
+	uid      int
+	gid      int
+	contents []byte
+	writer   Writer
 }
 
-func newManagedFile(f ign3types.File, rootDir string) ManagedFile {
-	return &managedFile{
-		File:    f,
-		rootDir: rootDir,
+func newManagedFile(f ign3types.File, writer Writer) (ManagedFile, error) {
+	mf := &managedFile{
+		File:   f,
+		writer: writer,
 	}
+	if err := mf.initExistingFileMetadata(); err != nil {
+		return nil, err
+	}
+	return mf, nil
 }
 
-func (m *managedFile) initMetadata() error {
-	if m.initialized {
-		return nil
-	}
-	fileInfo, err := os.Stat(m.Path())
+// initExistingFileMetadata initializes the exists and size fields of the on disk managedFile.
+func (m *managedFile) initExistingFileMetadata() error {
+	path := m.writer.PathFor(m.Path())
+	fileInfo, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			m.initialized = true
 			return nil
 		}
 		return err
 	}
 	if fileInfo.IsDir() {
-		return fmt.Errorf("provided path %q is a directory", m.Path())
+		return fmt.Errorf("%w: %s", errors.ErrPathIsDir, path)
 	}
 	m.exists = true
 	m.size = fileInfo.Size()
-	m.initialized = true
 	return nil
 }
 
@@ -55,18 +60,62 @@ func (m *managedFile) decodeFile() error {
 		return err
 	}
 	m.contents = contents
+
+	m.uid, m.gid, err = getFileOwnership(m.File)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve file ownership for file %q: %w", m.Path(), err)
+	}
+
+	m.perms, err = intToFileMode(m.Mode)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve file permissions for file %q: %w", m.Path(), err)
+	}
+
 	return nil
 }
 
-func (m *managedFile) isContentUpToDate() (bool, error) {
+func (m *managedFile) isUpToDate() (bool, error) {
 	if err := m.decodeFile(); err != nil {
 		return false, err
 	}
-	currentContent, err := os.ReadFile(m.Path())
+	currentContent, err := os.ReadFile(m.writer.PathFor(m.Path()))
 	if err != nil {
 		return false, err
 	}
-	return bytes.Equal(currentContent, m.contents), nil
+	if !bytes.Equal(currentContent, m.contents) {
+		return false, nil
+	}
+
+	fileInfo, err := os.Stat(m.writer.PathFor(m.Path()))
+	if err != nil {
+		return false, err
+	}
+	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false, fmt.Errorf("failed to retrieve UID and GID")
+	}
+
+	uid, err := safecast.ToUint32(m.uid)
+	if err != nil {
+		return false, err
+	}
+
+	gid, err := safecast.ToUint32(m.gid)
+	if err != nil {
+		return false, err
+	}
+
+	// compare file ownership
+	if stat.Uid != uid || stat.Gid != gid {
+		return false, nil
+	}
+
+	// compare file permissions
+	if fileInfo.Mode().Perm() != m.perms.Perm() {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (m *managedFile) Path() string {
@@ -74,25 +123,19 @@ func (m *managedFile) Path() string {
 }
 
 func (m *managedFile) Exists() (bool, error) {
-	if err := m.initMetadata(); err != nil {
-		return false, err
-	}
 	return m.exists, nil
 }
 
 func (m *managedFile) IsUpToDate() (bool, error) {
-	if err := m.initMetadata(); err != nil {
-		return false, err
-	}
 	if err := m.decodeFile(); err != nil {
 		return false, err
 	}
 	if m.exists && m.size == int64(len(m.contents)) {
-		contentUpToDate, err := m.isContentUpToDate()
+		isUpToDate, err := m.isUpToDate()
 		if err != nil {
 			return false, err
 		}
-		if contentUpToDate {
+		if isUpToDate {
 			return true, nil
 		}
 	}
@@ -103,22 +146,41 @@ func (m *managedFile) Write() error {
 	if err := m.decodeFile(); err != nil {
 		return err
 	}
-	mode := DefaultFilePermissions
-	if m.Mode != nil {
-		mode = os.FileMode(*m.Mode)
+
+	mode, err := intToFileMode(m.Mode)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve file permissions for file %q: %w", m.Path(), err)
 	}
+
 	// set chown if file information is provided
-	uid, gid, err := getFileOwnership(m.File, len(m.rootDir) > 0)
+	uid, gid, err := getFileOwnership(m.File)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve file ownership for file %q: %w", m.Path(), err)
 	}
 
-	// TODO: implement createOrigFile
-	// if err := createOrigFile(file.Path, file.Path); err != nil {
-	// 	return err
-	// }
-	if err := writeFileAtomically(filepath.Join(m.rootDir, m.Path()), m.contents, defaultDirectoryPermissions, mode, uid, gid); err != nil {
-		return err
+	return m.writer.WriteFile(m.Path(), m.contents, mode, WithGid(gid), WithUid(uid))
+}
+
+func intToFileMode(i *int) (os.FileMode, error) {
+	mode := DefaultFilePermissions
+	if i != nil {
+		filemode, err := safecast.ToUint32(*i)
+		if err != nil {
+			return 0, err
+		}
+
+		// Go stores setuid/setgid/sticky differently, so we
+		// strip them off and then add them back
+		mode = os.FileMode(filemode).Perm()
+		if *i&0o1000 != 0 {
+			mode = mode | os.ModeSticky
+		}
+		if *i&0o2000 != 0 {
+			mode = mode | os.ModeSetgid
+		}
+		if *i&0o4000 != 0 {
+			mode = mode | os.ModeSetuid
+		}
 	}
-	return nil
+	return mode, nil
 }

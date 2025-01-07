@@ -79,44 +79,42 @@ var _ = Describe("RepoUpdate", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		gitConfig1 := &api.GitConfigProviderSpec{
-			ConfigType: string(api.TemplateDiscriminatorGitConfig),
-			Name:       "gitConfig1",
+			Name: "gitConfig1",
 		}
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-1"
 		gitConfig1.GitRef.TargetRevision = "rev"
 		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
-		gitItem1 := api.DeviceSpec_Config_Item{}
+		gitItem1 := api.ConfigProviderSpec{}
 		err = gitItem1.FromGitConfigProviderSpec(*gitConfig1)
 		Expect(err).ToNot(HaveOccurred())
 
 		gitConfig2 := &api.GitConfigProviderSpec{
-			ConfigType: string(api.TemplateDiscriminatorGitConfig),
-			Name:       "gitConfig2",
+			Name: "gitConfig2",
 		}
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-2"
 		gitConfig1.GitRef.TargetRevision = "rev"
 		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
-		gitItem2 := api.DeviceSpec_Config_Item{}
+		gitItem2 := api.ConfigProviderSpec{}
 		err = gitItem2.FromGitConfigProviderSpec(*gitConfig2)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create an inline config item
 		inlineConfig := &api.InlineConfigProviderSpec{
-			ConfigType: string(api.TemplateDiscriminatorInlineConfig),
-			Name:       "inlineConfig",
+			Name: "inlineConfig",
 		}
-		var goodInline map[string]interface{}
-		err = json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.0\"}}"), &goodInline)
-		Expect(err).ToNot(HaveOccurred())
-		inlineConfig.Inline = goodInline
-		inlineItem := api.DeviceSpec_Config_Item{}
+		base64 := api.Base64
+		inlineConfig.Inline = []api.FileSpec{
+			{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
+			{Path: "/etc/notencoded", Content: "Hello world, what's up?"},
+		}
+		inlineItem := api.ConfigProviderSpec{}
 		err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		config1 := []api.DeviceSpec_Config_Item{gitItem1, inlineItem}
-		config2 := []api.DeviceSpec_Config_Item{gitItem2, inlineItem}
+		config1 := []api.ConfigProviderSpec{gitItem1, inlineItem}
+		config2 := []api.ConfigProviderSpec{gitItem2, inlineItem}
 
 		// Create fleet1 referencing repo1, fleet2 referencing repo2
 		fleet1 := api.Fleet{
@@ -173,7 +171,7 @@ var _ = Describe("RepoUpdate", func() {
 
 	When("a Repository definition is updated", func() {
 		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: model.RepositoryKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "fleet1")).Times(1)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "device1")).Times(1)
@@ -185,7 +183,7 @@ var _ = Describe("RepoUpdate", func() {
 
 	When("all Repository definitions are deleted", func() {
 		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "")).Times(2)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "")).Times(2)

@@ -1,8 +1,9 @@
+{{ if and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: keycloak
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   strategy:
@@ -22,8 +23,7 @@ spec:
         imagePullPolicy: {{ .Values.imagePullPolicy }}
         args:
         - start-dev
-        - --http-port=8080
-        - --https-port=8443
+        - --http-port=8081
         - --proxy=edge
         - --import-realm
         env:
@@ -55,7 +55,7 @@ spec:
                 name: keycloak-db-pguser-keycloak
                 key: password
         ports:
-        - containerPort: 8080
+        - containerPort: 8081
         - containerPort: 8443
         resources: {}
         volumeMounts:
@@ -69,3 +69,4 @@ spec:
           items:
             - key: realm.json
               path: realm.json
+{{ end }}

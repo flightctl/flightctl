@@ -2,22 +2,26 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	client "github.com/flightctl/flightctl/internal/client"
+	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 const POLLING = "250ms"
@@ -28,6 +32,7 @@ type Harness struct {
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
 	ctxCancel context.CancelFunc
+	startTime time.Time
 }
 
 func findTopLevelDir() string {
@@ -49,6 +54,8 @@ func findTopLevelDir() string {
 
 func NewTestHarness() *Harness {
 
+	startTime := time.Now()
+
 	testVM, err := vm.NewVM(vm.TestVM{
 		TestDir:       GinkgoT().TempDir(),
 		VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
@@ -69,6 +76,7 @@ func NewTestHarness() *Harness {
 		Client:    c,
 		Context:   ctx,
 		ctxCancel: cancel,
+		startTime: startTime,
 	}
 }
 
@@ -100,6 +108,9 @@ func (h *Harness) Cleanup(printConsole bool) {
 		fmt.Print("\n\n\n")
 	}
 	err := h.VM.ForceDelete()
+
+	diffTime := time.Since(h.startTime)
+	fmt.Printf("Test took %s\n", diffTime)
 	Expect(err).ToNot(HaveOccurred())
 	// This will stop any blocking function that is waiting for the context to be canceled
 	h.ctxCancel()
@@ -167,14 +178,35 @@ func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.Read
 	return device
 }
 
+func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) v1alpha1.DeviceSummaryStatusType {
+	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	Expect(err).NotTo(HaveOccurred())
+	// we keep waiting for a 200 response, with filled in Status.SystemInfo
+	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.Summary.Status == "" {
+		return ""
+	}
+	return device.JSON200.Status.Summary.Status
+}
+
+func (h *Harness) GetDeviceWithUpdateStatus(enrollmentID string) v1alpha1.DeviceUpdatedStatusType {
+	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	Expect(err).NotTo(HaveOccurred())
+	// we keep waiting for a 200 response, with filled in Status.SystemInfo
+	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil {
+		return ""
+	}
+	return device.JSON200.Status.Updated.Status
+}
+
 func (h *Harness) ApiEndpoint() string {
 	ep := os.Getenv("API_ENDPOINT")
-	if ep == "" {
-		ep = "https://" + util.GetExtIP() + ":3443"
-		logrus.Infof("API_ENDPOINT not set, using default: %s", ep)
-		err := os.Setenv("API_ENDPOINT", ep)
-		Expect(err).ToNot(HaveOccurred())
-	}
+	Expect(ep).NotTo(BeEmpty(), "API_ENDPOINT environment variable must be set")
+	return ep
+}
+
+func (h *Harness) RegistryEndpoint() string {
+	ep := os.Getenv("REGISTRY_ENDPOINT")
+	Expect(ep).NotTo(BeEmpty(), "REGISTRY_ENDPOINT environment variable must be set")
 	return ep
 }
 
@@ -183,6 +215,14 @@ func (h *Harness) setArgsInCmd(cmd *exec.Cmd, args ...string) {
 		replacedArg := strings.ReplaceAll(arg, "${API_ENDPOINT}", h.ApiEndpoint())
 		cmd.Args = append(cmd.Args, replacedArg)
 	}
+}
+
+func (h *Harness) ReplaceVariableInString(s string, old string, new string) string {
+	if s == "" || old == "" {
+		replacedString := strings.ReplaceAll(s, old, new)
+		return replacedString
+	}
+	return ""
 }
 
 func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadCloser, error) {
@@ -213,14 +253,18 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 		if err := cmd.Wait(); err != nil {
 			logrus.Errorf("error waiting for interactive process: %v", err)
 		} else {
-			logrus.Info("interactive process exited succesfully")
+			logrus.Info("interactive process exited successfully")
 		}
 	}()
 	return stdin, stdout, nil
 }
 
 func (h *Harness) CLIWithStdin(stdin string, args ...string) (string, error) {
-	cmd := exec.Command(flightctlPath()) //nolint:gosec
+	return h.SHWithStdin(stdin, flightctlPath(), args...)
+}
+
+func (h *Harness) SHWithStdin(stdin, command string, args ...string) (string, error) {
+	cmd := exec.Command(command)
 
 	cmd.Stdin = strings.NewReader(stdin)
 
@@ -245,4 +289,99 @@ func flightctlPath() string {
 
 func (h *Harness) CLI(args ...string) (string, error) {
 	return h.CLIWithStdin("", args...)
+}
+
+func (h *Harness) SH(command string, args ...string) (string, error) {
+	return h.SHWithStdin("", command, args...)
+}
+
+func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) {
+	Eventually(func(updFunction func(*v1alpha1.Device)) error {
+		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
+		Expect(err).NotTo(HaveOccurred())
+		if response.JSON200 == nil {
+			logrus.Errorf("An error happened retrieving device: %+v", response)
+			return errors.New("device not found???")
+		}
+		device := response.JSON200
+
+		updFunction(device)
+
+		resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceId, *device)
+
+		// if a conflict happens (the device updated status or object since we read it) we retry
+		if resp.JSON409 != nil {
+			logrus.Warningf("conflict updating device: %s", deviceId)
+			return errors.New("conflict")
+		}
+
+		// if other type of error happens we fail
+		Expect(err).ToNot(HaveOccurred())
+
+		// response code 200 = updated, we are expecting to update... something else is unexpected
+		if resp.StatusCode() != 200 {
+			logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
+			logrus.Errorf("Unexpected http response: %s", string(resp.Body))
+		}
+		// make the test fail and stop the Eventually loop if at this point we didn't have a 200 response
+		Expect(resp.StatusCode()).Should(Equal(200))
+
+		return nil
+	}, TIMEOUT, "1s").WithArguments(updateFunction).Should(BeNil())
+}
+
+func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
+	lastResourcePrint := ""
+
+	Eventually(func() error {
+		logrus.Infof("Waiting for condition: %q to be met", description)
+		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
+		Expect(err).NotTo(HaveOccurred())
+		if response.JSON200 == nil {
+			logrus.Errorf("An error happened retrieving device: %+v", response)
+			return errors.New("device not found???")
+		}
+		device := response.JSON200
+
+		yamlData, err := yaml.Marshal(device)
+		yamlString := string(yamlData)
+		Expect(err).ToNot(HaveOccurred())
+		if yamlString != lastResourcePrint {
+			fmt.Println("")
+			fmt.Println("======================= Device resource change ===================== ")
+			fmt.Println(yamlString)
+			fmt.Println("================================================================== ")
+			lastResourcePrint = yamlString
+		}
+
+		if condition(device) {
+			return nil
+		}
+		return errors.New("not updated")
+	}, timeout, "2s").Should(BeNil())
+}
+
+func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
+	deviceId := h.GetEnrollmentIDFromConsole()
+	logrus.Infof("Enrollment ID found in VM console output: %s", deviceId)
+	Expect(deviceId).NotTo(BeNil())
+
+	// Approve the enrollment and wait for the device details to be populated by the agent.
+	h.ApproveEnrollment(deviceId, util.TestEnrollmentApproval())
+
+	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeEmpty())
+	logrus.Infof("The device %s was approved", deviceId)
+
+	// Wait for the device to pickup enrollment and report measurements on device status.
+	Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeNil())
+	logrus.Infof("The device %s is reporting its status", deviceId)
+
+	// Check the device status.
+	response := h.GetDeviceWithStatusSystem(deviceId)
+	device := response.JSON200
+	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
+	return deviceId, device
 }

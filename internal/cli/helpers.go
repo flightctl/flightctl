@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -96,4 +97,47 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 		return fmt.Errorf("%d %s", statusCode, responseError.Message)
 	}
 	return nil
+}
+
+// responseField extracts a field from a response struct by name and returns it as the specified type T.
+// The function performs a series of checks to ensure the validity and type-safety of the operation.
+// If any of these checks fail, it returns an appropriate error message.
+func responseField[T any](response interface{}, name string) (T, error) {
+	var zero T
+
+	v := reflect.ValueOf(response)
+
+	if !v.IsValid() {
+		return zero, fmt.Errorf("response is invalid")
+	}
+
+	if v.Kind() != reflect.Ptr {
+		return zero, fmt.Errorf("response must be a pointer to a struct, got: %T", response)
+	}
+
+	if v.IsNil() {
+		return zero, fmt.Errorf("response pointer is nil")
+	}
+
+	v = v.Elem()
+
+	if v.Kind() != reflect.Struct {
+		return zero, fmt.Errorf("expected a struct, got: %T", v.Interface())
+	}
+
+	field := v.FieldByName(name)
+	if !field.IsValid() {
+		return zero, fmt.Errorf("field %q does not exist in struct: %T", name, response)
+	}
+
+	if !field.CanInterface() {
+		return zero, fmt.Errorf("field %q cannot be interfaced", name)
+	}
+
+	fieldValue, ok := field.Interface().(T)
+	if !ok {
+		return zero, fmt.Errorf("field %q is not of type %T, got: %T", name, zero, field.Interface())
+	}
+
+	return fieldValue, nil
 }

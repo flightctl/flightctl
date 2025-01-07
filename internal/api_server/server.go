@@ -13,7 +13,10 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -29,12 +32,14 @@ const (
 )
 
 type Server struct {
-	log      logrus.FieldLogger
-	cfg      *config.Config
-	store    store.Store
-	ca       *crypto.CA
-	listener net.Listener
-	provider queues.Provider
+	log                logrus.FieldLogger
+	cfg                *config.Config
+	store              store.Store
+	ca                 *crypto.CA
+	listener           net.Listener
+	provider           queues.Provider
+	metrics            *instrumentation.ApiMetrics
+	consoleEndpointReg console.InternalSessionRegistration
 }
 
 // New returns a new instance of a flightctl server.
@@ -45,14 +50,18 @@ func New(
 	ca *crypto.CA,
 	listener net.Listener,
 	provider queues.Provider,
+	metrics *instrumentation.ApiMetrics,
+	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
 	return &Server{
-		log:      log,
-		cfg:      cfg,
-		store:    store,
-		ca:       ca,
-		listener: listener,
-		provider: provider,
+		log:                log,
+		cfg:                cfg,
+		store:              store,
+		ca:                 ca,
+		listener:           listener,
+		provider:           provider,
+		metrics:            metrics,
+		consoleEndpointReg: consoleEndpointReg,
 	}
 }
 
@@ -63,6 +72,10 @@ func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
 	publisher, err := tasks.TaskQueuePublisher(s.provider)
+	if err != nil {
+		return err
+	}
+	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}
@@ -86,18 +99,37 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	router := chi.NewRouter()
+
+	// general middleware stack for all route groups
+	// request size limits should come before logging to prevent DoS attacks from filling logs
 	router.Use(
+		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
+		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
-		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	)
 
-	h := service.NewServiceHandler(s.store, callbackManager, s.ca, s.log, s.cfg.Service.BaseAgentGrpcUrl, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
-	server.HandlerFromMux(server.NewStrictHandler(h, nil), router)
+	// a group is a new mux copy, with it's own copy of the middleware stack
+	// this one handles the OpenAPI handling of the service
+	router.Group(func(r chi.Router) {
+		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
+		// to avoid issues with websocket connections
+		if s.metrics != nil {
+			r.Use(s.metrics.ApiServerMiddleware)
+		}
+		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
-	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address)
+		h := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
+	})
+
+	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, kvStore, s.log, s.consoleEndpointReg)
+	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
+	ws.RegisterRoutes(router)
+
+	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {
 		<-ctx.Done()
@@ -107,6 +139,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+		kvStore.Close()
 		s.provider.Stop()
 		s.provider.Wait()
 	}()

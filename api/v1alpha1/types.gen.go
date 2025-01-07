@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/oapi-codegen/runtime"
@@ -41,6 +42,7 @@ const (
 	CertificateSigningRequestApproved ConditionType = "Approved"
 	CertificateSigningRequestDenied   ConditionType = "Denied"
 	CertificateSigningRequestFailed   ConditionType = "Failed"
+	DeviceDecommissioning             ConditionType = "DeviceDecommissioning"
 	DeviceMultipleOwners              ConditionType = "MultipleOwners"
 	DeviceSpecValid                   ConditionType = "SpecValid"
 	DeviceUpdating                    ConditionType = "Updating"
@@ -51,7 +53,12 @@ const (
 	ResourceSyncAccessible            ConditionType = "Accessible"
 	ResourceSyncResourceParsed        ConditionType = "ResourceParsed"
 	ResourceSyncSynced                ConditionType = "Synced"
-	TemplateVersionValid              ConditionType = "Valid"
+)
+
+// Defines values for DeviceDecommissionTargetType.
+const (
+	DeviceDecommissionTargetTypeFactoryReset DeviceDecommissionTargetType = "FactoryReset"
+	DeviceDecommissionTargetTypeUnenroll     DeviceDecommissionTargetType = "Unenroll"
 )
 
 // Defines values for DeviceIntegrityStatusSummaryType.
@@ -60,6 +67,22 @@ const (
 	DeviceIntegrityStatusPassed      DeviceIntegrityStatusSummaryType = "Passed"
 	DeviceIntegrityStatusUnknown     DeviceIntegrityStatusSummaryType = "Unknown"
 	DeviceIntegrityStatusUnsupported DeviceIntegrityStatusSummaryType = "Unsupported"
+)
+
+// Defines values for DeviceLifecycleHookType.
+const (
+	DeviceLifecycleHookAfterRebooting  DeviceLifecycleHookType = "AfterRebooting"
+	DeviceLifecycleHookAfterUpdating   DeviceLifecycleHookType = "AfterUpdating"
+	DeviceLifecycleHookBeforeRebooting DeviceLifecycleHookType = "BeforeRebooting"
+	DeviceLifecycleHookBeforeUpdating  DeviceLifecycleHookType = "BeforeUpdating"
+)
+
+// Defines values for DeviceLifecycleStatusType.
+const (
+	DeviceLifecycleStatusDecommissioned  DeviceLifecycleStatusType = "Decommissioned"
+	DeviceLifecycleStatusDecommissioning DeviceLifecycleStatusType = "Decommissioning"
+	DeviceLifecycleStatusEnrolled        DeviceLifecycleStatusType = "Enrolled"
+	DeviceLifecycleStatusUnknown         DeviceLifecycleStatusType = "Unknown"
 )
 
 // Defines values for DeviceResourceStatusType.
@@ -91,21 +114,23 @@ const (
 
 // Defines values for FileOperation.
 const (
-	FileOperationCreate FileOperation = "Create"
-	FileOperationReboot FileOperation = "Reboot"
-	FileOperationRemove FileOperation = "Remove"
-	FileOperationUpdate FileOperation = "Update"
+	FileOperationCreated FileOperation = "created"
+	FileOperationRemoved FileOperation = "removed"
+	FileOperationUpdated FileOperation = "updated"
 )
 
-// Defines values for HookActionSystemdUnitOperations.
+// Defines values for FileSpecContentEncoding.
 const (
-	SystemdDaemonReload HookActionSystemdUnitOperations = "DaemonReload"
-	SystemdDisable      HookActionSystemdUnitOperations = "Disable"
-	SystemdEnable       HookActionSystemdUnitOperations = "Enable"
-	SystemdReload       HookActionSystemdUnitOperations = "Reload"
-	SystemdRestart      HookActionSystemdUnitOperations = "Restart"
-	SystemdStart        HookActionSystemdUnitOperations = "Start"
-	SystemdStop         HookActionSystemdUnitOperations = "Stop"
+	Base64 FileSpecContentEncoding = "base64"
+	Plain  FileSpecContentEncoding = "plain"
+)
+
+// Defines values for MatchExpressionOperator.
+const (
+	DoesNotExist MatchExpressionOperator = "DoesNotExist"
+	Exists       MatchExpressionOperator = "Exists"
+	In           MatchExpressionOperator = "In"
+	NotIn        MatchExpressionOperator = "NotIn"
 )
 
 // Defines values for PatchRequestOp.
@@ -128,115 +153,126 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
-// Defines values for TemplateDiscriminators.
-const (
-	TemplateDiscriminatorGitConfig     TemplateDiscriminators = "GitConfigProviderSpec"
-	TemplateDiscriminatorHttpConfig    TemplateDiscriminators = "HttpConfigProviderSpec"
-	TemplateDiscriminatorInlineConfig  TemplateDiscriminators = "InlineConfigProviderSpec"
-	TemplateDiscriminatorKubernetesSec TemplateDiscriminators = "KubernetesSecretProviderSpec"
-)
-
-// ApplicationStatus defines model for ApplicationStatus.
-type ApplicationStatus struct {
-	// Name Human readable name of the application.
-	Name string `json:"name"`
-
-	// Ready The number of containers which are ready in the application.
-	Ready string `json:"ready"`
-
-	// Restarts Number of restarts observed for the application.
-	Restarts int                   `json:"restarts"`
-	Status   ApplicationStatusType `json:"status"`
+// ApplicationEnvVars defines model for ApplicationEnvVars.
+type ApplicationEnvVars struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime.
+	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
-// ApplicationStatusType defines model for ApplicationStatusType.
+// ApplicationSpec defines model for ApplicationSpec.
+type ApplicationSpec struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime.
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Name The name of the application.
+	Name  *string `json:"name,omitempty"`
+	union json.RawMessage
+}
+
+// ApplicationStatusType Status of a single application on the device.
 type ApplicationStatusType string
 
-// ApplicationsSummaryStatus defines model for ApplicationsSummaryStatus.
-type ApplicationsSummaryStatus struct {
-	// Info Human readable information detailing the last system application transition.
-	Info   *string                       `json:"info,omitempty"`
-	Status ApplicationsSummaryStatusType `json:"status"`
-}
-
-// ApplicationsSummaryStatusType defines model for ApplicationsSummaryStatusType.
+// ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
 
 // AuthConfig Auth config.
 type AuthConfig struct {
-	// AuthType Auth type
+	// AuthType Auth type.
 	AuthType string `json:"authType"`
 
-	// AuthURL Auth URL
+	// AuthURL Auth URL.
 	AuthURL string `json:"authURL"`
 }
 
-// CPUResourceMonitorSpec defines model for CPUResourceMonitorSpec.
-type CPUResourceMonitorSpec = ResourceMonitorSpec
+// Batch Batch is an element in batch sequence.
+type Batch struct {
+	// Limit The maximum number or percentage of devices to update in the batch.
+	Limit *Batch_Limit `json:"limit,omitempty"`
 
-// CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA
+	// Selector A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. Empty/null label selectors match nothing.
+	Selector *LabelSelector `json:"selector,omitempty"`
+
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+}
+
+// BatchLimit1 defines model for .
+type BatchLimit1 = int
+
+// Batch_Limit The maximum number or percentage of devices to update in the batch.
+type Batch_Limit struct {
+	union json.RawMessage
+}
+
+// BatchSequence BatchSequence defines the list of batches to be executed in sequence.
+type BatchSequence struct {
+	// Sequence A list of batch definitions.
+	Sequence *[]Batch `json:"sequence,omitempty"`
+}
+
+// CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
 type CertificateSigningRequest struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 	Metadata ObjectMeta `json:"metadata"`
 
-	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec
+	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
 	Spec CertificateSigningRequestSpec `json:"spec"`
 
-	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
 	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
 }
 
-// CertificateSigningRequestList CertificateSigningRequestList is a list of CertificateSigningRequest
+// CertificateSigningRequestList CertificateSigningRequestList is a list of CertificateSigningRequest.
 type CertificateSigningRequestList struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
 	// Items List of CertificateSigningRequest.
 	Items []CertificateSigningRequest `json:"items"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
 }
 
-// CertificateSigningRequestSpec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec
+// CertificateSigningRequestSpec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
 type CertificateSigningRequestSpec struct {
-	// ExpirationSeconds Requested duration of validity for the certificate
+	// ExpirationSeconds Requested duration of validity for the certificate.
 	ExpirationSeconds *int32 `json:"expirationSeconds,omitempty"`
 
-	// Extra Extra attributes of the user that created the CSR, populated by the API server on creation and immutable
+	// Extra Extra attributes of the user that created the CSR, populated by the API server on creation and immutable.
 	Extra *map[string][]string `json:"extra,omitempty"`
 
-	// Request The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource
+	// Request The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource.
 	Request []byte `json:"request"`
 
-	// SignerName Indicates the requested signer, and is a qualified name
+	// SignerName Indicates the requested signer, and is a qualified name.
 	SignerName string `json:"signerName"`
 
-	// Uid UID of the user that created the CSR, populated by the API server on creation and immutable
+	// Uid UID of the user that created the CSR, populated by the API server on creation and immutable.
 	Uid *string `json:"uid,omitempty"`
 
 	// Usages Usages specifies a set of key usages requested in the issued certificate.
 	Usages *[]string `json:"usages,omitempty"`
 
-	// Username Name of the user that created the CSR, populated by the API server on creation and immutable
+	// Username Name of the user that created the CSR, populated by the API server on creation and immutable.
 	Username *string `json:"username,omitempty"`
 }
 
-// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists
+// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
 type CertificateSigningRequestStatus struct {
-	// Certificate The issued signed certificate, immutable once populated
+	// Certificate The issued signed certificate, immutable once populated.
 	Certificate *[]byte `json:"certificate,omitempty"`
 
-	// Conditions Conditions applied to the request. Known conditions are Approved, Denied, and Failed
+	// Conditions Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
 	Conditions []Condition `json:"conditions"`
 }
 
@@ -251,106 +287,156 @@ type Condition struct {
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason (brief) reason for the condition's last transition.
-	Reason string          `json:"reason"`
+	// Reason A (brief) reason for the condition's last transition.
+	Reason string `json:"reason"`
+
+	// Status Status of the condition, one of True, False, Unknown.
 	Status ConditionStatus `json:"status"`
-	Type   ConditionType   `json:"type"`
+
+	// Type Type of condition in CamelCase.
+	Type ConditionType `json:"type"`
 }
 
-// ConditionStatus defines model for ConditionStatus.
+// ConditionStatus Status of the condition, one of True, False, Unknown.
 type ConditionStatus string
 
-// ConditionType defines model for ConditionType.
+// ConditionType Type of condition in CamelCase.
 type ConditionType string
+
+// ConfigProviderSpec defines model for ConfigProviderSpec.
+type ConfigProviderSpec struct {
+	union json.RawMessage
+}
+
+// CpuResourceMonitorSpec Specification for monitoring a resource.
+type CpuResourceMonitorSpec = ResourceMonitorSpec
+
+// CronExpression Cron expression format for scheduling times.
+// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
+// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
+// Example: `* 0-8,16-23 * * *`.
+type CronExpression = string
 
 // CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
 type CustomResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
-	AlertRules  []ResourceAlertRule `json:"alertRules"`
-	MonitorType string              `json:"monitorType"`
+	AlertRules []ResourceAlertRule `json:"alertRules"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// MonitorType The type of resource to monitor.
+	MonitorType string `json:"monitorType"`
+
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
 // Device Device represents a physical device.
 type Device struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata ObjectMeta  `json:"metadata"`
-	Spec     *DeviceSpec `json:"spec,omitempty"`
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec DeviceSpec describes a device.
+	Spec *DeviceSpec `json:"spec,omitempty"`
 
 	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	Status *DeviceStatus `json:"status,omitempty"`
 }
 
-// DeviceApplicationsStatus defines model for DeviceApplicationsStatus.
-type DeviceApplicationsStatus struct {
-	// Data Map of system application statuses.
-	Data    map[string]ApplicationStatus `json:"data"`
-	Summary ApplicationsSummaryStatus    `json:"summary"`
+// DeviceApplicationStatus defines model for DeviceApplicationStatus.
+type DeviceApplicationStatus struct {
+	// Name Human readable name of the application.
+	Name string `json:"name"`
+
+	// Ready The number of containers which are ready in the application.
+	Ready string `json:"ready"`
+
+	// Restarts Number of restarts observed for the application.
+	Restarts int `json:"restarts"`
+
+	// Status Status of a single application on the device.
+	Status ApplicationStatusType `json:"status"`
 }
 
-// DeviceConfigStatus defines model for DeviceConfigStatus.
+// DeviceApplicationsSummaryStatus A summary of the health of applications on the device.
+type DeviceApplicationsSummaryStatus struct {
+	// Info Human readable information detailing the last application transition.
+	Info *string `json:"info,omitempty"`
+
+	// Status Status of all applications on the device.
+	Status ApplicationsSummaryStatusType `json:"status"`
+}
+
+// DeviceConfigStatus Current status of the device config.
 type DeviceConfigStatus struct {
 	// RenderedVersion Version of the device rendered config.
 	RenderedVersion string `json:"renderedVersion"`
 }
 
-// DeviceConsole defines model for DeviceConsole.
+// DeviceConsole DeviceConsole represents the console connection information.
 type DeviceConsole struct {
+	// GRPCEndpoint The gRPC endpoint for the console connection.
 	GRPCEndpoint string `json:"gRPCEndpoint"`
-	SessionID    string `json:"sessionID"`
+
+	// SessionID The session ID for the console connection.
+	SessionID string `json:"sessionID"`
 }
 
-// DeviceHooksSpec defines model for DeviceHooksSpec.
-type DeviceHooksSpec struct {
-	// AfterRebooting Hooks executed after rebooting enable custom actions and integration with other systems
-	// or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
-	AfterRebooting *[]DeviceRebootHookSpec `json:"afterRebooting,omitempty"`
-
-	// AfterUpdating Hooks executed after updating enable custom actions and integration with other systems
-	// or services. These actions occur after configuration changes have been applied to the device.
-	AfterUpdating *[]DeviceUpdateHookSpec `json:"afterUpdating,omitempty"`
-
-	// BeforeRebooting Hooks executed before rebooting allow for custom actions and integration with other systems
-	// or services. These actions occur before the device is rebooted.
-	BeforeRebooting *[]DeviceRebootHookSpec `json:"beforeRebooting,omitempty"`
-
-	// BeforeUpdating Hooks executed before updating allow for custom actions and integration with other systems
-	// or services. These actions occur before configuration changes are applied to the device.
-	BeforeUpdating *[]DeviceUpdateHookSpec `json:"beforeUpdating,omitempty"`
+// DeviceDecommission Metadata about a device decommissioning request.
+type DeviceDecommission struct {
+	// Target Specifies the desired decommissioning method of the device.
+	Target DeviceDecommissionTargetType `json:"target"`
 }
 
-// DeviceIntegrityStatus defines model for DeviceIntegrityStatus.
+// DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
+type DeviceDecommissionTargetType string
+
+// DeviceIntegrityStatus Status of device integrity.
 type DeviceIntegrityStatus struct {
+	// Summary Summary status of the integrity of the device.
 	Summary DeviceIntegrityStatusSummary `json:"summary"`
 }
 
-// DeviceIntegrityStatusSummary defines model for DeviceIntegrityStatusSummary.
+// DeviceIntegrityStatusSummary Summary status of the integrity of the device.
 type DeviceIntegrityStatusSummary struct {
 	// Info Human readable information about the last integrity transition.
-	Info   *string                          `json:"info,omitempty"`
+	Info *string `json:"info,omitempty"`
+
+	// Status Status of the integrity of the device.
 	Status DeviceIntegrityStatusSummaryType `json:"status"`
 }
 
-// DeviceIntegrityStatusSummaryType defines model for DeviceIntegrityStatusSummaryType.
+// DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
+
+// DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
+type DeviceLifecycleHookType string
+
+// DeviceLifecycleStatus Current status of the device lifecycle.
+type DeviceLifecycleStatus struct {
+	// Info Human readable information about the device lifecycle status.
+	Info *string `json:"info,omitempty"`
+
+	// Status Status type of the device lifecycle.
+	Status DeviceLifecycleStatusType `json:"status"`
+}
+
+// DeviceLifecycleStatusType Status type of the device lifecycle.
+type DeviceLifecycleStatusType string
 
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
 	// Items List of Devices.
 	Items []Device `json:"items"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
@@ -360,84 +446,109 @@ type DeviceList struct {
 	Summary *DevicesSummary `json:"summary,omitempty"`
 }
 
-// DeviceOSSpec defines model for DeviceOSSpec.
-type DeviceOSSpec struct {
-	// Image ostree image name or URL.
+// DeviceOsSpec DeviceOsSpec describes the target OS for the device.
+type DeviceOsSpec struct {
+	// Image The target OS image name or URL.
 	Image string `json:"image"`
 }
 
-// DeviceOSStatus defines model for DeviceOSStatus.
-type DeviceOSStatus struct {
+// DeviceOsStatus Current status of the device OS.
+type DeviceOsStatus struct {
 	// Image Version of the OS image.
 	Image string `json:"image"`
+
+	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
+	ImageDigest string `json:"imageDigest"`
 }
 
-// DeviceRebootHookSpec defines model for DeviceRebootHookSpec.
-type DeviceRebootHookSpec struct {
-	// Actions The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.
-	Actions     []HookAction `json:"actions"`
-	Description *string      `json:"description,omitempty"`
-	Name        *string      `json:"name,omitempty"`
-}
-
-// DeviceResourceStatus defines model for DeviceResourceStatus.
+// DeviceResourceStatus Current status of the resources of the device.
 type DeviceResourceStatus struct {
-	Cpu    DeviceResourceStatusType `json:"cpu"`
-	Disk   DeviceResourceStatusType `json:"disk"`
+	// Cpu The types of resource statuses.
+	Cpu DeviceResourceStatusType `json:"cpu"`
+
+	// Disk The types of resource statuses.
+	Disk DeviceResourceStatusType `json:"disk"`
+
+	// Memory The types of resource statuses.
 	Memory DeviceResourceStatusType `json:"memory"`
 }
 
-// DeviceResourceStatusType defines model for DeviceResourceStatusType.
+// DeviceResourceStatusType The types of resource statuses.
 type DeviceResourceStatusType string
 
-// DeviceSpec defines model for DeviceSpec.
+// DeviceSpec DeviceSpec describes a device.
 type DeviceSpec struct {
-	// Config List of config resources.
-	Config     *[]DeviceSpec_Config_Item `json:"config,omitempty"`
-	Containers *struct {
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"containers,omitempty"`
-	Hooks *DeviceHooksSpec `json:"hooks,omitempty"`
-	Os    *DeviceOSSpec    `json:"os,omitempty"`
+	// Applications List of applications.
+	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+
+	// Config List of config providers.
+	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
-	Systemd   *struct {
+
+	// Systemd The systemd services to monitor.
+	Systemd *struct {
+		// MatchPatterns A list of match patterns.
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
-}
 
-// DeviceSpec_Config_Item defines model for DeviceSpec.config.Item.
-type DeviceSpec_Config_Item struct {
-	union json.RawMessage
+	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
 }
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 type DeviceStatus struct {
-	Applications DeviceApplicationsStatus `json:"applications"`
+	// Applications List of device application status.
+	Applications []DeviceApplicationStatus `json:"applications"`
+
+	// ApplicationsSummary A summary of the health of applications on the device.
+	ApplicationsSummary DeviceApplicationsSummaryStatus `json:"applicationsSummary"`
 
 	// Conditions Conditions represent the observations of a the current state of a device.
-	Conditions []Condition           `json:"conditions"`
-	Config     DeviceConfigStatus    `json:"config"`
-	Integrity  DeviceIntegrityStatus `json:"integrity"`
-	LastSeen   time.Time             `json:"lastSeen"`
-	Os         DeviceOSStatus        `json:"os"`
-	Resources  DeviceResourceStatus  `json:"resources"`
-	Summary    DeviceSummaryStatus   `json:"summary"`
+	Conditions []Condition `json:"conditions"`
+
+	// Config Current status of the device config.
+	Config DeviceConfigStatus `json:"config"`
+
+	// Integrity Status of device integrity.
+	Integrity DeviceIntegrityStatus `json:"integrity"`
+
+	// LastSeen The last time the device was seen by the service.
+	LastSeen time.Time `json:"lastSeen"`
+
+	// Lifecycle Current status of the device lifecycle.
+	Lifecycle DeviceLifecycleStatus `json:"lifecycle"`
+
+	// Os Current status of the device OS.
+	Os DeviceOsStatus `json:"os"`
+
+	// Resources Current status of the resources of the device.
+	Resources DeviceResourceStatus `json:"resources"`
+
+	// Summary A summary of the health of the device hardware and operating system resources.
+	Summary DeviceSummaryStatus `json:"summary"`
 
 	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
-	SystemInfo DeviceSystemInfo    `json:"systemInfo"`
-	Updated    DeviceUpdatedStatus `json:"updated"`
+	SystemInfo DeviceSystemInfo `json:"systemInfo"`
+
+	// Updated Current status of the device update.
+	Updated DeviceUpdatedStatus `json:"updated"`
 }
 
-// DeviceSummaryStatus defines model for DeviceSummaryStatus.
+// DeviceSummaryStatus A summary of the health of the device hardware and operating system resources.
 type DeviceSummaryStatus struct {
 	// Info Human readable information detailing the last device status transition.
-	Info   *string                 `json:"info,omitempty"`
+	Info *string `json:"info,omitempty"`
+
+	// Status Status of the device.
 	Status DeviceSummaryStatusType `json:"status"`
 }
 
-// DeviceSummaryStatusType defines model for DeviceSummaryStatusType.
+// DeviceSummaryStatusType Status of the device.
 type DeviceSummaryStatusType string
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
@@ -452,65 +563,84 @@ type DeviceSystemInfo struct {
 	OperatingSystem string `json:"operatingSystem"`
 }
 
-// DeviceUpdateHookSpec defines model for DeviceUpdateHookSpec.
-type DeviceUpdateHookSpec struct {
-	// Actions The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.
-	Actions     []HookAction     `json:"actions"`
-	Description *string          `json:"description,omitempty"`
-	Name        *string          `json:"name,omitempty"`
-	OnFile      *[]FileOperation `json:"onFile,omitempty"`
+// DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+type DeviceUpdatePolicySpec struct {
+	// DownloadSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
+	DownloadSchedule *UpdateSchedule `json:"downloadSchedule,omitempty"`
 
-	// Path The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
-	Path *string `json:"path,omitempty"`
+	// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
+	UpdateSchedule *UpdateSchedule `json:"updateSchedule,omitempty"`
 }
 
-// DeviceUpdatedStatus defines model for DeviceUpdatedStatus.
+// DeviceUpdatedStatus Current status of the device update.
 type DeviceUpdatedStatus struct {
 	// Info Human readable information about the last device update transition.
-	Info   *string                 `json:"info,omitempty"`
+	Info *string `json:"info,omitempty"`
+
+	// Status Status type of the device update.
 	Status DeviceUpdatedStatusType `json:"status"`
 }
 
-// DeviceUpdatedStatusType defines model for DeviceUpdatedStatusType.
+// DeviceUpdatedStatusType Status type of the device update.
 type DeviceUpdatedStatusType string
 
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
+	// ApplicationStatus A breakdown of the devices in the fleet by "application" status.
+	ApplicationStatus map[string]int64 `json:"applicationStatus"`
+
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
-	SummaryStatus *map[string]int `json:"summaryStatus,omitempty"`
+	SummaryStatus map[string]int64 `json:"summaryStatus"`
 
 	// Total The total number of devices in the fleet.
-	Total int `json:"total"`
+	Total int64 `json:"total"`
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
-	UpdateStatus *map[string]int `json:"updateStatus,omitempty"`
+	UpdateStatus map[string]int64 `json:"updateStatus"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
 type DiskResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
-	AlertRules  []ResourceAlertRule `json:"alertRules"`
-	MonitorType string              `json:"monitorType"`
+	AlertRules []ResourceAlertRule `json:"alertRules"`
+
+	// MonitorType The type of resource to monitor.
+	MonitorType string `json:"monitorType"`
 
 	// Path The directory path to monitor for disk usage.
 	Path string `json:"path"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
+// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+type DisruptionAllowance struct {
+	// GroupBy List of label keys to perform grouping for the disruption allowance.
+	GroupBy *[]string `json:"groupBy,omitempty"`
+
+	// MaxUnavailable The minimum number of required available devices during rollout.
+	MaxUnavailable *int `json:"maxUnavailable,omitempty"`
+
+	// MinAvailable The maximum number of unavailable devices allowed during rollout.
+	MinAvailable *int `json:"minAvailable,omitempty"`
+}
+
+// Duration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
+type Duration = string
+
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
-	EnrollmentService      EnrollmentService `json:"enrollment-service"`
-	GrpcManagementEndpoint string            `json:"grpc-management-endpoint"`
+	// EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
+	EnrollmentService EnrollmentService `json:"enrollment-service"`
 }
 
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
@@ -523,30 +653,30 @@ type EnrollmentRequest struct {
 	Status *EnrollmentRequestStatus `json:"status,omitempty"`
 }
 
-// EnrollmentRequestApproval defines model for EnrollmentRequestApproval.
+// EnrollmentRequestApproval EnrollmentRequestApproval contains information about the approval of a device enrollment request.
 type EnrollmentRequestApproval struct {
-	// Approved approved indicates whether the request has been approved.
+	// Approved Indicates whether the request has been approved.
 	Approved bool `json:"approved"`
 
-	// ApprovedAt approvedAt is the time at which the request was approved.
+	// ApprovedAt The time at which the request was approved.
 	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
 
-	// ApprovedBy approvedBy is the name of the approver.
+	// ApprovedBy The name of the approver.
 	ApprovedBy *string `json:"approvedBy,omitempty"`
 
-	// Labels labels is a set of labels to apply to the device.
+	// Labels A set of labels to apply to the device.
 	Labels *map[string]string `json:"labels,omitempty"`
 }
 
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
 type EnrollmentRequestList struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
 	// Items List of EnrollmentRequest.
 	Items []EnrollmentRequest `json:"items"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
@@ -555,61 +685,97 @@ type EnrollmentRequestList struct {
 
 // EnrollmentRequestSpec EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
 type EnrollmentRequestSpec struct {
-	// Csr csr is a PEM-encoded PKCS#10 certificate signing request.
+	// Csr The PEM-encoded PKCS#10 certificate signing request.
 	Csr string `json:"csr"`
 
 	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
 
-	// Labels A set of labels that the service will apply to this device when its enrollment is approved
+	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 type EnrollmentRequestStatus struct {
+	// Approval EnrollmentRequestApproval contains information about the approval of a device enrollment request.
 	Approval *EnrollmentRequestApproval `json:"approval,omitempty"`
 
-	// Certificate certificate is a PEM-encoded signed certificate.
+	// Certificate The PEM-encoded signed certificate.
 	Certificate *string `json:"certificate,omitempty"`
 
 	// Conditions Current state of the EnrollmentRequest.
 	Conditions []Condition `json:"conditions"`
 }
 
-// EnrollmentService defines model for EnrollmentService.
+// EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
 type EnrollmentService struct {
-	Authentication       EnrollmentServiceAuth    `json:"authentication"`
-	EnrollmentUiEndpoint string                   `json:"enrollment-ui-endpoint"`
-	Service              EnrollmentServiceService `json:"service"`
+	// Authentication EnrollmentServiceAuth contains the client authentication information for a Flight Control enrollment service.
+	Authentication EnrollmentServiceAuth `json:"authentication"`
+
+	// EnrollmentUiEndpoint The URL of the UI that the agent uses to print the QR code and link for enrolling the device.
+	EnrollmentUiEndpoint string `json:"enrollment-ui-endpoint"`
+
+	// Service EnrollmentServiceService contains information about connecting to a Flight Control enrollment service.
+	Service EnrollmentServiceService `json:"service"`
 }
 
-// EnrollmentServiceAuth defines model for EnrollmentServiceAuth.
+// EnrollmentServiceAuth EnrollmentServiceAuth contains the client authentication information for a Flight Control enrollment service.
 type EnrollmentServiceAuth struct {
+	// ClientCertificateData ClientCertificateData contains PEM-encoded data from a client cert file for TLS.
 	ClientCertificateData string `json:"client-certificate-data"`
-	ClientKeyData         string `json:"client-key-data"`
+
+	// ClientKeyData ClientKeyData contains PEM-encoded data from a client key file for TLS.
+	ClientKeyData string `json:"client-key-data"`
 }
 
-// EnrollmentServiceService defines model for EnrollmentServiceService.
+// EnrollmentServiceService EnrollmentServiceService contains information about connecting to a Flight Control enrollment service.
 type EnrollmentServiceService struct {
+	// CertificateAuthorityData CertificateAuthorityData contains PEM-encoded certificate authority certificates.
 	CertificateAuthorityData string `json:"certificate-authority-data"`
-	Server                   string `json:"server"`
+
+	// Server Server is the address of the Flight Control enrollment service (https://hostname:port).
+	Server string `json:"server"`
 }
 
 // Error defines model for Error.
 type Error struct {
-	// Message Error message
+	// Message Error message.
 	Message string `json:"message"`
 }
 
-// FileOperation The type of operation that was observed on the file.
+// FileOperation defines model for FileOperation.
 type FileOperation string
+
+// FileSpec defines model for FileSpec.
+type FileSpec struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *FileSpecContentEncoding `json:"contentEncoding,omitempty"`
+
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// Path The absolute path to the file on the device. Note that any existing file will be overwritten.
+	Path string `json:"path"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
+// FileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type FileSpecContentEncoding string
 
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
@@ -624,27 +790,40 @@ type Fleet struct {
 
 // FleetList FleetList is a list of Fleets.
 type FleetList struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
 	// Items List of Fleets.
 	Items []Fleet `json:"items"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
 }
 
+// FleetRolloutStatus FleetRolloutStatus represents information about the status of a fleet rollout.
+type FleetRolloutStatus struct {
+	// CurrentBatch The batch number currently being rolled out.
+	CurrentBatch *int `json:"currentBatch,omitempty"`
+}
+
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
-	// Selector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
+	// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
+	RolloutPolicy *RolloutPolicy `json:"rolloutPolicy,omitempty"`
+
+	// Selector A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. Empty/null label selectors match nothing.
 	Selector *LabelSelector `json:"selector,omitempty"`
+
+	// Template The template for the devices in the fleet.
 	Template struct {
 		// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 		Metadata *ObjectMeta `json:"metadata,omitempty"`
-		Spec     DeviceSpec  `json:"spec"`
+
+		// Spec DeviceSpec describes a device.
+		Spec DeviceSpec `json:"spec"`
 	} `json:"template"`
 }
 
@@ -655,219 +834,219 @@ type FleetStatus struct {
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
-}
 
-// GenericConfigSpec defines model for GenericConfigSpec.
-type GenericConfigSpec struct {
-	ConfigType string `json:"configType"`
-	Name       string `json:"name"`
+	// Rollout FleetRolloutStatus represents information about the status of a fleet rollout.
+	Rollout *FleetRolloutStatus `json:"rollout,omitempty"`
 }
 
 // GenericRepoSpec defines model for GenericRepoSpec.
 type GenericRepoSpec struct {
-	// Type RepoSpecType is the type of the repository
+	// Type RepoSpecType is the type of the repository.
 	Type RepoSpecType `json:"type"`
 
-	// Url The (possibly remote) repository URL
+	// Url The (possibly remote) repository URL.
 	Url string `json:"url"`
 }
 
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
 type GitConfigProviderSpec struct {
-	ConfigType string `json:"configType"`
-	GitRef     struct {
-		// MountPath Path to config in device
+	// GitRef The reference to a Git configuration server.
+	GitRef struct {
+		// MountPath Path in the device's file system at which the repository's path should be mounted.
 		MountPath *string `json:"mountPath,omitempty"`
-		Path      string  `json:"path"`
 
-		// Repository The name of the repository resource to use as the sync source
-		Repository     string `json:"repository"`
+		// Path The path to the config in the Repository.
+		Path string `json:"path"`
+
+		// Repository The name of the Repository resource.
+		Repository string `json:"repository"`
+
+		// TargetRevision The revision to use from the Repository.
 		TargetRevision string `json:"targetRevision"`
 	} `json:"gitRef"`
+
+	// Name The name of the config provider.
 	Name string `json:"name"`
 }
 
 // HookAction defines model for HookAction.
 type HookAction struct {
+	// If Conditions that must be met for the action to be executed.
+	If *[]HookCondition `json:"if,omitempty"`
+
+	// Timeout The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are 's' for seconds, 'm' for minutes, and 'h' for hours.
+	Timeout *string `json:"timeout,omitempty"`
+	union   json.RawMessage
+}
+
+// HookActionRun defines model for HookActionRun.
+type HookActionRun struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime.
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
+	Run string `json:"run"`
+
+	// WorkDir The working directory to be used when running the command.
+	WorkDir *string `json:"workDir,omitempty"`
+}
+
+// HookCondition defines model for HookCondition.
+type HookCondition struct {
 	union json.RawMessage
 }
 
-// HookAction0 defines model for .
-type HookAction0 struct {
-	Executable HookActionExecutableSpec `json:"executable"`
+// HookConditionExpression An expression that must evaluate to true as condition for the action to be performed.
+type HookConditionExpression = string
+
+// HookConditionPathOp defines model for HookConditionPathOp.
+type HookConditionPathOp struct {
+	// Op The operation(s) on files at or below the path that satisfy the path condition.
+	Op []FileOperation `json:"op"`
+
+	// Path The absolute path to a file or directory that must have changed as condition for the action to be performed.
+	Path string `json:"path"`
 }
 
-// HookAction1 defines model for .
-type HookAction1 struct {
-	Systemd HookActionSystemdSpec `json:"systemd"`
-}
-
-// HookActionExecutable defines model for HookActionExecutable.
-type HookActionExecutable struct {
-	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
-	EnvVars *[]string `json:"envVars,omitempty"`
-
-	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
-	Run string `json:"run"`
-
-	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
-	WorkDir *string `json:"workDir,omitempty"`
-}
-
-// HookActionExecutableSpec defines model for HookActionExecutableSpec.
-type HookActionExecutableSpec struct {
-	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
-	EnvVars *[]string `json:"envVars,omitempty"`
-
-	// Run The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
-	Run string `json:"run"`
-
-	// Timeout The maximum duration allowed for the action to complete.
-	// The duration should be specified as a positive integer
-	// followed by a time unit. Supported time units are:
-	// - 's' for seconds
-	// - 'm' for minutes
-	// - 'h' for hours
-	// - 'd' for days
-	Timeout *string `json:"timeout,omitempty"`
-
-	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
-	WorkDir *string `json:"workDir,omitempty"`
-}
-
-// HookActionSpec defines model for HookActionSpec.
-type HookActionSpec struct {
-	// Timeout The maximum duration allowed for the action to complete.
-	// The duration should be specified as a positive integer
-	// followed by a time unit. Supported time units are:
-	// - 's' for seconds
-	// - 'm' for minutes
-	// - 'h' for hours
-	// - 'd' for days
-	Timeout *string `json:"timeout,omitempty"`
-}
-
-// HookActionSystemdSpec defines model for HookActionSystemdSpec.
-type HookActionSystemdSpec struct {
-	// Timeout The maximum duration allowed for the action to complete.
-	// The duration should be specified as a positive integer
-	// followed by a time unit. Supported time units are:
-	// - 's' for seconds
-	// - 'm' for minutes
-	// - 'h' for hours
-	// - 'd' for days
-	Timeout *string               `json:"timeout,omitempty"`
-	Unit    HookActionSystemdUnit `json:"unit"`
-}
-
-// HookActionSystemdUnit defines model for HookActionSystemdUnit.
-type HookActionSystemdUnit struct {
-	// Name The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.
-	Name string `json:"name"`
-
-	// Operations The specific systemd operations to perform on the specified unit.
-	Operations []HookActionSystemdUnitOperations `json:"operations"`
-
-	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
-	WorkDir *string `json:"workDir,omitempty"`
-}
-
-// HookActionSystemdUnitOperations defines model for HookActionSystemdUnit.Operations.
-type HookActionSystemdUnitOperations string
-
-// HttpConfig defines model for HttpConfig.
+// HttpConfig Configuration for HTTP transport.
 type HttpConfig struct {
-	// CaCrt Base64 encoded root CA
+	// CaCrt Base64 encoded root CA.
 	CaCrt *string `json:"ca.crt,omitempty"`
 
-	// Password The password for auth with HTTP transport
+	// Password The password for auth with HTTP transport.
 	Password *string `json:"password,omitempty"`
 
-	// SkipServerVerification Skip remote server verification
+	// SkipServerVerification Skip remote server verification.
 	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
 
-	// TlsCrt Base64 encoded TLS cert data
+	// TlsCrt Base64 encoded TLS cert data.
 	TlsCrt *string `json:"tls.crt,omitempty"`
 
-	// TlsKey Base64 encoded TLS cert key
+	// TlsKey Base64 encoded TLS cert key.
 	TlsKey *string `json:"tls.key,omitempty"`
 
-	// Token The token for auth with HTTP transport
+	// Token The token for auth with HTTP transport.
 	Token *string `json:"token,omitempty"`
 
-	// Username The username for auth with HTTP transport
+	// Username The username for auth with HTTP transport.
 	Username *string `json:"username,omitempty"`
 }
 
 // HttpConfigProviderSpec defines model for HttpConfigProviderSpec.
 type HttpConfigProviderSpec struct {
-	ConfigType string `json:"configType"`
-	HttpRef    struct {
-		// FilePath The path of the file where the response is stored in the filesystem of the device.
+	// HttpRef The reference to an HTTP configuration server.
+	HttpRef struct {
+		// FilePath Path in the device's file system to which the content returned by the HTTP sever should be written.
 		FilePath string `json:"filePath"`
 
-		// Repository The name of the repository resource to use as the sync source
+		// Repository The name of the repository resource to use as the sync source.
 		Repository string `json:"repository"`
 
-		// Suffix Part of the URL that comes after the base URL. It can include query parameters such as:
-		// /path/to/endpoint?query=param
+		// Suffix Part of the URL that comes after the base URL. It can include query parameters such as: "/path/to/endpoint?query=param".
 		Suffix *string `json:"suffix,omitempty"`
 	} `json:"httpRef"`
+
+	// Name The name of the config provider.
 	Name string `json:"name"`
 }
 
 // HttpRepoSpec defines model for HttpRepoSpec.
 type HttpRepoSpec struct {
+	// HttpConfig Configuration for HTTP transport.
 	HttpConfig HttpConfig `json:"httpConfig"`
 
-	// Type RepoSpecType is the type of the repository
+	// Type RepoSpecType is the type of the repository.
 	Type RepoSpecType `json:"type"`
 
-	// Url The HTTP URL to call or clone from
+	// Url The HTTP URL to call or clone from.
 	Url string `json:"url"`
+
+	// ValidationSuffix URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.
+	ValidationSuffix *string `json:"validationSuffix,omitempty"`
+}
+
+// ImageApplicationProvider defines model for ImageApplicationProvider.
+type ImageApplicationProvider struct {
+	// Image Reference to the container image for the application package.
+	Image string `json:"image"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
-	ConfigType string                 `json:"configType"`
-	Inline     map[string]interface{} `json:"inline"`
-	Name       string                 `json:"name"`
+	// Inline A list of files to create on the device.
+	Inline []FileSpec `json:"inline"`
+
+	// Name The name of the config provider.
+	Name string `json:"name"`
 }
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
-	ConfigType string `json:"configType"`
-	Name       string `json:"name"`
-	SecretRef  struct {
+	// Name The name of the config provider.
+	Name string `json:"name"`
+
+	// SecretRef The reference to a Kubernetes secret.
+	SecretRef struct {
+		// MountPath Path in the device's file system at which the secret should be mounted.
 		MountPath string `json:"mountPath"`
-		Name      string `json:"name"`
+
+		// Name The name of the secret.
+		Name string `json:"name"`
+
+		// Namespace The namespace of the secret.
 		Namespace string `json:"namespace"`
 	} `json:"secretRef"`
 }
 
-// LabelSelector A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
+// LabelSelector A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. Empty/null label selectors match nothing.
 type LabelSelector struct {
-	MatchLabels map[string]string `json:"matchLabels"`
+	// MatchExpressions A list of match expressions.
+	MatchExpressions *MatchExpressions `json:"matchExpressions,omitempty"`
+
+	// MatchLabels A map of {key,value} pairs.
+	MatchLabels *map[string]string `json:"matchLabels,omitempty"`
 }
 
 // ListMeta ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 type ListMeta struct {
-	// Continue continue may be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
+	// Continue May be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
 	Continue *string `json:"continue,omitempty"`
 
-	// RemainingItemCount remainingItemCount is the number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
+	// RemainingItemCount The number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
 	RemainingItemCount *int64 `json:"remainingItemCount,omitempty"`
 }
 
-// MemoryResourceMonitorSpec defines model for MemoryResourceMonitorSpec.
+// MatchExpression defines model for MatchExpression.
+type MatchExpression struct {
+	// Key The label key that the selector applies to.
+	Key string `json:"key"`
+
+	// Operator The operation to apply when matching.
+	Operator MatchExpressionOperator `json:"operator"`
+
+	// Values The list of values to match.
+	Values *[]string `json:"values,omitempty"`
+}
+
+// MatchExpressionOperator The operation to apply when matching.
+type MatchExpressionOperator string
+
+// MatchExpressions A list of match expressions.
+type MatchExpressions = []MatchExpression
+
+// MemoryResourceMonitorSpec Specification for monitoring a resource.
 type MemoryResourceMonitorSpec = ResourceMonitorSpec
 
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
 	// Annotations Properties set by the service.
-	Annotations       *map[string]string `json:"annotations,omitempty"`
-	CreationTimestamp *time.Time         `json:"creationTimestamp,omitempty"`
-	DeletionTimestamp *time.Time         `json:"deletionTimestamp,omitempty"`
+	Annotations *map[string]string `json:"annotations,omitempty"`
+
+	// CreationTimestamp The time the object was created.
+	CreationTimestamp *time.Time `json:"creationTimestamp,omitempty"`
+
+	// DeletionTimestamp The time the object will be deleted.
+	DeletionTimestamp *time.Time `json:"deletionTimestamp,omitempty"`
 
 	// Generation A sequence number representing a specific generation of the desired state. Populated by the system. Read-only.
 	Generation *int64 `json:"generation,omitempty"`
@@ -875,7 +1054,7 @@ type ObjectMeta struct {
 	// Labels Map of string keys and values that can be used to organize and categorize (scope and select) objects.
 	Labels *map[string]string `json:"labels,omitempty"`
 
-	// Name name of the object
+	// Name The name of the object.
 	Name *string `json:"name,omitempty"`
 
 	// Owner A resource that owns this resource, in "kind/name" format.
@@ -900,64 +1079,94 @@ type PatchRequest = []struct {
 // PatchRequestOp The operation to perform.
 type PatchRequestOp string
 
-// RenderedDeviceSpec defines model for RenderedDeviceSpec.
+// Percentage Percentage is the string format representing percentage string.
+type Percentage = string
+
+// RenderedApplicationSpec defines model for RenderedApplicationSpec.
+type RenderedApplicationSpec struct {
+	// EnvVars Environment variable key-value pairs, injected during runtime.
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Name An application name.
+	Name  *string `json:"name,omitempty"`
+	union json.RawMessage
+}
+
+// RenderedDeviceSpec RenderedDeviceSpec describes the rendered and self-contained specification of a Device.
 type RenderedDeviceSpec struct {
-	Config     *string        `json:"config,omitempty"`
-	Console    *DeviceConsole `json:"console,omitempty"`
-	Containers *struct {
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"containers,omitempty"`
-	Hooks           *DeviceHooksSpec `json:"hooks,omitempty"`
-	Os              *DeviceOSSpec    `json:"os,omitempty"`
-	RenderedVersion string           `json:"renderedVersion"`
+	// Applications The list of applications to deploy.
+	Applications *[]RenderedApplicationSpec `json:"applications,omitempty"`
+
+	// Config The configuration to apply, in Ignition format.
+	Config *string `json:"config,omitempty"`
+
+	// Console DeviceConsole represents the console connection information.
+	Console *DeviceConsole `json:"console,omitempty"`
+
+	// Decommission Metadata about a device decommissioning request.
+	Decommission *DeviceDecommission `json:"decommission,omitempty"`
+
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
+
+	// RenderedVersion Version of the rendered device spec.
+	RenderedVersion string `json:"renderedVersion"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
-	Systemd   *struct {
+
+	// Systemd The systemd services to monitor.
+	Systemd *struct {
+		// MatchPatterns A list of match patterns.
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
+
+	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
 }
 
-// RepoSpecType RepoSpecType is the type of the repository
+// RepoSpecType RepoSpecType is the type of the repository.
 type RepoSpecType string
 
-// Repository Repository represents a Git repository or an HTTP endpoint
+// Repository Repository represents a Git repository or an HTTP endpoint.
 type Repository struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata ObjectMeta     `json:"metadata"`
-	Spec     RepositorySpec `json:"spec"`
+	Metadata ObjectMeta `json:"metadata"`
 
-	// Status RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+	// Spec RepositorySpec describes a configuration repository.
+	Spec RepositorySpec `json:"spec"`
+
+	// Status RepositoryStatus represents information about the status of a repository.
 	Status *RepositoryStatus `json:"status,omitempty"`
 }
 
 // RepositoryList RepositoryList is a list of Repositories.
 type RepositoryList struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
 	// Items List of repositories.
 	Items []Repository `json:"items"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
 }
 
-// RepositorySpec defines model for RepositorySpec.
+// RepositorySpec RepositorySpec describes a configuration repository.
 type RepositorySpec struct {
 	union json.RawMessage
 }
 
-// RepositoryStatus RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
+// RepositoryStatus RepositoryStatus represents information about the status of a repository.
 type RepositoryStatus struct {
 	// Conditions Current state of the repository.
 	Conditions []Condition `json:"conditions"`
@@ -968,15 +1177,17 @@ type ResourceAlertRule struct {
 	// Description A human-readable description of the alert.
 	Description string `json:"description"`
 
-	// Duration Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days.
+	// Duration Duration is the time over which the average usage is observed before alerting. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	Duration string `json:"duration"`
 
 	// Percentage The percentage of usage that triggers the alert.
-	Percentage float32                   `json:"percentage"`
-	Severity   ResourceAlertSeverityType `json:"severity"`
+	Percentage float32 `json:"percentage"`
+
+	// Severity Severity of the alert.
+	Severity ResourceAlertSeverityType `json:"severity"`
 }
 
-// ResourceAlertSeverityType defines model for ResourceAlertSeverityType.
+// ResourceAlertSeverityType Severity of the alert.
 type ResourceAlertSeverityType string
 
 // ResourceMonitor defines model for ResourceMonitor.
@@ -984,94 +1195,118 @@ type ResourceMonitor struct {
 	union json.RawMessage
 }
 
-// ResourceMonitorSpec defines model for ResourceMonitorSpec.
+// ResourceMonitorSpec Specification for monitoring a resource.
 type ResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
-	AlertRules  []ResourceAlertRule `json:"alertRules"`
-	MonitorType string              `json:"monitorType"`
+	AlertRules []ResourceAlertRule `json:"alertRules"`
 
-	// SamplingInterval Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	// MonitorType The type of resource to monitor.
+	MonitorType string `json:"monitorType"`
+
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
 
-// ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
+// ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions.
 type ResourceSync struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata ObjectMeta       `json:"metadata"`
-	Spec     ResourceSyncSpec `json:"spec"`
+	Metadata ObjectMeta `json:"metadata"`
 
-	// Status ResourceSyncStatus represents information about the status of a resourcesync
+	// Spec ResourceSyncSpec describes the file(s) to sync from a repository.
+	Spec ResourceSyncSpec `json:"spec"`
+
+	// Status ResourceSyncStatus represents information about the status of a ResourceSync.
 	Status *ResourceSyncStatus `json:"status,omitempty"`
 }
 
 // ResourceSyncList defines model for ResourceSyncList.
 type ResourceSyncList struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
 	// Items List of resourcesync.
 	Items []ResourceSync `json:"items"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
 }
 
-// ResourceSyncSpec defines model for ResourceSyncSpec.
+// ResourceSyncSpec ResourceSyncSpec describes the file(s) to sync from a repository.
 type ResourceSyncSpec struct {
-	// Path The path of a file or directory in the repository. If a directory,
-	// the directory should contain only resource definitions with no
-	// subdirectories. Each file should contain the definition of one or
-	// more resources.
+	// Path The path of a file or directory in the repository. If a directory, the directory should contain only resource definitions with no subdirectories. Each file should contain the definition of one or more resources.
 	Path string `json:"path"`
 
-	// Repository The name of the repository resource to use as the sync source
+	// Repository The name of the repository resource to use as the sync source.
 	Repository string `json:"repository"`
 
-	// TargetRevision The desired revision in the repository
+	// TargetRevision The desired revision in the repository.
 	TargetRevision string `json:"targetRevision"`
 }
 
-// ResourceSyncStatus ResourceSyncStatus represents information about the status of a resourcesync
+// ResourceSyncStatus ResourceSyncStatus represents information about the status of a ResourceSync.
 type ResourceSyncStatus struct {
 	// Conditions Current state of a resourcesync.
 	Conditions []Condition `json:"conditions"`
 
-	// ObservedCommit The last commit hash that was synced
+	// ObservedCommit The last commit hash that was synced.
 	ObservedCommit *string `json:"observedCommit,omitempty"`
 
-	// ObservedGeneration The last generation that was synced
+	// ObservedGeneration The last generation that was synced.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
 
-// SshConfig defines model for SshConfig.
+// RolloutDeviceSelection Describes how to select devices for rollout.
+type RolloutDeviceSelection struct {
+	// Strategy The rollout strategy to use.
+	Strategy string `json:"strategy"`
+	union    json.RawMessage
+}
+
+// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
+type RolloutPolicy struct {
+	// DefaultUpdateTimeout The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
+	DefaultUpdateTimeout *Duration `json:"defaultUpdateTimeout,omitempty"`
+
+	// DeviceSelection Describes how to select devices for rollout.
+	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
+
+	// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+	DisruptionAllowance *DisruptionAllowance `json:"disruptionAllowance,omitempty"`
+
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+}
+
+// SshConfig Configuration for SSH transport.
 type SshConfig struct {
-	// PrivateKeyPassphrase The passphrase for sshPrivateKey
+	// PrivateKeyPassphrase The passphrase for sshPrivateKey.
 	PrivateKeyPassphrase *string `json:"privateKeyPassphrase,omitempty"`
 
-	// SkipServerVerification Skip remote server verification
+	// SkipServerVerification Skip remote server verification.
 	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
 
-	// SshPrivateKey Base64 encoded private SSH key
+	// SshPrivateKey Base64 encoded private SSH key.
 	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
 }
 
 // SshRepoSpec defines model for SshRepoSpec.
 type SshRepoSpec struct {
+	// SshConfig Configuration for SSH transport.
 	SshConfig SshConfig `json:"sshConfig"`
 
-	// Type RepoSpecType is the type of the repository
+	// Type RepoSpecType is the type of the repository.
 	Type RepoSpecType `json:"type"`
 
-	// Url The SSH Git repository URL to clone from
+	// Url The SSH Git repository URL to clone from.
 	Url string `json:"url"`
 }
 
@@ -1083,43 +1318,44 @@ type Status struct {
 	// Reason A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
 	Reason *string `json:"reason,omitempty"`
 
-	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
+	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
 	Status *string `json:"status,omitempty"`
 }
 
-// TemplateDiscriminators defines model for TemplateDiscriminators.
-type TemplateDiscriminators string
-
 // TemplateVersion TemplateVersion represents a version of a template.
 type TemplateVersion struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
-	Metadata ObjectMeta             `json:"metadata"`
-	Spec     TemplateVersionSpec    `json:"spec"`
-	Status   *TemplateVersionStatus `json:"status,omitempty"`
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec TemplateVersionSpec describes a version of a device template.
+	Spec TemplateVersionSpec `json:"spec"`
+
+	// Status TemplateVersionStatus represents information about the status of a template version.
+	Status *TemplateVersionStatus `json:"status,omitempty"`
 }
 
 // TemplateVersionList TemplateVersionList is a list of TemplateVersions.
 type TemplateVersionList struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
 
 	// Items List of TemplateVersions.
 	Items []TemplateVersion `json:"items"`
 
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
 }
 
-// TemplateVersionSpec defines model for TemplateVersionSpec.
+// TemplateVersionSpec TemplateVersionSpec describes a version of a device template.
 type TemplateVersionSpec struct {
 	// Fleet The fleet whose template this refers to.
 	Fleet string `json:"fleet"`
@@ -1127,32 +1363,55 @@ type TemplateVersionSpec struct {
 
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
+	// Applications List of applications.
+	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
-	// Config List of config resources.
-	Config     *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
-	Containers *struct {
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"containers,omitempty"`
-	Hooks *DeviceHooksSpec `json:"hooks,omitempty"`
-	Os    *DeviceOSSpec    `json:"os,omitempty"`
+	// Config List of config providers.
+	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Os DeviceOsSpec describes the target OS for the device.
+	Os *DeviceOsSpec `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
-	Systemd   *struct {
+
+	// Systemd The systemd services to monitor.
+	Systemd *struct {
+		// MatchPatterns A list of match patterns.
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
+
+	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
+
+	// UpdatedAt The time at which the template was last updated.
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
-// TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.
-type TemplateVersionStatus_Config_Item struct {
-	union json.RawMessage
+// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
+type TimeZone = string
+
+// UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
+type UpdateSchedule struct {
+	// At Cron expression format for scheduling times.
+	// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
+	// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
+	// Example: `* 0-8,16-23 * * *`.
+	At CronExpression `json:"at"`
+
+	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
+	StartGraceDuration *Duration `json:"startGraceDuration,omitempty"`
+
+	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
+	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
+	// Authentication The authentication token to validate.
 	Authentication *string `json:"Authentication,omitempty"`
 }
 
@@ -1163,6 +1422,9 @@ type ListCertificateSigningRequestsParams struct {
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1176,19 +1438,19 @@ type ListDevicesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
-	// StatusFilter A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
-	StatusFilter *[]string `form:"statusFilter,omitempty" json:"statusFilter,omitempty"`
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
+	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
 // GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
 type GetRenderedDeviceSpecParams struct {
-	// KnownRenderedVersion The last known renderedVersion
+	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
@@ -1199,6 +1461,9 @@ type ListEnrollmentRequestsParams struct {
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1212,11 +1477,14 @@ type ListFleetsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Owner A selector to restrict the list of returned objects by their owner. Defaults to everything.
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+	// AddDevicesCount Include the number of devices in each fleet.
+	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
@@ -1227,13 +1495,16 @@ type ListTemplateVersionsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ReadFleetParams defines parameters for ReadFleet.
 type ReadFleetParams struct {
-	// AddDevicesSummary include a summary of the devices in the fleet
+	// AddDevicesSummary Include a summary of the devices in the fleet.
 	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
 
@@ -1244,6 +1515,9 @@ type ListRepositoriesParams struct {
 
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1257,11 +1531,11 @@ type ListResourceSyncParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Repository The name of the repository to filter results by.
-	Repository *string `form:"repository,omitempty" json:"repository,omitempty"`
 }
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
@@ -1282,17 +1556,29 @@ type PatchDeviceApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 // ReplaceDeviceJSONRequestBody defines body for ReplaceDevice for application/json ContentType.
 type ReplaceDeviceJSONRequestBody = Device
 
+// DecommissionDeviceJSONRequestBody defines body for DecommissionDevice for application/json ContentType.
+type DecommissionDeviceJSONRequestBody = DeviceDecommission
+
+// PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchDeviceStatus for application/json-patch+json ContentType.
+type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = Device
 
 // CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
 type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
+// PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentRequest for application/json-patch+json ContentType.
+type PatchEnrollmentRequestApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
 // ReplaceEnrollmentRequestJSONRequestBody defines body for ReplaceEnrollmentRequest for application/json ContentType.
 type ReplaceEnrollmentRequestJSONRequestBody = EnrollmentRequest
 
 // ApproveEnrollmentRequestJSONRequestBody defines body for ApproveEnrollmentRequest for application/json ContentType.
 type ApproveEnrollmentRequestJSONRequestBody = EnrollmentRequestApproval
+
+// PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentRequestStatus for application/json-patch+json ContentType.
+type PatchEnrollmentRequestStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceEnrollmentRequestStatusJSONRequestBody defines body for ReplaceEnrollmentRequestStatus for application/json ContentType.
 type ReplaceEnrollmentRequestStatusJSONRequestBody = EnrollmentRequest
@@ -1305,6 +1591,9 @@ type PatchFleetApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceFleetJSONRequestBody defines body for ReplaceFleet for application/json ContentType.
 type ReplaceFleetJSONRequestBody = Fleet
+
+// PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchFleetStatus for application/json-patch+json ContentType.
+type PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceFleetStatusJSONRequestBody defines body for ReplaceFleetStatus for application/json ContentType.
 type ReplaceFleetStatusJSONRequestBody = Fleet
@@ -1327,24 +1616,168 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
-// AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
-func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
+// AsImageApplicationProvider returns the union data inside the ApplicationSpec as a ImageApplicationProvider
+func (t ApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+	var body ImageApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProvider overwrites any union data inside the ApplicationSpec as the provided ImageApplicationProvider
+func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
+func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsPercentage returns the union data inside the Batch_Limit as a Percentage
+func (t Batch_Limit) AsPercentage() (Percentage, error) {
+	var body Percentage
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPercentage overwrites any union data inside the Batch_Limit as the provided Percentage
+func (t *Batch_Limit) FromPercentage(v Percentage) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePercentage performs a merge with any union data inside the Batch_Limit, using the provided Percentage
+func (t *Batch_Limit) MergePercentage(v Percentage) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsBatchLimit1 returns the union data inside the Batch_Limit as a BatchLimit1
+func (t Batch_Limit) AsBatchLimit1() (BatchLimit1, error) {
+	var body BatchLimit1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBatchLimit1 overwrites any union data inside the Batch_Limit as the provided BatchLimit1
+func (t *Batch_Limit) FromBatchLimit1(v BatchLimit1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBatchLimit1 performs a merge with any union data inside the Batch_Limit, using the provided BatchLimit1
+func (t *Batch_Limit) MergeBatchLimit1(v BatchLimit1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Batch_Limit) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Batch_Limit) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsGitConfigProviderSpec returns the union data inside the ConfigProviderSpec as a GitConfigProviderSpec
+func (t ConfigProviderSpec) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
 	var body GitConfigProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided GitConfigProviderSpec
-func (t *DeviceSpec_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
-	v.ConfigType = "GitConfigProviderSpec"
+// FromGitConfigProviderSpec overwrites any union data inside the ConfigProviderSpec as the provided GitConfigProviderSpec
+func (t *ConfigProviderSpec) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided GitConfigProviderSpec
-func (t *DeviceSpec_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
-	v.ConfigType = "GitConfigProviderSpec"
+// MergeGitConfigProviderSpec performs a merge with any union data inside the ConfigProviderSpec, using the provided GitConfigProviderSpec
+func (t *ConfigProviderSpec) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1355,24 +1788,22 @@ func (t *DeviceSpec_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderS
 	return err
 }
 
-// AsKubernetesSecretProviderSpec returns the union data inside the DeviceSpec_Config_Item as a KubernetesSecretProviderSpec
-func (t DeviceSpec_Config_Item) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
+// AsKubernetesSecretProviderSpec returns the union data inside the ConfigProviderSpec as a KubernetesSecretProviderSpec
+func (t ConfigProviderSpec) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
 	var body KubernetesSecretProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromKubernetesSecretProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided KubernetesSecretProviderSpec
-func (t *DeviceSpec_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
-	v.ConfigType = "KubernetesSecretProviderSpec"
+// FromKubernetesSecretProviderSpec overwrites any union data inside the ConfigProviderSpec as the provided KubernetesSecretProviderSpec
+func (t *ConfigProviderSpec) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided KubernetesSecretProviderSpec
-func (t *DeviceSpec_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
-	v.ConfigType = "KubernetesSecretProviderSpec"
+// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the ConfigProviderSpec, using the provided KubernetesSecretProviderSpec
+func (t *ConfigProviderSpec) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1383,24 +1814,22 @@ func (t *DeviceSpec_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesS
 	return err
 }
 
-// AsInlineConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a InlineConfigProviderSpec
-func (t DeviceSpec_Config_Item) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
+// AsInlineConfigProviderSpec returns the union data inside the ConfigProviderSpec as a InlineConfigProviderSpec
+func (t ConfigProviderSpec) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
 	var body InlineConfigProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromInlineConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided InlineConfigProviderSpec
-func (t *DeviceSpec_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
-	v.ConfigType = "InlineConfigProviderSpec"
+// FromInlineConfigProviderSpec overwrites any union data inside the ConfigProviderSpec as the provided InlineConfigProviderSpec
+func (t *ConfigProviderSpec) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeInlineConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided InlineConfigProviderSpec
-func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
-	v.ConfigType = "InlineConfigProviderSpec"
+// MergeInlineConfigProviderSpec performs a merge with any union data inside the ConfigProviderSpec, using the provided InlineConfigProviderSpec
+func (t *ConfigProviderSpec) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1411,24 +1840,22 @@ func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigPro
 	return err
 }
 
-// AsHttpConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a HttpConfigProviderSpec
-func (t DeviceSpec_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
+// AsHttpConfigProviderSpec returns the union data inside the ConfigProviderSpec as a HttpConfigProviderSpec
+func (t ConfigProviderSpec) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
 	var body HttpConfigProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromHttpConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided HttpConfigProviderSpec
-func (t *DeviceSpec_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
-	v.ConfigType = "HttpConfigProviderSpec"
+// FromHttpConfigProviderSpec overwrites any union data inside the ConfigProviderSpec as the provided HttpConfigProviderSpec
+func (t *ConfigProviderSpec) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeHttpConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided HttpConfigProviderSpec
-func (t *DeviceSpec_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
-	v.ConfigType = "HttpConfigProviderSpec"
+// MergeHttpConfigProviderSpec performs a merge with any union data inside the ConfigProviderSpec, using the provided HttpConfigProviderSpec
+func (t *ConfigProviderSpec) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1439,85 +1866,32 @@ func (t *DeviceSpec_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProvide
 	return err
 }
 
-func (t DeviceSpec_Config_Item) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"configType"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t DeviceSpec_Config_Item) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "GitConfigProviderSpec":
-		return t.AsGitConfigProviderSpec()
-	case "HttpConfigProviderSpec":
-		return t.AsHttpConfigProviderSpec()
-	case "InlineConfigProviderSpec":
-		return t.AsInlineConfigProviderSpec()
-	case "KubernetesSecretProviderSpec":
-		return t.AsKubernetesSecretProviderSpec()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t DeviceSpec_Config_Item) MarshalJSON() ([]byte, error) {
+func (t ConfigProviderSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
 }
 
-func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
+func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
 
-// AsHookAction0 returns the union data inside the HookAction as a HookAction0
-func (t HookAction) AsHookAction0() (HookAction0, error) {
-	var body HookAction0
+// AsHookActionRun returns the union data inside the HookAction as a HookActionRun
+func (t HookAction) AsHookActionRun() (HookActionRun, error) {
+	var body HookActionRun
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromHookAction0 overwrites any union data inside the HookAction as the provided HookAction0
-func (t *HookAction) FromHookAction0(v HookAction0) error {
+// FromHookActionRun overwrites any union data inside the HookAction as the provided HookActionRun
+func (t *HookAction) FromHookActionRun(v HookActionRun) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeHookAction0 performs a merge with any union data inside the HookAction, using the provided HookAction0
-func (t *HookAction) MergeHookAction0(v HookAction0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsHookAction1 returns the union data inside the HookAction as a HookAction1
-func (t HookAction) AsHookAction1() (HookAction1, error) {
-	var body HookAction1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromHookAction1 overwrites any union data inside the HookAction as the provided HookAction1
-func (t *HookAction) FromHookAction1(v HookAction1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeHookAction1 performs a merge with any union data inside the HookAction, using the provided HookAction1
-func (t *HookAction) MergeHookAction1(v HookAction1) error {
+// MergeHookActionRun performs a merge with any union data inside the HookAction, using the provided HookActionRun
+func (t *HookAction) MergeHookActionRun(v HookActionRun) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1530,11 +1904,205 @@ func (t *HookAction) MergeHookAction1(v HookAction1) error {
 
 func (t HookAction) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.If != nil {
+		object["if"], err = json.Marshal(t.If)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'if': %w", err)
+		}
+	}
+
+	if t.Timeout != nil {
+		object["timeout"], err = json.Marshal(t.Timeout)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'timeout': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
 	return b, err
 }
 
 func (t *HookAction) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["if"]; found {
+		err = json.Unmarshal(raw, &t.If)
+		if err != nil {
+			return fmt.Errorf("error reading 'if': %w", err)
+		}
+	}
+
+	if raw, found := object["timeout"]; found {
+		err = json.Unmarshal(raw, &t.Timeout)
+		if err != nil {
+			return fmt.Errorf("error reading 'timeout': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsHookConditionPathOp returns the union data inside the HookCondition as a HookConditionPathOp
+func (t HookCondition) AsHookConditionPathOp() (HookConditionPathOp, error) {
+	var body HookConditionPathOp
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHookConditionPathOp overwrites any union data inside the HookCondition as the provided HookConditionPathOp
+func (t *HookCondition) FromHookConditionPathOp(v HookConditionPathOp) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHookConditionPathOp performs a merge with any union data inside the HookCondition, using the provided HookConditionPathOp
+func (t *HookCondition) MergeHookConditionPathOp(v HookConditionPathOp) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsHookConditionExpression returns the union data inside the HookCondition as a HookConditionExpression
+func (t HookCondition) AsHookConditionExpression() (HookConditionExpression, error) {
+	var body HookConditionExpression
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHookConditionExpression overwrites any union data inside the HookCondition as the provided HookConditionExpression
+func (t *HookCondition) FromHookConditionExpression(v HookConditionExpression) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHookConditionExpression performs a merge with any union data inside the HookCondition, using the provided HookConditionExpression
+func (t *HookCondition) MergeHookConditionExpression(v HookConditionExpression) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t HookCondition) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *HookCondition) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsImageApplicationProvider returns the union data inside the RenderedApplicationSpec as a ImageApplicationProvider
+func (t RenderedApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+	var body ImageApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProvider overwrites any union data inside the RenderedApplicationSpec as the provided ImageApplicationProvider
+func (t *RenderedApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProvider performs a merge with any union data inside the RenderedApplicationSpec, using the provided ImageApplicationProvider
+func (t *RenderedApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RenderedApplicationSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *RenderedApplicationSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
 	return err
 }
 
@@ -1626,23 +2194,23 @@ func (t *RepositorySpec) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsCPUResourceMonitorSpec returns the union data inside the ResourceMonitor as a CPUResourceMonitorSpec
-func (t ResourceMonitor) AsCPUResourceMonitorSpec() (CPUResourceMonitorSpec, error) {
-	var body CPUResourceMonitorSpec
+// AsCpuResourceMonitorSpec returns the union data inside the ResourceMonitor as a CpuResourceMonitorSpec
+func (t ResourceMonitor) AsCpuResourceMonitorSpec() (CpuResourceMonitorSpec, error) {
+	var body CpuResourceMonitorSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromCPUResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided CPUResourceMonitorSpec
-func (t *ResourceMonitor) FromCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+// FromCpuResourceMonitorSpec overwrites any union data inside the ResourceMonitor as the provided CpuResourceMonitorSpec
+func (t *ResourceMonitor) FromCpuResourceMonitorSpec(v CpuResourceMonitorSpec) error {
 	v.MonitorType = "CPU"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeCPUResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided CPUResourceMonitorSpec
-func (t *ResourceMonitor) MergeCPUResourceMonitorSpec(v CPUResourceMonitorSpec) error {
+// MergeCpuResourceMonitorSpec performs a merge with any union data inside the ResourceMonitor, using the provided CpuResourceMonitorSpec
+func (t *ResourceMonitor) MergeCpuResourceMonitorSpec(v CpuResourceMonitorSpec) error {
 	v.MonitorType = "CPU"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -1725,7 +2293,7 @@ func (t ResourceMonitor) ValueByDiscriminator() (interface{}, error) {
 	}
 	switch discriminator {
 	case "CPU":
-		return t.AsCPUResourceMonitorSpec()
+		return t.AsCpuResourceMonitorSpec()
 	case "Disk":
 		return t.AsDiskResourceMonitorSpec()
 	case "Memory":
@@ -1745,24 +2313,26 @@ func (t *ResourceMonitor) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsGitConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a GitConfigProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
-	var body GitConfigProviderSpec
+// AsBatchSequence returns the union data inside the RolloutDeviceSelection as a BatchSequence
+func (t RolloutDeviceSelection) AsBatchSequence() (BatchSequence, error) {
+	var body BatchSequence
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided GitConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
-	v.ConfigType = "GitConfigProviderSpec"
+// FromBatchSequence overwrites any union data inside the RolloutDeviceSelection as the provided BatchSequence
+func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
+	t.Strategy = "BatchSequence"
+
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided GitConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
-	v.ConfigType = "GitConfigProviderSpec"
+// MergeBatchSequence performs a merge with any union data inside the RolloutDeviceSelection, using the provided BatchSequence
+func (t *RolloutDeviceSelection) MergeBatchSequence(v BatchSequence) error {
+	t.Strategy = "BatchSequence"
+
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1773,123 +2343,66 @@ func (t *TemplateVersionStatus_Config_Item) MergeGitConfigProviderSpec(v GitConf
 	return err
 }
 
-// AsKubernetesSecretProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a KubernetesSecretProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
-	var body KubernetesSecretProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromKubernetesSecretProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided KubernetesSecretProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
-	v.ConfigType = "KubernetesSecretProviderSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided KubernetesSecretProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
-	v.ConfigType = "KubernetesSecretProviderSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsInlineConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a InlineConfigProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
-	var body InlineConfigProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInlineConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided InlineConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
-	v.ConfigType = "InlineConfigProviderSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInlineConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided InlineConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
-	v.ConfigType = "InlineConfigProviderSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsHttpConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a HttpConfigProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
-	var body HttpConfigProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromHttpConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided HttpConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
-	v.ConfigType = "HttpConfigProviderSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeHttpConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided HttpConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
-	v.ConfigType = "HttpConfigProviderSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t TemplateVersionStatus_Config_Item) Discriminator() (string, error) {
+func (t RolloutDeviceSelection) Discriminator() (string, error) {
 	var discriminator struct {
-		Discriminator string `json:"configType"`
+		Discriminator string `json:"strategy"`
 	}
 	err := json.Unmarshal(t.union, &discriminator)
 	return discriminator.Discriminator, err
 }
 
-func (t TemplateVersionStatus_Config_Item) ValueByDiscriminator() (interface{}, error) {
+func (t RolloutDeviceSelection) ValueByDiscriminator() (interface{}, error) {
 	discriminator, err := t.Discriminator()
 	if err != nil {
 		return nil, err
 	}
 	switch discriminator {
-	case "GitConfigProviderSpec":
-		return t.AsGitConfigProviderSpec()
-	case "HttpConfigProviderSpec":
-		return t.AsHttpConfigProviderSpec()
-	case "InlineConfigProviderSpec":
-		return t.AsInlineConfigProviderSpec()
-	case "KubernetesSecretProviderSpec":
-		return t.AsKubernetesSecretProviderSpec()
+	case "BatchSequence":
+		return t.AsBatchSequence()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}
 }
 
-func (t TemplateVersionStatus_Config_Item) MarshalJSON() ([]byte, error) {
+func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["strategy"], err = json.Marshal(t.Strategy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'strategy': %w", err)
+	}
+
+	b, err = json.Marshal(object)
 	return b, err
 }
 
-func (t *TemplateVersionStatus_Config_Item) UnmarshalJSON(b []byte) error {
+func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["strategy"]; found {
+		err = json.Unmarshal(raw, &t.Strategy)
+		if err != nil {
+			return fmt.Errorf("error reading 'strategy': %w", err)
+		}
+	}
+
 	return err
 }

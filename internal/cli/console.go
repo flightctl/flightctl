@@ -5,19 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/internal/api_server/agentserver"
-	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/term"
-	"google.golang.org/grpc/metadata"
 )
 
 type ConsoleOptions struct {
@@ -78,34 +77,18 @@ func (o *ConsoleOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // nolint: gocyclo
+func (o *ConsoleOptions) Run(ctx context.Context, args []string) error {
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("parsing config file: %w", err)
-	}
-	c, err := client.NewFromConfig(config)
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
 	}
 
 	_, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
 	}
-	console, err := c.RequestConsoleWithResponse(ctx, name)
 
-	if err != nil {
-		return fmt.Errorf("error requesting console: %w", err)
-	}
-
-	if console.HTTPResponse.StatusCode != 200 {
-		return fmt.Errorf("error requesting console: %s, %+v", console.HTTPResponse.Status, console.HTTPResponse.Body)
-	}
-
-	grpcEndpoint := console.JSON200.GRPCEndpoint
-	sessionID := console.JSON200.SessionID
-
-	err = o.connectViaGRPC(ctx, grpcEndpoint, sessionID, config.AuthInfo.Token)
+	err = o.connectViaWS(ctx, config, name, config.AuthInfo.Token)
 	if err == io.EOF {
 		fmt.Println("Connection closed")
 		return nil
@@ -113,30 +96,34 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error { // noli
 	return err
 }
 
-// TODO: Move this to a websocket call instead later, the console endpoint will redirect to a ws method
-func (o *ConsoleOptions) connectViaGRPC(ctx context.Context, grpcEndpoint, sessionID string, token string) error {
-	//grpcEndpoint = "grpcs://192.168.1.10:7444"
-	grpcEndpoint = strings.TrimRight(grpcEndpoint, "/")
-	fmt.Printf("Connecting to %s with session id %s\n", grpcEndpoint, sessionID)
-	client, err := client.NewGrpcClientFromConfigFile(o.ConfigFilePath, grpcEndpoint)
-	if err != nil {
-		return fmt.Errorf("creating grpc client: %w", err)
-	}
-	// add key-value pairs of metadata to context
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.SessionIDKey, sessionID)
-	ctx = metadata.AppendToOutgoingContext(ctx, agentserver.ClientNameKey, "flightctl-cli")
-	ctx = metadata.AppendToOutgoingContext(ctx, common.AuthHeader, fmt.Sprintf("Bearer %s", token))
+func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config, deviceName, token string) error {
 
-	stream, err := client.Stream(ctx)
+	connURL := fmt.Sprintf("%s/ws/v1/devices/%s/console", config.Service.Server, deviceName)
+	// replace https / http to wss / ws
+	connURL = strings.Replace(connURL, "http", "ws", 1)
+	headers := make(http.Header)
+	headers.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	fmt.Printf("Connecting to device %s\n", deviceName)
+	tlsConfig, err := client.CreateTLSConfigFromConfig(config)
 	if err != nil {
-		return fmt.Errorf("error creating stream: %w", err)
+		return fmt.Errorf("creating tls config: %w", err)
 	}
 
-	return forwardStdio(ctx, stream)
+	dialer := &websocket.Dialer{
+		TLSClientConfig: tlsConfig,
+	}
 
+	conn, _, err := dialer.Dial(connURL, headers)
+	if err != nil {
+		return fmt.Errorf("dialing websocket: %w", err)
+	}
+	defer conn.Close()
+
+	return forwardStdio(ctx, conn)
 }
 
-func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient) error {
+func forwardStdio(ctx context.Context, conn *websocket.Conn) error {
 	g, _ := errgroup.WithContext(ctx)
 	stdout := os.Stdout
 	consoleIsRaw := true
@@ -180,72 +167,77 @@ func forwardStdio(ctx context.Context, stream grpc_v1.RouterService_StreamClient
 
 	g.Go(func() error {
 		defer func() {
-			_ = stream.Send(&grpc_v1.StreamRequest{
-				Closed: true,
-			})
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second*5))
+			conn.Close()
 			stdout.Close()
-			_ = stream.CloseSend()
-			// we need to allow some time for gRPC to complete
-			// the send close before reset console will exit proccess.
-			time.Sleep(1 * time.Second)
 			resetConsole()
 		}()
 
 		buffer := make([]byte, 1)
 		ctrlBCount := 0
 		for {
-			chr, isOpen := <-stdioChan
-			buffer[0] = chr
+			select {
+			case <-ctx.Done():
+				return io.EOF
 
-			if !isOpen {
-				return nil
-			}
+			case chr, isOpen := <-stdioChan:
+				buffer[0] = chr
 
-			err = stream.Send(&grpc_v1.StreamRequest{Payload: buffer})
-			if err != nil {
-				return err
-			}
-
-			// CTRL+B 3 times to exit console
-			if chr == 2 {
-				ctrlBCount++
-				if ctrlBCount == 3 {
-					return io.EOF
+				if !isOpen { // the input STDIN has been closed
+					return nil
 				}
-			} else {
-				ctrlBCount = 0
+
+				err = conn.WriteMessage(websocket.BinaryMessage, buffer)
+				if err != nil {
+					return fmt.Errorf("writing to websocket: %w", err)
+				}
+
+				if chr == 2 {
+					ctrlBCount++
+					if ctrlBCount == 3 {
+						return io.EOF
+					}
+				} else {
+					ctrlBCount = 0
+				}
 			}
 		}
 	})
 
 	g.Go(func() error {
 		defer func() {
-			_ = stream.Send(&grpc_v1.StreamRequest{
-				Closed: true,
-			})
-			_ = stream.CloseSend()
-			// we need to allow gRPC to send the Close
-			time.Sleep(1 * time.Second)
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second*5))
+			conn.Close()
 			resetConsole()
 		}()
 
 		for {
-			frame, err := stream.Recv()
-			if errors.Is(err, io.EOF) || frame != nil && frame.Closed {
+			select {
+			case <-ctx.Done():
 				return io.EOF
-			}
+			default:
+				msgType, frame, err := conn.ReadMessage()
+				if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure) || errors.Is(err, net.ErrClosed) {
+					return io.EOF
+				}
 
-			if err != nil {
-				stdout.Write([]byte(err.Error()))
-				return err
-			}
-			str := string(frame.Payload)
-			// Probably we should use a pseudo tty on the other side
-			// but this is good for now
-			str = strings.ReplaceAll(str, "\n", "\n\r")
-			_, err = stdout.Write([]byte(str))
-			if err != nil {
-				return err
+				if err != nil {
+					stdout.Write([]byte(err.Error()))
+					return err
+				}
+
+				// if it's binary or text message, forward it to the console session
+				if msgType == websocket.BinaryMessage || msgType == websocket.TextMessage {
+
+					str := string(frame)
+					// Probably we should use a pseudo tty on the other side
+					// but this is good for now
+					str = strings.ReplaceAll(str, "\n", "\n\r")
+					_, err = stdout.Write([]byte(str))
+					if err != nil {
+						return err
+					}
+				}
 			}
 		}
 	})

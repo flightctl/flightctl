@@ -2,8 +2,6 @@ package flterrors
 
 import (
 	"errors"
-
-	"gorm.io/gorm"
 )
 
 var (
@@ -16,6 +14,14 @@ var (
 	ErrResourceVersionConflict             = errors.New("the object has been modified; please apply your changes to the latest version and try again")
 	ErrIllegalResourceVersionFormat        = errors.New("resource version does not match the required integer format")
 	ErrNoRowsUpdated                       = errors.New("no rows were updated; assuming resource version was updated or resource was deleted")
+	ErrLimitParamOutOfBounds               = errors.New("the limit parameter is out of the valid bounds")
+	ErrFieldSelectorSyntax                 = errors.New("invalid field selector syntax")
+	ErrFieldSelectorParseFailed            = errors.New("failed to parse field selector")
+	ErrFieldSelectorUnknownSelector        = errors.New("unknown or unsupported selector")
+	ErrLabelSelectorSyntax                 = errors.New("invalid label selector syntax")
+	ErrLabelSelectorParseFailed            = errors.New("failed to parse label selector")
+	ErrAnnotationSelectorSyntax            = errors.New("invalid annotation selector syntax")
+	ErrAnnotationSelectorParseFailed       = errors.New("failed to parse annotation selector")
 
 	// devices
 	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
@@ -31,16 +37,3 @@ var (
 	ErrSignCert        = errors.New("error signing certificate")
 	ErrEncodeCert      = errors.New("error encoding certificate")
 )
-
-func ErrorFromGormError(err error) error {
-	switch err {
-	case nil:
-		return nil
-	case gorm.ErrRecordNotFound:
-		return ErrResourceNotFound
-	case gorm.ErrDuplicatedKey:
-		return ErrDuplicateName
-	default:
-		return err
-	}
-}

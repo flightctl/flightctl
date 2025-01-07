@@ -10,12 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	CertificateSigningRequestAPI      = "v1alpha1"
-	CertificateSigningRequestKind     = "CertificateSigningRequest"
-	CertificateSigningRequestListKind = "CertificateSigningRequestList"
-)
-
 type CertificateSigningRequest struct {
 	Resource
 
@@ -53,7 +47,8 @@ func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSignin
 	return &CertificateSigningRequest{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -71,15 +66,14 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 		status = csr.Status.Data
 	}
 
-	metadataLabels := util.LabelArrayToMap(csr.Resource.Labels)
-
 	return api.CertificateSigningRequest{
-		ApiVersion: CertificateSigningRequestAPI,
-		Kind:       CertificateSigningRequestKind,
+		ApiVersion: api.CertificateSigningRequestAPI,
+		Kind:       api.CertificateSigningRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(csr.Name),
 			CreationTimestamp: util.TimeToPtr(csr.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(csr.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(csr.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(csr.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(csr.ResourceVersion), 10)), nil),
 		},
 		Spec:   csr.Spec.Data,
@@ -90,8 +84,8 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaining *int64) api.CertificateSigningRequestList {
 	if csrl == nil {
 		return api.CertificateSigningRequestList{
-			ApiVersion: CertificateSigningRequestAPI,
-			Kind:       CertificateSigningRequestListKind,
+			ApiVersion: api.CertificateSigningRequestAPI,
+			Kind:       api.CertificateSigningRequestListKind,
 			Items:      []api.CertificateSigningRequest{},
 		}
 	}
@@ -101,8 +95,8 @@ func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaini
 		certificateSigningRequestList[i] = certificateSigningRequest.ToApiResource()
 	}
 	ret := api.CertificateSigningRequestList{
-		ApiVersion: CertificateSigningRequestAPI,
-		Kind:       CertificateSigningRequestListKind,
+		ApiVersion: api.CertificateSigningRequestAPI,
+		Kind:       api.CertificateSigningRequestListKind,
 		Items:      certificateSigningRequestList,
 		Metadata:   api.ListMeta{},
 	}

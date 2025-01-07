@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -58,12 +61,26 @@ func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, devic
 	return device, false, nil
 }
 
+func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice *v1alpha1.Device, resp server.PatchDeviceResponseObject) {
+	resp200, ok := resp.(server.PatchDevice200JSONResponse)
+	require.True(ok)
+	require.NotNil(resp200)
+	actualDevice := (v1alpha1.Device)(resp200)
+	// ignore fields updated by server-side status logic when testing equality
+	actualDevice.Status.Summary = expectedDevice.Status.Summary
+	actualDevice.Status.Updated = expectedDevice.Status.Updated
+	actualDevice.Status.ApplicationsSummary = expectedDevice.Status.ApplicationsSummary
+	require.Equal(server.PatchDevice200JSONResponse(actualDevice), resp)
+}
+
 func verifyDevicePatchFailed(require *require.Assertions, resp server.PatchDeviceResponseObject) {
 	_, ok := resp.(server.PatchDevice400JSONResponse)
 	require.True(ok)
 }
 
 func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchDeviceResponseObject, v1alpha1.Device) {
+	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
+	_, _ = auth.CreateAuthMiddleware(nil, log.InitLogs())
 	status := v1alpha1.NewDeviceStatus()
 	device := v1alpha1.Device{
 		ApiVersion: "v1",
@@ -73,7 +90,7 @@ func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: &v1alpha1.DeviceSpec{
-			Os: &v1alpha1.DeviceOSSpec{Image: "img"},
+			Os: &v1alpha1.DeviceOsSpec{Image: "img"},
 		},
 		Status: &status,
 	}
@@ -145,14 +162,14 @@ func TestDevicePatchSpec(t *testing.T) {
 	}
 	resp, device := testDevicePatch(require, pr)
 	device.Spec.Os.Image = "newimg"
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 
 	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/spec/os"},
 	}
 	resp, device = testDevicePatch(require, pr)
 	device.Spec.Os = nil
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 
 	value = "foo"
 	pr = v1alpha1.PatchRequest{
@@ -205,7 +222,7 @@ func TestDevicePatchLabels(t *testing.T) {
 
 	resp, device := testDevicePatch(require, pr)
 	device.Metadata.Labels = &addLabels
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 
 	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
@@ -213,7 +230,7 @@ func TestDevicePatchLabels(t *testing.T) {
 
 	resp, device = testDevicePatch(require, pr)
 	device.Metadata.Labels = &map[string]string{}
-	require.Equal(server.PatchDevice200JSONResponse(device), resp)
+	verifyDevicePatchSucceeded(require, &device, resp)
 }
 
 func TestDeviceNonExistingResource(t *testing.T) {

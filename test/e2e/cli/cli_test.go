@@ -1,7 +1,9 @@
 package cli_test
 
 import (
+	"crypto/rand"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -23,13 +25,33 @@ func TestCLI(t *testing.T) {
 var _ = Describe("cli operation", func() {
 	var (
 		harness *e2e.Harness
+		token   string
 	)
 
 	BeforeEach(func() {
 		harness = e2e.NewTestHarness()
-		out, err := harness.CLI("login", "${API_ENDPOINT}", "--insecure-skip-tls-verify")
+
+		// construct the flightctl login arguments
+		loginArgs := []string{"login", "${API_ENDPOINT}", "--insecure-skip-tls-verify"}
+		if token != "" {
+			loginArgs = append(loginArgs, "--token", token)
+		}
+		// attempt login
+		out, err := harness.CLI(loginArgs...)
+
+		// if openshift authentication is required, try to obtain a token
+		if strings.Contains(out, "You must obtain an API token by visiting") {
+			token, err = harness.SH("oc", "whoami", "-t")
+			token = strings.Trim(token, "\n")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(token).ToNot(BeEmpty(), "token from oc whoami should not be empty")
+			loginArgs = append(loginArgs, "--token", token)
+			out, err = harness.CLI(loginArgs...)
+
+		}
 		Expect(err).ToNot(HaveOccurred())
-		Expect(out).To(ContainSubstring("Auth is disabled"))
+		out = strings.Trim(out, "\n.")
+		Expect(out).To(BeElementOf("Auth is disabled", "Login successful"))
 	})
 
 	AfterEach(func() {
@@ -120,7 +142,43 @@ var _ = Describe("cli operation", func() {
 
 	})
 
+	Context("certificate generation per user", func() {
+		It("should have worked, and we can have a certificate", func() {
+			out, err := harness.CLI("certificate", "request", "-n", randString(5))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("certificate is ready"))
+		})
+	})
+
+	Context("list devices", func() {
+		It("Should let you list devices", func() {
+			out, err := harness.CLI("get", "devices")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Fleet/default"))
+		})
+	})
+
+	Context("list fleets", func() {
+		It("Should let you list fleets", func() {
+			out, err := harness.CLI("get", "fleets")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("e2e-test-fleet"))
+		})
+	})
 })
+
+func randString(n int) string {
+	const alphanum = "abcdefghijklmnopqrstuvwxyz"
+	var bytes = make([]byte, n)
+	if _, err := rand.Read(bytes); err != nil {
+		Expect(err).ToNot(HaveOccurred())
+		return ""
+	}
+	for i, b := range bytes {
+		bytes[i] = alphanum[b%byte(len(alphanum))]
+	}
+	return string(bytes)
+}
 
 const completeFleetYaml = `
 apiVersion: v1alpha1

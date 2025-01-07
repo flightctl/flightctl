@@ -149,6 +149,23 @@ in place, we could speed up furter by using the `run-e2e-test` target.
 make run-e2e-test GO_E2E_DIRS=test/e2e/cli
 ```
 
+You can also filter by providing the GINKGO_FOCUS environment variable, which
+will filter the tests by the provided string.
+````
+make e2e-test GINKGO_FOCUS="should create a new project"
+````
+
+#### Environment flags
+
+* `FLIGHTCTL_NS` - the namespace where the flightctl is deployed, this is
+  used by the scripts to figure out the routes/endpoints.
+
+* `KUBEADMIN_PASS` - the OpenShift kubeadmin (or user with the right to
+  authenticate to flightctl) password for the cluster, used sometimes to
+  request a token for automatic login.
+
+* `DEBUG_VM_CONSOLE` - if set to `1`, the VM console output will be printed
+  to stdout during test execution.
 
 ### Local testing side services
 For the purpose of providing a local testing environment, we have a set of side services
@@ -207,6 +224,74 @@ git clone user@gitserver:repos/test1.git
 ```bash
 make e2e-test
 ```
+
+### Running E2E with an existing cluster
+If you have a cluster already running, you can run the tests with:
+```bash
+export FLIGHTCTL_NS=flightctl
+export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
+
+make in-cluster-e2e-test
+```
+
+You can also use `FLIGHTCTL_RPM=release/0.3.0`, `FLIGHTCTL_RPM=devel/0.3.0.rc1-5.20241104145530808450.main.19.ga531984`
+or simply `FLIGHTCTL_RPM=release` or `FLIGHTCTL_RPM=devel` to consume an specific version/repository
+of the CLI and agent rpm.
+
+I.e. if you wanted to test the cluster along with the 0.3.0 release in
+https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl/builds/, you would run:
+```bash
+export FLIGHTCTL_NS=flightctl
+export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
+export FLIGHTCTL_RPM=release/0.3.0
+
+make in-cluster-e2e-test
+```
+
+If you wanted to test the cluster along with the latest devel build in
+https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl-dev/builds/, you could use run:
+```bash
+export FLIGHTCTL_RPM=devel/0.3.0.rc2-1.20241104145530808450.main.19.ga531984
+
+make in-cluster-e2e-test
+```
+
+#### If your host system is not suitable for bootc image builder
+
+* Install vagrant
+```bash
+sudo dnf install vagrant
+```
+* Install vagrant-libvirt plugin
+```bash
+vagrant plugin install vagrant-libvirt
+```
+
+* Continue inside vagrant
+
+```bash
+cp you-kubeconfig-file ~/.kube/config
+
+cd ~/flightctl
+
+# this may be necessary for vagrant libvirtd to work
+sudo systemctl enable --now virtnetworkd
+
+vagrant up --provider libvirt
+vagrant ssh
+
+cd /vagrant
+
+export FLIGHTCTL_NS=flightctl
+export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
+make in-cluster-e2e-test
+
+exit
+```
+
+If you are debugging and modifying scripts or tests on the host machine
+you can use the `vagrant rsync` or `vagrant rsync-auto` commands to sync
+the files between the host and the vagrant machine.
 
 ## Command line tool testing
 

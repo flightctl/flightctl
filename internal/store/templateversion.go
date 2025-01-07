@@ -22,8 +22,7 @@ type TemplateVersion interface {
 	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error
-	GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
+	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
 	InitialMigration() error
 }
 
@@ -42,7 +41,37 @@ func NewTemplateVersion(db *gorm.DB, log logrus.FieldLogger) TemplateVersion {
 }
 
 func (s *TemplateVersionStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.TemplateVersion{})
+	if err := s.db.AutoMigrate(&model.TemplateVersion{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for TemplateVersion labels
+	if !s.db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_template_versions_labels ON template_versions USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.TemplateVersion{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for TemplateVersion annotations
+	if !s.db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_template_versions_annotations ON template_versions USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.TemplateVersion{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error) {
@@ -57,16 +86,9 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	templateVersion.OrgID = orgId
 	templateVersion.Generation = lo.ToPtr[int64](1)
 	templateVersion.ResourceVersion = lo.ToPtr[int64](1)
-	status := api.TemplateVersionStatus{}
-	api.SetStatusCondition(&status.Conditions, api.Condition{Type: api.TemplateVersionValid, Status: api.ConditionStatusUnknown})
-	templateVersion.Status = model.MakeJSONField(status)
-	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: resource.Spec.Fleet}}
-	if err = s.db.First(&fleet).Error; err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
-	}
 
 	if err = s.db.Create(templateVersion).Error; err != nil {
-		return nil, flterrors.ErrorFromGormError(err)
+		return nil, ErrorFromGormError(err)
 	}
 	callback(templateVersion)
 	return lo.ToPtr(templateVersion.ToApiResource()), err
@@ -77,7 +99,15 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	var nextContinue *string
 	var numRemaining *int64
 
-	query := BuildBaseListQuery(s.db.Model(&templateVersions), orgId, listParams)
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
+	query, err := ListQuery(&templateVersions).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -99,7 +129,10 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&templateVersions), orgId, listParams)
+			countQuery, err := ListQuery(&templateVersions).Build(ctx, s.db, orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -110,14 +143,14 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	}
 
 	apiTemplateVersionList := templateVersions.ToApiResource(nextContinue, numRemaining)
-	return &apiTemplateVersionList, flterrors.ErrorFromGormError(result.Error)
+	return &apiTemplateVersionList, ErrorFromGormError(result.Error)
 }
 
-func (s *TemplateVersionStore) GetNewestValid(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
+func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
 	var templateVersion model.TemplateVersion
-	result := s.db.Model(&templateVersion).Where("org_id = ? AND fleet_name = ? AND valid = ?", orgId, fleet, true).Order("created_at DESC").First(&templateVersion)
+	result := s.db.Model(&templateVersion).Where("org_id = ? AND fleet_name = ?", orgId, fleet).Order("created_at DESC").First(&templateVersion)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiResource := templateVersion.ToApiResource()
 	return &apiResource, nil
@@ -134,7 +167,7 @@ func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, f
 	}
 
 	result := whereQuery.Delete(&condition)
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
@@ -145,7 +178,7 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 	}
 	result := s.db.First(&templateVersion)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiTemplateVersion := templateVersion.ToApiResource()
 	return &apiTemplateVersion, nil
@@ -161,7 +194,7 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil
 	}
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error {
@@ -188,7 +221,7 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 
 	result := s.db.Model(&templateVersion).Updates(updates)
 	if result.Error != nil {
-		return flterrors.ErrorFromGormError(result.Error)
+		return ErrorFromGormError(result.Error)
 	}
 
 	if valid != nil && *valid {

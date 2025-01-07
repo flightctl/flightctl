@@ -17,11 +17,8 @@ nodes:
     protocol: TCP
   - containerPort: 7444 # flightctl agent grpc endpoint API
     hostPort: 7444
-  - containerPort: 8080 # keycloak
-    hostPort: 8080
-    protocol: TCP
-  - containerPort: 8443 # keycloak
-    hostPort: 8443
+  - containerPort: 8081 # keycloak
+    hostPort: 8081
     protocol: TCP
   - containerPort: 5432 # postgresql DB
     hostPort: 5432
@@ -32,7 +29,12 @@ nodes:
   - containerPort: 3222 # local git server for E2E testing
     hostPort: 3222
     protocol: TCP
-  extraMounts:
-  - hostPath: ./bin/e2e-certs
-    containerPath: /tmp/e2e-certs
-  
+  - containerPort: 9090 # Prometheus server
+    hostPort: 9090
+    protocol: TCP
+  - containerPort: 4443 # gateway TLS
+    hostPort: 4443
+    protocol: TCP
+  - containerPort: 4480 # gateway HTTP
+    hostPort: 4480
+    protocol: TCP

@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -42,7 +43,7 @@ func TestIsValidFile_valid(t *testing.T) {
 func TestFleetDelta(t *testing.T) {
 	require := require.New(t)
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
 	ownedFleets := []api.Fleet{
 		{
 			Metadata: api.ObjectMeta{
@@ -117,7 +118,7 @@ func TestParseAndValidate_singleFile(t *testing.T) {
 	resources, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.NoError(err)
 	require.Len(resources, 1)
-	require.Equal(resources[0]["kind"], model.FleetKind)
+	require.Equal(resources[0]["kind"], api.FleetKind)
 }
 
 func TestExtractResourceFromFile(t *testing.T) {
@@ -131,7 +132,7 @@ func TestExtractResourceFromFile(t *testing.T) {
 	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
 	require.NoError(err)
 	require.Len(genericResources, 1)
-	require.Equal(genericResources[0]["kind"], model.FleetKind)
+	require.Equal(genericResources[0]["kind"], api.FleetKind)
 }
 
 func TestExtractResourceFromDir(t *testing.T) {
@@ -147,8 +148,8 @@ func TestExtractResourceFromDir(t *testing.T) {
 	genericResources, err := rsTask.extractResourcesFromDir(memfs, "/fleets/")
 	require.NoError(err)
 	require.Len(genericResources, 2)
-	require.Equal(genericResources[0]["kind"], model.FleetKind)
-	require.Equal(genericResources[1]["kind"], model.FleetKind)
+	require.Equal(genericResources[0]["kind"], api.FleetKind)
+	require.Equal(genericResources[1]["kind"], api.FleetKind)
 
 }
 
@@ -176,13 +177,13 @@ func TestParseFleet(t *testing.T) {
 	require.NoError(err)
 	require.Len(genericResources, 1)
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
 	fleets, err := rsTask.parseFleets(genericResources, owner)
 	require.NoError(err)
 	require.Len(fleets, 1)
-	require.Equal(fleets[0].Kind, model.FleetKind)
+	require.Equal(fleets[0].Kind, api.FleetKind)
 	require.Equal(*fleets[0].Metadata.Name, "default")
-	require.Equal(fleets[0].Spec.Selector.MatchLabels["fleet"], "default")
+	require.Equal(lo.FromPtr(fleets[0].Spec.Selector.MatchLabels)["fleet"], "default")
 	require.NotNil(fleets[0].Metadata.Owner)
 	require.Equal(*fleets[0].Metadata.Owner, *owner)
 }
@@ -200,7 +201,7 @@ func TestParseFleet_invalid_kind(t *testing.T) {
 	require.Len(genericResources, 1)
 	genericResources[0]["kind"] = "NotValid"
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
 	_, err = rsTask.parseFleets(genericResources, owner)
 	require.Error(err)
 }
@@ -219,7 +220,7 @@ func TestParseFleet_invalid_fleet(t *testing.T) {
 	metadata := (genericResources[0]["metadata"]).(map[string]interface{})
 	metadata["name"] = "i=n;!v@l!d"
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
 	_, err = rsTask.parseFleets(genericResources, owner)
 	require.Error(err)
 }
@@ -238,7 +239,7 @@ func TestParseFleet_multiple(t *testing.T) {
 	require.NoError(err)
 	require.Len(genericResources, 2)
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, "foo")
+	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
 	fleets, err := rsTask.parseFleets(genericResources, owner)
 	require.NoError(err)
 	require.Len(fleets, 2)

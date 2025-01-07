@@ -1,17 +1,18 @@
-{{ $password := include "keycloak.lookupOrGeneratePassword" (dict "secret" "keycloak-db-pguser-keycloak" "namespace" .Values.db.namespace "key" "password" "context" $) }}
+{{ if and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin") }}
+{{ $password := include "keycloak.lookupOrGeneratePassword" (dict "secret" "keycloak-db-pguser-keycloak" "namespace" (default .Release.Namespace .Values.db.namespace) "key" "password" "context" $) }}
 apiVersion: v1
 kind: Secret
 metadata:
   name: keycloak-db-pguser-keycloak
-  namespace: {{ .Values.db.namespace }}
+  namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/resource-policy": "keep"
 type: Opaque
 data:
-  jdbcUrl: {{ printf "jdbc:postgresql://keycloak-db.%s:5432/%s" .Values.db.namespace .Values.db.auth.database | b64enc | quote }}
-  hostname: {{ printf "keycloak-db.%s" .Values.db.namespace | b64enc | quote }}
-  database: {{ .Values.db.auth.database | b64enc | quote }}
-  username: {{ .Values.db.auth.username | b64enc | quote }}
+  jdbcUrl: {{ printf "jdbc:postgresql://keycloak-db.%s:5432/keycloak" .Release.Namespace | b64enc | quote }}
+  hostname: {{ printf "keycloak-db.%s" .Release.Namespace | b64enc | quote }}
+  database: {{ printf "keycloak" | b64enc | quote }}
+  username: {{ printf "keycloak" | b64enc | quote }}
   password: {{ $password | b64enc | quote }}
 {{- if ne .Values.namespace .Values.db.namespace }}
 ---
@@ -19,14 +20,15 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: keycloak-db-pguser-keycloak
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/resource-policy": "keep"
 type: Opaque
 data:
-  jdbcUrl: {{ printf "jdbc:postgresql://keycloak-db.%s:5432/%s" .Values.db.namespace .Values.db.auth.database | b64enc | quote }}
-  hostname: {{ printf "keycloak-db.%s" .Values.db.namespace | b64enc | quote }}
-  database: {{ .Values.db.auth.database | b64enc | quote }}
-  username: {{ .Values.db.auth.username | b64enc | quote }}
+  jdbcUrl: {{ printf "jdbc:postgresql://keycloak-db.%s:5432/keycloak" .Release.Namespace | b64enc | quote }}
+  hostname: {{ printf "keycloak-db.%s" .Release.Namespace | b64enc | quote }}
+  database: {{ printf "keycloak" | b64enc | quote }}
+  username: {{ printf "keycloak" | b64enc | quote }}
   password: {{ $password | b64enc | quote }}
 {{- end }}
+{{ end }}

@@ -58,13 +58,13 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
 			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
@@ -79,7 +79,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 		})
@@ -95,13 +95,13 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
 			Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
@@ -117,7 +117,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+			Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
@@ -147,19 +147,19 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
 			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[2]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
 			Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 		})
@@ -174,13 +174,13 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
 			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 		})
@@ -196,19 +196,19 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
 			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[2]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
 			Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 		})
@@ -224,19 +224,19 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 
 			publishedResource := mockPublisher.publishedResources[0]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
 			Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[1]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 			Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpUpdate))
 
 			publishedResource = mockPublisher.publishedResources[2]
 			Expect(publishedResource.OrgID).To(Equal(orgId))
-			Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+			Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 			Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
 			Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 		})
@@ -257,7 +257,7 @@ var _ = Describe("FleetSourceUpdated", func() {
 
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+		Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 		Expect(publishedResource.TaskName).To(Equal(FleetValidateTask))
 		Expect(publishedResource.Op).To(Equal(FleetValidateOpUpdate))
 	})
@@ -277,7 +277,7 @@ var _ = Describe("DeviceSourceUpdated", func() {
 
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+		Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 		Expect(publishedResource.TaskName).To(Equal(DeviceRenderTask))
 		Expect(publishedResource.Op).To(Equal(DeviceRenderOpUpdate))
 	})
@@ -298,7 +298,7 @@ var _ = Describe("RepositoryUpdatedCallback", func() {
 
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.RepositoryKind))
+		Expect(publishedResource.Kind).To(Equal(api.RepositoryKind))
 		Expect(publishedResource.TaskName).To(Equal(RepositoryUpdatesTask))
 		Expect(publishedResource.Op).To(Equal(RepositoryUpdateOpUpdate))
 	})
@@ -318,7 +318,7 @@ var _ = Describe("AllRepositoriesDeletedCallback", func() {
 
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.RepositoryKind))
+		Expect(publishedResource.Kind).To(Equal(api.RepositoryKind))
 		Expect(publishedResource.TaskName).To(Equal(RepositoryUpdatesTask))
 		Expect(publishedResource.Op).To(Equal(RepositoryUpdateOpDeleteAll))
 	})
@@ -338,7 +338,7 @@ var _ = Describe("AllFleetsDeletedCallback", func() {
 
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+		Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 		Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 		Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpDeleteAll))
 	})
@@ -358,7 +358,7 @@ var _ = Describe("AllDevicesDeletedCallback", func() {
 
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.DeviceKind))
+		Expect(publishedResource.Kind).To(Equal(api.DeviceKind))
 		Expect(publishedResource.TaskName).To(Equal(FleetSelectorMatchTask))
 		Expect(publishedResource.Op).To(Equal(FleetSelectorMatchOpDeleteAll))
 	})
@@ -371,7 +371,7 @@ var _ = Describe("TemplateVersionCreatedCallback", func() {
 		orgId = uuid.New()
 	})
 
-	It("submits TemplateVersionPopulateTask", func() {
+	It("submits FleetRolloutTask", func() {
 		templateVersion := CreateTestingTemplateVersion(orgId, "name", "template")
 		callbacksManager.TemplateVersionCreatedCallback(templateVersion)
 
@@ -379,28 +379,7 @@ var _ = Describe("TemplateVersionCreatedCallback", func() {
 
 		publishedResource := mockPublisher.publishedResources[0]
 		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.TemplateVersionKind))
-		Expect(publishedResource.TaskName).To(Equal(TemplateVersionPopulateTask))
-		Expect(publishedResource.Op).To(Equal(TemplateVersionPopulateOpCreated))
-	})
-})
-
-var _ = Describe("TemplateVersionValidatedCallback", func() {
-	BeforeEach(func() {
-		mockPublisher = &MockPublisher{}
-		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
-		orgId = uuid.New()
-	})
-
-	It("submits FleetRolloutTask", func() {
-		templateVersion := CreateTestingTemplateVersion(orgId, "name", "template")
-		callbacksManager.TemplateVersionValidatedCallback(templateVersion)
-
-		Expect(mockPublisher.publishedResources).To(HaveLen(1))
-
-		publishedResource := mockPublisher.publishedResources[0]
-		Expect(publishedResource.OrgID).To(Equal(orgId))
-		Expect(publishedResource.Kind).To(Equal(model.FleetKind))
+		Expect(publishedResource.Kind).To(Equal(api.FleetKind))
 		Expect(publishedResource.TaskName).To(Equal(FleetRolloutTask))
 		Expect(publishedResource.Op).To(Equal(FleetRolloutOpUpdate))
 	})
@@ -409,21 +388,21 @@ var _ = Describe("TemplateVersionValidatedCallback", func() {
 func CreateTestingFleet(orgId uuid.UUID, name string, templateImage string, selector *map[string]string) *model.Fleet {
 	resource := api.Fleet{
 		ApiVersion: "v1",
-		Kind:       model.FleetKind,
+		Kind:       api.FleetKind,
 		Metadata: api.ObjectMeta{
 			Name:   &name,
 			Labels: selector,
 		},
 		Spec: api.FleetSpec{
 			Selector: &api.LabelSelector{
-				MatchLabels: *selector,
+				MatchLabels: selector,
 			},
 			Template: struct {
 				Metadata *api.ObjectMeta `json:"metadata,omitempty"`
 				Spec     api.DeviceSpec  `json:"spec"`
 			}{
 				Spec: api.DeviceSpec{
-					Os: &api.DeviceOSSpec{
+					Os: &api.DeviceOsSpec{
 						Image: templateImage,
 					},
 				},
@@ -443,13 +422,13 @@ func CreateTestingFleet(orgId uuid.UUID, name string, templateImage string, sele
 func CreateTestingDevice(orgId uuid.UUID, name string, labels *map[string]string, spec string) *model.Device {
 	resource := api.Device{
 		ApiVersion: "v1",
-		Kind:       model.DeviceKind,
+		Kind:       api.DeviceKind,
 		Metadata: api.ObjectMeta{
 			Name:   &name,
 			Labels: labels,
 		},
 		Spec: &api.DeviceSpec{
-			Os: &api.DeviceOSSpec{Image: spec},
+			Os: &api.DeviceOsSpec{Image: spec},
 		},
 		Status: nil,
 	}
@@ -465,7 +444,7 @@ func CreateTestingDevice(orgId uuid.UUID, name string, labels *map[string]string
 func CreateTestingTemplateVersion(orgId uuid.UUID, name string, template string) *model.TemplateVersion {
 	resource := api.TemplateVersion{
 		ApiVersion: "v1",
-		Kind:       model.TemplateVersionKind,
+		Kind:       api.TemplateVersionKind,
 		Metadata: api.ObjectMeta{
 			Name: &name,
 		},

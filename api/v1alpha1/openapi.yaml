@@ -1,16 +1,39 @@
 openapi: 3.0.1
 info:
-  title: Open Device Management API
-  version: undefined
+  title: Flight Control API
+  version: v1alpha1
+  description: |
+    [Flight Control](https://github.com/flightctl/flightctl) is a service for declarative management of fleets of edge devices and their workloads.
+  contact:
+    name: The Flight Control Team
+    url: https://flightctl.io
+    email: team@flightctl.io
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
   - url: /
+tags:
+  - name: authentication
+    description: Operations for authentication.
+  - name: certificatesigningrequest
+    description: Operations on CertificateSigningRequest resources.
+  - name: device
+    description: Operations on Device resources.
+  - name: enrollmentrequest
+    description: Operations on EnrollmentRequest resources.
+  - name: fleet
+    description: Operations on Fleet resources.
+  - name: repository
+    description: Operations on Repository resources.
+  - name: resourcesync
+    description: Operations on ResourceSync resources.
 paths:
   /api/v1/auth/config:
     get:
-      description: Get auth configuration
+      tags:
+        - authentication
+      description: Get authentication configuration.
       operationId: authConfig
       responses:
         "200":
@@ -23,11 +46,14 @@ paths:
           description: Auth not configured
   /api/v1/auth/validate:
     get:
-      description: Validate auth token
+      tags:
+        - authentication
+      description: Validate an authentication token.
       operationId: authValidate
       parameters:
-        - in: header
-          name: Authentication
+        - name: Authentication
+          in: header
+          description: The authentication token to validate.
           schema:
             type: string
       responses:
@@ -37,11 +63,17 @@ paths:
           description: Token invalid
         "418":
           description: Auth not configured
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/resourcesyncs:
     get:
       tags:
         - resourcesync
-      description: list resourcesync
+      description: List ResourceSync resources.
       operationId: listResourceSync
       parameters:
         - name: continue
@@ -55,6 +87,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -62,11 +99,6 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: repository
-          in: query
-          description: The name of the repository to filter results by.
-          schema:
-            type: string
       responses:
         "200":
           description: OK
@@ -86,10 +118,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - resourcesync
-      description: create a resourcesync
+      description: Create a ResourceSync resource.
       operationId: createResourceSync
       requestBody:
         content:
@@ -116,8 +160,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -125,7 +181,7 @@ paths:
     delete:
       tags:
         - resourcesync
-      description: delete a collection of ResourceSync
+      description: Delete ResourceSync resources.
       operationId: deleteResourceSyncs
       responses:
         "200":
@@ -140,16 +196,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/resourcesyncs/{name}:
     get:
       tags:
         - resourcesync
-      description: read the specified resourcesync
+      description: Get a ResourceSync resource.
       operationId: readResourceSync
       parameters:
         - name: name
           in: path
-          description: name of the resourcesync
+          description: The name of the ResourceSync resource to get.
           required: true
           schema:
             type: string
@@ -166,8 +234,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -175,12 +255,12 @@ paths:
     put:
       tags:
         - resourcesync
-      description: replace the specified resourcesync
+      description: Update a ResourceSync resource.
       operationId: replaceResourceSync
       parameters:
         - name: name
           in: path
-          description: name of the resourcesync
+          description: The name of the ResourceSync resource to update.
           required: true
           schema:
             type: string
@@ -215,6 +295,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -227,15 +313,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       tags:
         - resourcesync
-      description: Patches the specified resourcesync
+      description: Patch a ResourceSync resource.
       operationId: patchResourceSync
       parameters:
         - name: name
           in: path
-          description: name of the resourcesync
+          description: The name of the ResourceSync resource to patch.
           required: true
           schema:
             type: string
@@ -244,6 +336,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -263,6 +356,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -275,15 +374,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - resourcesync
-      description: delete a resourcesync
+      description: Delete a ResourceSync resource.
       operationId: deleteResourceSync
       parameters:
         - name: name
           in: path
-          description: name of the resourcesync
+          description: The name of the ResourceSync resource to delete.
           required: true
           schema:
             type: string
@@ -300,8 +405,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -310,7 +427,7 @@ paths:
     get:
       tags:
         - repository
-      description: list repositories
+      description: List Repository resources.
       operationId: listRepositories
       parameters:
         - name: continue
@@ -322,6 +439,11 @@ paths:
         - name: labelSelector
           in: query
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
             type: string
         - name: limit
@@ -350,10 +472,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - repository
-      description: create a repository
+      description: Create a Repository resource.
       operationId: createRepository
       requestBody:
         content:
@@ -380,8 +514,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -389,7 +535,7 @@ paths:
     delete:
       tags:
         - repository
-      description: delete a collection of Repositories
+      description: Delete Repository resources.
       operationId: deleteRepositories
       responses:
         "200":
@@ -404,16 +550,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/repositories/{name}:
     get:
       tags:
         - repository
-      description: read the specified repository
+      description: Get a Repository resource.
       operationId: readRepository
       parameters:
         - name: name
           in: path
-          description: name of the repository
+          description: The name of the Repository resource to get.
           required: true
           schema:
             type: string
@@ -430,8 +588,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -439,12 +609,12 @@ paths:
     put:
       tags:
         - repository
-      description: replace the specified repository
+      description: Update a Repository resource.
       operationId: replaceRepository
       parameters:
         - name: name
           in: path
-          description: name of the repository
+          description: The name of the Repository resource to update.
           required: true
           schema:
             type: string
@@ -479,6 +649,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -491,15 +667,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - repository
-      description: delete a repository
+      description: Delete a Repository resource.
       operationId: deleteRepository
       parameters:
         - name: name
           in: path
-          description: name of the repository
+          description: The name of the Repository resource to delete.
           required: true
           schema:
             type: string
@@ -516,8 +698,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -525,12 +719,12 @@ paths:
     patch:
       tags:
         - repository
-      description: Patches the specified repository
+      description: Patch a Repository resource.
       operationId: patchRepository
       parameters:
         - name: name
           in: path
-          description: name of the repository
+          description: The name of the Repository resource to patch.
           required: true
           schema:
             type: string
@@ -539,6 +733,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -558,6 +753,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -570,11 +771,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices:
     get:
       tags:
         - device
-      description: list Devices
+      description: List Device resources.
       operationId: listDevices
       parameters:
         - name: continue
@@ -588,13 +795,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
-        - name: statusFilter
+        - name: fieldSelector
           in: query
-          description: A filter to restrict the list of devices by the value of the filtered status key. Defaults to everything.
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
-            type: array
-            items:
-              type: string
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -602,12 +807,12 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: owner
+        - name: summaryOnly
           in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
+          description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
           required: false
           schema:
-            type: string
+            type: boolean
       responses:
         "200":
           description: OK
@@ -633,10 +838,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - device
-      description: create a Device
+      description: Create a Device resource.
       operationId: createDevice
       requestBody:
         content:
@@ -663,8 +874,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -672,7 +895,7 @@ paths:
     delete:
       tags:
         - device
-      description: delete a collection of Devices
+      description: Delete Device resources.
       operationId: deleteDevices
       responses:
         "200":
@@ -687,16 +910,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}:
     get:
       tags:
         - device
-      description: read the specified Device
+      description: Get a Device resource.
       operationId: readDevice
       parameters:
         - name: name
           in: path
-          description: unique name of the Device
+          description: The name of the Device resource to get.
           required: true
           schema:
             type: string
@@ -713,8 +948,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -722,12 +969,12 @@ paths:
     put:
       tags:
         - device
-      description: replace the specified Device
+      description: Update a Device resource.
       operationId: replaceDevice
       parameters:
         - name: name
           in: path
-          description: name of the Device
+          description: The name of the Device resource to update.
           required: true
           schema:
             type: string
@@ -762,6 +1009,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -774,15 +1027,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - device
-      description: delete a Device
+      description: Delete a Device resource.
       operationId: deleteDevice
       parameters:
         - name: name
           in: path
-          description: name of the Device
+          description: The name of the Device resource to delete.
           required: true
           schema:
             type: string
@@ -799,8 +1058,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -808,12 +1079,12 @@ paths:
     patch:
       tags:
         - device
-      description: Patches the specified device
+      description: Patch a Device resource.
       operationId: patchDevice
       parameters:
         - name: name
           in: path
-          description: name of the device
+          description: The name of the Device resource to patch.
           required: true
           schema:
             type: string
@@ -822,6 +1093,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -841,6 +1113,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -853,16 +1131,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/status:
     get:
       tags:
         - device
-      description: read status of the specified Device
+      description: Get the status of a Device resource.
       operationId: readDeviceStatus
       parameters:
         - name: name
           in: path
-          description: name of the Device
+          description: The name of the Device resource to get.
           required: true
           schema:
             type: string
@@ -879,8 +1163,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - device
+      description: Patch the status of a Device resource.
+      operationId: patchDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -888,12 +1239,12 @@ paths:
     put:
       tags:
         - device
-      description: replace status of the specified Device
+      description: Update the status of a Device resource.
       operationId: replaceDeviceStatus
       parameters:
         - name: name
           in: path
-          description: name of the Device
+          description: The name of the Device resource to update.
           required: true
           schema:
             type: string
@@ -922,8 +1273,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -937,7 +1300,7 @@ paths:
       parameters:
         - name: name
           in: path
-          description: unique name of the Device
+          description: The name of the Device resource to create a console connection to.
           required: true
           schema:
             type: string
@@ -954,6 +1317,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -966,22 +1335,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/devices/{name}/decommission:
+    put:
+      tags:
+        - device
+      description: schedule the device to decommission
+      operationId: decommissionDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to decommission.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDecommission'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
         - device
-      description: get the full specification for the specified device
+      description: Get the rendered, self-contained device specification for a Device resource.
       operationId: getRenderedDeviceSpec
       parameters:
         - name: name
           in: path
-          description: Name of the device
+          description: The name of the Device resource to get the rendered device specification for.
           required: true
           schema:
             type: string
         - name: knownRenderedVersion
           in: query
-          description: The last known renderedVersion
+          description: The last known renderedVersion.
           required: false
           schema:
             type: string
@@ -1001,6 +1432,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1013,16 +1450,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentconfig/{name}:
     get:
       tags:
-        - enrollmentconfig
-      description: Get config for enrolling devices
+        - enrollmentrequest
+      description: Get an EnrollmentConfig.
       operationId: enrollmentConfig
       parameters:
         - name: name
           in: path
-          description: the name of approved CSR
+          description: The name of approved CertificateSigningRequest.
           required: true
           schema:
             type: string
@@ -1039,14 +1482,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "401":
-          description: Unauthorized
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1055,7 +1510,7 @@ paths:
     get:
       tags:
         - enrollmentrequest
-      description: list Enrollment Requests
+      description: List EnrollmentRequest resources.
       operationId: listEnrollmentRequests
       parameters:
         - name: continue
@@ -1067,6 +1522,11 @@ paths:
         - name: labelSelector
           in: query
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
             type: string
         - name: limit
@@ -1095,10 +1555,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - enrollmentrequest
-      description: request enrollment of a Device
+      description: Create an EnrollmentRequest resource.
       operationId: createEnrollmentRequest
       requestBody:
         content:
@@ -1113,12 +1585,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
-        "208":
-          description: Already Reported
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
         "400":
           description: Bad Request
           content:
@@ -1131,8 +1597,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1140,7 +1618,7 @@ paths:
     delete:
       tags:
         - enrollmentrequest
-      description: delete a collection of Enrollments
+      description: Delete EnrollmentRequest resources.
       operationId: deleteEnrollmentRequests
       responses:
         "200":
@@ -1155,16 +1633,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/enrollmentrequests/{name}:
     get:
       tags:
         - enrollmentrequest
-      description: read the specified Enrollment
+      description: Get an EnrollmentRequest resource.
       operationId: readEnrollmentRequest
       parameters:
         - name: name
           in: path
-          description: the fingerprint of the EnrollmentRequest
+          description: The name of the EnrollmentRequest resource to get.
           required: true
           schema:
             type: string
@@ -1181,8 +1671,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1190,12 +1692,12 @@ paths:
     put:
       tags:
         - enrollmentrequest
-      description: replace the specified Enrollment Request
+      description: Update an EnrollmentRequest resource.
       operationId: replaceEnrollmentRequest
       parameters:
         - name: name
           in: path
-          description: name of the EnrollmentRequest
+          description: The name of the EnrollmentRequest resource to update.
           required: true
           schema:
             type: string
@@ -1230,6 +1732,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1242,15 +1750,82 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - enrollmentrequest
+      description: Patch an EnrollmentRequest resource.
+      operationId: patchEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentRequest resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - enrollmentrequest
-      description: delete a Enrollment Request
+      description: Delete an EnrollmentRequest resource.
       operationId: deleteEnrollmentRequest
       parameters:
         - name: name
           in: path
-          description: name of the Enrollment Request
+          description: The name of the EnrollmentRequest resource to delete.
           required: true
           schema:
             type: string
@@ -1267,8 +1842,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1277,12 +1864,12 @@ paths:
     get:
       tags:
         - enrollmentrequest
-      description: read status of the specified EnrollmentRequest
+      description: Get the status of an EnrollmentRequest resource.
       operationId: readEnrollmentRequestStatus
       parameters:
         - name: name
           in: path
-          description: name of the EnrollmentRequest
+          description: The name of the EnrollmentRequest resource to get.
           required: true
           schema:
             type: string
@@ -1299,8 +1886,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1308,12 +1907,12 @@ paths:
     put:
       tags:
         - enrollmentrequest
-      description: replace status of the specified EnrollmentRequest
+      description: Update the status of an EnrollmentRequest resource.
       operationId: replaceEnrollmentRequestStatus
       parameters:
         - name: name
           in: path
-          description: name of the EnrollmentRequest
+          description: The name of the EnrollmentRequest resource to update.
           required: true
           schema:
             type: string
@@ -1336,22 +1935,95 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/enrollmentrequests/{name}/approval:
-    post:
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
       tags:
         - enrollmentrequest
-      description: create approval of the specified EnrollmentRequest
+      description: Patch the status of an EnrollmentRequest resource.
+      operationId: patchEnrollmentRequestStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentRequest resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/enrollmentrequests/{name}/approval:
+    put:
+      tags:
+        - enrollmentrequest
+      description: Approve or deny an EnrollmentRequest.
       operationId: approveEnrollmentRequest
       parameters:
         - name: name
           in: path
-          description: name of the EnrollmentRequest
+          description: The name of the EnrollmentRequest to approve or deny.
           required: true
           schema:
             type: string
@@ -1368,12 +2040,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequestApproval'
-        "422":
-          description: UnprocessableEntity
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "400":
           description: Bad Request
           content:
@@ -1386,14 +2052,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "500":
-          description: InternalServerError
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1402,7 +2074,7 @@ paths:
     get:
       tags:
         - certificatesigningrequest
-      description: list CertificateSigningRequests
+      description: List CertificateSigningRequest resources.
       operationId: listCertificateSigningRequests
       parameters:
         - name: continue
@@ -1414,6 +2086,11 @@ paths:
         - name: labelSelector
           in: query
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
             type: string
         - name: limit
@@ -1442,10 +2119,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - certificatesigningrequest
-      description: request Certificate Signing
+      description: Create a CertificateSigningRequest resource.
       operationId: createCertificateSigningRequest
       requestBody:
         content:
@@ -1454,30 +2143,12 @@ paths:
               $ref: '#/components/schemas/CertificateSigningRequest'
         required: true
       responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
         "201":
           description: Created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
-        "202":
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "208":
-          description: Already Reported
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
         "400":
           description: Bad Request
           content:
@@ -1490,10 +2161,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - certificatesigningrequest
-      description: delete a collection of CertificateSigningRequest
+      description: Delete CertificateSigningRequest resources.
       operationId: deleteCertificateSigningRequests
       responses:
         "200":
@@ -1508,16 +2197,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests/{name}:
     patch:
-      description: partially update the specified CertificateSigningRequest
-      operationId: patchCertificateSigningRequest
       tags:
         - certificatesigningrequest
+      description: Patch a CertificateSigningRequest resource.
+      operationId: patchCertificateSigningRequest
       parameters:
         - name: name
           in: path
-          description: name of the certificatesigningrequest
+          description: The name of the CertificateSigningRequest resource to patch.
           required: true
           schema:
             type: string
@@ -1526,15 +2227,10 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "201":
-          description: Created
           content:
             application/json:
               schema:
@@ -1557,8 +2253,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1571,7 +2279,7 @@ paths:
       parameters:
         - name: name
           in: path
-          description: the device identifier of the CertificateSigningRequest
+          description: The name of the CertificateSigningRequest resource to get.
           required: true
           schema:
             type: string
@@ -1589,8 +2297,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1603,7 +2323,7 @@ paths:
       parameters:
         - name: name
           in: path
-          description: name of the CertificateSigningRequest
+          description: The name of the CertificateSigningRequest resource to update.
           required: true
           schema:
             type: string
@@ -1638,6 +2358,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1650,6 +2376,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - certificatesigningrequest
@@ -1658,7 +2390,7 @@ paths:
       parameters:
         - name: name
           in: path
-          description: name of the Certificate Signing Request
+          description: The name of the CertificateSigningRequest resource to delete.
           required: true
           schema:
             type: string
@@ -1675,20 +2407,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests/{name}/approval:
     post:
+      tags:
+        - certificatesigningrequest
       description: approve the specified CertificateSigningRequest
       operationId: approveCertificateSigningRequest
       parameters:
         - name: name
           in: path
-          description: name of the CertificateSigningRequest
+          description: The name of the CertificateSigningRequest resource to approve or deny.
           required: true
           schema:
             type: string
@@ -1707,6 +2453,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1729,13 +2481,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
+      tags:
+        - certificatesigningrequest
       description: deny the specified CertificateSigningRequest
       operationId: denyCertificateSigningRequest
       parameters:
         - name: name
           in: path
-          description: name of the CertificateSigningRequest
+          description: The name of the CertificateSigningRequest resource to delete.
           required: true
           schema:
             type: string
@@ -1753,6 +2513,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -1765,11 +2531,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets:
     get:
       tags:
         - fleet
-      description: list Fleets
+      description: List Fleet resources.
       operationId: listFleets
       parameters:
         - name: continue
@@ -1783,6 +2555,11 @@ paths:
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
           schema:
             type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
         - name: limit
           in: query
           description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
@@ -1790,12 +2567,12 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: owner
+        - name: addDevicesCount
           in: query
-          description: A selector to restrict the list of returned objects by their owner. Defaults to everything.
+          description: Include the number of devices in each fleet.
           required: false
           schema:
-            type: string
+            type: boolean
       responses:
         "200":
           description: OK
@@ -1815,10 +2592,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags:
         - fleet
-      description: create a Fleet
+      description: Create a Fleet resource.
       operationId: createFleet
       requestBody:
         content:
@@ -1845,8 +2634,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1854,7 +2655,7 @@ paths:
     delete:
       tags:
         - fleet
-      description: delete a collection of Fleets
+      description: Delete Fleet resources.
       operationId: deleteFleets
       responses:
         "200":
@@ -1869,22 +2670,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets/{name}:
     get:
       tags:
         - fleet
-      description: read the specified Fleet
+      description: Get a Fleet resource.
       operationId: readFleet
       parameters:
         - name: name
           in: path
-          description: unique name of the Fleet
+          description: The name of the Fleet resource to get.
           required: true
           schema:
             type: string
         - name: addDevicesSummary
           in: query
-          description: include a summary of the devices in the fleet
+          description: Include a summary of the devices in the fleet.
           required: false
           schema:
             type: boolean
@@ -1901,8 +2714,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1910,12 +2735,12 @@ paths:
     put:
       tags:
         - fleet
-      description: replace the specified Fleet
+      description: Update a Fleet resource.
       operationId: replaceFleet
       parameters:
         - name: name
           in: path
-          description: name of the Fleet
+          description: The name of the Fleet resource to update.
           required: true
           schema:
             type: string
@@ -1956,8 +2781,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -1965,12 +2802,12 @@ paths:
     patch:
       tags:
         - fleet
-      description: Patches the specified fleet
+      description: Patch a Fleet resource.
       operationId: patchFleet
       parameters:
         - name: name
           in: path
-          description: name of the fleet
+          description: The name of the Fleet resource to patch.
           required: true
           schema:
             type: string
@@ -1979,6 +2816,7 @@ paths:
           application/json-patch+json:
             schema:
               $ref: '#/components/schemas/PatchRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -1998,6 +2836,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
@@ -2010,15 +2854,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
         - fleet
-      description: delete a Fleet
+      description: Delete a Fleet resource.
       operationId: deleteFleet
       parameters:
         - name: name
           in: path
-          description: name of the Fleet
+          description: The name of the Fleet resource to delete.
           required: true
           schema:
             type: string
@@ -2035,14 +2885,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        "409":
-          description: Conflict
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2056,7 +2912,7 @@ paths:
       parameters:
         - name: name
           in: path
-          description: name of the Fleet
+          description: The name of the Fleet resource to get.
           required: true
           schema:
             type: string
@@ -2073,8 +2929,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - fleet
+      description: Patch the status of a Fleet resource.
+      operationId: patchFleetStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2087,7 +3010,7 @@ paths:
       parameters:
         - name: name
           in: path
-          description: name of the Fleet
+          description: The name of the Fleet resource to update.
           required: true
           schema:
             type: string
@@ -2110,8 +3033,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -2119,7 +3054,7 @@ paths:
   /api/v1/fleets/{fleet}/templateversions:
     get:
       tags:
-        - templateversion
+        - fleet
       description: list template versions
       operationId: listTemplateVersions
       parameters:
@@ -2138,6 +3073,11 @@ paths:
         - name: labelSelector
           in: query
           description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
             type: string
         - name: limit
@@ -2166,9 +3106,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
-        - templateversion
+        - fleet
       description: delete a collection of template versions
       operationId: deleteTemplateVersions
       parameters:
@@ -2191,10 +3143,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/fleets/{fleet}/templateversions/{name}:
     get:
       tags:
-        - templateversion
+        - fleet
       description: read the specified template version
       operationId: readTemplateVersion
       parameters:
@@ -2206,7 +3170,7 @@ paths:
             type: string
         - name: name
           in: path
-          description: Name of the template version.
+          description: The name of the template version.
           required: true
           schema:
             type: string
@@ -2223,15 +3187,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags:
-        - templateversion
+        - fleet
       description: delete a template version
       operationId: deleteTemplateVersion
       parameters:
@@ -2243,7 +3219,7 @@ paths:
             type: string
         - name: name
           in: path
-          description: name of the template version.
+          description: The name of the template version.
           required: true
           schema:
             type: string
@@ -2260,14 +3236,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   schemas:
+    DeviceDecommissionTargetType:
+      type: string
+      enum:
+        - "Unenroll"
+        - "FactoryReset"
+      x-enum-varnames:
+        - "DeviceDecommissionTargetTypeUnenroll"
+        - "DeviceDecommissionTargetTypeFactoryReset"
+      description: Specifies the desired decommissioning method of the device.
+    DeviceDecommission:
+      type: object
+      properties:
+        target:
+          $ref: '#/components/schemas/DeviceDecommissionTargetType'
+      required:
+        - target
+      description: Metadata about a device decommissioning request.
     PatchRequest:
       type: array
       items:
@@ -2294,10 +3299,10 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
@@ -2309,35 +3314,36 @@ components:
         - kind
         - metadata
         - spec
-      description: Repository represents a Git repository or an HTTP endpoint
+      description: Repository represents a Git repository or an HTTP endpoint.
     HttpConfig:
       type: object
+      description: Configuration for HTTP transport.
       additionalProperties: false
       properties:
         username:
           type: string
-          description: 'The username for auth with HTTP transport'
+          description: The username for auth with HTTP transport.
         password:
           type: string
-          description: 'The password for auth with HTTP transport'
+          description: The password for auth with HTTP transport.
           format: password
         tls.crt:
           type: string
-          description: 'Base64 encoded TLS cert data'
+          description: Base64 encoded TLS cert data.
           format: password
         tls.key:
           type: string
-          description: 'Base64 encoded TLS cert key'
+          description: Base64 encoded TLS cert key.
           format: password
         ca.crt:
           type: string
-          description: 'Base64 encoded root CA'
+          description: Base64 encoded root CA.
         skipServerVerification:
           type: boolean
-          description: 'Skip remote server verification'
+          description: Skip remote server verification.
         token:
           type: string
-          description: 'The token for auth with HTTP transport'
+          description: The token for auth with HTTP transport.
           format: password
     HttpRepoSpec:
       type: object
@@ -2345,37 +3351,41 @@ components:
       properties:
         url:
           type: string
-          description: 'The HTTP URL to call or clone from'
+          description: 'The HTTP URL to call or clone from.'
         type:
           $ref: "#/components/schemas/RepoSpecType"
         httpConfig:
           $ref: "#/components/schemas/HttpConfig"
+        validationSuffix:
+          type: string
+          description: 'URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.'
       required:
         - url
         - type
         - httpConfig
     SshConfig:
       type: object
+      description: Configuration for SSH transport.
       additionalProperties: false
       properties:
         sshPrivateKey:
           type: string
-          description: 'Base64 encoded private SSH key'
+          description: 'Base64 encoded private SSH key.'
           format: password
         privateKeyPassphrase:
           type: string
-          description: 'The passphrase for sshPrivateKey'
+          description: 'The passphrase for sshPrivateKey.'
           format: password
         skipServerVerification:
           type: boolean
-          description: 'Skip remote server verification'
+          description: 'Skip remote server verification.'
     SshRepoSpec:
       type: object
       additionalProperties: false
       properties:
         url:
           type: string
-          description: 'The SSH Git repository URL to clone from'
+          description: 'The SSH Git repository URL to clone from.'
         type:
           $ref: "#/components/schemas/RepoSpecType"
         sshConfig:
@@ -2390,7 +3400,7 @@ components:
       properties:
         url:
           type: string
-          description: 'The (possibly remote) repository URL'
+          description: 'The (possibly remote) repository URL.'
         type:
           $ref: "#/components/schemas/RepoSpecType"
       required:
@@ -2398,12 +3408,14 @@ components:
         - type
     RepositorySpec:
       type: object
+      description: RepositorySpec describes a configuration repository.
       oneOf:
         - $ref: "#/components/schemas/GenericRepoSpec"
         - $ref: "#/components/schemas/HttpRepoSpec"
         - $ref: "#/components/schemas/SshRepoSpec"
     RepositoryStatus:
       type: object
+      description: RepositoryStatus represents information about the status of a repository.
       properties:
         conditions:
           type: array
@@ -2412,16 +3424,15 @@ components:
             $ref: '#/components/schemas/Condition'
       required:
         - conditions
-      description: RepositoryStatus represents information about the status of a repository. Status may trail the actual state of a repository.
     RepositoryList:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ListMeta'
         items:
@@ -2437,7 +3448,7 @@ components:
         - items
     RepoSpecType:
       type: string
-      description: 'RepoSpecType is the type of the repository'
+      description: 'RepoSpecType is the type of the repository.'
       enum:
         - git
         - http
@@ -2446,10 +3457,10 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
@@ -2463,6 +3474,7 @@ components:
       description: Device represents a physical device.
     DeviceConsole:
       type: object
+      description: DeviceConsole represents the console connection information.
       properties:
         # TODO: when migrating to ws, this should be a ws url instead of gRPCEndpoint
         #wsURL:
@@ -2470,155 +3482,229 @@ components:
         #  description: 'The URL to connect to the console through a websocket'
         gRPCEndpoint:
           type: string
+          description: The gRPC endpoint for the console connection.
         sessionID:
           type: string
+          description: The session ID for the console connection.
       required:
         - gRPCEndpoint
         - sessionID
-    GenericConfigSpec:
+    ConfigProviderSpec:
+      oneOf:
+        - $ref: "#/components/schemas/GitConfigProviderSpec"
+        - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
+        - $ref: "#/components/schemas/InlineConfigProviderSpec"
+        - $ref: "#/components/schemas/HttpConfigProviderSpec"
+    GitConfigProviderSpec:
       type: object
       properties:
-        configType:
-          type: string
         name:
           type: string
-      discriminator:
-        propertyName: configType
+          description: The name of the config provider.
+        gitRef:
+          type: object
+          description: The reference to a Git configuration server.
+          properties:
+            repository:
+              type: string
+              description: The name of the Repository resource.
+            targetRevision:
+              type: string
+              description: The revision to use from the Repository.
+            path:
+              type: string
+              description: The path to the config in the Repository.
+            mountPath:
+              type: string
+              description: Path in the device's file system at which the repository's path should be mounted.
+              default: "/"
+          required:
+            - repository
+            - targetRevision
+            - path
       required:
-        - configType
-        - name
-    GitConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            gitRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                targetRevision:
-                  type: string
-                path:
-                  type: string
-                mountPath:
-                  description: Path to config in device
-                  type: string
-                  default: "/"
-              required:
-                - repository
-                - targetRevision
-                - path
-          required:
-          - gitRef
+      - name
+      - gitRef
     KubernetesSecretProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
+      type: object
+      properties:
+        name:
+          type: string
+          description: The name of the config provider.
+        secretRef:
+          type: object
+          description: The reference to a Kubernetes secret.
           properties:
-            secretRef:
-              type: object
-              properties:
-                name:
-                  type: string
-                namespace:
-                  type: string
-                mountPath:
-                  type: string
-              required:
-                - name
-                - namespace
-                - mountPath
+            name:
+              type: string
+              description: The name of the secret.
+            namespace:
+              type: string
+              description: The namespace of the secret.
+            mountPath:
+              type: string
+              description: Path in the device's file system at which the secret should be mounted.
           required:
-          - secretRef
+            - name
+            - namespace
+            - mountPath
+      required:
+      - name
+      - secretRef
     InlineConfigProviderSpec:
-      allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
-        - type: object
-          properties:
-            inline:
-              type: object
-              additionalProperties: true
-          required:
-          - inline
+      type: object
+      properties:
+        name:
+          type: string
+          description: The name of the config provider.
+        inline:
+          type: array
+          description: A list of files to create on the device.
+          items:
+            $ref: '#/components/schemas/FileSpec'
+      required:
+      - name
+      - inline
+    FileSpec:
+      type: object
+      properties:
+        path:
+          type: string
+          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+        content:
+          type: string
+          description: The plain text (UTF-8) or base64-encoded content of the file.
+        contentEncoding:
+          type: string
+          description: How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+          enum:
+          - plain
+          - base64
+        mode:
+          type: integer
+          description: The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+        user:
+          type: string
+          description: The file's owner, specified either as a name or numeric ID. Defaults to "root".
+        group:
+          type: string
+          description: The file's group, specified either as a name or numeric ID. Defaults to "root".
+      required:
+      - path
+      - content
     HttpConfigProviderSpec:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The name of the config provider.
+        httpRef:
+          type: object
+          description: The reference to an HTTP configuration server.
+          properties:
+            repository:
+              type: string
+              description: The name of the repository resource to use as the sync source.
+            suffix:
+              type: string
+              description: 'Part of the URL that comes after the base URL. It can include query parameters such as: "/path/to/endpoint?query=param".'
+            filePath:
+              type: string
+              description: Path in the device's file system to which the content returned by the HTTP sever should be written.
+          required:
+          - repository
+          - filePath
+      required:
+      - name
+      - httpRef
+    ApplicationSpec:
+      type: object
       allOf:
-        - $ref: '#/components/schemas/GenericConfigSpec'
+        - $ref: '#/components/schemas/ApplicationEnvVars'
         - type: object
           properties:
-            httpRef:
-              type: object
-              properties:
-                repository:
-                  type: string
-                  description: |
-                    The name of the repository resource to use as the sync source
-                suffix:
-                  type: string
-                  description: |
-                    Part of the URL that comes after the base URL. It can include query parameters such as:
-                    /path/to/endpoint?query=param
-                filePath:
-                  type: string
-                  description: |
-                    The path of the file where the response is stored in the filesystem of the device.
-              required:
-              - repository
-              - filePath
-          required:
-          - httpRef
+            name:
+              type: string
+              description: The name of the application.
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
+            # extend application providers
+    ImageApplicationProvider:
+      type: object
+      properties:
+        image:
+          type: string
+          description: Reference to the container image for the application package.
+      required:
+        - image
+    ApplicationEnvVars:
+      type: object
+      properties:
+        envVars:
+          type: object
+          description: Environment variable key-value pairs, injected during runtime.
+          additionalProperties:
+            type: string
+    RenderedApplicationSpec:
+      type: object
+      description: RenderedApplicationSpec describes the rendered and self-contained specification of an application.
+      allOf:
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - type: object
+          properties:
+            name:
+              type: string
+              description: An application name.
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
-        - $ref: '#/components/schemas/CPUResourceMonitorSpec'
+        - $ref: '#/components/schemas/CpuResourceMonitorSpec'
         - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
         - $ref: '#/components/schemas/DiskResourceMonitorSpec'
       discriminator:
         propertyName: monitorType
         mapping:
-          CPU: '#/components/schemas/CPUResourceMonitorSpec'
+          CPU: '#/components/schemas/CpuResourceMonitorSpec'
           Memory: '#/components/schemas/MemoryResourceMonitorSpec'
           Disk: '#/components/schemas/DiskResourceMonitorSpec'
     ResourceMonitorSpec:
       type: object
+      description: Specification for monitoring a resource.
       properties:
         monitorType:
           type: string
+          description: The type of resource to monitor.
         alertRules:
           type: array
           items:
             $ref: '#/components/schemas/ResourceAlertRule'
-          description: "Array of alert rules. Only one alert per severity is allowed."
+          description: Array of alert rules. Only one alert per severity is allowed.
         samplingInterval:
           type: string
-          pattern: '^[1-9]\d*[smhd]$'
-          description: "Duration between monitor samples. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer."
+          pattern: '^[1-9]\d*[smh]$'
+          description: "Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours."
       required:
         - monitorType
         - alertRules
         - samplingInterval
-    CPUResourceMonitorSpec:
+    CpuResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
-          type: object
-          description: "Specification for monitoring CPU resource load."
     MemoryResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
-          type: object
-          description: "Specification for monitoring Memory resource usage."
     DiskResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
         - type: object
-          description: "Specification for monitoring disk usage."
+          description: Specification for monitoring disk usage.
           required:
             - path
           properties:
             path:
               type: string
-              description: "The directory path to monitor for disk usage."
+              description: The directory path to monitor for disk usage.
     CustomResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
@@ -2629,17 +3715,16 @@ components:
       properties:
         severity:
           $ref: '#/components/schemas/ResourceAlertSeverityType'
-          description: "Severity of the alert."
         duration:
           type: string
-          pattern: '^\d+[smhd]$'
-          description: "Duration is the time over which the average usage is observed before alerting. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days."
+          pattern: '^\d+[smh]$'
+          description: "Duration is the time over which the average usage is observed before alerting. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours."
         percentage:
           type: number
-          description: 'The percentage of usage that triggers the alert.'
+          description: The percentage of usage that triggers the alert.
         description:
           type: string
-          description: 'A human-readable description of the alert.'
+          description: A human-readable description of the alert.
       required:
         - severity
         - duration
@@ -2647,6 +3732,7 @@ components:
         - description
     ResourceAlertSeverityType:
       type: string
+      description: Severity of the alert.
       enum:
         - "Warning"
         - "Critical"
@@ -2655,152 +3741,135 @@ components:
         - "ResourceAlertSeverityTypeWarning"
         - "ResourceAlertSeverityTypeCritical"
         - "ResourceAlertSeverityTypeInfo"
-    DeviceUpdateHookSpec:
-      type: object
-      properties:
-        name:
-          type: string
-        description:
-          type: string 
-        actions:
-          type: array
-          items:
-            $ref: '#/components/schemas/HookAction'
-          description: 'The actions to take when the specified file operations are observed. Each action is executed in the order they are defined.'
-        onFile:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileOperation'
-        path:
-          type: string
-          description: 'The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.'
-      required:
-        - actions
-    DeviceRebootHookSpec:
-      type: object
-      properties:
-        name:
-          type: string
-        description:
-          type: string 
-        actions:
-          type: array
-          items:
-            $ref: '#/components/schemas/HookAction'
-          description: 'The actions taken before and after system reboots are observed. Each action is executed in the order they are defined.'
-      required:
-        - actions
-    FileOperation:
+    DeviceLifecycleHookType:
       type: string
-      description: 'The type of operation that was observed on the file.'
       enum:
-        - "Create"
-        - "Remove"
-        - "Update"
-        - "Reboot"
+      - 'BeforeUpdating'
+      - 'AfterUpdating'
+      - 'BeforeRebooting'
+      - 'AfterRebooting'
       x-enum-varnames:
-        - "FileOperationCreate"
-        - "FileOperationRemove" # by convention remove is fired before the file is removed.
-        - "FileOperationUpdate"
-        - "FileOperationReboot"
+        - "DeviceLifecycleHookBeforeUpdating"
+        - "DeviceLifecycleHookAfterUpdating"
+        - "DeviceLifecycleHookBeforeRebooting"
+        - "DeviceLifecycleHookAfterRebooting"
     HookAction:
+      allOf:
+      - type: object
+        properties:
+          if:
+            type: array
+            description: Conditions that must be met for the action to be executed.
+            items:
+              $ref: '#/components/schemas/HookCondition'
+          timeout:
+            type: string
+            pattern: '^(?:[1-9]\d*)?\d[smh]$'
+            description: The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are 's' for seconds, 'm' for minutes, and 'h' for hours.
+      - oneOf:
+          - $ref: '#/components/schemas/HookActionRun'
+          # extend hook actions
+    HookCondition:
       type: object
       oneOf:
-        - properties:
-            executable:
-              $ref: '#/components/schemas/HookActionExecutableSpec'
-          required:
-           - "executable"
-        - properties:
-            systemd:
-              $ref: '#/components/schemas/HookActionSystemdSpec'
-          required:
-           - "systemd"
-    HookActionSpec:
+        - $ref: '#/components/schemas/HookConditionPathOp'
+        - $ref: '#/components/schemas/HookConditionExpression'
+        # extend hook conditions
+    HookConditionPathOp:
       type: object
       properties:
-        timeout:
-             type: string
-             pattern: '^[1-9]\d*[smhd]$'
-             description: |
-              The maximum duration allowed for the action to complete. 
-              The duration should be specified as a positive integer 
-              followed by a time unit. Supported time units are:
-              - 's' for seconds
-              - 'm' for minutes
-              - 'h' for hours
-              - 'd' for days
-    HookActionSystemdSpec:
-       allOf:
-        - $ref: '#/components/schemas/HookActionSpec'
-        - type: object
-          properties:
-            unit:
-              $ref: '#/components/schemas/HookActionSystemdUnit'
-          required:
-            - unit
-    HookActionSystemdUnit:
-      type: object
-      properties:
-        name:
+        path:
           type: string
-          description: 'The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.'
-        operations:
+          description: The absolute path to a file or directory that must have changed as condition for the action to be performed.
+        op:
           type: array
+          description: The operation(s) on files at or below the path that satisfy the path condition.
           items:
-            type: string
-            enum:
-              - "Enable"
-              - "Disable"
-              - "Start"
-              - "Stop"
-              - "Restart"
-              - "Reload"
-              - "DaemonReload"
-            x-enum-varnames:
-              - "SystemdEnable"
-              - "SystemdDisable"
-              - "SystemdStart"
-              - "SystemdStop"
-              - "SystemdRestart"
-              - "SystemdReload"
-              - "SystemdDaemonReload"
-          description: 'The specific systemd operations to perform on the specified unit.'
-        workDir:
-            type: string
-            description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
+            $ref: '#/components/schemas/FileOperation'
       required:
-        - name
-        - operations 
-    HookActionExecutableSpec:
-      allOf:
-        - $ref: '#/components/schemas/HookActionSpec'
-        - $ref: '#/components/schemas/HookActionExecutable'
-    HookActionExecutable:
+        - path
+        - op
+    FileOperation:
+      type: string
+      enum:
+        - "created"
+        - "removed"
+        - "updated"
+      x-enum-varnames:
+        - "FileOperationCreated"
+        - "FileOperationRemoved"
+        - "FileOperationUpdated"
+    HookConditionExpression:
+      type: string
+      description: An expression that must evaluate to true as condition for the action to be performed.
+    HookActionRun:
+      type: object
+      properties:
+        run:
+          type: string
+          description: The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.
+        envVars:
           type: object
-          properties:
-            run:
-              type: string
-              description: 'The command to be executed, including any arguments using standard shell syntax. This field supports multiple commands piped together, as if they were executed under a bash -c context.'
-            envVars: 
-              type: array
-              items:
-                type: string
-              description: 'An optional list of KEY=VALUE pairs to set as environment variables for the executable.'
-            workDir:
-              type: string
-              description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
-          required:
-            - run
+          description: Environment variable key-value pairs, injected during runtime.
+          additionalProperties:
+            type: string
+        workDir:
+          type: string
+          description: The working directory to be used when running the command.
+      required:
+        - run
+    DeviceUpdatePolicySpec:
+      type: object
+      description: Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+      properties:
+        downloadSchedule:
+          $ref: '#/components/schemas/UpdateSchedule'
+        updateSchedule:
+          $ref: '#/components/schemas/UpdateSchedule'
+    UpdateSchedule:
+      type: object
+      description: Defines the schedule for automatic downloading and updates, including timing and optional timeout.
+      properties:
+        timeZone:
+          $ref: '#/components/schemas/TimeZone'
+        at:
+          $ref: '#/components/schemas/CronExpression'
+        startGraceDuration:
+          $ref: '#/components/schemas/Duration'
+      required:
+        - at
+    TimeZone:
+      type: string
+      description: Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
+      default: "Local"
+    CronExpression:
+      type: string
+      description: 'Cron expression format for scheduling times.
+
+        The format is `* * * * *`:
+        - Minutes: `*` matches 0-59.
+        - Hours: `*` matches 0-23.
+        - Day of Month: `*` matches 1-31.
+        - Month: `*` matches 1-12.
+        - Day of Week: `*` matches 0-6.
+
+        Supported operators:
+        - `*`: Matches any value (e.g., `*` in hours matches every hour).
+        - `-`: Range (e.g., `0-8` for 12 AM to 8 AM).
+        - `,`: List (e.g., `1,12` for 1st and 12th minute).
+        - `/`: Step (e.g., `*/12` for every 12th minute).
+        - Single value (e.g., `8` matches the 8th minute).
+
+        Example: `* 0-8,16-23 * * *`.'
     DeviceList:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ListMeta'
         items:
@@ -2816,20 +3885,23 @@ components:
         - kind
         - metadata
         - items
-    DeviceOSSpec:
+    DeviceOsSpec:
       type: object
+      description: DeviceOsSpec describes the target OS for the device.
       properties:
         image:
           type: string
-          description: 'ostree image name or URL.'
+          description: The target OS image name or URL.
       required:
         - image
     DeviceStatus:
       type: object
+      description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
       required:
         - conditions
         - systemInfo
         - applications
+        - applicationsSummary
         - resources
         - integrity
         - config
@@ -2837,39 +3909,40 @@ components:
         - updated
         - summary
         - lastSeen
+        - lifecycle
       properties:
         conditions:
           type: array
-          description: "Conditions represent the observations of a the current state of a device."
+          description: Conditions represent the observations of a the current state of a device.
           items:
             $ref: '#/components/schemas/Condition'
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
         applications:
-          $ref: "#/components/schemas/DeviceApplicationsStatus"
-          description: "Current status of the system applications."
+          type: array
+          description: List of device application status.
+          items:
+            $ref: "#/components/schemas/DeviceApplicationStatus"
+        applicationsSummary:
+          $ref: "#/components/schemas/DeviceApplicationsSummaryStatus"
         resources:
           $ref: "#/components/schemas/DeviceResourceStatus"
-          description: "Current status of the resources of the device."
         integrity:
           $ref: "#/components/schemas/DeviceIntegrityStatus"
-          description: "Current status of the integrity of the device."
         config:
           $ref: "#/components/schemas/DeviceConfigStatus"
-          description: "Current status of the device config."
         os:
-          $ref: "#/components/schemas/DeviceOSStatus"
-          description: "Current status of the device OS."
+          $ref: "#/components/schemas/DeviceOsStatus"
         updated:
           $ref: "#/components/schemas/DeviceUpdatedStatus"
-          description: "Current status of the device update."
         summary:
           $ref: "#/components/schemas/DeviceSummaryStatus"
-          description: "Summary status of the device."
         lastSeen:
           type: string
+          description: The last time the device was seen by the service.
           format: date-time
-      description: "DeviceStatus represents information about the status of a device. Status may trail the actual state of a device."
+        lifecycle:
+          $ref: '#/components/schemas/DeviceLifecycleStatus'
     DeviceSystemInfo:
       required:
         - architecture
@@ -2887,21 +3960,7 @@ components:
           type: string
           description: The Operating System reported by the device.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
-    DeviceApplicationsStatus:
-      type: object
-      required:
-        - data
-        - summary
-      properties:
-        data:
-          type: object
-          description: "Map of system application statuses."
-          additionalProperties:
-            $ref: "#/components/schemas/ApplicationStatus"
-        summary:
-          $ref: "#/components/schemas/ApplicationsSummaryStatus"
-          description: "Summary status of system applications."
-    ApplicationStatus:
+    DeviceApplicationStatus:
       type: object
       required:
         - name
@@ -2911,29 +3970,29 @@ components:
       properties:
         name:
           type: string
-          description: "Human readable name of the application."
+          description: Human readable name of the application.
         ready:
           type: string
-          description: "The number of containers which are ready in the application."
+          description: The number of containers which are ready in the application.
         restarts:
           type: integer
-          description: "Number of restarts observed for the application."
+          description: Number of restarts observed for the application.
         status:
           $ref: "#/components/schemas/ApplicationStatusType"
-          description: "Status of the application."
-    ApplicationsSummaryStatus:
+    DeviceApplicationsSummaryStatus:
       type: object
+      description: A summary of the health of applications on the device.
       required:
         - status
       properties:
         status:
           $ref: "#/components/schemas/ApplicationsSummaryStatusType"
-          description: "Summary status of the system applications."
         info:
           type: string
-          description: "Human readable information detailing the last system application transition."
+          description: Human readable information detailing the last application transition.
     ApplicationsSummaryStatusType:
       type: string
+      description: Status of all applications on the device.
       enum:
         - "Healthy"
         - "Degraded"
@@ -2946,6 +4005,7 @@ components:
         - "ApplicationsSummaryStatusUnknown"
     ApplicationStatusType:
       type: string
+      description: Status of a single application on the device.
       enum:
         - "Preparing"
         - "Starting"
@@ -2960,35 +4020,42 @@ components:
         - "ApplicationStatusError"
         - "ApplicationStatusUnknown"
         - "ApplicationStatusCompleted"
-    DeviceOSStatus:
+    DeviceOsStatus:
       type: object
+      description: Current status of the device OS.
       required:
         - image
+        - imageDigest
       properties:
         image:
           type: string
-          description: "Version of the OS image."
+          description: Version of the OS image.
+        imageDigest:
+          type: string
+          description: The digest of the OS image (e.g. sha256:a0...).
     DeviceConfigStatus:
       type: object
+      description: Current status of the device config.
       required:
         - renderedVersion
       properties:
         renderedVersion:
           type: string
-          description: "Version of the device rendered config."
+          description: Version of the device rendered config.
     DeviceSummaryStatus:
       type: object
+      description: A summary of the health of the device hardware and operating system resources.
       required:
         - status
       properties:
         status:
           $ref: "#/components/schemas/DeviceSummaryStatusType"
-          description: "Summary status of the device."
         info:
           type: string
-          description: "Human readable information detailing the last device status transition."
+          description: Human readable information detailing the last device status transition.
     DeviceSummaryStatusType:
       type: string
+      description: Status of the device.
       enum:
         - "Online"
         - "Degraded"
@@ -3005,17 +4072,18 @@ components:
         - "DeviceSummaryStatusUnknown"
     DeviceUpdatedStatus:
       type: object
+      description: Current status of the device update.
       required:
         - status
       properties:
         status:
           $ref: "#/components/schemas/DeviceUpdatedStatusType"
-          description: "Status type of the device update."
         info:
           type: string
-          description: "Human readable information about the last device update transition."
+          description: Human readable information about the last device update transition.
     DeviceUpdatedStatusType:
       type: string
+      description: Status type of the device update.
       enum:
         - "UpToDate"
         - "OutOfDate"
@@ -3026,27 +4094,52 @@ components:
         - "DeviceUpdatedStatusOutOfDate"
         - "DeviceUpdatedStatusUpdating"
         - "DeviceUpdatedStatusUnknown"
-    DeviceIntegrityStatus:
-      type: object
-      required:
-        - summary
-      properties:
-        summary:
-          $ref: "#/components/schemas/DeviceIntegrityStatusSummary"
-          description: "Summary status of the integrity of the device."
-    DeviceIntegrityStatusSummary:
+    DeviceLifecycleStatus:
       type: object
       required:
         - status
       properties:
         status:
-          $ref: "#/components/schemas/DeviceIntegrityStatusSummaryType"
-          description: "Summary status of the integrity of the device."
+          $ref: "#/components/schemas/DeviceLifecycleStatusType"
         info:
           type: string
-          description: "Human readable information about the last integrity transition."
+          description: Human readable information about the device lifecycle status.
+      description: Current status of the device lifecycle.
+    DeviceLifecycleStatusType:
+      type: string
+      enum:
+        - "Unknown"
+        - "Enrolled"
+        - "Decommissioning"
+        - "Decommissioned"
+      x-enum-varnames:
+        - "DeviceLifecycleStatusUnknown"
+        - "DeviceLifecycleStatusEnrolled"
+        - "DeviceLifecycleStatusDecommissioning"
+        - "DeviceLifecycleStatusDecommissioned"
+      description: Status type of the device lifecycle.
+    DeviceIntegrityStatus:
+      type: object
+      description: Status of device integrity.
+      required:
+        - summary
+      properties:
+        summary:
+          $ref: "#/components/schemas/DeviceIntegrityStatusSummary"
+    DeviceIntegrityStatusSummary:
+      type: object
+      description: Summary status of the integrity of the device.
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceIntegrityStatusSummaryType"
+        info:
+          type: string
+          description: Human readable information about the last integrity transition.
     DeviceIntegrityStatusSummaryType:
       type: string
+      description: Status of the integrity of the device.
       enum:
         - "Passed"
         - "Failed"
@@ -3059,6 +4152,7 @@ components:
         - "DeviceIntegrityStatusUnsupported"
     DeviceResourceStatus:
       type: object
+      description: Current status of the resources of the device.
       required:
         - cpu
         - memory
@@ -3066,15 +4160,13 @@ components:
       properties:
         cpu:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: "Status of the device CPU resources."
         memory:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: "Status of the device memory resources."
         disk:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-          description: "Status of the device disk resources."
     DeviceResourceStatusType:
       type: string
+      description: The types of resource statuses.
       enum:
         - "Healthy"
         - "Warning"
@@ -3090,46 +4182,54 @@ components:
 
     EnrollmentRequestApproval:
       type: object
+      description: EnrollmentRequestApproval contains information about the approval of a device enrollment request.
       properties:
         labels:
           type: object
           additionalProperties:
             type: string
-          description: 'labels is a set of labels to apply to the device.'
+          description: A set of labels to apply to the device.
         approved:
           type: boolean
-          description: 'approved indicates whether the request has been approved.'
+          description: Indicates whether the request has been approved.
         approvedBy:
           type: string
-          description: 'approvedBy is the name of the approver.'
+          description: The name of the approver.
         approvedAt:
           type: string
           format: date-time
-          description: 'approvedAt is the time at which the request was approved.'
+          description: The time at which the request was approved.
       required:
         - approved
     EnrollmentServiceAuth:
       type: object
+      description: EnrollmentServiceAuth contains the client authentication information for a Flight Control enrollment service.
       properties:
         client-certificate-data:
           type: string
+          description: ClientCertificateData contains PEM-encoded data from a client cert file for TLS.
         client-key-data:
           type: string
+          description: ClientKeyData contains PEM-encoded data from a client key file for TLS.
       required:
         - client-certificate-data
         - client-key-data
     EnrollmentServiceService:
       type: object
+      description: EnrollmentServiceService contains information about connecting to a Flight Control enrollment service.
       properties:
         certificate-authority-data:
           type: string
+          description: CertificateAuthorityData contains PEM-encoded certificate authority certificates.
         server:
           type: string
+          description: Server is the address of the Flight Control enrollment service (https://hostname:port).
       required:
         - certificate-authority-data
         - server
     EnrollmentService:
       type: object
+      description: EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
       properties:
         authentication:
           $ref: '#/components/schemas/EnrollmentServiceAuth'
@@ -3137,6 +4237,7 @@ components:
           $ref: '#/components/schemas/EnrollmentServiceService'
         enrollment-ui-endpoint:
           type: string
+          description: The URL of the UI that the agent uses to print the QR code and link for enrolling the device.
       required:
         - authentication
         - service
@@ -3146,20 +4247,17 @@ components:
       properties:
         enrollment-service:
           $ref: '#/components/schemas/EnrollmentService'
-        grpc-management-endpoint:
-          type: string
       required:
         - enrollment-service
-        - grpc-management-endpoint
     EnrollmentRequest:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
@@ -3177,10 +4275,10 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ListMeta'
         items:
@@ -3201,21 +4299,21 @@ components:
       properties:
         csr:
           type: string
-          description: 'csr is a PEM-encoded PKCS#10 certificate signing request.'
+          description: 'The PEM-encoded PKCS#10 certificate signing request.'
         deviceStatus:
           $ref: '#/components/schemas/DeviceStatus'
         labels:
           type: object
           additionalProperties:
-            type: string 
-          description: 'A set of labels that the service will apply to this device when its enrollment is approved'
+            type: string
+          description: 'A set of labels that the service will apply to this device when its enrollment is approved.'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
       properties:
         certificate:
           type: string
-          description: 'certificate is a PEM-encoded signed certificate.'
+          description: 'The PEM-encoded signed certificate.'
         conditions:
           type: array
           description: 'Current state of the EnrollmentRequest.'
@@ -3229,13 +4327,14 @@ components:
 
     ResourceSync:
       type: object
+      description: ResourceSync represents a reference to one or more files in a repository to sync to resource definitions.
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
@@ -3247,24 +4346,19 @@ components:
         - kind
         - metadata
         - spec
-      description: ResourceSync represents a reference to one or more files in a repository to sync to resource definitions
     ResourceSyncSpec:
       type: object
+      description: ResourceSyncSpec describes the file(s) to sync from a repository.
       properties:
         repository:
           type: string
-          description: |
-            The name of the repository resource to use as the sync source
+          description: The name of the repository resource to use as the sync source.
         targetRevision:
           type: string
-          description: The desired revision in the repository
+          description: The desired revision in the repository.
         path:
           type: string
-          description: |
-            The path of a file or directory in the repository. If a directory,
-            the directory should contain only resource definitions with no
-            subdirectories. Each file should contain the definition of one or
-            more resources.
+          description: The path of a file or directory in the repository. If a directory, the directory should contain only resource definitions with no subdirectories. Each file should contain the definition of one or more resources.
       required:
       - repository
       - targetRevision
@@ -3274,30 +4368,28 @@ components:
       properties:
         observedCommit:
           type: string
-          description: |
-            The last commit hash that was synced
+          description: The last commit hash that was synced.
         observedGeneration:
           type: integer
           format: int64
-          description: |
-            The last generation that was synced
+          description: The last generation that was synced.
         conditions:
           type: array
-          description: 'Current state of a resourcesync.'
+          description: Current state of a resourcesync.
           items:
             $ref: '#/components/schemas/Condition'
       required:
         - conditions
-      description: ResourceSyncStatus represents information about the status of a resourcesync
+      description: ResourceSyncStatus represents information about the status of a ResourceSync.
     ResourceSyncList:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ListMeta'
         items:
@@ -3315,10 +4407,10 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
@@ -3336,10 +4428,10 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ListMeta'
         items:
@@ -3353,13 +4445,97 @@ components:
         - metadata
         - items
       description: FleetList is a list of Fleets.
-    FleetSpec:
+
+    DisruptionAllowance:
+      type: object
+      properties:
+        groupBy:
+          type: array
+          items:
+            type: string
+          description: List of label keys to perform grouping for the disruption allowance.
+        minAvailable:
+          type: integer
+          description: The maximum number of unavailable devices allowed during rollout.
+        maxUnavailable:
+          type: integer
+          description: The minimum number of required available devices during rollout.
+      description: DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+
+    Percentage:
+      type: string
+      format: '^(100|[1-9]?[0-9])%$'
+      description: Percentage is the string format representing percentage string.
+
+    Batch:
       type: object
       properties:
         selector:
           $ref: '#/components/schemas/LabelSelector'
+        successThreshold:
+          $ref: '#/components/schemas/Percentage'
+        limit:
+          description: The maximum number or percentage of devices to update in the batch.
+          oneOf:
+            - $ref: '#/components/schemas/Percentage'
+            - type: integer
+              minimum: 1
+      description: Batch is an element in batch sequence.
+    Duration:
+      type: string
+      pattern: '^(?:[1-9]\d*)?\d[smh]$'
+      description: 'The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.'
+      default: "0s"
+
+    BatchSequence:
+      type: object
+      description: BatchSequence defines the list of batches to be executed in sequence.
+      properties:
+        sequence:
+          type: array
+          description: A list of batch definitions.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Batch'
+
+    RolloutDeviceSelection:
+      type: object
+      description: Describes how to select devices for rollout.
+      required:
+        - strategy
+      properties:
+        strategy:
+          type: string
+          description: The rollout strategy to use.
+      oneOf:
+        - $ref: '#/components/schemas/BatchSequence'
+      discriminator:
+        propertyName: strategy
+
+    RolloutPolicy:
+      type: object
+      properties:
+        disruptionAllowance:
+          $ref: '#/components/schemas/DisruptionAllowance'
+        deviceSelection:
+          $ref: '#/components/schemas/RolloutDeviceSelection'
+        successThreshold:
+          $ref: '#/components/schemas/Percentage'
+        defaultUpdateTimeout:
+          $ref: '#/components/schemas/Duration'
+      description: RolloutPolicy is the rollout policy of the fleet.
+
+    FleetSpec:
+      type: object
+      description: FleetSpec is a description of a fleet's target state.
+      properties:
+        selector:
+          $ref: '#/components/schemas/LabelSelector'
+        rolloutPolicy:
+          $ref: '#/components/schemas/RolloutPolicy'
         template:
           type: object
+          description: The template for the devices in the fleet.
           properties:
             metadata:
               $ref: '#/components/schemas/ObjectMeta'
@@ -3369,32 +4545,35 @@ components:
             - spec
       required:
         - template
-      description: FleetSpec is a description of a fleet's target state.
     RenderedDeviceSpec:
       type: object
+      description: RenderedDeviceSpec describes the rendered and self-contained specification of a Device.
       properties:
         renderedVersion:
           type: string
+          description: Version of the rendered device spec.
+        updatePolicy:
+          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
-          $ref: '#/components/schemas/DeviceOSSpec'
-        containers:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
+          $ref: '#/components/schemas/DeviceOsSpec'
         config:
           type: string
-        hooks:
-          $ref: '#/components/schemas/DeviceHooksSpec'
+          description: The configuration to apply, in Ignition format.
+        applications:
+          type: array
+          description: The list of applications to deploy.
+          items:
+            $ref: '#/components/schemas/RenderedApplicationSpec'
         systemd:
           type: object
+          description: The systemd services to monitor.
           properties:
             matchPatterns:
               type: array
+              description: A list of match patterns.
               items:
                 type: string
+                description: A single systemd unit name, with or without suffix, or a shell-style glob pattern to match against currently loaded units.
         resources:
           type: array
           description: 'Array of resource monitor configurations.'
@@ -3402,74 +4581,38 @@ components:
             $ref: '#/components/schemas/ResourceMonitor'
         console:
           $ref: '#/components/schemas/DeviceConsole'
-
+        decommission:
+          $ref: '#/components/schemas/DeviceDecommission'
       required:
         - renderedVersion
-    DeviceHooksSpec:
-      type: object
-      properties:
-        beforeUpdating:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceUpdateHookSpec'
-          description: |
-            Hooks executed before updating allow for custom actions and integration with other systems
-            or services. These actions occur before configuration changes are applied to the device.
-        afterUpdating:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceUpdateHookSpec'
-          description: |
-            Hooks executed after updating enable custom actions and integration with other systems
-            or services. These actions occur after configuration changes have been applied to the device.
-        beforeRebooting:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceRebootHookSpec'
-          description: |
-            Hooks executed before rebooting allow for custom actions and integration with other systems
-            or services. These actions occur before the device is rebooted.
-        afterRebooting:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceRebootHookSpec'
-          description: |
-            Hooks executed after rebooting enable custom actions and integration with other systems
-            or services. These actions occur after the device has rebooted, allowing for post-reboot tasks.
     DeviceSpec:
       type: object
+      description: DeviceSpec describes a device.
       properties:
+        updatePolicy:
+          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
-          $ref: '#/components/schemas/DeviceOSSpec'
+          $ref: '#/components/schemas/DeviceOsSpec'
         config:
           type: array
-          description: List of config resources.
+          description: List of config providers.
           items:
-            type: object
-            oneOf:
-              - $ref: "#/components/schemas/GitConfigProviderSpec"
-              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
-              - $ref: "#/components/schemas/InlineConfigProviderSpec"
-              - $ref: "#/components/schemas/HttpConfigProviderSpec"
-            discriminator:
-              propertyName: configType
-        hooks:
-          $ref: '#/components/schemas/DeviceHooksSpec' 
-        containers:
-          type: object
-          properties:
-            matchPatterns:
-              type: array
-              items:
-                type: string
-                pattern: '^[a-z][a-z0-9-_.]*$'
+            $ref: '#/components/schemas/ConfigProviderSpec'
+        applications:
+          type: array
+          description: List of applications.
+          items:
+            $ref: '#/components/schemas/ApplicationSpec'
         systemd:
           type: object
+          description: The systemd services to monitor.
           properties:
             matchPatterns:
               type: array
+              description: A list of match patterns.
               items:
                 type: string
+                description: A single systemd unit name, with or without suffix, or a shell-style glob pattern to match against currently loaded units.
                 pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
                 maxLength: 256
         resources:
@@ -3477,47 +4620,71 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+    FleetRolloutStatus:
+      type: object
+      description: FleetRolloutStatus represents information about the status of a fleet rollout.
+      properties:
+        currentBatch:
+          type: integer
+          description: The batch number currently being rolled out.
     FleetStatus:
       type: object
+      description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
       properties:
+        rollout:
+          $ref: '#/components/schemas/FleetRolloutStatus'
         conditions:
           type: array
-          description: 'Current state of the fleet.'
+          description: Current state of the fleet.
           items:
             $ref: '#/components/schemas/Condition'
         devicesSummary:
           $ref: '#/components/schemas/DevicesSummary'
       required:
         - conditions
-      description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
     DevicesSummary:
       type: object
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
       - total
+      - applicationStatus
+      - summaryStatus
+      - updateStatus
       properties:
         total:
           type: integer
+          format: int64
           description: The total number of devices in the fleet.
-        summaryStatus:
+        applicationStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
+            format: int64
+          description: A breakdown of the devices in the fleet by "application" status.
+        summaryStatus:
+          type: object
+          default: {}
+          additionalProperties:
+            type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "summary" status.
         updateStatus:
           type: object
+          default: {}
           additionalProperties:
             type: integer
+            format: int64
           description: A breakdown of the devices in the fleet by "updated" status.
     TemplateVersion:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
@@ -3532,6 +4699,7 @@ components:
       description: TemplateVersion represents a version of a template.
     TemplateVersionSpec:
       type: object
+      description: TemplateVersionSpec describes a version of a device template.
       properties:
         fleet:
           type: string
@@ -3539,30 +4707,31 @@ components:
       required:
         - fleet
     TemplateVersionStatus:
+      description: TemplateVersionStatus represents information about the status of a template version.
       allOf:
         - $ref: '#/components/schemas/DeviceSpec'
         - type: object
           properties:
             updatedAt:
               type: string
+              description: The time at which the template was last updated.
               format: date-time
             conditions:
               type: array
-              description: 'Current state of the device.'
+              description: Current state of the device.
               items:
                 $ref: '#/components/schemas/Condition'
           required:
             - conditions
-          description: TemplateVersionStatus represents information about the status of a template version.
     TemplateVersionList:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ListMeta'
         items:
@@ -3581,10 +4750,10 @@ components:
       properties:
         authType:
           type: string
-          description: 'Auth type'
+          description: Auth type.
         authURL:
           type: string
-          description: 'Auth URL'
+          description: Auth URL.
       required:
         - authType
         - authURL
@@ -3594,10 +4763,10 @@ components:
       properties:
         continue:
           type: string
-          description: continue may be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
+          description: May be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
         remainingItemCount:
           type: integer
-          description: remainingItemCount is the number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
+          description: The number of subsequent items in the list which are not included in this list response. If the list request contained label or field selectors, then the number of remaining items is unknown and the field will be left unset and omitted during serialization. If the list is complete (either because it is not chunking or because this is the last chunk), then there are no more remaining items and this field will be left unset and omitted during serialization. Servers older than v1.15 do not set this field. The intended use of the remainingItemCount is *estimating* the size of a collection. Clients should not rely on the remainingItemCount to be set or to be exact.
           format: int64
       description: ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
     ObjectMeta:
@@ -3605,22 +4774,24 @@ components:
       properties:
         creationTimestamp:
           type: string
+          description: The time the object was created.
           format: date-time
         deletionTimestamp:
           type: string
+          description: The time the object will be deleted.
           format: date-time
         name:
           type: string
-          description: name of the object
+          description: The name of the object.
         labels:
           type: object
+          description: Map of string keys and values that can be used to organize and categorize (scope and select) objects.
           additionalProperties:
             type: string
-          description: 'Map of string keys and values that can be used to organize and categorize (scope and select) objects.'
         generation:
           type: integer
-          format: int64
           description: A sequence number representing a specific generation of the desired state. Populated by the system. Read-only.
+          format: int64
         owner:
           type: string
           description: A resource that owns this resource, in "kind/name" format.
@@ -3628,21 +4799,48 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: 'Properties set by the service.'
+          description: Properties set by the service.
         resourceVersion:
           type: string
           description: An opaque string that identifies the server's internal version of an object.
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+
+    MatchExpression:
+      properties:
+        key:
+          type: string
+          description: The label key that the selector applies to.
+        operator:
+          type: string
+          description: The operation to apply when matching.
+          enum: [In, NotIn, Exists, DoesNotExist]
+        values:
+          type: array
+          description: The list of values to match.
+          items:
+            type: string
+      required:
+        - key
+        - operator
+
+    MatchExpressions:
+      type: array
+      description: A list of match expressions.
+      minItems: 1
+      items:
+        $ref: '#/components/schemas/MatchExpression'
+
     LabelSelector:
       type: object
+      description: A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. Empty/null label selectors match nothing.
       properties:
         matchLabels:
           type: object
+          description: A map of {key,value} pairs.
           additionalProperties:
             type: string
-      required:
-        - matchLabels
-      description: A map of key,value pairs that are ANDed. Empty/null label selectors match nothing.
+        matchExpressions:
+          $ref: '#/components/schemas/MatchExpressions'
     Status:
       type: object
       properties:
@@ -3654,7 +4852,7 @@ components:
           description: A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
         status:
           type: string
-          description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
+          description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.'
       description: Status is a return value for calls that don't return other objects.
     Error:
       required:
@@ -3662,7 +4860,7 @@ components:
       properties:
         message:
           type: string
-          description: Error message
+          description: Error message.
     Condition:
       required:
         - type
@@ -3674,10 +4872,8 @@ components:
       properties:
         type:
           $ref: '#/components/schemas/ConditionType'
-          description: Type of condition in CamelCase
         status:
           $ref: '#/components/schemas/ConditionStatus'
-          description: Status of the condition, one of True, False, Unknown.
         observedGeneration:
           type: integer
           format: int64
@@ -3691,25 +4887,26 @@ components:
           description: Human readable message indicating details about last transition.
         reason:
           type: string
-          description: (brief) reason for the condition's last transition.
+          description: A (brief) reason for the condition's last transition.
       description: Condition contains details for one aspect of the current state of this API Resource.
     ConditionType:
       type: string
+      description: Type of condition in CamelCase.
       enum:
-      - 'Approved'             # EnrollmentRequest
-      - 'Approved'             # CertificateSigningRequest
-      - 'Denied'               # CertificateSigningRequest
-      - 'Failed'               # CertificateSigningRequest
-      - 'Accessible'           # Repository
-      - 'Accessible'           # ResourceSync
-      - 'ResourceParsed'       # ResourceSync
-      - 'Synced'               # ResourceSync
-      - 'OverlappingSelectors' # Fleet
-      - 'Valid'                # Fleet
-      - 'Updating'             # Device
-      - 'SpecValid'            # Device (service condition)
-      - 'MultipleOwners'       # Device (service condition)
-      - 'Valid'                # TemplateVersion
+      - 'Approved'              # EnrollmentRequest
+      - 'Approved'              # CertificateSigningRequest
+      - 'Denied'                # CertificateSigningRequest
+      - 'Failed'                # CertificateSigningRequest
+      - 'Accessible'            # Repository
+      - 'Accessible'            # ResourceSync
+      - 'ResourceParsed'        # ResourceSync
+      - 'Synced'                # ResourceSync
+      - 'OverlappingSelectors'  # Fleet
+      - 'Valid'                 # Fleet
+      - 'Updating'              # Device
+      - 'SpecValid'             # Device (service condition)
+      - 'MultipleOwners'        # Device (service condition)
+      - 'DeviceDecommissioning' # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - CertificateSigningRequestApproved
@@ -3724,9 +4921,10 @@ components:
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
-      - TemplateVersionValid
+      - DeviceDecommissioning
     ConditionStatus:
       type: string
+      description: Status of the condition, one of True, False, Unknown.
       enum:
       - 'True'
       - 'False'
@@ -3735,27 +4933,15 @@ components:
       - 'ConditionStatusTrue'
       - 'ConditionStatusFalse'
       - 'ConditionStatusUnknown'
-    TemplateDiscriminators:
-      type: string
-      enum:
-      - 'GitConfigProviderSpec'
-      - 'KubernetesSecretProviderSpec'
-      - 'InlineConfigProviderSpec'
-      - 'HttpConfigProviderSpec'
-      x-enum-varnames:
-      - 'TemplateDiscriminatorGitConfig'
-      - 'TemplateDiscriminatorKubernetesSec'
-      - 'TemplateDiscriminatorInlineConfig'
-      - 'TemplateDiscriminatorHttpConfig'
     CertificateSigningRequest:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
         spec:
@@ -3767,16 +4953,16 @@ components:
         - kind
         - metadata
         - spec
-      description: 'CertificateSigningRequest represents a request for a signed certificate from the CA'
+      description: 'CertificateSigningRequest represents a request for a signed certificate from the CA.'
     CertificateSigningRequestList:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ListMeta'
         items:
@@ -3789,12 +4975,12 @@ components:
         - kind
         - metadata
         - items
-      description: 'CertificateSigningRequestList is a list of CertificateSigningRequest'
+      description: CertificateSigningRequestList is a list of CertificateSigningRequest.
     CertificateSigningRequestSpec:
-      description: 'Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec'
+      description: Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
       properties:
         expirationSeconds:
-          description: 'Requested duration of validity for the certificate'
+          description: Requested duration of validity for the certificate.
           format: int32
           type: integer
         extra:
@@ -3802,39 +4988,39 @@ components:
             items:
               type: string
             type: array
-          description: 'Extra attributes of the user that created the CSR, populated by the API server on creation and immutable'
+          description: Extra attributes of the user that created the CSR, populated by the API server on creation and immutable.
           type: object
         request:
-          description: 'The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource'
+          description: The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource.
           format: byte
           type: string
         signerName:
-          description: 'Indicates the requested signer, and is a qualified name'
+          description: Indicates the requested signer, and is a qualified name.
           type: string
         uid:
-          description: 'UID of the user that created the CSR, populated by the API server on creation and immutable'
+          description: UID of the user that created the CSR, populated by the API server on creation and immutable.
           type: string
         usages:
-          description: 'Usages specifies a set of key usages requested in the issued certificate.'
+          description: Usages specifies a set of key usages requested in the issued certificate.
           items:
             type: string
           type: array
         username:
-          description: 'Name of the user that created the CSR, populated by the API server on creation and immutable'
+          description: Name of the user that created the CSR, populated by the API server on creation and immutable.
           type: string
       required:
         - request
         - signerName
       type: object
     CertificateSigningRequestStatus:
-      description: 'Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists'
+      description: Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
       properties:
         certificate:
-          description: 'The issued signed certificate, immutable once populated'
+          description: The issued signed certificate, immutable once populated.
           format: byte
           type: string
         conditions:
-          description: 'Conditions applied to the request. Known conditions are Approved, Denied, and Failed'
+          description: Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
           items:
             allOf:
               - $ref: '#/components/schemas/Condition'

@@ -4,13 +4,15 @@ metadata:
   labels:
     flightctl.service: e2e-git-server
   name: e2e-git-server
-  namespace: {{ .Values.gitserver.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   type: NodePort
   ports:
     - name: "registry"
       port: 3222
       targetPort: 22
-      nodePort: {{ .Values.gitserver.nodePort }}
+      {{ if .Values.global.nodePorts.gitserver }}
+      nodePort: {{ .Values.global.nodePorts.gitserver }}
+      {{ end }}
   selector:
     flightctl.service: e2e-git-server

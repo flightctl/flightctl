@@ -6,7 +6,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/sirupsen/logrus"
 )
 
@@ -14,12 +13,12 @@ func repositoryUpdate(ctx context.Context, resourceRef *ResourceReference, store
 	logic := NewRepositoryUpdateLogic(callbackManager, log, store, *resourceRef)
 
 	switch {
-	case resourceRef.Op == RepositoryUpdateOpUpdate && resourceRef.Kind == model.RepositoryKind:
+	case resourceRef.Op == RepositoryUpdateOpUpdate && resourceRef.Kind == api.RepositoryKind:
 		err := logic.HandleRepositoryUpdate(ctx)
 		if err != nil {
 			log.Errorf("failed to notify associated resources of update to repository %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 		}
-	case resourceRef.Op == RepositoryUpdateOpDeleteAll && resourceRef.Kind == model.RepositoryKind:
+	case resourceRef.Op == RepositoryUpdateOpDeleteAll && resourceRef.Kind == api.RepositoryKind:
 		err := logic.HandleAllRepositoriesDeleted(ctx, log)
 		if err != nil {
 			log.Errorf("failed to notify associated resources deletion of all repositories in org %s: %v", resourceRef.OrgID, err)
@@ -101,14 +100,14 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 	return nil
 }
 
-func (t *RepositoryUpdateLogic) doesConfigReferenceAnyRepo(configItems []api.DeviceSpec_Config_Item) (bool, error) {
+func (t *RepositoryUpdateLogic) doesConfigReferenceAnyRepo(configItems []api.ConfigProviderSpec) (bool, error) {
 	for _, configItem := range configItems {
-		disc, err := configItem.Discriminator()
+		configType, err := configItem.Type()
 		if err != nil {
-			return false, fmt.Errorf("failed getting discriminator: %w", err)
+			return false, fmt.Errorf("failed getting config type: %w", err)
 		}
 
-		if disc != string(api.TemplateDiscriminatorGitConfig) {
+		if configType != api.GitConfigProviderType {
 			continue
 		}
 

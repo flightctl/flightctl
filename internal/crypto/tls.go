@@ -7,18 +7,18 @@ import (
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
-func TLSConfigForServer(caConfig, serverConfig *TLSCertificateConfig) (*tls.Config, *tls.Config, *tls.Config, error) {
+func TLSConfigForServer(caConfig, serverConfig *TLSCertificateConfig) (*tls.Config, *tls.Config, error) {
 	certBytes, err := oscrypto.EncodeCertificates(serverConfig.Certs...)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	keyBytes, err := PEMEncodeKey(serverConfig.Key)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	cert, err := tls.X509KeyPair(certBytes, keyBytes)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	caPool := x509.NewCertPool()
@@ -38,14 +38,7 @@ func TLSConfigForServer(caConfig, serverConfig *TLSCertificateConfig) (*tls.Conf
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	grpcTlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		ClientCAs:    caPool,
-		ClientAuth:   tls.VerifyClientCertIfGiven,
-		MinVersion:   tls.VersionTLS13,
-	}
-
-	return tlsConfig, agentTlsConfig, grpcTlsConfig, nil
+	return tlsConfig, agentTlsConfig, nil
 }
 
 func TLSConfigForClient(caConfig, clientConfig *TLSCertificateConfig) (*tls.Config, error) {

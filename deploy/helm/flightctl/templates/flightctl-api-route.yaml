@@ -1,19 +1,17 @@
-{{ if and (.Values.flightctl.api.enabled) (not .Values.flightctl.api.nodePort) }}
+{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
+  {{- if .Values.global.appCode }}
   labels:
     external-exposed: "true"
-    paas.redhat.com/appcode: {{ .Values.appCode }}
+    paas.redhat.com/appcode: {{ .Values.global.appCode }}
     shard: external
+  {{- end }}
   name: flightctl-api-route
   namespace: {{ .Release.Namespace }}
 spec:
-  {{ if .Values.flightctl.api.hostName }}
-  host: {{ .Values.flightctl.api.hostName }}
-  {{ else }}
-  host: api.{{ .Values.global.flightctl.baseDomain }}
-  {{ end }}
+  host: api.{{ include "flightctl.getBaseDomain" . }}
   port:
     targetPort: 3443
   tls:
@@ -24,5 +22,4 @@ spec:
     name: flightctl-api
     weight: 100
   wildcardPolicy: None
-
 {{ end }}

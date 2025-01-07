@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 )
@@ -32,7 +31,10 @@ type ResourceReference struct {
 	Owner    string
 }
 
-var ErrUnknownConfigName = errors.New("failed to find configuration item name")
+var (
+	ErrUnknownConfigName      = errors.New("failed to find configuration item name")
+	ErrUnknownApplicationType = errors.New("unknown application type")
+)
 
 func getOwnerFleet(device *api.Device) (string, bool, error) {
 	if device.Metadata.Owner == nil {
@@ -44,7 +46,7 @@ func getOwnerFleet(device *api.Device) (string, bool, error) {
 		return "", false, err
 	}
 
-	if ownerType != model.FleetKind {
+	if ownerType != api.FleetKind {
 		return "", false, nil
 	}
 

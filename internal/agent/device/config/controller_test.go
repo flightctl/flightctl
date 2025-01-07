@@ -5,12 +5,11 @@ import (
 	"testing"
 
 	"github.com/coreos/ignition/v2/config/shared/errors"
+	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -18,11 +17,13 @@ import (
 func TestSync(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
-		name         string
-		current      *v1alpha1.RenderedDeviceSpec
-		desired      *v1alpha1.RenderedDeviceSpec
-		wantErr      error
+		name    string
+		current *v1alpha1.RenderedDeviceSpec
+		desired *v1alpha1.RenderedDeviceSpec
+		wantErr error
+		// files which are created via the sync operation
 		createdFiles []string
+		// files which are removed via the sync operation
 		removedFiles []string
 	}{
 		{
@@ -50,6 +51,18 @@ func TestSync(t *testing.T) {
 			},
 		},
 		{
+			name: "current config is valid desired is nil",
+			current: &v1alpha1.RenderedDeviceSpec{
+				Config: util.StrToPtr(ignitionConfigCurrent),
+			},
+			desired: &v1alpha1.RenderedDeviceSpec{},
+			removedFiles: []string{
+				"/etc/example/file1.txt",
+				"/etc/example/file2.txt",
+				"/etc/example/file3.txt",
+			},
+		},
+		{
 			name: "validate removal of files",
 			current: &v1alpha1.RenderedDeviceSpec{
 				Config: util.StrToPtr(ignitionConfigCurrent),
@@ -60,7 +73,6 @@ func TestSync(t *testing.T) {
 			createdFiles: []string{
 				"/etc/example/file1.txt",
 				"/etc/example/file2.txt",
-				"/etc/example/file3.txt",
 			},
 			removedFiles: []string{
 				"/etc/example/file3.txt",
@@ -72,61 +84,100 @@ func TestSync(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			ctrl := gomock.NewController(t)
-			mockHookManager := hook.NewMockManager(ctrl)
+			defer ctrl.Finish()
+
 			mockWriter := fileio.NewMockWriter(ctrl)
 			mockManagedFile := fileio.NewMockManagedFile(ctrl)
 			controller := NewController(
-				mockHookManager,
 				mockWriter,
 				log.NewPrefixLogger("test"),
 			)
-			mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-			for _, f := range tt.createdFiles {
-				mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile)
-				mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
-				mockManagedFile.EXPECT().Exists().Return(false, nil)
-				mockManagedFile.EXPECT().Write().Return(nil)
-				mockHookManager.EXPECT().OnBeforeCreate(gomock.Any(), f)
-				mockHookManager.EXPECT().OnAfterCreate(gomock.Any(), f)
-			}
 
-			for i, f := range lo.Without(tt.createdFiles, tt.removedFiles...) {
-				mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile)
-				upToDate := i%2 == 0
-				mockManagedFile.EXPECT().IsUpToDate().Return(upToDate, nil)
-				if !upToDate {
-					mockManagedFile.EXPECT().Exists().Return(true, nil)
-					mockManagedFile.EXPECT().Write().Return(nil)
-					mockHookManager.EXPECT().OnBeforeUpdate(gomock.Any(), f)
-					mockHookManager.EXPECT().OnAfterUpdate(gomock.Any(), f)
-				}
+			for _, f := range tt.createdFiles {
+				expectCreateFile(mockWriter, mockManagedFile, f)
 			}
 
 			for _, f := range tt.removedFiles {
-				mockHookManager.EXPECT().OnBeforeRemove(gomock.Any(), f)
-				mockHookManager.EXPECT().OnAfterRemove(gomock.Any(), f)
-				mockWriter.EXPECT().RemoveFile(f).Return(nil)
+				expectRemoveFile(mockWriter, f)
 			}
-			// Write the current config to the disk
-			if tt.current.Config != nil {
-				currentConfigRaw := []byte(*tt.current.Config)
-				currentIgnitionConfig, err := ParseAndConvertConfig(currentConfigRaw)
-				require.NoError(err)
-				for _, f := range currentIgnitionConfig.Storage.Files {
-					mockHookManager.EXPECT().OnAfterReboot(gomock.Any(), f.Path)
-				}
-				err = controller.WriteIgnitionFiles(ctx, currentIgnitionConfig.Storage.Files)
-				require.NoError(err)
-			}
-			controller.Initialize(ctx, tt.current)
+
 			err := controller.Sync(ctx, tt.current, tt.desired)
 			if tt.wantErr != nil {
 				require.ErrorIs(err, tt.wantErr)
 				return
 			}
-			ctrl.Finish()
 		})
 	}
+}
+
+func TestComputeRemoval(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		current  []ignv3types.File
+		desired  []ignv3types.File
+		expected []string
+	}{
+		{
+			name: "no desired files",
+			current: []ignv3types.File{
+				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
+				{Node: ignv3types.Node{Path: "/etc/example/file2.txt"}},
+			},
+			desired: []ignv3types.File{},
+			expected: []string{
+				"/etc/example/file1.txt",
+				"/etc/example/file2.txt",
+			},
+		},
+		{
+			name:    "no current files",
+			current: []ignv3types.File{},
+			desired: []ignv3types.File{
+				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
+				{Node: ignv3types.Node{Path: "/etc/example/file2.txt"}},
+			},
+			expected: []string{},
+		},
+		{
+			name: "remove diff",
+			current: []ignv3types.File{
+				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
+				{Node: ignv3types.Node{Path: "/etc/example/file2.txt"}},
+				{Node: ignv3types.Node{Path: "/etc/example/file3.txt"}},
+			},
+			desired: []ignv3types.File{
+				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
+				{Node: ignv3types.Node{Path: "/etc/example/file3.txt"}},
+			},
+			expected: []string{
+				"/etc/example/file2.txt",
+			},
+		},
+		{
+			name:     "no files",
+			current:  []ignv3types.File{},
+			desired:  []ignv3types.File{},
+			expected: []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := computeRemoval(tt.current, tt.desired)
+			require.Equal(tt.expected, actual)
+		})
+	}
+}
+
+func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, f string) {
+	mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile, nil)
+	mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
+	mockManagedFile.EXPECT().Exists().Return(false, nil)
+	mockManagedFile.EXPECT().Write().Return(nil)
+}
+
+func expectRemoveFile(mockWriter *fileio.MockWriter, f string) {
+	mockWriter.EXPECT().RemoveFile(f).Return(nil)
 }
 
 var ignitionConfigCurrent = `{

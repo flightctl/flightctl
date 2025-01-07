@@ -10,14 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	FleetAPI      = "v1alpha1"
-	FleetKind     = "Fleet"
-	FleetListKind = "FleetList"
-
-	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
-)
-
 type Fleet struct {
 	Resource
 
@@ -58,10 +50,10 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 	return &Fleet{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
-			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -97,19 +89,16 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 	}
 	status.DevicesSummary = options.summary
 
-	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
-	metadataAnnotations := util.LabelArrayToMap(f.Resource.Annotations)
-
 	return api.Fleet{
-		ApiVersion: FleetAPI,
-		Kind:       FleetKind,
+		ApiVersion: api.FleetAPIVersion,
+		Kind:       api.FleetKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(f.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(f.Resource.Annotations)),
 			Generation:        f.Generation,
 			Owner:             f.Owner,
-			Annotations:       &metadataAnnotations,
 			ResourceVersion:   lo.Ternary(f.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(f.ResourceVersion), 10)), nil),
 		},
 		Spec:   f.Spec.Data,
@@ -120,8 +109,8 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetList {
 	if dl == nil {
 		return api.FleetList{
-			ApiVersion: FleetAPI,
-			Kind:       FleetListKind,
+			ApiVersion: api.FleetAPIVersion,
+			Kind:       api.FleetListKind,
 			Items:      []api.Fleet{},
 		}
 	}
@@ -135,8 +124,8 @@ func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetLi
 		fleetList[i] = fleet.ToApiResource(opts...)
 	}
 	ret := api.FleetList{
-		ApiVersion: FleetAPI,
-		Kind:       FleetListKind,
+		ApiVersion: api.FleetAPIVersion,
+		Kind:       api.FleetListKind,
 		Items:      fleetList,
 		Metadata:   api.ListMeta{},
 	}

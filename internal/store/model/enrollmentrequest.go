@@ -10,12 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	EnrollmentRequestAPI      = "v1alpha1"
-	EnrollmentRequestKind     = "EnrollmentRequest"
-	EnrollmentRequestListKind = "EnrollmentRequestList"
-)
-
 type EnrollmentRequest struct {
 	Resource
 
@@ -53,7 +47,8 @@ func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) (*Enro
 	return &EnrollmentRequest{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -71,15 +66,14 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 		status = e.Status.Data
 	}
 
-	metadataLabels := util.LabelArrayToMap(e.Resource.Labels)
-
 	return api.EnrollmentRequest{
-		ApiVersion: EnrollmentRequestAPI,
-		Kind:       EnrollmentRequestKind,
+		ApiVersion: api.EnrollmentRequestAPIVersion,
+		Kind:       api.EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(e.Name),
 			CreationTimestamp: util.TimeToPtr(e.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(e.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(e.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(e.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(e.ResourceVersion), 10)), nil),
 		},
 		Spec:   e.Spec.Data,
@@ -90,8 +84,8 @@ func (e *EnrollmentRequest) ToApiResource() api.EnrollmentRequest {
 func (el EnrollmentRequestList) ToApiResource(cont *string, numRemaining *int64) api.EnrollmentRequestList {
 	if el == nil {
 		return api.EnrollmentRequestList{
-			ApiVersion: EnrollmentRequestAPI,
-			Kind:       EnrollmentRequestListKind,
+			ApiVersion: api.EnrollmentRequestAPIVersion,
+			Kind:       api.EnrollmentRequestListKind,
 			Items:      []api.EnrollmentRequest{},
 		}
 	}
@@ -101,8 +95,8 @@ func (el EnrollmentRequestList) ToApiResource(cont *string, numRemaining *int64)
 		enrollmentRequestList[i] = enrollmentRequest.ToApiResource()
 	}
 	ret := api.EnrollmentRequestList{
-		ApiVersion: EnrollmentRequestAPI,
-		Kind:       EnrollmentRequestListKind,
+		ApiVersion: api.EnrollmentRequestAPIVersion,
+		Kind:       api.EnrollmentRequestListKind,
 		Items:      enrollmentRequestList,
 		Metadata:   api.ListMeta{},
 	}

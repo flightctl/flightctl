@@ -3,74 +3,52 @@ set -x -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 METHOD=install
 ONLY_DB=
+DB_SIZE_PARAMS=
+# If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
+# IMAGE_PULL_SECRET_PATH=
+SQL_VERSION=${SQL_VERSION:-"latest"}
+SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-12-c8s"}
 RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
 RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
+KV_VERSION=${KV_VERSION:-"7.4.1"}
+KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
 
-IP=$("${SCRIPT_DIR}"/get_ext_ip.sh)
-
-
-# Function to save images to kind, with workaround for github CI and other environment issues
-# In github CI, kind gets confused and tries to pull the image from docker instead
-# of podman, so if regular docker-image fails we need to:
-#   * save it to OCI image format
-#   * then load it into kind
-kind_load_image() {
-  local image=$1
-  local keep_tar=${2:-"do-not-keep-tar"}
-  local tar_filename=$(echo $image.tar | sed 's/[:\/]/_/g')
-
-  # First, try to load the image directly
-  if kind load docker-image "${image}"; then
-    echo "Image ${image} loaded successfully."
-    return
-  fi
-
-  # If that fails, we have the workaround in place
-  if [ -f "${tar_filename}" ] && [ "${keep_tar}" == "keep-tar" ]; then
-    echo "File ${tar_filename} already exists. Skipping save."
-  else
-    echo "Saving ${image} to ${tar_filename}..."
-
-    # If the image is not local we may need to pull it first
-    if [[ "${image}" != localhost* ]]; then
-      podman pull "${image}"
-    fi
-
-    # Save to tar file
-    podman save "${image}" -o "${tar_filename}"
-    if [ $? -eq 0 ]; then
-      echo "Image saved successfully to ${tar_filename}."
-    else
-      echo "Failed to save image to ${tar_filename}."
-      exit 1
-    fi
-  fi
-
-  kind load image-archive "${tar_filename}"
-  if [ "${keep_tar}" != "keep-tar" ]; then
-    rm -f "${tar_filename}"
-  fi
-}
+source "${SCRIPT_DIR}"/functions
+IP=$(get_ext_ip)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,auth,help -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,db-size:,auth,help -n "$0" -- "$@")
 eval set -- "$options"
+
+usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
 
 while true; do
   case "$1" in
-    -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false" ; shift ;;
-    -h|--help) echo "Usage: $0 [--only-db]"; exit 0 ;;
+    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set rabbitmq.enabled=false --set kv.enabled=false" ; shift ;;
+    -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
+    --db-size)
+      db_size=$2
+      if [ "$db_size" == "e2e" ]; then
+        DB_SIZE_PARAMS=""
+      elif [ "$db_size" == "small-1k" ]; then
+        DB_SIZE_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
+      elif [ "$db_size" == "medium-10k" ]; then
+        DB_SIZE_PARAMS="--set db.resources.requests.cpu=4 --set db.resources.requests.memory=8Gi --set db.resources.limits.cpu=20 --set db.resources.limits.memory=128Gi"
+      else
+        echo "Wrong parameter to --db-size flag: $db_size"
+        echo "Usage: $0 $usage"
+        exit 1
+      fi
+      shift 2
+      ;;
     --) shift; break ;;
     *) echo "Invalid option: $1" >&2; exit 1 ;;
   esac
 done
 
-RABBITMQ_ARG="--set flightctl.rabbitmq.image.image=${RABBITMQ_IMAGE} --set flightctl.rabbitmq.image.tag=${RABBITMQ_VERSION}"
-
-# if we have an existing deployment, try to upgrade it instead
-if helm list --kube-context kind-kind -A | grep flightctl > /dev/null; then
-  METHOD=upgrade
-fi
+SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
+RABBITMQ_ARG="--set rabbitmq.image.image=${RABBITMQ_IMAGE} --set rabbitmq.image.tag=${RABBITMQ_VERSION}"
+KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -86,30 +64,44 @@ if [ -z "$ONLY_DB" ]; then
   done
 
   kind_load_image "${RABBITMQ_IMAGE}:${RABBITMQ_VERSION}" keep-tar
+  kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
 fi
 
+if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
+  PULL_SECRET_NAME=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.name)
+  PULL_SECRET_NAMESPACE=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.namespace)
 
+  if [ "$PULL_SECRET_NAMESPACE" != "flightctl-internal" ]; then
+    echo "Namespace for IMAGE_PULL_SECRET_PATH must be flightctl-internal"
+    exit 1
+  fi
 
-# if we need another database image we can set it with PGSQL_IMAGE (i.e. arm64 images)
-if [ ! -z "$PGSQL_IMAGE" ]; then
-  DB_IMG="localhost/flightctl-db:latest"
-  # we send the image directly to kind, so we don't need to inject the credentials in the kind cluster
-  podman pull "${PGSQL_IMAGE}"
-  podman tag "${PGSQL_IMAGE}" "${DB_IMG}"
-  kind_load_image ${DB_IMG}
-  HELM_DB_IMG="--set flightctl.db.image.image=${DB_IMG} --set flightctl.db.image.tag=latest"
+  SQL_ARG="$SQL_ARG --set global.imagePullSecretName=${PULL_SECRET_NAME}"
+  kubectl apply -f "$IMAGE_PULL_SECRET_PATH"
+fi
+
+kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
+
+API_PORT=3443
+KEYCLOAK_PORT=8081
+GATEWAY_ARGS=""
+if [ "$GATEWAY" ]; then
+  API_PORT=4443
+  KEYCLOAK_PORT=4480
+  GATEWAY_ARGS="--set global.exposeServicesMethod=gateway --set global.gatewayClass=contour-gateway --set global.gatewayPorts.tls=4443 --set global.gatewayPorts.http=4480"
 fi
 
 AUTH_ARGS=""
 if [ "$AUTH" ]; then
-  AUTH_ARGS="--set keycloak.enabled=true --set flightctl.api.auth.enabled=true"
+  AUTH_ARGS="--set global.auth.type=builtin --set keycloak.directAccessGrantsEnabled=true"
 fi
 
-helm ${METHOD} --namespace flightctl-external \
-                  --values ./deploy/helm/flightctl/values.kind.yaml \
-                  --set global.flightctl.baseDomain=${IP}.nip.io \
-                  --set flightctl.api.auth.oidcAuthority=http://${IP}:8080/realms/flightctl \
-                   ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} flightctl \
+helm dependency build ./deploy/helm/flightctl
+
+helm upgrade --install --namespace flightctl-external \
+                  --values ./deploy/helm/flightctl/values.dev.yaml \
+                  --set global.baseDomain=${IP}.nip.io \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s
@@ -122,52 +114,38 @@ kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- psql -c 'A
 kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- createdb admin 2>/dev/null|| true
 
 
-if [ -z "$ONLY_DB" ]; then
-
-  if [ "$AUTH" ]; then
-    kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
-    kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
-  fi
-
-  mkdir -p  ~/.flightctl/certs
-
-  # Extract .fligthctl files from the api pod, but we must wait for the server to be ready
-
-  kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s --context kind-kind
-
-  # we actually don't need to download the ca.key or server.key but apparently the flightctl
-  # client expects them to be present TODO: fix this in flightctl
-  API_POD=$(kubectl get pod -n flightctl-external -l flightctl.service=flightctl-api --no-headers -o custom-columns=":metadata.name" --context kind-kind | head -1 )
-
-  # wait for the server to write the client.yaml file
-  until kubectl exec -n flightctl-external "${API_POD}" --context kind-kind  -- cat /root/.flightctl/client.yaml > /dev/null 2>&1;
-  do
-    sleep 1;
-  done
-
-  # pull agent-usable details as well as client configuration file
-  for f in certs/{ca.crt,client-enrollment.crt,client-enrollment.key} client.yaml; do
-    # a kubectl cp would be more efficient, but tar is not available on the image, and we don't want
-    # to switch from ubi9-micro just for tar
-    kubectl exec -n flightctl-external "${API_POD}" --context kind-kind  -- cat /root/.flightctl/$f > ~/.flightctl/$f
-  done
-
-  chmod og-rwx ~/.flightctl/certs/*.key
+if [ "$ONLY_DB" ]; then
+  exit 0
 fi
 
-# in github CI load docker-image does not seem to work for our images
-kind_load_image localhost/git-server:latest
-kind_load_image docker.io/library/registry:2
+if [ "$AUTH" ]; then
+  kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
+  kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
+fi
 
-# deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
-helm ${METHOD} --values ./deploy/helm/e2e-extras/values.kind.yaml flightctl-e2e-extras \
-                        ./deploy/helm/e2e-extras/ --kube-context kind-kind
+kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
 
-sudo tee /etc/containers/registries.conf.d/flightctl-e2e.conf <<EOF
-[[registry]]
-location = "${IP}:5000"
-insecure = true
-[[registry]]
-location = "localhost:5000"
-insecure = true
-EOF
+LOGGED_IN=false
+# attempt to login, it could take some time for API to be stable
+for i in {1..60}; do
+  if [ "$AUTH" ]; then
+    PASS=$(kubectl get secret keycloak-demouser-secret -n flightctl-external -o json | jq -r '.data.password' | base64 -d)
+    TOKEN=$(curl -d client_id=flightctl -d username=demouser -d password=${PASS} -d grant_type=password http://auth.${IP}.nip.io:${KEYCLOAK_PORT}/realms/flightctl/protocol/openid-connect/token | jq -r '.access_token')
+    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:${API_PORT} --token ${TOKEN}; then
+      LOGGED_IN=true
+      break
+    fi
+  else
+    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:${API_PORT}; then
+      LOGGED_IN=true
+      break
+    fi
+  fi
+  sleep 5
+done
+
+if [[ "${LOGGED_IN}" == "false" ]]; then
+  echo "Failed to login to the API"
+  exit 1
+fi
+

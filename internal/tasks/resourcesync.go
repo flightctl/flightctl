@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -31,7 +32,7 @@ type ResourceSync struct {
 type genericResourceMap map[string]interface{}
 
 var validFileExtensions = []string{"json", "yaml", "yml"}
-var supportedResources = []string{model.FleetKind}
+var supportedResources = []string{api.FleetKind}
 
 func NewResourceSync(callbackManager CallbackManager, store store.Store, log logrus.FieldLogger) *ResourceSync {
 	return &ResourceSync{
@@ -81,7 +82,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		return nil
 	}
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, rs.Name)
+	owner := util.SetResourceOwner(api.ResourceSyncKind, rs.Name)
 	fleets, err := r.parseFleets(resources, owner)
 	if err != nil {
 		err := fmt.Errorf("resourcesync/%s: error: %w", rs.Name, err)
@@ -93,9 +94,14 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 
 	fleetsPreOwned := make([]api.Fleet, 0)
 
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner}, false)
+	if err != nil {
+		return err
+	}
+
 	listParams := store.ListParams{
-		Owners: []string{*owner},
-		Limit:  100,
+		Limit:         100,
+		FieldSelector: fs,
 	}
 	for {
 		listRes, err := r.store.Fleet().List(ctx, rs.OrgID, listParams)
@@ -212,7 +218,7 @@ func (r *ResourceSync) extractResourcesFromDir(mfs billy.Filesystem, path string
 		return nil, err
 	}
 	for _, file := range files {
-		if !file.IsDir() && isValidFile(file.Name()) { // Not going recursivly into subfolders
+		if !file.IsDir() && isValidFile(file.Name()) { // Not going recursively into subfolders
 			resources, err := r.extractResourcesFromFile(mfs, mfs.Join(path, file.Name()))
 			if err != nil {
 				return nil, err
@@ -282,7 +288,7 @@ func (r ResourceSync) parseFleets(resources []genericResourceMap, owner *string)
 		}
 
 		switch kind {
-		case model.FleetKind:
+		case api.FleetKind:
 			var fleet api.Fleet
 			err := yamlutil.Unmarshal(buf, &fleet)
 			if err != nil {

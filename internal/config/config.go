@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
@@ -15,10 +16,12 @@ const (
 )
 
 type Config struct {
-	Database *dbConfig    `json:"database,omitempty"`
-	Service  *svcConfig   `json:"service,omitempty"`
-	Queue    *queueConfig `json:"queue,omitempty"`
-	Auth     *authConfig  `json:"auth,omitempty"`
+	Database   *dbConfig         `json:"database,omitempty"`
+	Service    *svcConfig        `json:"service,omitempty"`
+	Queue      *queueConfig      `json:"queue,omitempty"`
+	KV         *kvConfig         `json:"kv,omitempty"`
+	Auth       *authConfig       `json:"auth,omitempty"`
+	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
 }
 
 type dbConfig struct {
@@ -31,32 +34,52 @@ type dbConfig struct {
 }
 
 type svcConfig struct {
-	Address              string   `json:"address,omitempty"`
-	AgentEndpointAddress string   `json:"agentEndpointAddress,omitempty"`
-	AgentGrpcAddress     string   `json:"agentGrpcAddress,omitempty"`
-	CertStore            string   `json:"cert,omitempty"`
-	BaseUrl              string   `json:"baseUrl,omitempty"`
-	BaseAgentEndpointUrl string   `json:"baseAgentEndpointUrl,omitempty"`
-	BaseAgentGrpcUrl     string   `json:"baseAgentGrpcUrl,omitempty"`
-	BaseUIUrl            string   `json:"baseUIUrl,omitempty"`
-	CaCertFile           string   `json:"caCertFile,omitempty"`
-	CaKeyFile            string   `json:"caKeyFile,omitempty"`
-	SrvCertFile          string   `json:"srvCertFile,omitempty"`
-	SrvKeyFile           string   `json:"srvKeyFile,omitempty"`
-	AltNames             []string `json:"altNames,omitempty"`
-	LogLevel             string   `json:"logLevel,omitempty"`
+	Address               string        `json:"address,omitempty"`
+	AgentEndpointAddress  string        `json:"agentEndpointAddress,omitempty"`
+	CertStore             string        `json:"cert,omitempty"`
+	BaseUrl               string        `json:"baseUrl,omitempty"`
+	BaseAgentEndpointUrl  string        `json:"baseAgentEndpointUrl,omitempty"`
+	BaseUIUrl             string        `json:"baseUIUrl,omitempty"`
+	CaCertFile            string        `json:"caCertFile,omitempty"`
+	CaKeyFile             string        `json:"caKeyFile,omitempty"`
+	SrvCertFile           string        `json:"srvCertFile,omitempty"`
+	SrvKeyFile            string        `json:"srvKeyFile,omitempty"`
+	AltNames              []string      `json:"altNames,omitempty"`
+	LogLevel              string        `json:"logLevel,omitempty"`
+	HttpReadTimeout       util.Duration `json:"httpReadTimeout,omitempty"`
+	HttpReadHeaderTimeout util.Duration `json:"httpReadHeaderTimeout,omitempty"`
+	HttpWriteTimeout      util.Duration `json:"httpWriteTimeout,omitempty"`
+	HttpIdleTimeout       util.Duration `json:"httpIdleTimeout,omitempty"`
+	HttpMaxNumHeaders     int           `json:"httpMaxNumHeaders,omitempty"`
+	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
+	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
+	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
 }
 
 type queueConfig struct {
 	AmqpURL string `json:"amqpUrl,omitempty"`
 }
 
+type kvConfig struct {
+	Hostname string `json:"hostname,omitempty"`
+	Port     uint   `json:"port,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
 type authConfig struct {
-	OpenShiftApiUrl       string `json:"openShiftApiUrl,omitempty"`
-	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
-	InternalOIDCAuthority string `json:"internalOidcAuthority,omitempty"`
-	CACert                string `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify bool   `json:"insecureSkipTlsVerify,omitempty"`
+	OpenShiftApiUrl         string `json:"openShiftApiUrl,omitempty"`
+	InternalOpenShiftApiUrl string `json:"internalOpenShiftApiUrl,omitempty"`
+	OIDCAuthority           string `json:"oidcAuthority,omitempty"`
+	InternalOIDCAuthority   string `json:"internalOidcAuthority,omitempty"`
+	CACert                  string `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool   `json:"insecureSkipTlsVerify,omitempty"`
+	K8sRBACNs               string `json:"k8sRbacNs,omitempty"`
+}
+
+type prometheusConfig struct {
+	Address        string    `json:"address,omitempty"`
+	SloMax         float64   `json:"sloMax,omitempty"`
+	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
 }
 
 func ConfigDir() string {
@@ -86,17 +109,33 @@ func NewDefault() *Config {
 			Password: "adminpass",
 		},
 		Service: &svcConfig{
-			Address:              ":3443",
-			AgentEndpointAddress: ":7443",
-			AgentGrpcAddress:     ":7444",
-			CertStore:            CertificateDir(),
-			BaseUrl:              "https://localhost:3443",
-			BaseAgentEndpointUrl: "https://localhost:7443",
-			BaseAgentGrpcUrl:     "grpcs://localhost:7444",
-			LogLevel:             "info",
+			Address:               ":3443",
+			AgentEndpointAddress:  ":7443",
+			CertStore:             CertificateDir(),
+			BaseUrl:               "https://localhost:3443",
+			BaseAgentEndpointUrl:  "https://localhost:7443",
+			LogLevel:              "info",
+			HttpReadTimeout:       util.Duration(5 * time.Minute),
+			HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
+			HttpWriteTimeout:      util.Duration(5 * time.Minute),
+			HttpIdleTimeout:       util.Duration(5 * time.Minute),
+			HttpMaxNumHeaders:     32,
+			HttpMaxHeaderBytes:    32 * 1024, // 32KB
+			HttpMaxUrlLength:      2000,
+			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
 		},
 		Queue: &queueConfig{
 			AmqpURL: "amqp://localhost:5672",
+		},
+		KV: &kvConfig{
+			Hostname: "localhost",
+			Port:     6379,
+			Password: "adminpass",
+		},
+		Prometheus: &prometheusConfig{
+			Address:        ":15690",
+			SloMax:         4.0,
+			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
 		},
 	}
 	return c
@@ -130,7 +169,7 @@ func Load(cfgFile string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %v", err)
 	}
-	c := &Config{}
+	c := NewDefault()
 	if err := yaml.Unmarshal(contents, c); err != nil {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}

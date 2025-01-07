@@ -10,12 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	RepositoryAPI      = "v1alpha1"
-	RepositoryKind     = "Repository"
-	RepositoryListKind = "RepositoryList"
-)
-
 type Repository struct {
 	Resource
 
@@ -59,7 +53,8 @@ func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error)
 	return &Repository{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -110,15 +105,15 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 			}
 		}
 	}
-	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
 
 	return api.Repository{
-		ApiVersion: RepositoryAPI,
-		Kind:       RepositoryKind,
+		ApiVersion: api.RepositoryAPIVersion,
+		Kind:       api.RepositoryKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(f.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(f.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(f.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(f.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
@@ -129,8 +124,8 @@ func (f *Repository) ToApiResource() (api.Repository, error) {
 func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) (api.RepositoryList, error) {
 	if dl == nil {
 		return api.RepositoryList{
-			ApiVersion: RepositoryAPI,
-			Kind:       RepositoryListKind,
+			ApiVersion: api.RepositoryAPIVersion,
+			Kind:       api.RepositoryListKind,
 			Items:      []api.Repository{},
 		}, nil
 	}
@@ -140,16 +135,16 @@ func (dl RepositoryList) ToApiResource(cont *string, numRemaining *int64) (api.R
 		repo, err := repository.ToApiResource()
 		if err != nil {
 			return api.RepositoryList{
-				ApiVersion: RepositoryAPI,
-				Kind:       RepositoryListKind,
+				ApiVersion: api.RepositoryAPIVersion,
+				Kind:       api.RepositoryListKind,
 				Items:      []api.Repository{},
 			}, err
 		}
 		repositoryList[i] = repo
 	}
 	ret := api.RepositoryList{
-		ApiVersion: RepositoryAPI,
-		Kind:       RepositoryListKind,
+		ApiVersion: api.RepositoryAPIVersion,
+		Kind:       api.RepositoryListKind,
 		Items:      repositoryList,
 		Metadata:   api.ListMeta{},
 	}

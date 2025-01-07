@@ -4,7 +4,7 @@ metadata:
   labels:
     flightctl.service: flightctl-db
   name: flightctl-db
-  namespace:  {{ default .Release.Namespace .Values.global.flightctl.internalNamespace }}
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
   replicas: 1
   selector:
@@ -17,22 +17,28 @@ spec:
       labels:
         flightctl.service: flightctl-db
     spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       containers:
         - env:
             - name: PGPASSWORD
-              value: {{ .Values.flightctl.db.password }}
+              value: {{ .Values.db.password }}
             - name: POSTGRESQL_DATABASE
               value: flightctl
             - name: POSTGRESQL_MASTER_PASSWORD
-              value: {{ .Values.flightctl.db.masterPassword }}
+              value: {{ .Values.db.masterPassword }}
             - name: POSTGRESQL_MASTER_USER
-              value: {{ .Values.flightctl.db.masterUser }}
+              value: {{ .Values.db.masterUser }}
             - name: POSTGRESQL_PASSWORD
-              value: {{ .Values.flightctl.db.userPassword }}
+              value: {{ .Values.db.userPassword }}
             - name: POSTGRESQL_USER
-              value: {{ .Values.flightctl.db.user }}
-          image: {{ .Values.flightctl.db.image.image }}:{{ .Values.flightctl.db.image.tag }}
-          imagePullPolicy: {{ .Values.flightctl.db.image.pullPolicy }}
+              value: {{ .Values.db.user }}
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: {{ .Values.db.maxConnections | quote }}
+          image: {{ .Values.db.image.image }}:{{ .Values.db.image.tag }}
+          imagePullPolicy: {{ .Values.db.image.pullPolicy }}
           name: flightctl-db
           ports:
             - containerPort: 5432
@@ -40,13 +46,22 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/pgsql/data
               name: flightctl-db
+            - mountPath: /usr/share/container-scripts/postgresql/start/enable-superuser.sh
+              subPath: enable-superuser.sh
+              name: init-scripts
           resources:
             requests:
-              cpu: "1000m"
-              memory: "2Gi"
+              cpu: {{ .Values.db.resources.requests.cpu}}
+              memory: {{ .Values.db.resources.requests.memory}}
+            limits:
+              cpu: {{ .Values.db.resources.limits.cpu}}
+              memory: {{ .Values.db.resources.limits.memory}}
       restartPolicy: Always
       volumes:
         - name: flightctl-db
           persistentVolumeClaim:
             claimName: flightctl-db
+        - name: init-scripts
+          configMap:
+            name: flightctl-db
 

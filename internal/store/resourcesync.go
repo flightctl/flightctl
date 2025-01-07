@@ -46,7 +46,37 @@ func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 }
 
 func (s *ResourceSyncStore) InitialMigration() error {
-	return s.db.AutoMigrate(&model.ResourceSync{})
+	if err := s.db.AutoMigrate(&model.ResourceSync{}); err != nil {
+		return err
+	}
+
+	// Create GIN index for ResourceSync labels
+	if !s.db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_labels") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_resource_syncs_labels ON resource_syncs USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.ResourceSync{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for ResourceSync annotations
+	if !s.db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_resource_syncs_annotations ON resource_syncs USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.ResourceSync{}, "Annotations"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
@@ -66,7 +96,15 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	var nextContinue *string
 	var numRemaining *int64
 
-	query := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
+	query, err := ListQuery(&model.ResourceSync{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
@@ -88,7 +126,10 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery := BuildBaseListQuery(s.db.Model(&resourceSyncs), orgId, listParams)
+			countQuery, err := ListQuery(&model.ResourceSync{}).Build(ctx, s.db, orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
 			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
 		}
 		nextContinueStruct.Count = numRemainingVal
@@ -99,15 +140,15 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	}
 
 	apiResourceSyncList := resourceSyncs.ToApiResource(nextContinue, numRemaining)
-	return &apiResourceSyncList, flterrors.ErrorFromGormError(result.Error)
+	return &apiResourceSyncList, ErrorFromGormError(result.Error)
 }
 
 func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Unscoped().Where("org_id = ?", orgId).Delete(&model.ResourceSync{}).Error; err != nil {
-			return flterrors.ErrorFromGormError(err)
+			return ErrorFromGormError(err)
 		}
-		return callback(ctx, tx, orgId, model.ResourceSyncKind)
+		return callback(ctx, tx, orgId, api.ResourceSyncKind)
 	})
 }
 
@@ -117,7 +158,7 @@ func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name strin
 	}
 	result := s.db.First(&resourcesync)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	apiResourceSync := resourcesync.ToApiResource()
 	return &apiResourceSync, nil
@@ -127,7 +168,7 @@ func (s *ResourceSyncStore) createResourceSync(resourceSync *model.ResourceSync)
 	resourceSync.Generation = lo.ToPtr[int64](1)
 	resourceSync.ResourceVersion = lo.ToPtr[int64](1)
 	if result := s.db.Create(resourceSync); result.Error != nil {
-		err := flterrors.ErrorFromGormError(result.Error)
+		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
 	}
 	return false, nil
@@ -149,7 +190,7 @@ func (s *ResourceSyncStore) updateResourceSync(existingRecord, resourceSync *mod
 
 	result := query.Updates(&resourceSync)
 	if result.Error != nil {
-		return false, flterrors.ErrorFromGormError(result.Error)
+		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -171,6 +212,7 @@ func (s *ResourceSyncStore) createOrUpdate(orgId uuid.UUID, resource *api.Resour
 	}
 	resourceSync.OrgID = orgId
 	resourceSync.Status = nil
+	resourceSync.Annotations = nil
 
 	existingRecord, err := getExistingRecord[model.ResourceSync](s.db, resourceSync.Name, orgId)
 	if err != nil {
@@ -213,7 +255,7 @@ func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) 
 		"status":           model.MakeJSONField(resource.Status),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
-	return flterrors.ErrorFromGormError(result.Error)
+	return ErrorFromGormError(result.Error)
 }
 
 func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error {
@@ -221,14 +263,14 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
+			return ErrorFromGormError(result.Error)
 		}
 
 		result = innerTx.Unscoped().Delete(&existingRecord)
 		if result.Error != nil {
-			return flterrors.ErrorFromGormError(result.Error)
+			return ErrorFromGormError(result.Error)
 		}
-		owner := util.SetResourceOwner(model.ResourceSyncKind, name)
+		owner := util.SetResourceOwner(api.ResourceSyncKind, name)
 		return callback(ctx, innerTx, orgId, *owner)
 	})
 
@@ -248,7 +290,7 @@ func (s *ResourceSyncStore) ListIgnoreOrg() ([]model.ResourceSync, error) {
 	var resourcesyncs model.ResourceSyncList
 	result := s.db.Model(&resourcesyncs).Find(&resourcesyncs)
 	if result.Error != nil {
-		return nil, flterrors.ErrorFromGormError(result.Error)
+		return nil, ErrorFromGormError(result.Error)
 	}
 	return resourcesyncs, nil
 }

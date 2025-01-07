@@ -22,25 +22,23 @@ import (
 
 type LoginOptions struct {
 	GlobalOptions
-	Token                  string
-	Web                    bool
-	ClientId               string
-	InsecureSkipVerify     bool
-	CAFile                 string
-	AuthInsecureSkipVerify bool
-	AuthCAFile             string
+	Token              string
+	Web                bool
+	ClientId           string
+	InsecureSkipVerify bool
+	CAFile             string
+	AuthCAFile         string
 }
 
 func DefaultLoginOptions() *LoginOptions {
 	return &LoginOptions{
-		GlobalOptions:          DefaultGlobalOptions(),
-		Token:                  "",
-		Web:                    false,
-		ClientId:               "",
-		InsecureSkipVerify:     false,
-		CAFile:                 "",
-		AuthInsecureSkipVerify: false,
-		AuthCAFile:             "",
+		GlobalOptions:      DefaultGlobalOptions(),
+		Token:              "",
+		Web:                false,
+		ClientId:           "",
+		InsecureSkipVerify: false,
+		CAFile:             "",
+		AuthCAFile:         "",
 	}
 }
 
@@ -73,9 +71,8 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&o.Web, "web", "w", o.Web, "Login via browser")
 	fs.StringVarP(&o.ClientId, "client-id", "", o.ClientId, "ClientId to be used for Oauth2 requests")
 	fs.StringVarP(&o.CAFile, "certificate-authority", "", o.CAFile, "Path to a cert file for the certificate authority")
-	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	fs.StringVarP(&o.AuthCAFile, "auth-certificate-authority", "", o.AuthCAFile, "Path to a cert file for the auth certificate authority")
-	fs.BoolVarP(&o.AuthInsecureSkipVerify, "auth-insecure-skip-tls-verify", "", o.AuthInsecureSkipVerify, "If true, the auth's certificate will not be checked for validity. This will make your HTTPS connections insecure")
+	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -100,7 +97,7 @@ type OauthServerResponse struct {
 func (o *LoginOptions) getAuthClientTransport() (*http.Transport, error) {
 	authTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: o.AuthInsecureSkipVerify, //nolint:gosec
+			InsecureSkipVerify: o.InsecureSkipVerify, //nolint:gosec
 		},
 	}
 
@@ -270,12 +267,19 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to get auth info: %w", err)
 	}
 
-	if resp.StatusCode() == http.StatusTeapot {
+	respCode := resp.StatusCode()
+
+	if respCode == http.StatusTeapot {
 		fmt.Println("Auth is disabled")
 		err = config.Persist(o.ConfigFilePath)
 		if err != nil {
 			return fmt.Errorf("persisting client config: %w", err)
 		}
+		return nil
+	}
+
+	if respCode != http.StatusOK {
+		fmt.Printf("Unexpected response code: %v\n", respCode)
 		return nil
 	}
 
@@ -317,7 +321,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			fmt.Printf("You must obtain an API token by visiting %s/request\n", oauthConfig.TokenEndpoint)
 			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n", config.Service.Server)
 			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
-			return nil
+			return fmt.Errorf("no token provided")
 		} else {
 			token = o.Token
 		}
@@ -326,7 +330,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			token = o.Token
 		} else {
 			fmt.Printf("Unknown auth provider. You can try logging in using \"flightctl login %s --token=<token>\"\n", config.Service.Server)
-			return nil
+			return fmt.Errorf("unknown auth provider")
 		}
 	}
 	c, err = client.NewFromConfig(config)
@@ -340,8 +344,18 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("validating token: %w", err)
 	}
 
-	if res.StatusCode() != http.StatusOK {
+	statusCode := res.StatusCode()
+
+	if statusCode == http.StatusUnauthorized {
 		return fmt.Errorf("the token provided is invalid or expired")
+	}
+
+	if statusCode == http.StatusInternalServerError && res.JSON500 != nil {
+		return fmt.Errorf("%v: %v", statusCode, res.JSON500.Message)
+	}
+
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %v", res.StatusCode())
 	}
 
 	config.AuthInfo.Token = token

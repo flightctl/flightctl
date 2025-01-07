@@ -10,12 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	ResourceSyncAPI      = "v1alpha1"
-	ResourceSyncKind     = "ResourceSync"
-	ResourceSyncListKind = "ResourceSyncList"
-)
-
 type ResourceSync struct {
 	Resource
 
@@ -53,7 +47,8 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 	return &ResourceSync{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -76,15 +71,14 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 		status = r.Status.Data
 	}
 
-	metadataLabels := util.LabelArrayToMap(r.Resource.Labels)
-
 	return api.ResourceSync{
-		ApiVersion: ResourceSyncAPI,
-		Kind:       ResourceSyncKind,
+		ApiVersion: api.ResourceSyncAPIVersion,
+		Kind:       api.ResourceSyncKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(r.Name),
 			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(r.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(r.Resource.Annotations)),
 			Generation:        r.Generation,
 			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),
 		},
@@ -96,8 +90,8 @@ func (r *ResourceSync) ToApiResource() api.ResourceSync {
 func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.ResourceSyncList {
 	if rl == nil {
 		return api.ResourceSyncList{
-			ApiVersion: ResourceSyncAPI,
-			Kind:       ResourceSyncListKind,
+			ApiVersion: api.ResourceSyncAPIVersion,
+			Kind:       api.ResourceSyncListKind,
 			Items:      []api.ResourceSync{},
 		}
 	}
@@ -107,8 +101,8 @@ func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.
 		resourceSyncList[i] = resourceSync.ToApiResource()
 	}
 	ret := api.ResourceSyncList{
-		ApiVersion: ResourceSyncAPI,
-		Kind:       ResourceSyncListKind,
+		ApiVersion: api.ResourceSyncAPIVersion,
+		Kind:       api.ResourceSyncListKind,
 		Items:      resourceSyncList,
 		Metadata:   api.ListMeta{},
 	}

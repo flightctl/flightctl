@@ -89,7 +89,7 @@ func TestMemoryMonitor(t *testing.T) {
 	go memoryMonitor.Run(ctx)
 
 	samplingInterval := 100 * time.Millisecond
-	monitorSpec := v1alpha1.CPUResourceMonitorSpec{
+	monitorSpec := v1alpha1.CpuResourceMonitorSpec{
 		SamplingInterval: samplingInterval.String(),
 		MonitorType:      CPUMonitorType,
 		AlertRules: []v1alpha1.ResourceAlertRule{
@@ -115,7 +115,7 @@ func TestMemoryMonitor(t *testing.T) {
 	}
 
 	rm := &v1alpha1.ResourceMonitor{}
-	err = rm.FromCPUResourceMonitorSpec(monitorSpec)
+	err = rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
 	updated, err := memoryMonitor.Update(rm)
@@ -129,7 +129,7 @@ func TestMemoryMonitor(t *testing.T) {
 		return len(alerts) == 1
 	}, retryTimeout, retryInterval, "alert add")
 
-	deviceResourceStatusType, alertMsg := GetHighestSeverityResourceStatusFromAlerts(MemoryMonitorType, alerts)
+	deviceResourceStatusType, alertMsg := getHighestSeverityResourceStatusFromAlerts(MemoryMonitorType, alerts)
 	require.NotEmpty(alertMsg) // ensure we have an alert message
 
 	require.Equal(v1alpha1.DeviceResourceStatusWarning, deviceResourceStatusType)
@@ -137,7 +137,7 @@ func TestMemoryMonitor(t *testing.T) {
 	// update the monitor to remove all alerts
 	monitorSpec.AlertRules = monitorSpec.AlertRules[:0]
 	rm = &v1alpha1.ResourceMonitor{}
-	err = rm.FromCPUResourceMonitorSpec(monitorSpec)
+	err = rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
 	updated, err = memoryMonitor.Update(rm)

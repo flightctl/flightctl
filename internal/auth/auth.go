@@ -20,6 +20,8 @@ import (
 const (
 	// DisableAuthEnvKey is the environment variable key used to disable auth when developing.
 	DisableAuthEnvKey = "FLIGHTCTL_DISABLE_AUTH"
+	k8sCACertPath     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	k8sApiService     = "https://kubernetes.default.svc"
 )
 
 type AuthNMiddleware interface {
@@ -77,10 +79,23 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 			tlsConfig.RootCAs = caCertPool
 		}
 		if cfg.Auth.OpenShiftApiUrl != "" {
+			if cfg.Auth.InternalOpenShiftApiUrl == k8sApiService {
+				_, err := os.Stat(k8sCACertPath)
+				if err == nil {
+					k8sCert, err := os.ReadFile(k8sCACertPath)
+					if err != nil {
+						return nil, fmt.Errorf("failed to read k8s ca.crt: %w", err)
+					}
+					if tlsConfig.RootCAs == nil {
+						tlsConfig.RootCAs = x509.NewCertPool()
+					}
+					tlsConfig.RootCAs.AppendCertsFromPEM(k8sCert)
+				}
+			}
 			apiUrl := strings.TrimSuffix(cfg.Auth.OpenShiftApiUrl, "/")
 			log.Println(fmt.Sprintf("OpenShift auth enabled: %s", apiUrl))
-			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: apiUrl, ClientTlsConfig: tlsConfig}}
-			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: apiUrl, ClientTlsConfig: tlsConfig}
+			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: apiUrl, ClientTlsConfig: tlsConfig, Namespace: cfg.Auth.K8sRBACNs}}
+			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: apiUrl, InternalOpenShiftApiUrl: cfg.Auth.InternalOpenShiftApiUrl, ClientTlsConfig: tlsConfig}
 		} else if cfg.Auth.OIDCAuthority != "" {
 			oidcUrl := strings.TrimSuffix(cfg.Auth.OIDCAuthority, "/")
 			internalOidcUrl := strings.TrimSuffix(cfg.Auth.InternalOIDCAuthority, "/")

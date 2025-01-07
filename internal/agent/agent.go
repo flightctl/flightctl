@@ -5,23 +5,25 @@ import (
 	"crypto"
 	"encoding/base32"
 	"fmt"
-	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
+	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -30,7 +32,8 @@ import (
 )
 
 const (
-	gracefulShutdownTimeout = 15 * time.Second
+	// TODO: expose via config
+	gracefulShutdownTimeout = 2 * time.Minute
 )
 
 // New creates a new agent.
@@ -56,24 +59,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	defer utilruntime.HandleCrash()
 	ctx, cancel := context.WithCancel(ctx)
-
-	// handle teardown
-	signals := make(chan os.Signal, 2)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	go func(ctx context.Context) {
-		select {
-		case s := <-signals:
-			a.log.Infof("Agent received shutdown signal: %s", s)
-			// give the agent time to shutdown gracefully
-			time.Sleep(gracefulShutdownTimeout)
-			close(signals)
-			cancel()
-		case <-ctx.Done():
-			a.log.Infof("Context has been cancelled, shutting down.")
-			close(signals)
-			cancel()
-		}
-	}(ctx)
+	defer cancel()
 
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.testRootDir))
@@ -107,21 +93,39 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// create bootc client
-	bootcClient := container.NewBootcCmd(executer)
-
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
-		Cap:      3 * time.Minute,
+		Cap:      1 * time.Minute,
 		Duration: 10 * time.Second,
 		Factor:   1.5,
-		Steps:    24,
+		Steps:    6,
 	}
+
+	// create bootc client
+	bootcClient := client.NewBootc(a.log, executer)
+
+	// create podman client
+	podmanClient := client.NewPodman(a.log, executer, backoff)
+
+	// create systemd client
+	systemdClient := client.NewSystemd(executer)
+
+	// create system client
+	systemClient := client.NewSystem(executer, deviceReadWriter, a.config.DataDir)
+	if err := systemClient.Initialize(); err != nil {
+		return err
+	}
+
+	// create shutdown manager
+	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+
+	policyManager := policy.NewManager(a.log)
 
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
 		a.config.DataDir,
+		policyManager,
 		deviceReadWriter,
 		bootcClient,
 		backoff,
@@ -134,20 +138,36 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(executer, a.log)
+	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
+
+	// create application manager
+	applicationManager := applications.NewManager(a.log, executer, podmanClient, systemClient)
+
+	// register the application manager with the shutdown manager
+	shutdownManager.Register("applications", applicationManager.Stop)
+
+	// create systemd manager
+	systemdManager := systemd.NewManager(a.log, systemdClient)
+
+	// create os manager
+	osManager := os.NewManager(a.log, bootcClient, podmanClient)
 
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
-		resourceManager,
-		hookManager,
-		executer,
+		systemClient,
 		a.log,
 	)
 
+	// register status exporters
+	statusManager.RegisterStatusExporter(applicationManager)
+	statusManager.RegisterStatusExporter(systemdManager)
+	statusManager.RegisterStatusExporter(resourceManager)
+	statusManager.RegisterStatusExporter(osManager)
+	statusManager.RegisterStatusExporter(specManager)
+
 	// create config controller
 	configController := config.NewController(
-		hookManager,
 		deviceReadWriter,
 		a.log,
 	)
@@ -159,10 +179,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		specManager,
 		statusManager,
-		configController,
+		hookManager,
 		enrollmentClient,
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		&a.config.ManagementService.Config,
+		systemClient,
 		backoff,
 		a.log,
 		a.config.DefaultLabels,
@@ -174,7 +195,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create the gRPC client this must be done after bootstrap
-	grpcClient, err := newGrpcClient(a.config)
+	grpcClient, err := newGrpcClient(&a.config.ManagementService)
 	if err != nil {
 		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
@@ -185,19 +206,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 	)
 
-	// create os image controller
-	osImageController := device.NewOSImageController(
-		executer,
-		statusManager,
-		specManager,
-		a.log,
-	)
-
 	// create console controller
-	consoleController := device.NewConsoleController(
+	consoleController := console.NewController(
 		grpcClient,
 		deviceName,
 		executer,
+		a.log,
+	)
+
+	applicationsController := applications.NewController(
+		podmanClient,
+		applicationManager,
+		deviceReadWriter,
 		a.log,
 	)
 
@@ -207,17 +227,27 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
+		applicationManager,
+		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
 		hookManager,
+		osManager,
+		policyManager,
+		applicationsController,
 		configController,
-		osImageController,
 		resourceController,
 		consoleController,
+		bootcClient,
+		podmanClient,
+		backoff,
 		a.log,
 	)
 
-	go hookManager.Run(ctx)
+	// register agent with shutdown manager
+	shutdownManager.Register("agent", agent.Stop)
+
+	go shutdownManager.Run(ctx)
 	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
@@ -231,11 +261,8 @@ func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newGrpcClient(cfg *Config) (grpc_v1.RouterServiceClient, error) {
-	if cfg.GrpcManagementEndpoint == "" {
-		return nil, fmt.Errorf("no gRPC endpoint, disabling console functionality")
-	}
-	client, err := client.NewGRPCClientFromConfig(&cfg.ManagementService.Config, cfg.GrpcManagementEndpoint)
+func newGrpcClient(cfg *ManagementService) (grpc_v1.RouterServiceClient, error) {
+	client, err := client.NewGRPCClientFromConfig(&cfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}

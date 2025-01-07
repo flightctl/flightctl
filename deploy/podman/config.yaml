@@ -5,6 +5,10 @@ database:
   name: flightctl
   user: admin
   password: adminpass
+kv:
+  hostname: flightctl-kv
+  port: 6379
+  password: adminpass
 service:
   address: :3443
   baseUrl: https://localhost:3443
