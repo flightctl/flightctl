@@ -44,16 +44,16 @@ func TestAnnotationSelectorQueries(t *testing.T) {
 
 	*/
 	testGoodOperations := map[string]string{
-		"key":                   "EXISTS(K(field16),V(key))",                                                                                                       //Exists
-		"!key":                  "NOT(EXISTS(K(field16),V(key)))",                                                                                                  //DoesNotExist
-		"key=val":               "AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val\"})))",                                                       //Equals
-		"key==val":              "AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val\"})))",                                                       //DoubleEquals
-		"key in (val1,val2)":    "AND(EXISTS(K(field16),V(key)),OR(CONTAINS(K(field16),V({\"key\": \"val1\"})),CONTAINS(K(field16),V({\"key\": \"val2\"}))))",      //In
-		"key!=val":              "NOT(AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val\"}))))",                                                  //NotEquals
-		"key notin (val1,val2)": "NOT(AND(EXISTS(K(field16),V(key)),OR(CONTAINS(K(field16),V({\"key\": \"val1\"})),CONTAINS(K(field16),V({\"key\": \"val2\"})))))", //NotIn
+		"key":                   "EXISTS(K(field16),V(key))",                                                                                                                              //Exists
+		"!key":                  "OR(ISNULL(K(field16)),NOT(EXISTS(K(field16),V(key))))",                                                                                                  //DoesNotExist
+		"key=val":               "AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val\"})))",                                                                              //Equals
+		"key==val":              "AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val\"})))",                                                                              //DoubleEquals
+		"key in (val1,val2)":    "AND(EXISTS(K(field16),V(key)),OR(CONTAINS(K(field16),V({\"key\": \"val1\"})),CONTAINS(K(field16),V({\"key\": \"val2\"}))))",                             //In
+		"key!=val":              "OR(ISNULL(K(field16)),NOT(AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val\"})))))",                                                  //NotEquals
+		"key notin (val1,val2)": "OR(ISNULL(K(field16)),NOT(AND(EXISTS(K(field16),V(key)),OR(CONTAINS(K(field16),V({\"key\": \"val1\"})),CONTAINS(K(field16),V({\"key\": \"val2\"}))))))", //NotIn
 		"key=val1, key2!=val": "AND(" +
 			"AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val1\"})))," +
-			"NOT(AND(EXISTS(K(field16),V(key2)),CONTAINS(K(field16),V({\"key2\": \"val\"}))))" +
+			"OR(ISNULL(K(field16)),NOT(AND(EXISTS(K(field16),V(key2)),CONTAINS(K(field16),V({\"key2\": \"val\"})))))" +
 			")",
 	}
 
