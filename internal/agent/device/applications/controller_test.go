@@ -3,6 +3,7 @@ package applications
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/coreos/ignition/v2/config/util"
@@ -23,12 +24,12 @@ type testApp struct {
 func TestParseApps(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
-		name      string
-		apps      []testApp
-		labels    map[string]string
-		wantNames []string
-		wantIDs   []string
-		wantErr   error
+		name         string
+		apps         []testApp
+		labels       map[string]string
+		wantNames    []string
+		wantIDPrefix []string
+		wantErr      error
 	}{
 		{
 			name: "valid app type",
@@ -36,8 +37,8 @@ func TestParseApps(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: string(AppCompose),
 			},
-			wantNames: []string{"app1"},
-			wantIDs:   []string{"app1"},
+			wantNames:    []string{"app1"},
+			wantIDPrefix: []string{"app1-"},
 		},
 		{
 			name: "unsupported app type",
@@ -59,8 +60,8 @@ func TestParseApps(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: string(AppCompose),
 			},
-			wantNames: []string{"quay.io/org/app1:latest"},
-			wantIDs:   []string{"quay_io_org_app1_latest"},
+			wantNames:    []string{"quay.io/org/app1:latest"},
+			wantIDPrefix: []string{"quay_io_org_app1_latest-"},
 		},
 		{
 			name: "no apps",
@@ -76,8 +77,8 @@ func TestParseApps(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: string(AppCompose),
 			},
-			wantNames: []string{"app1", "quay.io/org/app2:latest", "app2"},
-			wantIDs:   []string{"app1", "quay_io_org_app2_latest", "app2"},
+			wantNames:    []string{"app1", "quay.io/org/app2:latest", "app2"},
+			wantIDPrefix: []string{"app1-", "quay_io_org_app2_latest", "app2"},
 		},
 	}
 
@@ -111,8 +112,8 @@ func TestParseApps(t *testing.T) {
 				if len(tc.wantNames) > 0 {
 					require.Equal(tc.wantNames[i], app.Name())
 				}
-				if len(tc.wantIDs) > 0 {
-					require.Equal(tc.wantIDs[i], app.ID())
+				if len(tc.wantIDPrefix) > 0 {
+					require.True(strings.HasPrefix(app.ID(), tc.wantIDPrefix[i]))
 				}
 			}
 		})

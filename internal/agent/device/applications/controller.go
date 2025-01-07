@@ -170,7 +170,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 			if err != nil {
 				return nil, fmt.Errorf("%w from image: %w", errors.ErrParseAppType, err)
 			}
-			id := client.SanitizePodmanLabel(name)
+			id := newComposeID(name)
 			application := NewApplication(
 				id,
 				name,
@@ -283,7 +283,7 @@ func (c *Controller) ensureEmbedded() error {
 			if len(files) > 0 {
 				// ensure the embedded application
 				provider := EmbeddedProvider{}
-				id := client.SanitizePodmanLabel(element.Name())
+				id := newComposeID(element.Name())
 				name := element.Name()
 				app := NewApplication(id, name, provider, AppCompose)
 				if err := c.manager.Ensure(app); err != nil {
