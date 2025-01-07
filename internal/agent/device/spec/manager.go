@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/net/context"
@@ -43,18 +43,19 @@ type manager struct {
 func NewManager(
 	deviceName string,
 	dataDir string,
+	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	bootcClient container.BootcClient,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) Manager {
-	cache := newCache(log)
-	queue := newQueue(
-		log,
+	queue := newPriorityQueue(
+		defaultSpecQueueMaxSize,
 		defaultSpecRequeueMaxRetries,
-		defaultSpecQueueSize,
 		defaultSpecRequeueThreshold,
 		defaultSpecRequeueDelay,
+		policyManager,
+		log,
 	)
 	return &manager{
 		deviceName:       deviceName,
@@ -64,7 +65,7 @@ func NewManager(
 		deviceReadWriter: deviceReadWriter,
 		bootcClient:      bootcClient,
 		backoff:          backoff,
-		cache:            cache,
+		cache:            newCache(log),
 		queue:            queue,
 		log:              log,
 	}
@@ -121,7 +122,8 @@ func (s *manager) Ensure() error {
 
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
-	return s.queue.Add(newItem(desired))
+	s.queue.Add(context.TODO(), desired)
+	return nil
 }
 
 func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
@@ -190,7 +192,7 @@ func (s *manager) Upgrade(ctx context.Context) error {
 }
 
 func (s *manager) SetUpgradeFailed() {
-	s.queue.SetVersionFailed(s.cache.getRenderedVersion(Desired))
+	s.queue.SetFailed(s.cache.getRenderedVersion(Desired))
 }
 
 func (s *manager) IsUpgrading() bool {
@@ -237,7 +239,7 @@ func (s *manager) Rollback() error {
 	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
 
 	// set the desired spec as failed
-	s.queue.SetVersionFailed(desiredRenderedVersion)
+	s.queue.SetFailed(desiredRenderedVersion)
 
 	// copy the current rendered spec to the desired rendered spec
 	// this will reconcile the device with the desired "rollback" state
@@ -305,32 +307,27 @@ func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec,
 			return nil, false, err
 		}
 		s.log.Debugf("Requeuing current desired spec from disk version: %s", desired.RenderedVersion)
-		if err := s.queue.Add(newItem(desired)); err != nil {
-			return nil, false, err
-		}
+		s.queue.Add(ctx, desired)
 	} else {
 		s.log.Debugf("New template version received from management service: %s", newDesired.RenderedVersion)
-		if err := s.queue.Add(newItem(newDesired)); err != nil {
-			return nil, false, err
-		}
+		s.queue.Add(ctx, newDesired)
 	}
 
-	return s.getSpecFromQueue()
+	return s.getSpecFromQueue(ctx)
 }
 
 // getSpecFromQueue retrieves the next desired spec to reconcile.  Returns true
 // to signal requeue if no spec is available. If the spec is newer than the
 // current desired version it will be written to disk.
-func (s *manager) getSpecFromQueue() (*v1alpha1.RenderedDeviceSpec, bool,
+func (s *manager) getSpecFromQueue(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool,
 	error) {
-	item, exists := s.queue.Next()
+	desired, exists := s.queue.Next(ctx)
 	if !exists {
 		// no spec available, signal to requeue
 		return nil, true, nil
 	}
 
 	// if this is a new version ensure we persist it to disk
-	desired := item.Spec
 	if desired.RenderedVersion != s.cache.getRenderedVersion(Desired) {
 		s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.RenderedVersion)
 		if err := s.write(Desired, desired); err != nil {
@@ -373,6 +370,10 @@ func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) err
 	return nil
 }
 
+func (s *manager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
+	return s.queue.CheckPolicy(ctx, policyType, version)
+}
+
 func (s *manager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
@@ -406,7 +407,7 @@ func (s *manager) exists(specType Type) (bool, error) {
 // to make progress.
 func (s *manager) getRenderedVersion() string {
 	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
-	if s.queue.IsVersionFailed(desiredRenderedVersion) {
+	if s.queue.IsFailed(desiredRenderedVersion) {
 		return desiredRenderedVersion
 	}
 	return s.cache.getRenderedVersion(Current)
@@ -496,18 +497,4 @@ func writeRenderedToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDevice
 
 func IsUpgrading(current *v1alpha1.RenderedDeviceSpec, desired *v1alpha1.RenderedDeviceSpec) bool {
 	return current.RenderedVersion != desired.RenderedVersion
-}
-
-func stringToInt64(s string) int64 {
-	if s == "" {
-		return 0
-	}
-	i, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0
-	}
-	if i < 0 {
-		return 0
-	}
-	return i
 }

@@ -1,6 +1,8 @@
 {{- define "flightctl.getBaseDomain" }}
   {{- if .Values.global.baseDomain }}
     {{- printf .Values.global.baseDomain }}
+  {{- else if .Values.hubConfig.ocpIngress }}
+    {{- printf .Values.hubConfig.ocpIngress }}
   {{- else }}
     {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
     {{- if .noNs }}
@@ -14,6 +16,8 @@
 {{- define "flightctl.getOpenShiftAPIUrl" }}
   {{- if .Values.global.auth.openShiftApiUrl }}
     {{- printf .Values.global.auth.openShiftApiUrl }}
+  {{- else if .Values.hubConfig.apiUrl }}
+    {{- printf .Values.hubConfig.apiUrl }}
   {{- else }}
     {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
     {{- printf "https://api.%s:6443" $openShiftBaseDomain }}

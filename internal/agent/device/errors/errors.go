@@ -60,6 +60,11 @@ var (
 
 	// images
 	ErrImageNotFound = errors.New("image not found")
+
+	// policy
+	ErrDownloadPolicyNotReady = errors.New("download policy not ready")
+	ErrUpdatePolicyNotReady   = errors.New("update policy not ready")
+	ErrInvalidPolicyType      = errors.New("invalid policy type")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
@@ -70,6 +75,8 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, ErrRetryable):
 		return true
 	case errors.Is(err, ErrNetwork):
+		return true
+	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
