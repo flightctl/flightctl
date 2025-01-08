@@ -98,7 +98,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		switch err {
 		case nil:
 			// Create an empty DeviceList and set the summary
-			emptyList := model.DeviceList.ToApiResource(nil, nil, nil)
+			emptyList, _ := (*model.DeviceList).ToApiResource(nil, nil, nil)
 			emptyList.Summary = result
 			return server.ListDevices200JSONResponse(emptyList), nil
 		default:

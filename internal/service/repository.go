@@ -259,7 +259,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(repo *model.Repository)
+	var updateCallback func(before *model.Repository, after *model.Repository)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.RepositoryUpdatedCallback

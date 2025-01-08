@@ -2,6 +2,7 @@ package kvstore_test
 
 import (
 	"context"
+	"testing"
 
 	"github.com/flightctl/flightctl/internal/kvstore"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -10,6 +11,11 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
+
+func TestStore(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "KVstore Suite")
+}
 
 var _ = Describe("FleetSelector", func() {
 	var (

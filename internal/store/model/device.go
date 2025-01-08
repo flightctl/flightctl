@@ -7,6 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
@@ -93,9 +94,9 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	}, nil
 }
 
-func (d *Device) ToApiResource() api.Device {
+func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	if d == nil {
-		return api.Device{}
+		return &api.Device{}, nil
 	}
 
 	spec := api.DeviceSpec{}
@@ -119,7 +120,7 @@ func (d *Device) ToApiResource() api.Device {
 	if d.ResourceVersion != nil {
 		resourceVersion = lo.ToPtr(strconv.FormatInt(*d.ResourceVersion, 10))
 	}
-	return api.Device{
+	return &api.Device{
 		ApiVersion: api.DeviceAPIVersion,
 		Kind:       api.DeviceKind,
 		Metadata: api.ObjectMeta{
@@ -133,24 +134,25 @@ func (d *Device) ToApiResource() api.Device {
 		},
 		Spec:   &spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.DeviceList {
+func (dl *DeviceList) ToApiResource(cont *string, numRemaining *int64) (api.DeviceList, error) {
 	if dl == nil {
 		return api.DeviceList{
 			ApiVersion: api.DeviceAPIVersion,
 			Kind:       api.DeviceListKind,
 			Items:      []api.Device{},
-		}
+		}, nil
 	}
 
-	deviceList := make([]api.Device, len(dl))
+	deviceList := make([]api.Device, len(*dl))
 	applicationStatuses := make(map[string]int64)
 	summaryStatuses := make(map[string]int64)
 	updateStatuses := make(map[string]int64)
-	for i, device := range dl {
-		deviceList[i] = device.ToApiResource()
+	for i, device := range *dl {
+		apiResource, _ := device.ToApiResource()
+		deviceList[i] = *apiResource
 		applicationStatus := string(deviceList[i].Status.ApplicationsSummary.Status)
 		applicationStatuses[applicationStatus] = applicationStatuses[applicationStatus] + 1
 		summaryStatus := string(deviceList[i].Status.Summary.Status)
@@ -167,12 +169,106 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 			ApplicationStatus: applicationStatuses,
 			SummaryStatus:     summaryStatuses,
 			UpdateStatus:      updateStatuses,
-			Total:             int64(len(dl)),
+			Total:             int64(len(*dl)),
 		},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
+}
+
+func DevicePtrReturnSelf(d *Device) *Device {
+	return d
+}
+
+func (d *Device) GetKind() string {
+	return api.DeviceKind
+}
+
+func (d *Device) GetName() string {
+	return d.Name
+}
+
+func (d *Device) GetOrgID() uuid.UUID {
+	return d.OrgID
+}
+
+func (d *Device) SetOrgID(orgId uuid.UUID) {
+	d.OrgID = orgId
+}
+
+func (d *Device) GetResourceVersion() *int64 {
+	return d.ResourceVersion
+}
+
+func (d *Device) SetResourceVersion(version *int64) {
+	d.ResourceVersion = version
+}
+
+func (d *Device) GetGeneration() *int64 {
+	return d.Generation
+}
+
+func (d *Device) SetGeneration(generation *int64) {
+	d.Generation = generation
+}
+
+func (d *Device) GetOwner() *string {
+	return d.Owner
+}
+
+func (d *Device) SetOwner(owner *string) {
+	d.Owner = owner
+}
+
+func (d *Device) GetLabels() JSONMap[string, string] {
+	return d.Labels
+}
+
+func (d *Device) SetLabels(labels JSONMap[string, string]) {
+	d.Labels = labels
+}
+
+func (d *Device) GetAnnotations() JSONMap[string, string] {
+	return d.Annotations
+}
+
+func (d *Device) SetAnnotations(annotations JSONMap[string, string]) {
+	d.Annotations = annotations
+}
+
+func (d *Device) HasNilSpec() bool {
+	return d.Spec == nil
+}
+
+func (d *Device) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*Device) // Assert that the other resource is a *Device
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (d.Spec == nil && other.Spec != nil) || (d.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return api.DeviceSpecsAreEqual(d.Spec.Data, other.Spec.Data)
+}
+
+func (d *Device) GetStatusAsJson() ([]byte, error) {
+	return d.Status.MarshalJSON()
+}
+
+func (dl *DeviceList) Length() int {
+	return len(*dl)
+}
+
+func (dl *DeviceList) GetItem(i int) Generic {
+	return &((*dl)[i])
+}
+
+func (dl *DeviceList) RemoveLast() {
+	*dl = (*dl)[:len(*dl)-1]
 }

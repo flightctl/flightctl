@@ -144,7 +144,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		resource.Status = status
 	}
 
-	callback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
+	callback := store.TemplateVersionStoreCallback(func(before, after *model.TemplateVersion) {})
 	_, err := tvStore.Create(ctx, orgId, &resource, callback)
 
 	return err
@@ -178,7 +178,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 			Spec: spec,
 		}
 
-		callback := store.RepositoryStoreCallback(func(*model.Repository) {})
+		callback := store.RepositoryStoreCallback(func(before, after *model.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			return err

@@ -2,11 +2,13 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
@@ -22,8 +24,8 @@ type ResourceSync struct {
 
 type ResourceSyncList []ResourceSync
 
-func (r *ResourceSync) String() string {
-	val, _ := json.Marshal(r)
+func (rs *ResourceSync) String() string {
+	val, _ := json.Marshal(rs)
 	return string(val)
 }
 
@@ -56,49 +58,50 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 	}, nil
 }
 
-func (r *ResourceSync) ToApiResource() api.ResourceSync {
-	if r == nil {
-		return api.ResourceSync{}
+func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceSync, error) {
+	if rs == nil {
+		return &api.ResourceSync{}, nil
 	}
 
 	var spec api.ResourceSyncSpec
-	if r.Spec != nil {
-		spec = r.Spec.Data
+	if rs.Spec != nil {
+		spec = rs.Spec.Data
 	}
 
 	status := api.ResourceSyncStatus{Conditions: []api.Condition{}}
-	if r.Status != nil {
-		status = r.Status.Data
+	if rs.Status != nil {
+		status = rs.Status.Data
 	}
 
-	return api.ResourceSync{
+	return &api.ResourceSync{
 		ApiVersion: api.ResourceSyncAPIVersion,
 		Kind:       api.ResourceSyncKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(r.Name),
-			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
-			Labels:            lo.ToPtr(util.EnsureMap(r.Resource.Labels)),
-			Annotations:       lo.ToPtr(util.EnsureMap(r.Resource.Annotations)),
-			Generation:        r.Generation,
-			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),
+			Name:              util.StrToPtr(rs.Name),
+			CreationTimestamp: util.TimeToPtr(rs.CreatedAt.UTC()),
+			Labels:            lo.ToPtr(util.EnsureMap(rs.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(rs.Resource.Annotations)),
+			Generation:        rs.Generation,
+			ResourceVersion:   lo.Ternary(rs.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(rs.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.ResourceSyncList {
+func (rl *ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) (api.ResourceSyncList, error) {
 	if rl == nil {
 		return api.ResourceSyncList{
 			ApiVersion: api.ResourceSyncAPIVersion,
 			Kind:       api.ResourceSyncListKind,
 			Items:      []api.ResourceSync{},
-		}
+		}, nil
 	}
 
-	resourceSyncList := make([]api.ResourceSync, len(rl))
-	for i, resourceSync := range rl {
-		resourceSyncList[i] = resourceSync.ToApiResource()
+	resourceSyncList := make([]api.ResourceSync, len(*rl))
+	for i, resourceSync := range *rl {
+		apiResource, _ := resourceSync.ToApiResource()
+		resourceSyncList[i] = *apiResource
 	}
 	ret := api.ResourceSyncList{
 		ApiVersion: api.ResourceSyncAPIVersion,
@@ -110,7 +113,7 @@ func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
 }
 
 // NeedsSyncToHash returns true if the resource needs to be synced to the given hash.
@@ -167,4 +170,98 @@ func (rs *ResourceSync) AddResourceParsedCondition(err error) {
 
 func (rs *ResourceSync) AddSyncedCondition(err error) {
 	rs.SetCondition(api.ResourceSyncSynced, "Success", "Fail", err)
+}
+
+func ResourceSyncPtrReturnSelf(rs *ResourceSync) *ResourceSync {
+	return rs
+}
+
+func (rs *ResourceSync) GetKind() string {
+	return api.ResourceSyncKind
+}
+
+func (rs *ResourceSync) GetName() string {
+	return rs.Name
+}
+
+func (rs *ResourceSync) GetOrgID() uuid.UUID {
+	return rs.OrgID
+}
+
+func (rs *ResourceSync) SetOrgID(orgId uuid.UUID) {
+	rs.OrgID = orgId
+}
+
+func (rs *ResourceSync) GetResourceVersion() *int64 {
+	return rs.ResourceVersion
+}
+
+func (rs *ResourceSync) SetResourceVersion(version *int64) {
+	rs.ResourceVersion = version
+}
+
+func (rs *ResourceSync) GetGeneration() *int64 {
+	return rs.Generation
+}
+
+func (rs *ResourceSync) SetGeneration(generation *int64) {
+	rs.Generation = generation
+}
+
+func (rs *ResourceSync) GetOwner() *string {
+	return rs.Owner
+}
+
+func (rs *ResourceSync) SetOwner(owner *string) {
+	rs.Owner = owner
+}
+
+func (rs *ResourceSync) GetLabels() JSONMap[string, string] {
+	return rs.Labels
+}
+
+func (rs *ResourceSync) SetLabels(labels JSONMap[string, string]) {
+	rs.Labels = labels
+}
+
+func (rs *ResourceSync) GetAnnotations() JSONMap[string, string] {
+	return rs.Annotations
+}
+
+func (rs *ResourceSync) SetAnnotations(annotations JSONMap[string, string]) {
+	rs.Annotations = annotations
+}
+
+func (rs *ResourceSync) HasNilSpec() bool {
+	return rs.Spec == nil
+}
+
+func (rs *ResourceSync) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*ResourceSync) // Assert that the other resource is a *ResourceSync
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (rs.Spec == nil && other.Spec != nil) || (rs.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return reflect.DeepEqual(rs.Spec.Data, other.Spec.Data)
+}
+
+func (rs *ResourceSync) GetStatusAsJson() ([]byte, error) {
+	return rs.Status.MarshalJSON()
+}
+
+func (rsl *ResourceSyncList) Length() int {
+	return len(*rsl)
+}
+
+func (rsl *ResourceSyncList) GetItem(i int) Generic {
+	return &((*rsl)[i])
+}
+
+func (rsl *ResourceSyncList) RemoveLast() {
+	*rsl = (*rsl)[:len(*rsl)-1]
 }

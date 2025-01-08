@@ -3,6 +3,7 @@ package model
 import (
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -43,4 +44,16 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 		r.Name = uuid.New().String()
 	}
 	return nil
+}
+
+type APIResourceOption func(*apiResourceOptions)
+
+type apiResourceOptions struct {
+	devicesSummary *api.DevicesSummary // Used by Fleet
+}
+
+func WithDevicesSummary(devicesSummary *api.DevicesSummary) APIResourceOption {
+	return func(o *apiResourceOptions) {
+		o.devicesSummary = devicesSummary
+	}
 }

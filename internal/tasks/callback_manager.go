@@ -31,13 +31,13 @@ const (
 )
 
 type CallbackManager interface {
-	FleetUpdatedCallback(before *model.Fleet, after *model.Fleet)
-	RepositoryUpdatedCallback(repository *model.Repository)
+	DeviceUpdatedCallback(before, after *model.Device)
+	FleetUpdatedCallback(before, after *model.Fleet)
+	RepositoryUpdatedCallback(before, after *model.Repository)
+	TemplateVersionCreatedCallback(before, after *model.TemplateVersion)
 	AllRepositoriesDeletedCallback(orgId uuid.UUID)
 	AllFleetsDeletedCallback(orgId uuid.UUID)
 	AllDevicesDeletedCallback(orgId uuid.UUID)
-	DeviceUpdatedCallback(before *model.Device, after *model.Device)
-	TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion)
 	FleetSourceUpdated(orgId uuid.UUID, name string)
 	DeviceSourceUpdated(orgId uuid.UUID, name string)
 }
@@ -75,7 +75,7 @@ func (t *callbackManager) submitTask(taskName string, resource ResourceReference
 	}
 }
 
-func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model.Fleet) {
+func (t *callbackManager) FleetUpdatedCallback(before, after *model.Fleet) {
 	var templateUpdated bool
 	var selectorUpdated bool
 	var fleet *model.Fleet
@@ -119,7 +119,16 @@ func (t *callbackManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
 	t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
 }
 
-func (t *callbackManager) RepositoryUpdatedCallback(repository *model.Repository) {
+func (t *callbackManager) RepositoryUpdatedCallback(before, after *model.Repository) {
+	var repository *model.Repository
+	if before != nil {
+		repository = before
+	} else {
+		repository = after
+	}
+	if repository == nil {
+		return
+	}
 	resourceRef := ResourceReference{
 		OrgID: repository.OrgID,
 		Kind:  api.RepositoryKind,
@@ -196,7 +205,9 @@ func (t *callbackManager) DeviceSourceUpdated(orgId uuid.UUID, name string) {
 	t.submitTask(DeviceRenderTask, ref, DeviceRenderOpUpdate)
 }
 
-func (t *callbackManager) TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion) {
+// This is called only upon create, so "before" should be nil and "after" should be the TV
+func (t *callbackManager) TemplateVersionCreatedCallback(before, after *model.TemplateVersion) {
+	templateVersion := after
 	resourceRef := ResourceReference{
 		OrgID: templateVersion.OrgID,
 		Kind:  api.FleetKind,

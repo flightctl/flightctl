@@ -7,6 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
@@ -61,21 +62,9 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 	}, nil
 }
 
-type APIResourceOption func(*apiResourceOptions)
-
-type apiResourceOptions struct {
-	summary *api.DevicesSummary
-}
-
-func WithSummary(summary *api.DevicesSummary) APIResourceOption {
-	return func(o *apiResourceOptions) {
-		o.summary = summary
-	}
-}
-
-func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
+func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 	if f == nil {
-		return api.Fleet{}
+		return &api.Fleet{}, nil
 	}
 
 	options := apiResourceOptions{}
@@ -87,9 +76,9 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 	if f.Status != nil {
 		status = f.Status.Data
 	}
-	status.DevicesSummary = options.summary
+	status.DevicesSummary = options.devicesSummary
 
-	return api.Fleet{
+	return &api.Fleet{
 		ApiVersion: api.FleetAPIVersion,
 		Kind:       api.FleetKind,
 		Metadata: api.ObjectMeta{
@@ -103,25 +92,26 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 		},
 		Spec:   f.Spec.Data,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetList {
-	if dl == nil {
+func (fl FleetList) ToApiResource(cont *string, numRemaining *int64) (api.FleetList, error) {
+	if fl == nil {
 		return api.FleetList{
 			ApiVersion: api.FleetAPIVersion,
 			Kind:       api.FleetListKind,
 			Items:      []api.Fleet{},
-		}
+		}, nil
 	}
 
-	fleetList := make([]api.Fleet, len(dl))
-	for i, fleet := range dl {
+	fleetList := make([]api.Fleet, len(fl))
+	for i, fleet := range fl {
 		var opts []APIResourceOption
 		if fleet.Status.Data.DevicesSummary != nil {
-			opts = append(opts, WithSummary(fleet.Status.Data.DevicesSummary))
+			opts = append(opts, WithDevicesSummary(fleet.Status.Data.DevicesSummary))
 		}
-		fleetList[i] = fleet.ToApiResource(opts...)
+		apiResource, _ := fleet.ToApiResource(opts...)
+		fleetList[i] = *apiResource
 	}
 	ret := api.FleetList{
 		ApiVersion: api.FleetAPIVersion,
@@ -133,5 +123,99 @@ func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetLi
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
+}
+
+func FleetPtrToFleet(f *Fleet) *Fleet {
+	return f
+}
+
+func (f *Fleet) GetKind() string {
+	return api.FleetKind
+}
+
+func (f *Fleet) GetName() string {
+	return f.Name
+}
+
+func (f *Fleet) GetOrgID() uuid.UUID {
+	return f.OrgID
+}
+
+func (f *Fleet) SetOrgID(orgId uuid.UUID) {
+	f.OrgID = orgId
+}
+
+func (f *Fleet) GetResourceVersion() *int64 {
+	return f.ResourceVersion
+}
+
+func (f *Fleet) SetResourceVersion(version *int64) {
+	f.ResourceVersion = version
+}
+
+func (f *Fleet) GetGeneration() *int64 {
+	return f.Generation
+}
+
+func (f *Fleet) SetGeneration(generation *int64) {
+	f.Generation = generation
+}
+
+func (f *Fleet) GetOwner() *string {
+	return f.Owner
+}
+
+func (f *Fleet) SetOwner(owner *string) {
+	f.Owner = owner
+}
+
+func (f *Fleet) GetLabels() JSONMap[string, string] {
+	return f.Labels
+}
+
+func (f *Fleet) SetLabels(labels JSONMap[string, string]) {
+	f.Labels = labels
+}
+
+func (f *Fleet) GetAnnotations() JSONMap[string, string] {
+	return f.Annotations
+}
+
+func (f *Fleet) SetAnnotations(annotations JSONMap[string, string]) {
+	f.Annotations = annotations
+}
+
+func (f *Fleet) HasNilSpec() bool {
+	return f.Spec == nil
+}
+
+func (f *Fleet) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*Fleet) // Assert that the other resource is a *Fleet
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (f.Spec == nil && other.Spec != nil) || (f.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return api.FleetSpecsAreEqual(f.Spec.Data, other.Spec.Data)
+}
+
+func (f *Fleet) GetStatusAsJson() ([]byte, error) {
+	return f.Status.MarshalJSON()
+}
+
+func (fl *FleetList) Length() int {
+	return len(*fl)
+}
+
+func (fl *FleetList) GetItem(i int) Generic {
+	return &((*fl)[i])
+}
+
+func (fl *FleetList) RemoveLast() {
+	*fl = (*fl)[:len(*fl)-1]
 }
