@@ -9,6 +9,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -23,6 +24,16 @@ var upgrader = websocket.Upgrader{
 }
 
 func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Request) {
+	allowed, err := auth.GetAuthZ().CheckPermission(r.Context(), "devices/console", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		http.Error(w, AuthorizationServerUnavailable, http.StatusServiceUnavailable)
+		return
+	}
+	if !allowed {
+		http.Error(w, Forbidden, http.StatusForbidden)
+		return
+	}
 	orgId := store.NullOrgId
 	deviceName := chi.URLParam(r, "name")
 
@@ -133,10 +144,18 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 
 // TODO(majopela): remove this request handler and API call once the UI is migrated to the new websocket API
 func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.RequestConsoleRequestObject) (server.RequestConsoleResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/console", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.RequestConsole503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.RequestConsole403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// make sure the device exists
-	_, err := h.store.Device().Get(ctx, orgId, request.Name)
+	_, err = h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
 		switch err {
 		case flterrors.ErrResourceNotFound:
