@@ -423,7 +423,9 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
 		return nil, fmt.Errorf("device already has decommissioning requested")
 	}
+
 	deviceObj.Spec.Decommissioning = request.Body
+	deviceObj.Metadata.Owner = nil
 
 	var updateCallback func(before *model.Device, after *model.Device)
 
