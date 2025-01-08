@@ -25,6 +25,8 @@ type ActionHandler interface {
 }
 
 type Action struct {
+	// ID of the application
+	ID string
 	// Name of the application
 	Name string
 	// Environment variables to be passed to the manifest handler at runtime

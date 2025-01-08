@@ -237,6 +237,20 @@ func (mr *MockApplicationMockRecorder) EnvVars() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnvVars", reflect.TypeOf((*MockApplication)(nil).EnvVars))
 }
 
+// ID mocks base method.
+func (m *MockApplication) ID() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ID")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// ID indicates an expected call of ID.
+func (mr *MockApplicationMockRecorder) ID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ID", reflect.TypeOf((*MockApplication)(nil).ID))
+}
+
 // IsEmbedded mocks base method.
 func (m *MockApplication) IsEmbedded() bool {
 	m.ctrl.T.Helper()

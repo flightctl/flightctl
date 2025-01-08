@@ -17,14 +17,16 @@ type Compose struct {
 }
 
 // UpFromWorkDir runs `docker-compose up -d` or `podman-compose up -d` from the
-// given workDir. The third argument is a flag to prevent recreation of existing
+// given workDir. The last argument is a flag to prevent recreation of existing
 // containers.
-func (p *Compose) UpFromWorkDir(ctx context.Context, workDir string, noRecreate bool) error {
+func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string, noRecreate bool) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
 	args := []string{
 		"compose",
+		"-p",
+		projectName,
 		"up",
 		"-d",
 	}
