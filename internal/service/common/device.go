@@ -87,7 +87,8 @@ func UpdateServiceSideStatus(ctx context.Context, st store.Store, log logrus.Fie
 	deviceStatusChanged := updateServerSideDeviceStatus(device)
 	updatedStatusChanged := updateServerSideDeviceUpdatedStatus(ctx, st, log, orgId, device)
 	applicationStatusChanged := updateServerSideApplicationStatus(device)
-	return deviceStatusChanged || updatedStatusChanged || applicationStatusChanged
+	lifecycleStatusChanged := updateServerSideLifecycleStatus(device)
+	return deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged
 }
 
 func updateServerSideDeviceStatus(device *api.Device) bool {
@@ -136,6 +137,19 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 		device.Status.Summary.Info = util.StrToPtr(DeviceStatusInfoHealthy)
 	}
 	return device.Status.Summary.Status != lastDeviceStatus
+}
+
+func updateServerSideLifecycleStatus(device *api.Device) bool {
+	lastLifecycleStatus := device.Status.Lifecycle.Status
+
+	if device.IsDecommissioning() {
+		device.Status.Lifecycle = api.DeviceLifecycleStatus{
+			Info:   util.StrToPtr("Device has acknowledged decommissioning request"),
+			Status: api.DeviceLifecycleStatusDecommissioning,
+		}
+	}
+
+	return device.Status.Lifecycle.Status != lastLifecycleStatus
 }
 
 func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, log logrus.FieldLogger, orgId uuid.UUID, device *api.Device) bool {
