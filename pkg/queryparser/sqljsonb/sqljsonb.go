@@ -116,6 +116,11 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			Verifications: []verificationHandler{withNoValues()},
 			handle:        Wrap(sp.queryOr),
 		},
+		"ISNULL": {
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR", "NOT"),
+			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
+			handle:        Wrap(sp.queryIsNull),
+		},
 		"NOT": {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR", "NOT"),
 			Verifications: []verificationHandler{withNoValues()},
@@ -132,7 +137,7 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			handle:        Wrap(sp.queryExists),
 		},
 		"K": {
-			usedBy: queryparser.NewSet[string]().Add("CONTAINS", "EXISTS"),
+			usedBy: queryparser.NewSet[string]().Add("ISNULL", "CONTAINS", "EXISTS"),
 			handle: Wrap(sp.queryKey),
 		},
 		"V": {
@@ -256,6 +261,16 @@ func (sp *SQLParser) queryOr(queries ...string) (*FunctionResult, error) {
 
 	return &FunctionResult{
 		Query: fmt.Sprintf("(%s)", strings.Join(queries, " OR ")),
+	}, nil
+}
+
+func (sp *SQLParser) queryIsNull(args ...string) (*FunctionResult, error) {
+	if err := validateArgsCount(args, 1, 1); err != nil {
+		return nil, err
+	}
+
+	return &FunctionResult{
+		Query: fmt.Sprintf("%s IS NULL", args[0]),
 	}, nil
 }
 
