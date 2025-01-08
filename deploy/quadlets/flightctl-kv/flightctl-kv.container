@@ -11,36 +11,13 @@ Environment=HOME=/root
 
 PublishPort=6379:6379
 Volume=flightctl-redis:/var/lib/redis/data
-Volume=%t/redis.conf:/etc/redis/redis.conf:Z
+Volume=./redis.conf:/etc/redis/redis.conf:Z
 
 [Service]
 Type=notify
 Restart=always
 RestartSec=30
 Slice=flightctl.slice
-ExecStartPre=/bin/bash -c 'cat > /run/redis.conf << EOF
-bind 0.0.0.0
-protected-mode yes
-port 6379
-dir /var/lib/redis/data
-
-# Password authentication
-requirepass adminpass
-
-# Logging
-loglevel warning
-
-# Snapshotting configuration
-save 300 1
-
-# Snapshot filename
-dbfilename dump.rdb
-
-# AOF configuration
-appendonly yes
-appendfilename "appendonly.aof"
-appendfsync everysec
-EOF'
 
 [Install]
 WantedBy=flightctl.slice
