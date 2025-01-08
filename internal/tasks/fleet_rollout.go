@@ -392,7 +392,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 		var decodedBytes []byte
 		var err error
 
-		file.Path, err = replaceParametersInString(file.Path, device)
+		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
 		}
