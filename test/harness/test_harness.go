@@ -135,7 +135,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		cancel()
 	}()
 
-	fetchSpecInterval := util.Duration(1 * time.Second)
+	fetchSpecInterval := util.Duration(2 * time.Second)
 	statusUpdateInterval := util.Duration(2 * time.Second)
 
 	os.Setenv(agent.TestRootDirEnvKey, testDirPath)
