@@ -604,6 +604,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Console:         console,
 		Applications:    device.RenderedApplications.Data,
 		UpdatePolicy:    device.Spec.Data.UpdatePolicy,
+		Decommission:    device.Spec.Data.Decommissioning,
 	}
 
 	return &renderedConfig, nil
