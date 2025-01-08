@@ -423,7 +423,12 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
 		return nil, fmt.Errorf("device already has decommissioning requested")
 	}
+
 	deviceObj.Spec.Decommissioning = request.Body
+
+	// these fields must be un-set so that device is no longer associated with any fleet
+	deviceObj.Metadata.Owner = nil
+	deviceObj.Metadata.Labels = nil
 
 	var updateCallback func(before *model.Device, after *model.Device)
 
@@ -432,7 +437,7 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	}
 
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, nil, false, updateCallback)
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"owner"}, false, updateCallback)
 
 	switch err {
 	case nil:
