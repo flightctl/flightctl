@@ -484,6 +484,9 @@ type DeviceSpec struct {
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
 
+	// Decommissioning Metadata about a device decommissioning request.
+	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
+
 	// Os DeviceOsSpec describes the target OS for the device.
 	Os *DeviceOsSpec `json:"os,omitempty"`
 
@@ -1371,6 +1374,9 @@ type TemplateVersionStatus struct {
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Decommissioning Metadata about a device decommissioning request.
+	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
 
 	// Os DeviceOsSpec describes the target OS for the device.
 	Os *DeviceOsSpec `json:"os,omitempty"`

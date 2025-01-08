@@ -28,6 +28,11 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 		return server.CreateDevice403JSONResponse{Message: Forbidden}, nil
 	}
 
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
+		return server.CreateDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -195,6 +200,12 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 	if !allowed {
 		return server.ReplaceDevice403JSONResponse{Message: Forbidden}, nil
 	}
+
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
+		return server.ReplaceDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -349,6 +360,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
 		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
 	}
+	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
+		return server.PatchDevice400JSONResponse{Message: "spec.decommissioning cannot be changed via patch request"}, nil
+	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
@@ -393,5 +407,41 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	if !allowed {
 		return server.DecommissionDevice403JSONResponse{Message: Forbidden}, nil
 	}
-	return nil, fmt.Errorf("not yet implemented")
+
+	orgId := store.NullOrgId
+	deviceObj, err := h.store.Device().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.DecommissionDevice404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
+		return nil, fmt.Errorf("device already has decommissioning requested")
+	}
+	deviceObj.Spec.Decommissioning = request.Body
+
+	var updateCallback func(before *model.Device, after *model.Device)
+
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.DeviceUpdatedCallback
+	}
+
+	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, nil, false, updateCallback)
+
+	switch err {
+	case nil:
+		return server.DecommissionDevice200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+		return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.DecommissionDevice404JSONResponse{}, nil
+	default:
+		return nil, err
+	}
 }
