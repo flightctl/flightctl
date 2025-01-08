@@ -193,10 +193,11 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		response, err = c.ReadFleetWithResponse(ctx, name, nil)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector:   util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector:   util.StrToPtrWithNilDefault(o.FieldSelector),
+			Limit:           util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:        util.StrToPtrWithNilDefault(o.Continue),
+			AddDevicesCount: util.BoolToPtr(true),
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == TemplateVersionKind && len(name) > 0:
