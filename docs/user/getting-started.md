@@ -100,8 +100,9 @@ Create a values.yaml file with the following content
 global:
   auth:
     type: oidc
-    oidcAuthority: https://oidc/realms/your_realm 
-    internalOidcAuthority: https://internal.oidc/realms/your_realm
+    oidc:
+      oidcAuthority: https://oidc/realms/your_realm 
+      externalOidcAuthority: https://external.oidc/realms/your_realm
 
 ```
 

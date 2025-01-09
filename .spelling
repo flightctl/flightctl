@@ -197,6 +197,10 @@ internalOpenShiftApiUrl
 global.target
 RoleBinding
 ClusterRole
-global.auth.openShiftApiUrl
+global.auth.caCert
+global.auth.insecureSkipTlsVerify
+global.auth.k8s.apiUrl
+global.auth.k8s.externalApiToken
+global.auth.k8s.externalOpenShiftApiUrl
 caCert
 ClusterRoleBinding
