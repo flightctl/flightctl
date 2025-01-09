@@ -17,7 +17,7 @@ PublishPort=7443:7443
 PublishPort=7444:7444
 PublishPort=15690:15690
 PublishPort=15691:15691
-Volume=./flightctl-api-config/config.yaml:/root/.flightctl/config.yaml
+Volume=/etc/containers/systemd/flightctl-api/flightctl-api-config/config.yaml:/root/.flightctl/config.yaml
 Volume=flightctl-api-certs:/root/.flightctl/certs
 
 [Service]

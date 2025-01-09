@@ -11,7 +11,7 @@ Environment=HOME=/root
 
 PublishPort=6379:6379
 Volume=flightctl-redis:/var/lib/redis/data
-Volume=./redis.conf:/etc/redis/redis.conf:Z
+Volume=/etc/containers/systemd/flightctl-kv/flightctl-kv-config/redis.conf:/etc/redis/redis.conf:Z
 
 [Service]
 Type=notify
