@@ -2,17 +2,17 @@
 
 set -eo pipefail
 
+source deploy/scripts/env.sh
+
 echo "Starting Deployment"
 
-PRIMARY_IP=$(bash -c 'source ./test/scripts/functions && get_ext_ip')
+export PRIMARY_IP=$(bash -c 'source ./test/scripts/functions && get_ext_ip')
 envsubst "\$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > deploy/podman/flightctl-api/flightctl-api-config/config.yaml
 
 echo "Copying all quadlet files"
-sudo cp -r deploy/podman/flightctl* /etc/containers/systemd/
+sudo cp -r deploy/podman/flightctl* $SYSTEMD_DIR
 
-echo "Reloading systemd and starting services"
-sudo systemctl daemon-reload
-sudo systemctl start flightctl.slice
+start_service flightctl.slice
 
 echo "Waiting for database to be ready..."
 test/scripts/wait_for_postgres.sh podman

@@ -40,30 +40,13 @@ deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db
 
 deploy-db:
-	sudo systemctl stop flightctl-db-standalone.service || true
-	sudo podman volume rm flightctl-db || true
-	sudo mkdir -p /etc/containers/systemd/flightctl-db
-	sudo cp -r deploy/podman/flightctl-db/* /etc/containers/systemd/flightctl-db
-	sudo podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
-	sudo systemctl daemon-reload
-	sudo systemctl start flightctl-db-standalone.service
-	test/scripts/wait_for_postgres.sh podman
-	sudo podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
-	sudo podman exec -it flightctl-db createdb admin || true
+	deploy/scripts/deploy_quadlet_service.sh db
 
 deploy-mq:
-	sudo systemctl stop flightctl-rabbitmq-standalone.service || true
-	sudo mkdir -p /etc/containers/systemd/flightctl-rabbitmq
-	sudo cp -r deploy/podman/flightctl-rabbitmq/* /etc/containers/systemd/flightctl-rabbitmq
-	sudo systemctl daemon-reload
-	sudo systemctl start flightctl-rabbitmq-standalone.service
+	deploy/scripts/deploy_quadlet_service.sh kv
 
 deploy-kv:
-	sudo systemctl stop flightctl-kv-standalone.service || true
-	sudo mkdir -p /etc/containers/systemd/flightctl-kv
-	sudo cp -r deploy/podman/flightctl-kv/* /etc/containers/systemd/flightctl-kv
-	sudo systemctl daemon-reload
-	sudo systemctl start flightctl-kv-standalone.service
+	deploy/scripts/deploy_quadlet_service.sh kv
 
 deploy-quadlets:
 	deploy/scripts/deploy_quadlets.sh

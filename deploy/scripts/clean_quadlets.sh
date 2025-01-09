@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-# Set the directory for systemd files
-SYSTEMD_DIR="/etc/containers/systemd"
+source deploy/scripts/env.sh
 
 # Stop services running from the slice or standalone
 for service in flightctl.slice 'flightctl-*-standalone.service'; do
