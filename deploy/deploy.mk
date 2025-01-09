@@ -58,8 +58,11 @@ deploy-mq:
 	sudo systemctl start flightctl-rabbitmq-standalone.service
 
 deploy-kv:
-	podman rm -f flightctl-kv || true
-	cd deploy/podman && podman-compose up -d flightctl-kv
+	sudo systemctl stop flightctl-kv-standalone.service || true
+	sudo mkdir -p /etc/containers/systemd/flightctl-kv
+	sudo cp -r deploy/quadlets/flightctl-kv/* /etc/containers/systemd/flightctl-kv
+	sudo systemctl daemon-reloads
+	sudo systemctl start flightctl-kv-standalone.service
 
 deploy-quadlets:
 	@bash -c 'source ./test/scripts/functions && \
@@ -85,6 +88,6 @@ kill-mq:
 	sudo systemctl stop flightctl-rabbitmq-standalone.service
 
 kill-kv:
-	cd deploy/podman && podman-compose down flightctl-kv
+	sudo systemctl stop flightctl-kv-standalone.service
 
-.PHONY: deploy-db deploy cluster run-db-container kill-db-container
+.PHONY: deploy-db deploy cluster
