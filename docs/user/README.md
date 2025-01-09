@@ -44,6 +44,7 @@ Welcome to the Flight Control user documentation.
 **Administrating Flight Control** - How to deploy and administrate a Flight Control service.
 
 * Installing and Configuring the Flight Control Service
+* [Configuring Flight Control to use k8s auth](kubernetes-auth.md)
 * Installing and Using the Flight Control CLI
 * Installing and Using the Flight Control UI
 * Configuring the Flight Control Agent

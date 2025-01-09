@@ -55,22 +55,19 @@ data:
         port: 6379
         password: {{ .Values.kv.password }}   # we should funnel this via secrets instead
     {{- if not (eq .Values.global.auth.type "none")  }}
-    {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "openshift")  }}
     auth:
-        openShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
-        internalOpenShiftApiUrl: {{ .Values.global.auth.internalOpenShiftApiUrl }}
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
-        k8sRbacNs: {{ default .Release.Namespace .Values.global.auth.k8sRbacNs }}
-    {{- else }}
-    auth:
-        {{- if .Values.global.auth.oidcAuthority }}
-        internalOidcAuthority: {{ .Values.global.auth.internalOidcAuthority }}
+        caCert: {{ .Values.global.auth.caCert }}
+        {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "k8s")  }}
+        k8s:
+            apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
+            externalOpenShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
+            rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
         {{- else }}
-        internalOidcAuthority: http://keycloak:8081/realms/flightctl
+        oidc:
+            oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}
+            externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
-        oidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
-        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
-    {{- end }}
     {{- end }}
     {{- if .Values.prometheus.enabled }}
     prometheus:

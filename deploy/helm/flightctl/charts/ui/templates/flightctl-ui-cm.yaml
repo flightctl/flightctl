@@ -8,7 +8,7 @@ data:
   FLIGHTCTL_GRPC_SERVER: {{ .Values.api.grpcUrl | quote }}
   FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.api.insecureSkipTlsVerify | quote }}
   {{- if eq (.Values.global).target "acm" }}
-  K8S_RBAC_NS: {{ default .Release.Namespace .Values.global.auth.k8sRbacNs | quote }}
+  K8S_RBAC_NS: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs | quote }}
   {{- else }}
   {{- if .Values.baseURL }}
   BASE_UI_URL: {{ .Values.baseURL | quote }}
