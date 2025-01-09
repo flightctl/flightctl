@@ -40,7 +40,7 @@ deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db
 
 deploy-db:
-	sudo podman rm -f flightctl-db || true
+	sudo systemctl stop flightctl-db-standalone.service || true
 	sudo podman volume rm flightctl-db || true
 	sudo mkdir -p /etc/containers/systemd/flightctl-db
 	sudo cp -r deploy/quadlets/flightctl-db/* /etc/containers/systemd/flightctl-db
@@ -51,8 +51,11 @@ deploy-db:
 	sudo podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 
 deploy-mq:
-	podman rm -f flightctl-mq || true
-	cd deploy/podman && podman-compose up -d flightctl-mq
+	sudo systemctl stop flightctl-rabbitmq-standalone.service || true
+	sudo mkdir -p /etc/containers/systemd/flightctl-rabbitmq
+	sudo cp -r deploy/quadlets/flightctl-rabbitmq/* /etc/containers/systemd/flightctl-rabbitmq
+	sudo systemctl daemon-reload
+	sudo systemctl start flightctl-rabbitmq-standalone.service
 
 deploy-kv:
 	podman rm -f flightctl-kv || true
@@ -76,10 +79,10 @@ deploy-quadlets:
 	@echo "The FlightCtl console is in the following URL: $(shell cat ./deploy/quadlets/flightctl-api/flightctl-api-config/config.yaml | grep baseUIUrl | awk '{print $$2}')"
 
 kill-db:
-	cd deploy/podman && podman-compose down flightctl-db
+	sudo systemctl stop flightctl-db-standalone.service
 
 kill-mq:
-	cd deploy/podman && podman-compose down flightctl-mq
+	sudo systemctl stop flightctl-rabbitmq-standalone.service
 
 kill-kv:
 	cd deploy/podman && podman-compose down flightctl-kv
