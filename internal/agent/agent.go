@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -159,6 +160,19 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create lifecycle manager
+	lifecycleManager := lifecycle.NewManager(
+		deviceName,
+		a.config.EnrollmentService.EnrollmentUIEndpoint,
+		a.config.ManagementService.GetClientCertificatePath(),
+		deviceReadWriter,
+		enrollmentClient,
+		csr,
+		a.config.DefaultLabels,
+		backoff,
+		a.log,
+	)
+
 	// register status exporters
 	statusManager.RegisterStatusExporter(applicationManager)
 	statusManager.RegisterStatusExporter(systemdManager)
@@ -176,17 +190,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceName,
 		executer,
 		deviceReadWriter,
-		csr,
 		specManager,
 		statusManager,
 		hookManager,
-		enrollmentClient,
-		a.config.EnrollmentService.EnrollmentUIEndpoint,
+		lifecycleManager,
 		&a.config.ManagementService.Config,
 		systemClient,
-		backoff,
 		a.log,
-		a.config.DefaultLabels,
 	)
 
 	// bootstrap
@@ -234,6 +244,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		hookManager,
 		osManager,
 		policyManager,
+		lifecycleManager,
 		applicationsController,
 		configController,
 		resourceController,
