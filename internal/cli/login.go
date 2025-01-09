@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/RangelReale/osincli"
@@ -85,6 +86,16 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 func (o *LoginOptions) Validate(args []string) error {
 	if err := o.GlobalOptions.Validate(args); err != nil {
 		return err
+	}
+	parsedUrl, err := url.Parse(args[0])
+	if err != nil {
+		return fmt.Errorf("API URL is not a valid URL: %w", err)
+	}
+	if parsedUrl.Scheme != "https" {
+		return fmt.Errorf("the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again")
+	}
+	if parsedUrl.Host == "" {
+		return fmt.Errorf("API URL is not a valid URL")
 	}
 	return nil
 }
@@ -279,8 +290,11 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	if respCode != http.StatusOK {
-		fmt.Printf("Unexpected response code: %v\n", respCode)
-		return nil
+		return fmt.Errorf("unexpected response code: %v", respCode)
+	}
+
+	if resp.JSON200 == nil {
+		return fmt.Errorf("unexpected response. Please verify that the API URL is correct")
 	}
 
 	token := o.Token

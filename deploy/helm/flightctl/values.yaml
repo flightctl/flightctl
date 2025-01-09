@@ -45,7 +45,7 @@ global:
       externalApiToken: ""
       rbacNs: ""
     oidc:
-      oidcAuthority: http://keycloak:8080/realms/flightctl
+      oidcAuthority: http://keycloak:8081/realms/flightctl
       externalOidcAuthority: ""
   metrics:
     enabled: true
