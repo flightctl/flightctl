@@ -43,10 +43,10 @@ deploy-db:
 	sudo podman rm -f flightctl-db || true
 	sudo podman volume rm flightctl-db || true
 	sudo mkdir -p /etc/containers/systemd/flightctl-db
-	sudo cp -r deploy/quadlets/* /etc/containers/systemd/
+	sudo cp -r deploy/quadlets/flightctl-db/* /etc/containers/systemd/flightctl-db
 	sudo podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
 	sudo systemctl daemon-reload
-	sudo systemctl start flightctl-db@standalone.service
+	sudo systemctl start flightctl-db-standalone.service
 	test/scripts/wait_for_postgres.sh podman
 	sudo podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 
