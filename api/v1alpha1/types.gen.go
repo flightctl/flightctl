@@ -175,6 +175,12 @@ type ApplicationStatusType string
 // ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
 
+// AttestationReport Attestation report to be parsed by attestation engine.
+type AttestationReport struct {
+	// Report The attestation report.
+	Report string `json:"report"`
+}
+
 // AuthConfig Auth config.
 type AuthConfig struct {
 	// AuthType Auth type.
@@ -510,6 +516,9 @@ type DeviceStatus struct {
 
 	// ApplicationsSummary A summary of the health of applications on the device.
 	ApplicationsSummary DeviceApplicationsSummaryStatus `json:"applicationsSummary"`
+
+	// AttestationReport Attestation report to be parsed by attestation engine.
+	AttestationReport *AttestationReport `json:"attestationReport,omitempty"`
 
 	// Conditions Conditions represent the observations of a the current state of a device.
 	Conditions []Condition `json:"conditions"`
