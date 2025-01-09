@@ -173,6 +173,7 @@ clean: clean-agent-vm clean-e2e-agent-images
 
 clean-quadlets:
 	- sudo systemctl stop flightctl.slice
+	- sudo systemctl stop flightctl-db-standalone.service
 	- sudo rm -rf /etc/containers/systemd/flightctl*
 	- sudo podman volume rm flightctl-db flightctl-api-certs rabbitmq-data flightctl-redis
 	- sudo podman network rm flightctl
