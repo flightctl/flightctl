@@ -49,6 +49,7 @@ deploy-db:
 	sudo systemctl start flightctl-db-standalone.service
 	test/scripts/wait_for_postgres.sh podman
 	sudo podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
+	sudo podman exec -it flightctl-db createdb admin || true
 
 deploy-mq:
 	sudo systemctl stop flightctl-rabbitmq-standalone.service || true
