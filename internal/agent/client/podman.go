@@ -87,7 +87,8 @@ func (p *Podman) pullImage(ctx context.Context, image string) (string, error) {
 	return out, nil
 }
 
-// Inspect returns the JSON output of the image inspection.
+// Inspect returns the JSON output of the image inspection. The expectation is
+// that the image exists in local container storage.
 func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()

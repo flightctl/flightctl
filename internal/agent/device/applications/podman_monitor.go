@@ -91,7 +91,7 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	ctx, m.cancelFn = context.WithCancel(ctx)
 
 	// list of podman events to listen for
-	events := []string{"init", "start", "die", "sync", "remove", "exited"}
+	events := []string{"create", "init", "start", "die", "sync", "remove", "exited"}
 	m.cmd = m.client.EventsSinceCmd(ctx, events, m.bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
@@ -462,6 +462,7 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	}
 
 	// add new container
+	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddContainer(Container{
 		ID:       event.ID,
 		Image:    event.Image,
