@@ -122,6 +122,8 @@ bin/devicesimulator --count=100
 
 ## Metrics
 
+TODO modify or remove this doc section
+
 Start the observability stack:
 
 ```

@@ -1,5 +1,5 @@
 [Unit]
-Description=PostgreSQL Database for Flightctl
+Description=PostgreSQL Database for Flightctl (%i)
 
 [Container]
 ContainerName=flightctl-db
@@ -12,7 +12,7 @@ Volume=flightctl-db:/var/lib/pgsql/data
 [Service]
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
+Slice=%i.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=%i.slice

@@ -40,13 +40,15 @@ deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db
 
 deploy-db:
-	podman rm -f flightctl-db || true
-	podman volume rm podman_flightctl-db || true
-	podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec podman_flightctl-db
-	cd deploy/podman && podman-compose up -d flightctl-db
+	sudo podman rm -f flightctl-db || true
+	sudo podman volume rm flightctl-db || true
+	sudo mkdir -p /etc/containers/systemd/flightctl-db
+	sudo cp -r deploy/quadlets/* /etc/containers/systemd/
+	sudo podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
+	sudo systemctl daemon-reload
+	sudo systemctl start flightctl-db@standalone.service
 	test/scripts/wait_for_postgres.sh podman
-	podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
-	podman exec -it flightctl-db createdb admin || true
+	sudo podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 
 deploy-mq:
 	podman rm -f flightctl-mq || true
