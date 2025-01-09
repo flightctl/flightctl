@@ -17,8 +17,14 @@ import (
 	"github.com/samber/lo"
 )
 
-const maxBase64CertificateLength = 20 * 1024 * 1024
-const maxInlineConfigLength = 1024 * 1024
+const (
+	maxBase64CertificateLength = 20 * 1024 * 1024
+	maxInlineConfigLength      = 1024 * 1024
+	// MaxDNSNameLength defines the maximum length of a DNS-1123 compliant name,
+	// as specified by RFC 1123. It is used to validate the length of strings
+	// that must conform to DNS naming requirements.
+	MaxDNSNameLength = 253
+)
 
 var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
 
@@ -552,8 +558,11 @@ func validateSshConfig(config *SshConfig) []error {
 
 func (a ApplicationSpec) Validate() []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
+	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
+	// name must be between 1 and 253 characters and start with a letter or number.
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, MaxDNSNameLength, pattern, "")...)
+	// envVars keys and values must be between 1 and 253 characters
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, MaxDNSNameLength, nil, "")...)
 	return allErrs
 }
 

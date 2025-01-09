@@ -72,15 +72,33 @@ type Manager interface {
 }
 
 type Application interface {
+	// ID is an internal identifier for tracking the application this may or may
+	// not be the name provided by the user. How this ID is generated is
+	// determined on the application type level.
+	ID() string
+	// Name is the name of the application as defined by the user. If the name
+	// is not populated by the user a name will be generated based on the
+	// application type.
 	Name() string
+	// Type returns the application type.
 	Type() AppType
+	// EnvVars returns the environment variables for the application.
 	EnvVars() map[string]string
+	// SetEnvVars sets the environment variables for the application.
 	SetEnvVars(envVars map[string]string) bool
+	// Path returns the path to the application on the device.
 	Path() (string, error)
+	// Container returns a container by name.
 	Container(name string) (*Container, bool)
+	// AddContainer adds a container to the application.
 	AddContainer(container Container)
+	// RemoveContainer removes a container from the application.
 	RemoveContainer(name string) bool
+	// IsEmbedded returns true if the application is embedded.
 	IsEmbedded() bool
+	// Status reports the status of an application using the name as defined by
+	// the user. In the case there is no name provided it will be populated
+	// according to the rules of the application type.
 	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 }
 
@@ -96,6 +114,7 @@ type Container struct {
 }
 
 type application[T any] struct {
+	id         string
 	envVars    map[string]string
 	containers []Container
 	appType    AppType
@@ -104,8 +123,9 @@ type application[T any] struct {
 	embedded   bool
 }
 
-func NewApplication[T any](name string, provider T, appType AppType) *application[T] {
+func NewApplication[T any](id, name string, provider T, appType AppType) *application[T] {
 	a := &application[T]{
+		id: id,
 		status: &v1alpha1.DeviceApplicationStatus{
 			Name:   name,
 			Status: v1alpha1.ApplicationStatusPreparing,
@@ -118,6 +138,10 @@ func NewApplication[T any](name string, provider T, appType AppType) *applicatio
 		a.embedded = true
 	}
 	return a
+}
+
+func (a *application[T]) ID() string {
+	return a.id
 }
 
 func (a *application[T]) Name() string {
