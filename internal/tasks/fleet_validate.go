@@ -157,7 +157,7 @@ func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem 
 	case api.GitConfigProviderType:
 		return t.validateGitConfig(ctx, configItem)
 	case api.KubernetesSecretProviderType:
-		return t.validateK8sConfig(configItem)
+		return t.validateK8sConfig(ctx, configItem)
 	case api.InlineConfigProviderType:
 		return t.validateInlineConfig(configItem)
 	case api.HttpConfigProviderType:
@@ -185,7 +185,7 @@ func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
 }
 
-func (t *FleetValidateLogic) validateK8sConfig(configItem *api.ConfigProviderSpec) (*string, *string, error) {
+func (t *FleetValidateLogic) validateK8sConfig(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
@@ -193,7 +193,7 @@ func (t *FleetValidateLogic) validateK8sConfig(configItem *api.ConfigProviderSpe
 	if t.k8sClient == nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("kubernetes API is not available")
 	}
-	_, err = t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+	_, err = t.k8sClient.GetSecret(ctx, k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 	if err != nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 	}

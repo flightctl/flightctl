@@ -274,6 +274,12 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 }
 
 func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
+	// do not update devices with a decommissionRequested, unless this was called via /api/v1/devices/{name}/decommission,
+	// in which case the fromAPI bool is set to false
+	if fromAPI && existingRecord.Spec != nil && existingRecord.Spec.Data.Decommissioning != nil {
+		return false, flterrors.ErrDecommission
+	}
+
 	sameSpec := api.DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
@@ -321,6 +327,11 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	}
 	if resource.Metadata.Name == nil {
 		return nil, false, false, flterrors.ErrResourceNameIsNil
+	}
+	// do not update devices with a decommissionRequested, unless this was called via /api/v1/devices/{name}/decommission,
+	// in which case the fromAPI bool is set to false
+	if fromAPI && resource.Spec != nil && resource.Spec.Decommissioning != nil {
+		return nil, false, false, flterrors.ErrDecommission
 	}
 
 	device, err := model.NewDeviceFromApiResource(resource)
@@ -593,6 +604,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Console:         console,
 		Applications:    device.RenderedApplications.Data,
 		UpdatePolicy:    device.Spec.Data.UpdatePolicy,
+		Decommission:    device.Spec.Data.Decommissioning,
 	}
 
 	return &renderedConfig, nil
