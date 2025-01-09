@@ -43,7 +43,7 @@ deploy-db:
 	sudo systemctl stop flightctl-db-standalone.service || true
 	sudo podman volume rm flightctl-db || true
 	sudo mkdir -p /etc/containers/systemd/flightctl-db
-	sudo cp -r deploy/quadlets/flightctl-db/* /etc/containers/systemd/flightctl-db
+	sudo cp -r deploy/podman/flightctl-db/* /etc/containers/systemd/flightctl-db
 	sudo podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
 	sudo systemctl daemon-reload
 	sudo systemctl start flightctl-db-standalone.service
@@ -53,23 +53,23 @@ deploy-db:
 deploy-mq:
 	sudo systemctl stop flightctl-rabbitmq-standalone.service || true
 	sudo mkdir -p /etc/containers/systemd/flightctl-rabbitmq
-	sudo cp -r deploy/quadlets/flightctl-rabbitmq/* /etc/containers/systemd/flightctl-rabbitmq
+	sudo cp -r deploy/podman/flightctl-rabbitmq/* /etc/containers/systemd/flightctl-rabbitmq
 	sudo systemctl daemon-reload
 	sudo systemctl start flightctl-rabbitmq-standalone.service
 
 deploy-kv:
 	sudo systemctl stop flightctl-kv-standalone.service || true
 	sudo mkdir -p /etc/containers/systemd/flightctl-kv
-	sudo cp -r deploy/quadlets/flightctl-kv/* /etc/containers/systemd/flightctl-kv
-	sudo systemctl daemon-reloads
+	sudo cp -r deploy/podman/flightctl-kv/* /etc/containers/systemd/flightctl-kv
+	sudo systemctl daemon-reload
 	sudo systemctl start flightctl-kv-standalone.service
 
 deploy-quadlets:
 	@bash -c 'source ./test/scripts/functions && \
 	export PRIMARY_IP=$$(get_ext_ip) && \
 	echo "Primary IP: $$PRIMARY_IP" && \
-	envsubst "\$$PRIMARY_IP" < deploy/quadlets/flightctl-api/flightctl-api-config/config.yaml.template > deploy/quadlets/flightctl-api/flightctl-api-config/config.yaml'
-	@sudo cp -r deploy/quadlets/* /etc/containers/systemd/
+	envsubst "\$$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > deploy/podman/flightctl-api/flightctl-api-config/config.yaml'
+	@sudo cp -r deploy/podman/* /etc/containers/systemd/
 	@sudo systemctl daemon-reload
 	@sudo systemctl start flightctl.slice
 	@echo "Deployment started. Waiting for database..."
@@ -78,8 +78,8 @@ deploy-quadlets:
 	@echo "Checking if all services are running..."
 	@timeout 300s bash -c 'until sudo podman ps --quiet --filter "name=flightctl-api" --filter "name=flightctl-worker" --filter "name=flightctl-periodic" --filter "name=flightctl-db" --filter "name=flightctl-rabbitmq" --filter "name=flightctl-kv" --filter "name=flightctl-ui" | wc -l | grep -q 7; do echo "Waiting for all services to be running..."; sleep 5; done'
 	@echo "Deployment completed. Please, login to FlightCtl with the following command:"
-	@echo "flightctl login --insecure-skip-tls-verify $(shell cat ./deploy/quadlets/flightctl-api/flightctl-api-config/config.yaml | grep baseUrl | awk '{print $$2}')"
-	@echo "The FlightCtl console is in the following URL: $(shell cat ./deploy/quadlets/flightctl-api/flightctl-api-config/config.yaml | grep baseUIUrl | awk '{print $$2}')"
+	@echo "flightctl login --insecure-skip-tls-verify $(shell cat ./deploy/podman/flightctl-api/flightctl-api-config/config.yaml | grep baseUrl | awk '{print $$2}')"
+	@echo "The FlightCtl console is in the following URL: $(shell cat ./deploy/podman/flightctl-api/flightctl-api-config/config.yaml | grep baseUIUrl | awk '{print $$2}')"
 
 kill-db:
 	sudo systemctl stop flightctl-db-standalone.service
