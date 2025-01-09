@@ -171,11 +171,7 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
 	- rm -f -r debian
 
 clean-quadlets:
-	- sudo systemctl stop flightctl.slice
-	- sudo systemctl stop 'flightctl-*-standalone.service'
-	- sudo rm -rf /etc/containers/systemd/flightctl*
-	- sudo podman volume rm flightctl-db flightctl-api-certs rabbitmq-data flightctl-redis
-	- sudo podman network rm flightctl
+	deploy/scripts/clean_quadlets.sh
 
 .PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container
 tools: $(GOBIN)/golangci-lint
