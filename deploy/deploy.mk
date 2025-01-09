@@ -70,7 +70,7 @@ deploy-quadlets:
 	export PRIMARY_IP=$$(get_ext_ip) && \
 	echo "Primary IP: $$PRIMARY_IP" && \
 	envsubst "\$$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > deploy/podman/flightctl-api/flightctl-api-config/config.yaml'
-	@sudo cp -r deploy/podman/* /etc/containers/systemd/
+	@sudo cp -r deploy/podman/flightctl* /etc/containers/systemd/
 	@sudo systemctl daemon-reload
 	@sudo systemctl start flightctl.slice
 	@echo "Deployment started. Waiting for database..."
