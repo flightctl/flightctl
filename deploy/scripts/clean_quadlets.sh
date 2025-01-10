@@ -12,7 +12,7 @@ done
 
 # Remove copied files
 if [ -d "$SYSTEMD_DIR" ]; then
-    sudo rm -rf "$SYSTEMD_DIR/flightctl*" || echo "Warning: Failed to remove quadlet files"
+    sudo rm -rf $SYSTEMD_DIR/flightctl* || echo "Warning: Failed to remove quadlet files"
 fi
 
 # Remove volumes
