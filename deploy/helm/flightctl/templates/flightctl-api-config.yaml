@@ -28,7 +28,7 @@ data:
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
         baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.grpc }}
-        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq .Values.global.gatewayPorts.tls 443)) }}
+        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
         baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}
