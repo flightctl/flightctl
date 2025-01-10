@@ -7,4 +7,4 @@ database:
     password: adminpass   # we should funnel this via secrets instead
 service: {}
 queue:
-    amqpUrl: amqp://user:password@flightctl-mq:5672/
+    amqpUrl: amqp://user:password@flightctl-rabbitmq:5672/

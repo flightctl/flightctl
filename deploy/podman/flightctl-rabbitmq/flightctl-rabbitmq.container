@@ -2,7 +2,7 @@
 Description=Rabbit MQ service for FlightCtl
 
 [Container]
-ContainerName=flightctl-mq
+ContainerName=flightctl-rabbitmq
 Image=docker.io/library/rabbitmq:3.13-management
 Network=flightctl.network
 PublishPort=5672:5672

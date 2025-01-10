@@ -42,8 +42,8 @@ deploy-db-helm: cluster
 deploy-db:
 	deploy/scripts/deploy_quadlet_service.sh db
 
-deploy-mq:
-	deploy/scripts/deploy_quadlet_service.sh mq
+deploy-rabbitmq:
+	deploy/scripts/deploy_quadlet_service.sh rabbitmq
 
 deploy-kv:
 	deploy/scripts/deploy_quadlet_service.sh kv
@@ -54,8 +54,8 @@ deploy-quadlets:
 kill-db:
 	sudo systemctl stop flightctl-db-standalone.service
 
-kill-mq:
-	sudo systemctl stop flightctl-mq-standalone.service
+kill-rabbitmq:
+	sudo systemctl stop flightctl-rabbitmq-standalone.service
 
 kill-kv:
 	sudo systemctl stop flightctl-kv-standalone.service
