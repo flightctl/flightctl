@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -361,5 +362,59 @@ func mockPodmanInspect(restarts int) PodmanInspect {
 func newTestBackoff() wait.Backoff {
 	return wait.Backoff{
 		Steps: 1,
+	}
+}
+
+func BenchmarkNewComposeID(b *testing.B) {
+	// bench different string length
+	lengths := []int{50, 100, 253}
+	for _, size := range lengths {
+		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
+			input := strings.Repeat("a", size)
+			for i := 0; i < b.N; i++ {
+				newComposeID(input)
+			}
+		})
+	}
+}
+
+func TestToLowerBytes(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "lowercase",
+			input:    "test",
+			expected: "test",
+		},
+		{
+			name:     "mixed case",
+			input:    "TeSt",
+			expected: "test",
+		},
+		{
+			name:     "uppercase",
+			input:    "TEST",
+			expected: "test",
+		},
+		{
+			name:     "special characters",
+			input:    "TeSt@",
+			expected: "test@",
+		},
+		{
+			name:     "special characters in sequence",
+			input:    "TeSt!!",
+			expected: "test!!",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := toLowerBytes(tc.input)
+			require.Equal(tc.expected, string(result))
+		})
 	}
 }
