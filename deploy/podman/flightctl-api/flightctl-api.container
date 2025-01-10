@@ -1,9 +1,9 @@
 [Unit]
 Description=FlightCtl API server
-After=flightctl-db.service
-After=flightctl-rabbitmq.service
-Requires=flightctl-db.service
-Requires=flightctl-rabbitmq.service
+After=flightctl-db.service flightctl-rabbitmq.service
+Requires=flightctl-db.service flightctl-rabbitmq.service
+Wants=flightctl-periodic.service flightctl-worker.service
+Before=flightctl-periodic.service flightctl-worker.service
 
 [Container]
 ContainerName=flightctl-api
@@ -24,9 +24,6 @@ Volume=flightctl-api-certs:/root/.flightctl/certs
 Slice=flightctl.slice
 Restart=always
 RestartSec=30
-
-ExecStartPost=/bin/systemctl start flightctl-periodic.service
-ExecStartPost=/bin/systemctl start flightctl-worker.service
 
 [Install]
 WantedBy=flightctl.slice
