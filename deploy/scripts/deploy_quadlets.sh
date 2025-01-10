@@ -6,7 +6,13 @@ source deploy/scripts/env.sh
 
 echo "Starting Deployment"
 
-export PRIMARY_IP=$(bash -c 'source ./test/scripts/functions && get_ext_ip')
+PRIMARY_IP=''
+if ! PRIMARY_IP=$(bash -c 'source ./test/scripts/functions && get_ext_ip'); then
+    echo "Error: Failed to get external IP"
+    exit 1
+fi
+export PRIMARY_IP
+
 envsubst "\$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > deploy/podman/flightctl-api/flightctl-api-config/config.yaml
 
 echo "Copying all quadlet files"
