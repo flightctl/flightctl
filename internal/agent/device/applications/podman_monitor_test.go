@@ -279,7 +279,7 @@ func TestApplicationAddRemove(t *testing.T) {
 		{
 			name:           "add app with special characters in sequence",
 			appName:        "app!!",
-			expectedName:   "app_",
+			expectedName:   "app__",
 			action:         "add",
 			expectedExists: true,
 		},
@@ -378,7 +378,7 @@ func BenchmarkNewComposeID(b *testing.B) {
 	}
 }
 
-func TestToLowerBytes(t *testing.T) {
+func TestNewComposeID(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
 		name     string
@@ -386,35 +386,30 @@ func TestToLowerBytes(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "lowercase",
-			input:    "test",
-			expected: "test",
+			name:     "simple",
+			input:    "app1",
+			expected: "app1-229522",
 		},
 		{
-			name:     "mixed case",
-			input:    "TeSt",
-			expected: "test",
+			name:     "with @ special character",
+			input:    "app1@2",
+			expected: "app1_2-819634",
 		},
 		{
-			name:     "uppercase",
-			input:    "TEST",
-			expected: "test",
+			name:     "with : special characters",
+			input:    "app-2:v2",
+			expected: "app-2_v2-721985",
 		},
 		{
-			name:     "special characters",
-			input:    "TeSt@",
-			expected: "test@",
-		},
-		{
-			name:     "special characters in sequence",
-			input:    "TeSt!!",
-			expected: "test!!",
+			name:     "with multiple !! special characters",
+			input:    "app!!",
+			expected: "app__-260528",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := toLowerBytes(tc.input)
-			require.Equal(tc.expected, string(result))
+			result := newComposeID(tc.input)
+			require.Equal(tc.expected, result)
 		})
 	}
 }
