@@ -23,7 +23,7 @@ service:
       - agent-api.flightctl.$PRIMARY_IP.nip.io
       - api.flightctl.$PRIMARY_IP.nip.io
 queue:
-    amqpUrl: amqp://user:password@flightctl-rabbitmq:5672/
+    amqpUrl: amqp://user:password@flightctl-mq:5672/
 kv:
     hostname: flightctl-kv
     port: 6379
