@@ -28,8 +28,8 @@ deploy_service() {
     # Handle post-startup logic for db service
     if [[ "$service_name" == "db" ]]; then
         test/scripts/wait_for_postgres.sh podman
-        sudo podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
-        sudo podman exec -it flightctl-db createdb admin || true
+        sudo podman exec flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
+        sudo podman exec flightctl-db createdb admin || true
     fi
 
     echo "Deployment completed for $service_full_name"

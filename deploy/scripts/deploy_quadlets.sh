@@ -18,7 +18,7 @@ echo "Waiting for database to be ready..."
 test/scripts/wait_for_postgres.sh podman
 
 echo "Granting superuser privileges to admin role"
-sudo podman exec -it flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
+sudo podman exec flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
 
 echo "Checking if all services are running..."
 
