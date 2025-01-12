@@ -80,3 +80,16 @@ func (d *Device) IsUpdatedToFleetSpec(f *Fleet) bool {
 	}
 	return d.IsUpdatedToDeviceSpec() && deviceTemplateVersion == fleetTemplateVersion
 }
+
+// IsDecommissioning() is true if the device has added a DeviceDecommissioning ConditionType to its Conditions.
+func (d *Device) IsDecommissioning() bool {
+	if d.Status == nil || d.Status.Conditions == nil {
+		return false
+	}
+
+	decommissioningCondition := FindStatusCondition(d.Status.Conditions, DeviceDecommissioning)
+	if decommissioningCondition == nil {
+		return false
+	}
+	return decommissioningCondition.Status == ConditionStatusTrue
+}

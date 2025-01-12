@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -174,7 +175,9 @@ func TestApplicationStatus(t *testing.T) {
 			provider := v1alpha1.ImageApplicationProvider{
 				Image: "image",
 			}
-			application := NewApplication("testApp", provider, AppCompose)
+			name := "testApp"
+			id := client.SanitizePodmanLabel(name)
+			application := NewApplication(name, id, provider, AppCompose)
 			if len(tt.containers) > 0 {
 				application.containers = tt.containers
 			}

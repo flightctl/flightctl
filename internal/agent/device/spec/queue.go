@@ -15,6 +15,8 @@ import (
 
 // requeueState represents the state of a queued template version.
 type requeueState struct {
+	// version is the state which is tracked for this template version.
+	version int64
 	// nextAvailable is the time when the template version is available to be retrieved from the queue.
 	nextAvailable time.Time
 	// tries is the number of times the template version has been requeued.
@@ -45,6 +47,7 @@ type queueManager struct {
 	log *log.PrefixLogger
 }
 
+// newPriorityQueue returns a new priority queue.
 func newPriorityQueue(
 	maxSize int,
 	maxRetries int,
@@ -175,7 +178,9 @@ func (m *queueManager) getOrCreateRequeueState(ctx context.Context, version int6
 	state, exists := m.requeueLookup[version]
 	if !exists {
 		m.log.Debugf("Initializing requeueState for version %d", version)
-		state = &requeueState{}
+		state = &requeueState{
+			version: version,
+		}
 		m.requeueLookup[version] = state
 	}
 

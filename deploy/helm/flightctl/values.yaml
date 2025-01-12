@@ -9,21 +9,23 @@
 ## @param.global.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
 ## @param.global.baseDomainTls.key Key for the base domain wildcard certificate.
 ## @param global.storageClassName Storage class name for the PVCs.
-## @param global.auth.type Type of the auth to use. Can be one of 'builtin', 'openshift', 'oidc', or 'none'
-## @param global.auth.openShiftApiUrl API URL of OpenShift cluster that will be used as authentication authority
-## @param global.auth.oidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
-## @param global.auth.internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
+## @param global.auth.type Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none'
 ## @param global.auth.caCert The custom CA cert.
 ## @param global.auth.insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
+## @param global.auth.k8s.apiUrl API URL of k8s cluster that will be used as authentication authority
+## @param global.auth.k8s.externalOpenShiftApiUrl API URL of OpenShift cluster that can be accessed by external client to retrieve auth token
+## @param global.auth.k8s.externalApiToken In case flightctl is not running within a cluster, you can provide api token
+## @param global.auth.k8s.rbacNs Namespace that should be used for the RBAC checks
+## @param global.auth.oidc.oidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
+## @param global.auth.oidc.externalOidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
 ## @param global.metrics.enabled Enable metrics exporting and service
 ## @param global.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
 ## @param global.internalNamespace Namespace where internal components are deployed
 ## @param global.clusterLevelSecretAccess Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
-## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort, route or gateway
+## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
-## @param hubConfig.ocpIngress Same as global.baseDomain but this property is expected to be set by ACM operator
-## @param hubConfig.apiUrl Same as global.auth.openShiftApiUrl but this property is expected to be set by ACM operator
+
 
 global:
   target: "standalone" # standalone, acm
@@ -34,14 +36,17 @@ global:
   storageClassName: ""
   imagePullSecretName: ""
   auth:
-    type: "builtin" # builtin, openshift, oidc, none
-    openShiftApiUrl: ""
-    internalOpenShiftApiUrl: https://kubernetes.default.svc
+    type: "builtin" # builtin, k8s, oidc, none
     caCert: ""
     insecureSkipTlsVerify: false
-    oidcAuthority: ""
-    internalOidcAuthority: ""
-    k8sRbacNs: ""
+    k8s:
+      apiUrl: https://kubernetes.default.svc
+      externalOpenShiftApiUrl: ""
+      externalApiToken: ""
+      rbacNs: ""
+    oidc:
+      oidcAuthority: http://keycloak:8080/realms/flightctl
+      externalOidcAuthority: ""
   metrics:
     enabled: true
   internalNamespace: ""
@@ -58,11 +63,6 @@ global:
   gatewayPorts:
     tls: 443
     http: 80
-
-## @section ACM operator specific parameters
-hubConfig:
-  ocpIngress: ""
-  apiUrl: ""
 
 
 ## @section Component specific parameters

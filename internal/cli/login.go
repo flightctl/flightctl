@@ -72,7 +72,7 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.ClientId, "client-id", "", o.ClientId, "ClientId to be used for Oauth2 requests")
 	fs.StringVarP(&o.CAFile, "certificate-authority", "", o.CAFile, "Path to a cert file for the certificate authority")
 	fs.StringVarP(&o.AuthCAFile, "auth-certificate-authority", "", o.AuthCAFile, "Path to a cert file for the auth certificate authority")
-	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
+	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "k", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -283,51 +283,51 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	token := ""
+	token := o.Token
 
-	if resp.JSON200.AuthType == "OIDC" {
-		if o.Web {
-			clientId := "flightctl"
-			if o.ClientId != "" {
-				clientId = o.ClientId
-			}
-			token, err = o.getOauth2Token(fmt.Sprintf("%s/.well-known/openid-configuration", resp.JSON200.AuthURL), clientId, "openid")
-			if err != nil {
-				return err
-			}
-		} else if o.Token == "" {
-			fmt.Printf("You must obtain an API token or use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
-			return nil
-		} else {
-			token = o.Token
+	if token == "" {
+		if o.Web && resp.JSON200.AuthURL == "" {
+			return fmt.Errorf("web login not available, token must be provided")
 		}
-	} else if resp.JSON200.AuthType == "OpenShift" {
-		oauthConfigUrl := fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL)
-		if o.Web {
-			clientId := "openshift-cli-client"
-			if o.ClientId != "" {
-				clientId = o.ClientId
+		if resp.JSON200.AuthType == "OIDC" {
+			if o.Web {
+				clientId := "flightctl"
+				if o.ClientId != "" {
+					clientId = o.ClientId
+				}
+				token, err = o.getOauth2Token(fmt.Sprintf("%s/.well-known/openid-configuration", resp.JSON200.AuthURL), clientId, "openid")
+				if err != nil {
+					return err
+				}
+			} else {
+				fmt.Printf("You must obtain an API token or use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
+				return nil
 			}
-			token, err = o.getOauth2Token(oauthConfigUrl, clientId, "")
-			if err != nil {
-				return err
-			}
-		} else if o.Token == "" {
-			oauthConfig, err := o.getOauthConfig(oauthConfigUrl)
-			if err != nil {
-				return fmt.Errorf("could not get oauth config: %w", err)
-			}
+		} else if resp.JSON200.AuthType == "k8s" {
+			oauthConfigUrl := fmt.Sprintf("%s/.well-known/oauth-authorization-server", resp.JSON200.AuthURL)
+			if o.Web {
+				clientId := "openshift-cli-client"
+				if o.ClientId != "" {
+					clientId = o.ClientId
+				}
+				token, err = o.getOauth2Token(oauthConfigUrl, clientId, "")
+				if err != nil {
+					return err
+				}
+			} else if resp.JSON200.AuthURL != "" {
+				oauthConfig, err := o.getOauthConfig(oauthConfigUrl)
+				if err != nil {
+					return fmt.Errorf("could not get oauth config: %w", err)
+				}
 
-			fmt.Printf("You must obtain an API token by visiting %s/request\n", oauthConfig.TokenEndpoint)
-			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n", config.Service.Server)
-			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
-			return fmt.Errorf("no token provided")
-		} else {
-			token = o.Token
-		}
-	} else {
-		if o.Token != "" {
-			token = o.Token
+				fmt.Printf("You must obtain an API token by visiting %s/request\n", oauthConfig.TokenEndpoint)
+				fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n", config.Service.Server)
+				fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n", config.Service.Server)
+				return fmt.Errorf("no token provided")
+			} else {
+				fmt.Printf("You must obtain an API token, then login via \"flightctl login %s --token=<token>\"\n", config.Service.Server)
+				return nil
+			}
 		} else {
 			fmt.Printf("Unknown auth provider. You can try logging in using \"flightctl login %s --token=<token>\"\n", config.Service.Server)
 			return fmt.Errorf("unknown auth provider")

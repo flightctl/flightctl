@@ -15,6 +15,9 @@ func TestIsReady(t *testing.T) {
 	require := require.New(t)
 	nyLoc, err := time.LoadLocation("America/New_York")
 	require.NoError(err)
+	berlinLoc, err := time.LoadLocation("Europe/Berlin")
+	require.NoError(err)
+
 	testCases := []struct {
 		name            string
 		timeZone        string
@@ -55,6 +58,30 @@ func TestIsReady(t *testing.T) {
 			currentTime:     time.Date(2024, 12, 20, 12, 6, 0, 0, nyLoc), // 12:06 - 10m = 11:56
 			expectedReady:   true,
 			expectedNextRun: time.Date(2024, 12, 21, 12, 0, 0, 0, nyLoc), // 12:00 next day
+		},
+		{
+			name: "ready: handles backward DST transition in America/New_York",
+			updateSchedule: &v1alpha1.UpdateSchedule{
+				TimeZone:           util.StrToPtr("America/New_York"),
+				At:                 "0 1 * * *", // 1:00 AM
+				StartGraceDuration: util.StrToPtr("60m"),
+			},
+			currentTime:     time.Date(2024, 11, 3, 1, 30, 0, 0, nyLoc), // 1:30 am during repeated hour
+			expectedReady:   true,
+			expectedNextRun: time.Date(2024, 11, 4, 1, 0, 0, 0, nyLoc), // 1:00 am next day
+		},
+		{
+			name: "ready: grace period handles DST transition in Europe/Berlin",
+			updateSchedule: &v1alpha1.UpdateSchedule{
+				TimeZone:           util.StrToPtr("Europe/Berlin"),
+				At:                 "0 1 * * *", // 1:00 am
+				StartGraceDuration: util.StrToPtr("90m"),
+			},
+			// test time at 03:15 am, which falls within the grace period
+			// even though the 2 am hour was skipped due to DST.
+			currentTime:     time.Date(2025, 3, 30, 3, 15, 0, 0, berlinLoc),
+			expectedReady:   true,
+			expectedNextRun: time.Date(2025, 3, 31, 1, 0, 0, 0, berlinLoc), // 1:00 am next day
 		},
 		{
 			name: "ready: time equal to next",
@@ -110,7 +137,7 @@ func TestIsReady(t *testing.T) {
 			// override time.Now
 			s.nowFn = func() time.Time { return tt.currentTime }
 
-			err := s.Parse(tt.updateSchedule)
+			err := s.Parse(log, tt.updateSchedule)
 			require.NoError(err)
 
 			ready := s.IsReady(log)

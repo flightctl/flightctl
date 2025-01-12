@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -308,4 +309,11 @@ func (p *Podman) Compose() *Compose {
 
 func IsPodmanRootless() bool {
 	return os.Geteuid() != 0
+}
+
+// SanitizePodmanLabel replaces all sequences of non-alphanumeric characters with an underscore.
+// this provides a safe label value for Podman.
+func SanitizePodmanLabel(name string) string {
+	re := regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+	return re.ReplaceAllString(name, "_")
 }

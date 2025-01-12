@@ -236,16 +236,25 @@ func (ls *LabelSelector) parseRequirement(key string, values []string, operator 
 		return queryparser.NewTokenSet().Append(fieldToken, ls.createKeyToken(key))
 	})
 
+	// Helper to wrap tokens with ISNULL and NOT logic
+	addISNULLAndNot := func(tokens queryparser.TokenSet) queryparser.TokenSet {
+		return queryparser.NewTokenSet().AddFunctionToken("OR", func() queryparser.TokenSet {
+			return queryparser.NewTokenSet().AddFunctionToken("ISNULL", func() queryparser.TokenSet {
+				return fieldToken
+			}).AddFunctionToken("NOT", func() queryparser.TokenSet {
+				return tokens
+			})
+		})
+	}
+
 	switch operator {
 	case selection.Exists:
 		// Return the EXISTS token for the "Exists" operator
 		return existsToken, nil
 
 	case selection.DoesNotExist:
-		// Wrap the EXISTS token in a NOT token for "DoesNotExist" operator
-		return queryparser.NewTokenSet().AddFunctionToken("NOT", func() queryparser.TokenSet {
-			return existsToken
-		}), nil
+		// Wrap the EXISTS token in a NOT token and add an ISNULL check
+		return addISNULLAndNot(existsToken), nil
 
 	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn:
 		// Create tokens for values using the "CONTAINS" function
@@ -268,11 +277,9 @@ func (ls *LabelSelector) parseRequirement(key string, values []string, operator 
 			return existsToken.Append(valuesTokens)
 		})
 
-		// Wrap in a NOT token for "NotEquals" and "NotIn" operators
+		// Wrap the "NotEquals" and "NotIn" operators in a NOT token and add an ISNULL check
 		if operator == selection.NotEquals || operator == selection.NotIn {
-			return queryparser.NewTokenSet().AddFunctionToken("NOT", func() queryparser.TokenSet {
-				return tokens
-			}), nil
+			tokens = addISNULLAndNot(tokens)
 		}
 
 		return tokens, nil

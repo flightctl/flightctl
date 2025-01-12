@@ -3625,7 +3625,7 @@ components:
           properties:
             name:
               type: string
-              description: The name of the application.
+              description: The name of the application must be between 1 and 253 characters and start with a letter or number.
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProvider'
             # extend application providers
@@ -3642,7 +3642,7 @@ components:
       properties:
         envVars:
           type: object
-          description: Environment variable key-value pairs, injected during runtime.
+          description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
     RenderedApplicationSpec:
@@ -4620,6 +4620,8 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+        decommissioning:
+          $ref: '#/components/schemas/DeviceDecommission'
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.
