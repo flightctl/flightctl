@@ -331,6 +331,14 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *api.Device, confi
 		errs = append(errs, fmt.Errorf("failed replacing parameters in path in git config %s: %w", gitSpec.Name, err))
 	}
 
+	if gitSpec.GitRef.MountPath != nil {
+		mountPath, err := replaceParametersInString(*gitSpec.GitRef.MountPath, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in mountPath in git config %s: %w", gitSpec.Name, err))
+		}
+		gitSpec.GitRef.MountPath = &mountPath
+	}
+
 	if len(errs) > 0 {
 		return nil, errs
 	}
