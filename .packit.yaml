@@ -10,6 +10,16 @@ packages:
     upstream_package_name: flightctl
     downstream_package_name: flightctl
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
+    create_tarball_command: |
+      # Determine the version dynamically
+      if [[ "$GIT_TAG" =~ -rc ]]; then
+        echo "${GIT_TAG//-rc/~rc}" > version.txt
+      elif [[ "$GIT_TAG" =~ snapshot ]]; then
+        echo "${GIT_TAG//snapshot/~snapshot}" > version.txt
+      else
+        echo "$GIT_TAG" > version.txt
+      fi
+      tar czf %{name}-%{version}.tar.gz version.txt
 
 jobs:
   - job: copr_build

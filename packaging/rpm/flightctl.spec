@@ -100,8 +100,6 @@ Flightctl Agent is a component of the flightctl tool.
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
     %{_datadir}/zsh/site-functions/_flightctl-completion
-    %{_docdir}/%{NAME}/*
-    %{_docdir}/%{NAME}/.markdownlint-cli2.yaml
 
 %files agent -f licenses.list
     %license LICENSE
