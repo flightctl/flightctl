@@ -20,7 +20,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	})
 
 	AfterEach(func() {
-		harness.Cleanup(false)
+		harness.Cleanup(true)
 	})
 
 	Context("updates", func() {
@@ -94,9 +94,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
-			// related to: https://issues.redhat.com/browse/EDM-679
-			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+			Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 
 			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:v4")
 			logrus.Info("We expect containers with sleep infinity process to be present but not running")
@@ -136,9 +134,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
-			// related to: https://issues.redhat.com/browse/EDM-679
-			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown"))))
+			Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown"))))
 			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:base")
 			Expect(device.Spec.Applications).To(BeNil())
 			logrus.Info("Application demo_embedded_app is not present in new image 🌞")
@@ -151,6 +147,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 		})
 	})
 })
+
 
 // conditionExists checks if a specific condition exists for the device with the given type, status, and reason.
 func conditionExists(device *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
