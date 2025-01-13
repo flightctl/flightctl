@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
@@ -418,4 +419,70 @@ func (h *Harness) parseImageReference(image string) (string, string) {
 	repo := strings.Join(parts[:len(parts)-1], ":")
 
 	return repo, tag
+
+func (h *Harness) CleanUpResources(resourceType string) (string, error) {
+	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
+	return h.CLI("delete", resourceType)
+
+}
+
+func (h *Harness) CleanUpAllResources() error {
+	for _, resourceType := range util.ResourceTypes {
+		_, err := h.CleanUpResources(resourceType)
+		if err != nil {
+			// Return the error immediately if any operation fails
+			logrus.Infof("Error: %v\n", err)
+			return err
+		}
+		logrus.Infof("The instances of the %s resource type are deleted successfully", resourceType)
+
+	}
+	logrus.Infof("All the resource instances are deleted successfully")
+	return nil
+}
+
+// Generic function to read and unmarshal YAML into the given target type
+func getYamlResourceByFile[T any](yamlFile string) T {
+	if yamlFile == "" {
+		gomega.Expect(fmt.Errorf("yaml file path cannot be empty")).ToNot(gomega.HaveOccurred())
+	}
+
+	fileBytes, err := os.ReadFile(yamlFile)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to read yaml file %s: %v", yamlFile, err)
+
+	var resource T
+	err = yaml.Unmarshal(fileBytes, &resource)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to unmarshal yaml file %s: %v", yamlFile, err)
+
+	return resource
+}
+
+// Wrapper function for Device
+func (h *Harness) GetDeviceByYaml(deviceYaml string) v1alpha1.Device {
+	return getYamlResourceByFile[v1alpha1.Device](deviceYaml)
+}
+
+// Wrapper function for Fleet
+func (h *Harness) GetFleetByYaml(fleetYaml string) v1alpha1.Fleet {
+	return getYamlResourceByFile[v1alpha1.Fleet](fleetYaml)
+}
+
+// Wrapper function for Repository
+func (h *Harness) GetRepositoryByYaml(repoYaml string) v1alpha1.Repository {
+	return getYamlResourceByFile[v1alpha1.Repository](repoYaml)
+}
+
+// Wrapper function for ResourceSync
+func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1alpha1.ResourceSync {
+	return getYamlResourceByFile[v1alpha1.ResourceSync](rSyncYaml)
+}
+
+// Wrapper function for EnrollmentRequest
+func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) v1alpha1.EnrollmentRequest {
+	return getYamlResourceByFile[v1alpha1.EnrollmentRequest](erYaml)
+}
+
+// Wrapper function for CertificateSigningRequest
+func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1alpha1.CertificateSigningRequest {
+	return getYamlResourceByFile[v1alpha1.CertificateSigningRequest](csrYaml)
 }

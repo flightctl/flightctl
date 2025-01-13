@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var (
@@ -55,6 +57,14 @@ var (
 	ErrReadingPath = errors.New("failed reading path")
 	ErrPathIsDir   = errors.New("provided path is a directory")
 	ErrNotFound    = errors.New("not found")
+
+	// images
+	ErrImageNotFound = errors.New("image not found")
+
+	// policy
+	ErrDownloadPolicyNotReady = errors.New("download policy not ready")
+	ErrUpdatePolicyNotReady   = errors.New("update policy not ready")
+	ErrInvalidPolicyType      = errors.New("invalid policy type")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
@@ -65,6 +75,8 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, ErrRetryable):
 		return true
 	case errors.Is(err, ErrNetwork):
+		return true
+	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
@@ -98,6 +110,10 @@ func IsTimeoutError(err error) bool {
 		return true
 	}
 
+	if errors.Is(err, wait.ErrWaitTimeout) {
+		return true
+	}
+
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
@@ -115,7 +131,8 @@ func FromStderr(stderr string, exitCode int) error {
 		"unauthorized":            ErrAuthenticationFailed,
 		"access denied":           ErrAuthenticationFailed,
 		// not found
-		"not found": ErrNotFound,
+		"not found":        ErrNotFound,
+		"manifest unknown": ErrImageNotFound,
 		// networking
 		"no such host":           ErrNetwork,
 		"connection refused":     ErrNetwork,

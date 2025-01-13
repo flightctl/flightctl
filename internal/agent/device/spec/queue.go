@@ -2,144 +2,302 @@ package spec
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-var _ PriorityQueue = (*queue)(nil)
+// requeueState represents the state of a queued template version.
+type requeueState struct {
+	// version is the state which is tracked for this template version.
+	version int64
+	// nextAvailable is the time when the template version is available to be retrieved from the queue.
+	nextAvailable time.Time
+	// tries is the number of times the template version has been requeued.
+	tries int
+	// downloadPolicySatisfied indicates if the download policy is satisfied.
+	// this state only needs to be met once.
+	downloadPolicySatisfied bool
+	// updatePolicySatisfied indicates if the update policy is satisfied. this
+	// state only needs to be met once.
+	updatePolicySatisfied bool
+}
 
-type queue struct {
-	heap           ItemHeap
-	items          map[int64]*Item
-	requeueStatus  map[int64]*requeueVersion
+type queueManager struct {
+	queue          *queue
+	policyManager  policy.Manager
 	failedVersions map[int64]struct{}
+	requeueLookup  map[int64]*requeueState
 	// maxRetries is the number of times a template version can be requeued before being removed.
 	// A value of 0 means infinite retries.
 	maxRetries int
-	maxSize    int
-	// requeueDelayThreshold is the number of times a template version can be requeued before enforcing a delay.
+	// delayThreshold is the number of times a template version can be requeued before enforcing a delay.
 	// A value of 0 means this is disabled.
-	requeueDelayThreshold int
-	// requeueDelayDuration is the duration to wait before the item is
+	delayThreshold int
+	// delayDuration is the duration to wait before the item is
 	// available to be retrieved form the queue.
-	requeueDelayDuration time.Duration
+	delayDuration time.Duration
 
 	log *log.PrefixLogger
 }
 
-// newQueue creates a new queue. The queue is a priority queue that orders items by version.
-// The queue will remove the lowest version when the maxSize is exceeded. MaxRetries is the number of times
-// a template version can be requeued before being removed. A value of 0 means infinite retries.
-func newQueue(
+// newPriorityQueue returns a new priority queue.
+func newPriorityQueue(
+	maxSize int,
+	maxRetries int,
+	delayThreshold int,
+	delayDuration time.Duration,
+	policyManager policy.Manager,
 	log *log.PrefixLogger,
-	maxRetries,
-	maxSize,
-	requeueDelayThreshold int,
-	requeueDelayDuration time.Duration,
-) *queue {
-	return &queue{
-		heap:                  make(ItemHeap, 0),
-		items:                 make(map[int64]*Item),
-		failedVersions:        make(map[int64]struct{}),
-		requeueStatus:         make(map[int64]*requeueVersion),
-		maxRetries:            maxRetries,
-		maxSize:               maxSize,
-		requeueDelayThreshold: requeueDelayThreshold,
-		requeueDelayDuration:  requeueDelayDuration,
-		log:                   log,
+) PriorityQueue {
+	return &queueManager{
+		queue:          newQueue(log, maxSize),
+		policyManager:  policyManager,
+		failedVersions: make(map[int64]struct{}),
+		requeueLookup:  make(map[int64]*requeueState),
+		maxRetries:     maxRetries,
+		delayThreshold: delayThreshold,
+		delayDuration:  delayDuration,
+		log:            log,
 	}
 }
 
-type requeueVersion struct {
-	count         int
-	nextAvailable time.Time
-	tries         int
-}
+func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec) {
+	if ctx.Err() != nil {
+		return
+	}
 
-func (q *queue) Add(item *Item) error {
+	item := newItem(spec)
 	version := item.Version
-	if _, failed := q.failedVersions[version]; failed {
-		q.log.Debugf("Skipping adding failed template version: %d", version)
-		return nil
+	if _, failed := m.failedVersions[version]; failed {
+		m.log.Debugf("Skipping adding failed template version: %d", version)
+		return
 	}
 
-	if item.Spec == nil {
-		return fmt.Errorf("item spec is nil")
+	m.pruneRequeueStatus()
+
+	state := m.getOrCreateRequeueState(ctx, version)
+	if m.shouldEnforceDelay(state) {
+		m.log.Debugf("Enforcing delay for version: %d", version)
 	}
 
-	// prune requeue status
-	q.pruneRequeueStatus()
+	if m.hasExceededMaxRetries(state, version) {
+		m.setFailed(version)
+		return
+	}
 
-	// handle requeue status logic
-	if requeue, exists := q.requeueStatus[version]; exists {
-		q.log.Debugf("Template version already in queue: %d", version)
+	m.queue.Add(item)
+}
 
-		// if the queue is empty and a requeue threshold is set, enforce requeue delay
-		if q.requeueDelayThreshold > 0 && q.heap.Len() == 0 && requeue.tries > 0 {
-			requeue.count++
-			if requeue.count >= q.requeueDelayThreshold && requeue.nextAvailable.IsZero() {
-				requeue.nextAvailable = time.Now().Add(q.requeueDelayDuration)
-				q.log.Debugf("Requeue delay threshold exceeded for version %d. Next available in %s", version, q.requeueDelayDuration.String())
-			}
-		} else if q.maxRetries > 0 && requeue.tries >= q.maxRetries {
-			q.log.Debugf("Max retries exceeded for version %d", version)
-			q.SetVersionFailed(item.Spec.RenderedVersion)
+func (m *queueManager) Remove(version string) {
+	m.queue.Remove(stringToInt64(version))
+}
+
+func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool) {
+	if ctx.Err() != nil {
+		return nil, false
+	}
+	item, ok := m.queue.Pop()
+	if !ok {
+		return nil, false
+	}
+
+	m.log.Debugf("Evaluating template version: %d", item.Version)
+	now := time.Now()
+	requeue, exists := m.requeueLookup[item.Version]
+	if exists && now.Before(requeue.nextAvailable) {
+		m.queue.Add(item)
+		m.log.Debugf("Template version %d is not yet ready. Available after: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
+		return nil, false
+	}
+	if m.updatePolicy(ctx, requeue) {
+		m.log.Debugf("Template version policy updated: %d", item.Version)
+	}
+
+	if exists {
+		requeue.nextAvailable = time.Time{}
+		m.log.Debugf("Template version is now available for retrieval: %d", item.Version)
+		requeue.tries++
+	}
+
+	if item.Spec != nil {
+		m.log.Debugf("Retrieved template version from the queue: %d", item.Version)
+		return item.Spec, true
+	}
+	return nil, false
+}
+
+func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
+	v := stringToInt64(version)
+	requeue, exists := m.requeueLookup[v]
+	if !exists {
+		// this would be very unexpected so we would need to requeue the version
+		return fmt.Errorf("%w: policy check failed: not found: version: %d", errors.ErrRetryable, v)
+	}
+	m.log.Debugf("Requeue state: %+v", requeue)
+
+	switch policyType {
+	case policy.Download:
+		if requeue.downloadPolicySatisfied {
 			return nil
 		}
-	} else {
-		// initialize requeue tracking
-		q.log.Debugf("Adding template version to the queue: %d", version)
-		q.requeueStatus[version] = &requeueVersion{}
+		return errors.ErrDownloadPolicyNotReady
+	case policy.Update:
+		if requeue.updatePolicySatisfied {
+			return nil
+		}
+		return errors.ErrUpdatePolicyNotReady
+	default:
+		return fmt.Errorf("%w: %s", errors.ErrInvalidPolicyType, policyType)
+	}
+}
+
+func (m *queueManager) SetFailed(version string) {
+	v := stringToInt64(version)
+	m.setFailed(v)
+}
+
+func (m *queueManager) setFailed(version int64) {
+	m.failedVersions[version] = struct{}{}
+	delete(m.requeueLookup, version)
+	m.queue.Remove(version)
+}
+
+func (m *queueManager) IsFailed(version string) bool {
+	_, ok := m.failedVersions[stringToInt64(version)]
+	return ok
+}
+
+func (m *queueManager) getOrCreateRequeueState(ctx context.Context, version int64) *requeueState {
+	state, exists := m.requeueLookup[version]
+	if !exists {
+		m.log.Debugf("Initializing requeueState for version %d", version)
+		state = &requeueState{
+			version: version,
+		}
+		m.requeueLookup[version] = state
 	}
 
-	if q.enforceMaxSize() {
-		q.log.Debugf("Skipping adding template version due to queue size limit: %d", version)
-		return nil
+	if m.updatePolicy(ctx, state) {
+		m.log.Debugf("Policy updated for version %d", version)
+	}
+
+	return state
+}
+
+func (m *queueManager) shouldEnforceDelay(state *requeueState) bool {
+	if m.delayThreshold <= 0 || !m.queue.IsEmpty() || state.tries == 0 {
+		return false
+	}
+	if state.tries >= m.delayThreshold && state.nextAvailable.IsZero() {
+		state.nextAvailable = time.Now().Add(m.delayDuration)
+		m.log.Debugf("Delay enforced until: %s", state.nextAvailable)
+		return true
+	}
+	return false
+}
+
+func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64) bool {
+	if m.maxRetries > 0 && state.tries >= m.maxRetries {
+		m.log.Debugf("Max retries exceeded for version: %d", version)
+		return true
+	}
+	return false
+}
+
+func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
+	changed := false
+	if !requeue.downloadPolicySatisfied {
+		if m.policyManager.IsReady(ctx, policy.Download) {
+			changed = true
+			requeue.downloadPolicySatisfied = true
+		}
+	}
+
+	if !requeue.updatePolicySatisfied {
+		if m.policyManager.IsReady(ctx, policy.Update) {
+			changed = true
+			requeue.updatePolicySatisfied = true
+		}
+	}
+	return changed
+}
+
+func (m *queueManager) pruneRequeueStatus() {
+	maxRequeueSize := 5 * m.queue.maxSize
+	if m.queue.maxSize == 0 {
+		return
+	}
+
+	if len(m.requeueLookup) > maxRequeueSize {
+		var minVersion int64
+		var initialized bool
+
+		for version := range m.requeueLookup {
+			if !initialized || version < minVersion {
+				minVersion = version
+				initialized = true
+			}
+		}
+		if initialized {
+			delete(m.requeueLookup, minVersion)
+			m.log.Debugf("Evicted lowest template version: %d", minVersion)
+		}
+	}
+}
+
+type queue struct {
+	heap    ItemHeap
+	items   map[int64]*Item
+	maxSize int
+	log     *log.PrefixLogger
+}
+
+// newQueue creates a new queue that orders items by version.
+// If maxSize is exceeded, the lowest version is removed.
+func newQueue(log *log.PrefixLogger, maxSize int) *queue {
+	return &queue{
+		heap:    make(ItemHeap, 0),
+		items:   make(map[int64]*Item),
+		maxSize: maxSize,
+		log:     log,
+	}
+}
+
+func (q *queue) Add(item *Item) {
+	version := item.Version
+	if _, exists := q.items[version]; exists {
+		q.log.Tracef("Skipping item with version %d already in queue", version)
+		return
+	}
+
+	// enforce max size
+	if q.maxSize > 0 && q.heap.Len() > 0 && len(q.items) >= q.maxSize {
+		// evict the lowest version from the queue
+		removed := heap.Pop(&q.heap).(*Item)
+		delete(q.items, removed.Version)
+		q.log.Debugf("Queue exceeded max size, evicted version: %d", removed.Version)
 	}
 
 	q.items[version] = item
 	heap.Push(&q.heap, item)
-	q.log.Debugf("Heap size: %d", q.heap.Len())
-
-	return nil
+	q.log.Tracef("Added item version %d, heap size now %d", version, q.heap.Len())
 }
 
-func (q *queue) Remove(version string) {
-	q.remove(version)
-}
-
-func (q *queue) Next() (*Item, bool) {
+func (q *queue) Pop() (*Item, bool) {
 	if q.heap.Len() == 0 {
 		return nil, false
 	}
 	item := heap.Pop(&q.heap).(*Item)
-	now := time.Now()
-
-	requeue, exists := q.requeueStatus[item.Version]
-	if exists && now.Before(requeue.nextAvailable) {
-		// not yet available push it back and skip
-		heap.Push(&q.heap, item)
-		q.log.Debugf("Template version %d is not yet ready. Will retry at: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
-		return nil, false
-	}
-
-	if exists {
-		// reset delay
-		requeue.nextAvailable = time.Time{}
-		q.log.Debugf("Template version is now available for retrieval: %d", item.Version)
-	}
-
 	delete(q.items, item.Version)
-	if item.Spec != nil {
-		q.log.Debugf("Retrieved template version from the queue: %d", item.Version)
-		requeue.tries++
-		return item, true
-	}
-
-	return nil, false
+	q.log.Tracef("Popped item version %d, heap size now %d", item.Version, q.heap.Len())
+	return item, true
 }
 
 func (q *queue) Size() int {
@@ -154,73 +312,18 @@ func (q *queue) IsEmpty() bool {
 func (q *queue) Clear() {
 	q.items = make(map[int64]*Item)
 	q.heap = make(ItemHeap, 0)
-	q.failedVersions = make(map[int64]struct{})
-	q.requeueStatus = make(map[int64]*requeueVersion)
 }
 
-func (q *queue) IsVersionFailed(version string) bool {
-	_, ok := q.failedVersions[stringToInt64(version)]
-	return ok
-}
-
-func (q *queue) SetVersionFailed(version string) {
-	q.failedVersions[stringToInt64(version)] = struct{}{}
-	delete(q.requeueStatus, stringToInt64(version))
-	q.remove(version)
-}
-
-// enforceMaxSize returns true amd removes the lowest version from the queue if
-// the maxSize is exceeded and the version has been tried at least once.
-func (q *queue) enforceMaxSize() bool {
-	q.log.Debug("Evaluating queue size limits")
-	if q.maxSize > 0 && q.heap.Len() > 0 && len(q.items) >= q.maxSize {
-		removed := heap.Pop(&q.heap).(*Item)
-		if r, exists := q.requeueStatus[removed.Version]; exists {
-			if r.tries == 0 {
-				// push back the removed item
-				heap.Push(&q.heap, removed)
-				return true
-			}
-
-			delete(q.items, removed.Version)
-			q.log.Debugf("Queue exceeded max size, removed version: %d", removed.Version)
-		}
-	}
-	return false
-}
-
-func (q *queue) pruneRequeueStatus() {
-	// give some buffer to the requeue status
-	maxRequeueSize := 5 * q.maxSize
-	if len(q.requeueStatus) > maxRequeueSize {
-		var minVersion int64
-		var initialized bool
-
-		for version := range q.requeueStatus {
-			if !initialized || version < minVersion {
-				minVersion = version
-				initialized = true
-			}
-		}
-		if initialized {
-			delete(q.requeueStatus, minVersion)
-			q.log.Debugf("Evicted lowest template version: %d", minVersion)
-		}
-	}
-}
-
-// removes an item from the queue. If the item is not in the queue, it will be skipped.
-func (q *queue) remove(version string) {
-	v := stringToInt64(version)
-	if _, ok := q.items[v]; ok {
-		q.log.Debugf("Forgetting template version %v", v)
-		delete(q.items, v)
+func (q *queue) Remove(version int64) {
+	if _, ok := q.items[version]; ok {
+		delete(q.items, version)
+		q.log.Debugf("Forgetting item version %v", version)
 	}
 
 	// ensure heap removal
 	for i, heapItem := range q.heap {
-		if heapItem.Version == v {
-			q.log.Debugf("Removing template version from heap: %d", v)
+		if heapItem.Version == version {
+			q.log.Debugf("Removing item version from heap: %d", version)
 			heap.Remove(&q.heap, i)
 			break
 		}
@@ -265,4 +368,9 @@ func (h *ItemHeap) Pop() interface{} {
 	item := old[n-1]
 	*h = old[0 : n-1]
 	return item
+}
+
+func stringToInt64(s string) int64 {
+	i, _ := strconv.ParseInt(s, 10, 64)
+	return i
 }

@@ -77,24 +77,28 @@ func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorFi
 				}
 			}
 
+			// Parse the selector tag from the field's struct tag.
+			// Safe to call because we only process fields with the `selector` tag.
+			_, opt := parseSelectorTag(resolvedField.StructField.Tag.Get("selector"))
+
 			return &SelectorField{
-				Name:      name,
 				Type:      selectorType,
 				FieldName: resolvedField.DBName,
 				FieldType: resolvedField.DataType,
+				Options:   opt,
 			}, nil
 		}
 
 		// Handle nested selector resolutions
 		selectorName := name.String()
 		for sn, schemaField := range sr.schemaFields {
-			if len(selectorName) > len(sn) && strings.HasPrefix(selectorName, sn.String()) {
+			if len(selectorName) > len(sn.String()) && strings.HasPrefix(selectorName, sn.String()) {
 				selectorType, ok := schemaTypeResolution[schemaField.DataType]
 				if !ok {
 					return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", schemaField.DBName)
 				}
 
-				if selectorType.IsArray() && selectorName[len(sn)] == '[' {
+				if selectorType.IsArray() && selectorName[len(sn.String())] == '[' {
 					if !arrayPattern.MatchString(selectorName) {
 						return nil, fmt.Errorf(
 							"array access must specify a valid index (e.g., 'conditions[0]'); invalid selector: %s", selectorName)
@@ -116,26 +120,35 @@ func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorFi
 
 					// 1-based indexing for PostgreSQL
 					arrayIndex += 1
+
+					// Parse the selector tag from the field's struct tag.
+					// Safe to call because we only process fields with the `selector` tag.
+					_, opt := parseSelectorTag(schemaField.StructField.Tag.Get("selector"))
+
 					return &SelectorField{
-						Name:      name,
 						Type:      selectorType.ArrayType(),
 						FieldName: fmt.Sprintf("%s[%d]", schemaField.DBName, arrayIndex),
 						FieldType: schemaField.DataType,
+						Options:   opt,
 					}, nil
 
 				}
 
-				if selectorType == Jsonb && selectorName[len(sn)] == '.' {
-					keyPath := schemaField.DBName + selectorName[len(sn):]
+				if selectorType == Jsonb && selectorName[len(sn.String())] == '.' {
+					keyPath := schemaField.DBName + selectorName[len(sn.String()):]
 					if strings.Contains(keyPath, "::") {
 						return nil, fmt.Errorf("casting is not permitted: %s", selectorName)
 					}
 
+					// Parse the selector tag from the field's struct tag.
+					// Safe to call because we only process fields with the `selector` tag.
+					_, opt := parseSelectorTag(schemaField.StructField.Tag.Get("selector"))
+
 					return &SelectorField{
-						Name:      name,
 						Type:      Jsonb,
 						FieldName: keyPath,
 						FieldType: schemaField.DataType,
+						Options:   opt,
 					}, nil
 				}
 			}
@@ -143,7 +156,6 @@ func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorFi
 		return nil, nil
 	}
 
-	name = name.TrimSpace()
 	selectorNames := []SelectorName{name}
 	if sr.selectorNameMapping != nil && sr.selectorNameMapping.ListSelectors().Contains(name) {
 		if refs := sr.selectorNameMapping.MapSelectorName(name); len(refs) > 0 {
@@ -153,8 +165,6 @@ func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorFi
 
 	fields := make([]*SelectorField, 0, len(selectorNames))
 	for _, selectorName := range selectorNames {
-		selectorName = selectorName.TrimSpace()
-
 		var resolvedField *SelectorField
 		var err error
 
@@ -171,6 +181,9 @@ func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorFi
 		if resolvedField == nil {
 			return nil, sr.newUnsupportedSelectorError(selectorName, nil)
 		}
+
+		// Should not changed, explicitly assign it
+		resolvedField.Name = selectorName
 
 		// Handle JSONB cast types
 		if resolvedField.IsJSONBCast() {
@@ -210,7 +223,7 @@ func (sr *selectorFieldResolver) ListSelectors() []SelectorName {
 
 	supportedFields := set.List()
 	sort.Slice(supportedFields, func(i, j int) bool {
-		return supportedFields[i] < supportedFields[j]
+		return supportedFields[i].String() < supportedFields[j].String()
 	})
 
 	return supportedFields
@@ -220,8 +233,16 @@ func (sr *selectorFieldResolver) ListSelectors() []SelectorName {
 // and includes a list of all supported selectors only if no prior error is provided.
 func (sr *selectorFieldResolver) newUnsupportedSelectorError(name SelectorName, err error) error {
 	if err == nil {
+		// Filter out hidden selectors
+		visibleSelectors := make([]SelectorName, 0)
+		for _, sn := range sr.ListSelectors() {
+			if _, isHidden := sn.(hiddenSelectorName); !isHidden {
+				visibleSelectors = append(visibleSelectors, sn)
+			}
+		}
+
 		return NewSelectorError(flterrors.ErrFieldSelectorUnknownSelector,
-			fmt.Errorf("unable to resolve selector name %q. Supported selectors are: %v", name, sr.ListSelectors()))
+			fmt.Errorf("unable to resolve selector name %q. Supported selectors are: %v", name, visibleSelectors))
 	}
 
 	return NewSelectorError(flterrors.ErrFieldSelectorUnknownSelector,
@@ -240,8 +261,16 @@ func ResolveFieldsFromSchema(dest any) (map[SelectorName]*gormschema.Field, erro
 	fieldMap := make(map[SelectorName]*gormschema.Field)
 	for _, field := range schema.Fields {
 		if selector := strings.TrimSpace(field.StructField.Tag.Get("selector")); selector != "" && selector != "-" {
-			selectorLst = append(selectorLst, selector)
-			fieldMap[SelectorName(selector)] = field
+			name, opt := parseSelectorTag(selector)
+			selectorLst = append(selectorLst, name)
+
+			if _, ok := opt["hidden"]; ok {
+				// Mark the field as a hidden selector.
+				fieldMap[NewHiddenSelectorName(name)] = field
+			} else {
+				// Mark the field as a regular selector.
+				fieldMap[NewSelectorName(name)] = field
+			}
 		}
 	}
 
@@ -304,4 +333,32 @@ func isPrefixOfAnother(selectors []string) error {
 		}
 	}
 	return nil
+}
+
+// parseSelectorTag parses the `selector` tag from a GORM schema field.
+// The tag is expected to contain a field name followed by optional comma-separated flags or options,
+// e.g., "metadata.label,hidden,private".
+// Returns the field name and a set of parsed options or flags as a map.
+func parseSelectorTag(tag string) (string, map[string]struct{}) {
+	if strings.TrimSpace(tag) == "" {
+		return "", nil
+	}
+
+	// Split the tag into parts
+	parts := strings.Split(tag, ",")
+	fieldName := strings.TrimSpace(parts[0])
+
+	// Initialize the map for options
+	options := make(map[string]struct{})
+
+	// Process additional options or flags
+	for _, opt := range parts[1:] {
+		opt = strings.TrimSpace(opt)
+		if opt == "" {
+			continue
+		}
+		options[opt] = struct{}{}
+	}
+
+	return fieldName, options
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
@@ -15,11 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
-	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 // (POST /api/v1/devices)
@@ -31,6 +26,11 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	}
 	if !allowed {
 		return server.CreateDevice403JSONResponse{Message: Forbidden}, nil
+	}
+
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
+		return server.CreateDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
 	}
 
 	orgId := store.NullOrgId
@@ -49,8 +49,10 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -69,40 +71,17 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 	orgId := store.NullOrgId
 
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		// If a label selector is provided, ensure keys without value still have '=' appended
-		labels := strings.Split(*request.Params.LabelSelector, ",")
-		for i, label := range labels {
-			l := strings.Split(label, "=")
-			if len(l) == 1 {
-				labels[i] = l[0] + "="
-			}
-		}
-		labelSelector = strings.Join(labels, ",")
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
-	}
-
-	statusFilter := []string{}
-	if request.Params.StatusFilter != nil {
-		for _, filter := range *request.Params.StatusFilter {
-			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
-		}
-	}
-
-	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
-	}
-
-	var fieldSelector k8sselector.Selector
+	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		}
+	}
+
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
 		}
 	}
 
@@ -117,10 +96,8 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		}
 
 		result, err := h.store.Device().Summary(ctx, orgId, store.ListParams{
-			Labels:        labelMap,
-			Filter:        filterMap,
-			Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
 			FieldSelector: fieldSelector,
+			LabelSelector: labelSelector,
 		})
 
 		switch err {
@@ -140,12 +117,10 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 	}
 
 	listParams := store.ListParams{
-		Labels:        labelMap,
-		Filter:        filterMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
-		Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
 		FieldSelector: fieldSelector,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -225,6 +200,12 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 	if !allowed {
 		return server.ReplaceDevice403JSONResponse{Message: Forbidden}, nil
 	}
+
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
+		return server.ReplaceDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -330,7 +311,7 @@ func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request serv
 	if !allowed {
 		return server.GetRenderedDeviceSpec403JSONResponse{Message: Forbidden}, nil
 	}
-	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.consoleGrpcEndpoint)
+	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.agentEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
@@ -379,6 +360,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
 		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
 	}
+	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
+		return server.PatchDevice400JSONResponse{Message: "spec.decommissioning cannot be changed via patch request"}, nil
+	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
@@ -408,9 +392,14 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	}
 }
 
+// (PATCH /api/v1/devices/{name}/status)
+func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, request server.PatchDeviceStatusRequestObject) (server.PatchDeviceStatusResponseObject, error) {
+	return nil, fmt.Errorf("not yet implemented")
+}
+
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decomission", "update")
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decommission", "update")
 	if err != nil {
 		h.log.WithError(err).Error("failed to check authorization permission")
 		return server.DecommissionDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
@@ -418,5 +407,41 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	if !allowed {
 		return server.DecommissionDevice403JSONResponse{Message: Forbidden}, nil
 	}
-	return nil, fmt.Errorf("not yet implemented")
+
+	orgId := store.NullOrgId
+	deviceObj, err := h.store.Device().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.DecommissionDevice404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
+		return nil, fmt.Errorf("device already has decommissioning requested")
+	}
+	deviceObj.Spec.Decommissioning = request.Body
+
+	var updateCallback func(before *model.Device, after *model.Device)
+
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.DeviceUpdatedCallback
+	}
+
+	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, nil, false, updateCallback)
+
+	switch err {
+	case nil:
+		return server.DecommissionDevice200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+		return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.DecommissionDevice404JSONResponse{}, nil
+	default:
+		return nil, err
+	}
 }

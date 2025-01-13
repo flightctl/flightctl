@@ -402,7 +402,7 @@ func CreateTestingFleet(orgId uuid.UUID, name string, templateImage string, sele
 				Spec     api.DeviceSpec  `json:"spec"`
 			}{
 				Spec: api.DeviceSpec{
-					Os: &api.DeviceOSSpec{
+					Os: &api.DeviceOsSpec{
 						Image: templateImage,
 					},
 				},
@@ -428,7 +428,7 @@ func CreateTestingDevice(orgId uuid.UUID, name string, labels *map[string]string
 			Labels: labels,
 		},
 		Spec: &api.DeviceSpec{
-			Os: &api.DeviceOSSpec{Image: spec},
+			Os: &api.DeviceOsSpec{Image: spec},
 		},
 		Status: nil,
 	}

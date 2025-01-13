@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -50,7 +51,12 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
 			resp, err = p.pullImage(ctx, image)
 			if err != nil {
-				p.log.Warnf("Failed to pull os image %q: %v", image, err)
+				// fail fast if the error is not retryable
+				if !errors.IsRetryable(err) {
+					p.log.Error(err)
+					return false, err
+				}
+				p.log.Debugf("Retrying: %s", err)
 				return false, nil
 			}
 			return true, nil
@@ -303,4 +309,11 @@ func (p *Podman) Compose() *Compose {
 
 func IsPodmanRootless() bool {
 	return os.Geteuid() != 0
+}
+
+// SanitizePodmanLabel replaces all sequences of non-alphanumeric characters with an underscore.
+// this provides a safe label value for Podman.
+func SanitizePodmanLabel(name string) string {
+	re := regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+	return re.ReplaceAllString(name, "_")
 }

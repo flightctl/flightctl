@@ -14,11 +14,8 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
@@ -87,33 +84,31 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 		return server.ListCertificateSigningRequests403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
-	if err != nil {
-		return server.ListCertificateSigningRequests400JSONResponse{Message: err.Error()}, nil
-	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector k8sselector.Selector
+	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 		}
 	}
 
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+		}
+	}
+
 	listParams := store.ListParams{
-		Labels:        labelMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -303,15 +298,23 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
-		if request.Body.Spec.SignerName == "enrollment" {
+		// only attempt to auto-approve newly created CSR requests for an enrollment cert
+		if created && request.Body.Spec.SignerName == "enrollment" {
 			approveReq := server.ApproveCertificateSigningRequestRequestObject{
 				Name: *request.Body.Metadata.Name,
 			}
 			approveResp, _ := h.ApproveCertificateSigningRequest(ctx, approveReq)
 			_, ok := approveResp.(server.ApproveCertificateSigningRequest200JSONResponse)
 			if !ok {
-				msg := fmt.Sprintf("enrollment CSR for %s could not be auto-approved: %s", request.Name, approveResp)
-				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: msg}, nil
+				c := []api.Condition{{
+					Message: "CSR could not be auto-approved",
+					Reason:  "CSR could not be auto-approved",
+					Type:    "Failed"}}
+				err := h.store.CertificateSigningRequest().UpdateConditions(ctx, orgId, request.Name, c)
+				if err != nil {
+					return nil, fmt.Errorf("status condition for %s could not be set to 'failed' upon failure to auto-approve: %w\nauto-approve failure: %s", request.Name, err, approveResp)
+				}
+				return nil, fmt.Errorf("enrollment CSR for %s could not be auto-approved: %s", request.Name, approveResp)
 			}
 		}
 		if created {
@@ -351,10 +354,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return server.ApproveCertificateSigningRequest404JSONResponse{}, nil
 		}
-		return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
-	}
-	if csr == nil {
-		return server.ApproveCertificateSigningRequest500JSONResponse{Message: "CertificateSigningRequest is nil"}, nil
+		return nil, err
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
@@ -362,7 +362,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been denied"}, nil
 	}
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
-		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been approved"}, nil
+		return server.ApproveCertificateSigningRequest200JSONResponse{}, nil
 	}
 
 	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
@@ -376,7 +376,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 			errors.Is(err, flterrors.ErrEncodeCert):
 			return server.ApproveCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
 		default:
-			return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
+			return nil, err
 		}
 	}
 
@@ -399,7 +399,7 @@ func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, r
 	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
 		return server.ApproveCertificateSigningRequest409JSONResponse{Message: err.Error()}, nil
 	default:
-		return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
+		return nil, err
 	}
 }
 

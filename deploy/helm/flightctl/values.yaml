@@ -9,12 +9,15 @@
 ## @param.global.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
 ## @param.global.baseDomainTls.key Key for the base domain wildcard certificate.
 ## @param global.storageClassName Storage class name for the PVCs.
-## @param global.auth.type Type of the auth to use. Can be one of 'builtin', 'openshift', 'oidc', or 'none'
-## @param global.auth.openShiftApiUrl API URL of OpenShift cluster that will be used as authentication authority
-## @param global.auth.oidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
-## @param global.auth.internalOidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
+## @param global.auth.type Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none'
 ## @param global.auth.caCert The custom CA cert.
 ## @param global.auth.insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
+## @param global.auth.k8s.apiUrl API URL of k8s cluster that will be used as authentication authority
+## @param global.auth.k8s.externalOpenShiftApiUrl API URL of OpenShift cluster that can be accessed by external client to retrieve auth token
+## @param global.auth.k8s.externalApiToken In case flightctl is not running within a cluster, you can provide api token
+## @param global.auth.k8s.rbacNs Namespace that should be used for the RBAC checks
+## @param global.auth.oidc.oidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
+## @param global.auth.oidc.externalOidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
 ## @param global.metrics.enabled Enable metrics exporting and service
 ## @param global.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
 ## @param global.internalNamespace Namespace where internal components are deployed
@@ -31,14 +34,19 @@ global:
     cert: ""
     key: ""
   storageClassName: ""
+  imagePullSecretName: ""
   auth:
-    type: "builtin" # builtin, openshift, oidc, none
-    openShiftApiUrl: ""
-    internalOpenShiftApiUrl: https://kubernetes.default.svc
+    type: "builtin" # builtin, k8s, oidc, none
     caCert: ""
     insecureSkipTlsVerify: false
-    oidcAuthority: ""
-    internalOidcAuthority: ""
+    k8s:
+      apiUrl: https://kubernetes.default.svc
+      externalOpenShiftApiUrl: ""
+      externalApiToken: ""
+      rbacNs: ""
+    oidc:
+      oidcAuthority: http://keycloak:8081/realms/flightctl
+      externalOidcAuthority: ""
   metrics:
     enabled: true
   internalNamespace: ""
@@ -51,7 +59,7 @@ global:
     agent: 7443
     grpc: 7444
     ui: 9000
-    keycloak: 8080
+    keycloak: 8081
   gatewayPorts:
     tls: 443
     http: 80
@@ -86,12 +94,13 @@ db:
 kv:
   enabled: true
   image:
-    image: valkey/valkey
-    tag: latest
+    image: docker.io/redis
+    tag: 7.4.1
     pullPolicy: Always
-  # Save a snapshot of the DB every 60 seconds if at least 1 write operation was performed.
-  # Each snapshot replaces the previous one.
-  flags: '--save 60 1 --loglevel warning'
+  password: adminpass
+  # Save if at least 1 key changed in 5 minutes
+  save: 300 1
+  loglevel: warning
 api:
   enabled: true
   image:

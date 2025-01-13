@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -104,16 +103,27 @@ func (s *DeviceStore) InitialMigration() error {
 		}
 	}
 
-	// TODO: generalize this for fleet, enrollmentrequest, etc. Make part of the base resource
-	if !s.db.Migrator().HasIndex(&model.Device{}, "device_labels") {
-		// see https://github.com/go-gorm/gorm/discussions/6695
+	// Create GIN index for device labels
+	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_labels") {
 		if s.db.Dialector.Name() == "postgres" {
-			// GiST index could also be used: https://www.postgresql.org/docs/9.1/textsearch-indexes.html
-			if err := s.db.Exec("CREATE INDEX device_labels ON devices USING GIN (labels)").Error; err != nil {
+			if err := s.db.Exec("CREATE INDEX idx_device_labels ON devices USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
 			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Labels"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Create GIN index for device annotations
+	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_annotations") {
+		if s.db.Dialector.Name() == "postgres" {
+			if err := s.db.Exec("CREATE INDEX idx_device_annotations ON devices USING GIN (annotations)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Annotations"); err != nil {
 				return err
 			}
 		}
@@ -264,6 +274,12 @@ func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
 }
 
 func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
+	// do not update devices with a decommissionRequested, unless this was called via /api/v1/devices/{name}/decommission,
+	// in which case the fromAPI bool is set to false
+	if fromAPI && existingRecord.Spec != nil && existingRecord.Spec.Data.Decommissioning != nil {
+		return false, flterrors.ErrDecommission
+	}
+
 	sameSpec := api.DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
 
 	// Update the generation if the spec was updated
@@ -274,11 +290,10 @@ func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.D
 				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 			} else {
 				// If the device isn't part of a fleet, make sure it doesn't have the TV annotation
-				existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+				existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 				if existingAnnotations[api.DeviceAnnotationTemplateVersion] != "" {
 					delete(existingAnnotations, api.DeviceAnnotationTemplateVersion)
-					annotationsArray := util.LabelMapToArray(&existingAnnotations)
-					device.Annotations = pq.StringArray(annotationsArray)
+					device.Annotations = existingAnnotations
 				}
 			}
 		}
@@ -312,6 +327,11 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 	}
 	if resource.Metadata.Name == nil {
 		return nil, false, false, flterrors.ErrResourceNameIsNil
+	}
+	// do not update devices with a decommissionRequested, unless this was called via /api/v1/devices/{name}/decommission,
+	// in which case the fromAPI bool is set to false
+	if fromAPI && resource.Spec != nil && resource.Spec.Decommissioning != nil {
+		return nil, false, false, flterrors.ErrDecommission
 	}
 
 	device, err := model.NewDeviceFromApiResource(resource)
@@ -446,7 +466,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
-	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
 	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
@@ -466,10 +486,8 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	}
 
-	annotationsArray := util.LabelMapToArray(&existingAnnotations)
-
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"annotations":      pq.StringArray(annotationsArray),
+		"annotations":      model.MakeJSONMap(existingAnnotations),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 
@@ -495,7 +513,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
-	existingAnnotations := util.LabelArrayToMap(existingRecord.Annotations)
+	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
 	nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
 	if err != nil {
@@ -503,7 +521,6 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 	}
 
 	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
-	annotationsArray := util.LabelMapToArray(&existingAnnotations)
 
 	renderedApplicationsJSON := renderedApplications
 	if strings.TrimSpace(renderedApplications) == "" {
@@ -511,7 +528,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 	}
 
 	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"annotations":           pq.StringArray(annotationsArray),
+		"annotations":           model.MakeJSONMap(existingAnnotations),
 		"rendered_config":       &renderedConfig,
 		"rendered_applications": &renderedApplicationsJSON,
 		"resource_version":      gorm.Expr("resource_version + 1"),
@@ -557,7 +574,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		return nil, ErrorFromGormError(result.Error)
 	}
 
-	annotations := util.LabelArrayToMap(device.Annotations)
+	annotations := util.EnsureMap(device.Annotations)
 	renderedVersion, ok := annotations[api.DeviceAnnotationRenderedVersion]
 	if !ok {
 		return nil, flterrors.ErrNoRenderedVersion
@@ -586,6 +603,8 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Resources:       device.Spec.Data.Resources,
 		Console:         console,
 		Applications:    device.RenderedApplications.Data,
+		UpdatePolicy:    device.Spec.Data.UpdatePolicy,
+		Decommission:    device.Spec.Data.Decommissioning,
 	}
 
 	return &renderedConfig, nil

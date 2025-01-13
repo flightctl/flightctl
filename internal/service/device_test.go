@@ -90,7 +90,7 @@ func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: &v1alpha1.DeviceSpec{
-			Os: &v1alpha1.DeviceOSSpec{Image: "img"},
+			Os: &v1alpha1.DeviceOsSpec{Image: "img"},
 		},
 		Status: &status,
 	}

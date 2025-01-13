@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
@@ -117,7 +119,7 @@ var _ = Describe("Device Agent behavior", func() {
 		})
 
 		When("updating the agent device spec", func() {
-			It("should write any files to the device", func() {
+			It("should write any files to the device", func(ctx context.Context) {
 				const (
 					firstSecretKey    = "first-secret"
 					firstSecretValue  = "This is the first secret"
@@ -215,7 +217,7 @@ func getTestFleet(fleetYaml string) v1alpha1.Fleet {
 }
 
 func mockSecret(mockK8sClient *k8sclient.MockK8SClient, secrets map[string]string) {
-	mockK8sClient.EXPECT().GetSecret("secret-namespace", "secret").
+	mockK8sClient.EXPECT().GetSecret(gomock.Any(), "secret-namespace", "secret").
 		Return(&v1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "secret",

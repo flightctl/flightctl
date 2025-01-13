@@ -10,13 +10,10 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/tasks"
-	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 func TemplateVersionFromReader(r io.Reader) (*api.TemplateVersion, error) {
@@ -38,34 +35,37 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		return server.ListTemplateVersions403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
-	if err != nil {
-		return server.ListTemplateVersions400JSONResponse{Message: err.Error()}, nil
-	}
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector k8sselector.Selector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
-		}
+	var fieldSelector *selector.FieldSelector
+	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}, false); err != nil {
+		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 	}
 
+	// If additional field selectors are provided, merge them
+	if request.Params.FieldSelector != nil {
+		additionalSelector, err := selector.NewFieldSelector(*request.Params.FieldSelector)
+		if err != nil {
+			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse additional field selector: %v", err)}, nil
+		}
+		fieldSelector.Add(additionalSelector)
+	}
+
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+		}
+	}
 	listParams := store.ListParams{
-		Labels:        labelMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
-		FleetName:     &request.Fleet,
 		FieldSelector: fieldSelector,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -100,19 +100,28 @@ func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request ser
 		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
 	}
 	orgId := store.NullOrgId
+
+	var fieldSelector *selector.FieldSelector
+	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}, false); err != nil {
+		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
+	}
+
 	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's config storage
-	listParams := store.ListParams{Limit: 100, FleetName: &request.Fleet}
+	listParams := store.ListParams{
+		Limit:         100,
+		FieldSelector: fieldSelector,
+	}
 	for {
 		result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
 		if err != nil {
-			h.log.Warnf("failed deleting config storage for templateVersions in org %s", orgId)
+			h.log.Warnf("failed deleting KV storage for templateVersions in org %s", orgId)
 			break
 		}
 		for _, tv := range result.Items {
-			tvkey := tasks.TemplateVersionKey{OrgID: orgId, Fleet: tv.Spec.Fleet, TemplateVersion: *tv.Metadata.Name}
-			err := h.configStorage.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+			tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: tv.Spec.Fleet, TemplateVersion: *tv.Metadata.Name}
+			err := h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
 			if err != nil {
-				h.log.Warnf("failed deleting config storage for templateVersion %s/%s/%s", orgId, tv.Spec.Fleet, *tv.Metadata.Name)
+				h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, tv.Spec.Fleet, *tv.Metadata.Name)
 			}
 		}
 		if result.Metadata.Continue != nil {
@@ -167,10 +176,10 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request serv
 	}
 	orgId := store.NullOrgId
 
-	tvkey := tasks.TemplateVersionKey{OrgID: orgId, Fleet: request.Fleet, TemplateVersion: request.Name}
-	err = h.configStorage.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+	tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: request.Fleet, TemplateVersion: request.Name}
+	err = h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
 	if err != nil {
-		h.log.Warnf("failed deleting config storage for templateVersion %s/%s/%s", orgId, request.Fleet, request.Name)
+		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, request.Fleet, request.Name)
 	}
 
 	err = h.store.TemplateVersion().Delete(ctx, orgId, request.Fleet, request.Name)

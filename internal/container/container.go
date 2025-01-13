@@ -25,8 +25,7 @@ type Spec struct {
 }
 
 type ImageSpec struct {
-	Image     string `json:"image"`
-	Transport string `json:"transport"`
+	Image string `json:"image"`
 }
 
 type Status struct {
@@ -37,30 +36,23 @@ type Status struct {
 }
 
 type ImageStatus struct {
-	Image        ImageDetails  `json:"image"`
-	CachedUpdate *bool         `json:"cachedUpdate"`
-	Incompatible bool          `json:"incompatible"`
-	Pinned       bool          `json:"pinned"`
-	Ostree       OstreeDetails `json:"ostree"`
+	Image ImageDetails `json:"image"`
 }
 
 type ImageDetails struct {
 	Image       ImageSpec `json:"image"`
-	Version     string    `json:"version"`
-	Timestamp   string    `json:"timestamp"`
 	ImageDigest string    `json:"imageDigest"`
 }
 
-type OstreeDetails struct {
-	Checksum     string `json:"checksum"`
-	DeploySerial int    `json:"deploySerial"`
-}
-
 type BootcClient interface {
+	// Status returns the current bootc status.
 	Status(ctx context.Context) (*BootcHost, error)
+	// Switch targets a new container image reference to boot.
 	Switch(ctx context.Context, image string) error
-	Apply(ctx context.Context) error
+	// UsrOverlay adds a transient writable overlayfs on `/usr` that will be discarded on reboot.
 	UsrOverlay(ctx context.Context) error
+	// Apply restart or reboot into the new target image.
+	Apply(ctx context.Context) error
 }
 
 var (

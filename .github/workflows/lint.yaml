@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   lint:
-    runs-on: "ubuntu-latest"
+    runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,7 +47,7 @@ jobs:
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           make generate
-          go mod tidy -v
+          make tidy
           git diff --exit-code
 
       - name: Running Linter

@@ -18,6 +18,7 @@ spec:
       labels:
         flightctl.service: flightctl-api
     spec:
+      serviceAccountName: flightctl-api
       containers:
         - name: flightctl-api
           image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
@@ -36,9 +37,6 @@ spec:
             - containerPort: 7443
               name: agent-api
               protocol: TCP
-            - containerPort: 7444
-              name: agent-grpc
-              protocol: TCP
             - containerPort: 15690
               name: api-prom-target
               protocol: TCP
@@ -53,6 +51,11 @@ spec:
               name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
+            {{- if .Values.global.auth.k8s.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-api-k8s-token
+              readOnly: true
+            {{- end}}
 
       restartPolicy: Always
       volumes:
@@ -62,4 +65,9 @@ spec:
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
+        {{- if .Values.global.auth.k8s.externalApiToken}}
+        - name: flightctl-api-k8s-token
+          secret:
+            secretName: flightctl-api-k8s-token
+        {{- end}}
 {{ end }}

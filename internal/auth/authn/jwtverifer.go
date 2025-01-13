@@ -15,7 +15,7 @@ import (
 
 type JWTAuth struct {
 	oidcAuthority         string
-	internalOIDCAuthority string
+	externalOIDCAuthority string
 	jwksUri               string
 	clientTlsConfig       *tls.Config
 }
@@ -25,18 +25,20 @@ type OIDCServerResponse struct {
 	JwksUri       string `json:"jwks_uri"`
 }
 
-func NewJWTAuth(oidcAuthority string, internalOIDCAuthority string, clientTlsConfig *tls.Config) (JWTAuth, error) {
+func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsConfig *tls.Config) (JWTAuth, error) {
 	jwtAuth := JWTAuth{
 		oidcAuthority:         oidcAuthority,
-		internalOIDCAuthority: internalOIDCAuthority,
+		externalOIDCAuthority: externalOIDCAuthority,
 		clientTlsConfig:       clientTlsConfig,
 	}
-	oidcUrl := internalOIDCAuthority
-	if oidcUrl == "" {
-		oidcUrl = oidcAuthority
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: clientTlsConfig,
+		},
 	}
 
-	res, err := http.Get(fmt.Sprintf("%s/.well-known/openid-configuration", oidcUrl))
+	res, err := client.Get(fmt.Sprintf("%s/.well-known/openid-configuration", oidcAuthority))
 	if err != nil {
 		return jwtAuth, err
 	}
@@ -72,6 +74,6 @@ func (j JWTAuth) ValidateToken(ctx context.Context, token string) (bool, error) 
 func (j JWTAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
 		Type: "OIDC",
-		Url:  j.oidcAuthority,
+		Url:  j.externalOIDCAuthority,
 	}
 }

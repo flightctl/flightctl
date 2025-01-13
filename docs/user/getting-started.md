@@ -100,8 +100,9 @@ Create a values.yaml file with the following content
 global:
   auth:
     type: oidc
-    oidcAuthority: https://oidc/realms/your_realm 
-    internalOidcAuthority: https://internal.oidc/realms/your_realm
+    oidc:
+      oidcAuthority: https://oidc/realms/your_realm 
+      externalOidcAuthority: https://external.oidc/realms/your_realm
 
 ```
 
@@ -263,7 +264,7 @@ enrollment-service:
   authentication:
     client-certificate-data: LS0tLS1CRUdJTiBD...
     client-key-data: LS0tLS1CRUdJTiBF...
-  enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8080
+  enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8081
 ```
 
 Create a `Containerfile` with the following content:

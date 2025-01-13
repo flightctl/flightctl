@@ -64,14 +64,13 @@ publish: build-containers
 .PHONY: publish
 
 generate:
-	go generate -v $(shell go list ./...)
-	hack/mockgen.sh
+	go generate -v $(shell go list ./... | grep -v -e api/grpc)
 
-generate-grpc:
-	hack/grpcgen.sh
+generate-proto:
+	go generate -v ./api/grpc/...
 
 tidy:
-	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
 
 lint: tools
 	$(GOBIN)/golangci-lint run -v

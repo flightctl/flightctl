@@ -34,10 +34,8 @@ var (
 type GetOptions struct {
 	GlobalOptions
 
-	Owner         string
 	LabelSelector string
 	FieldSelector string
-	StatusFilter  []string
 	Output        string
 	Limit         int32
 	Continue      string
@@ -50,10 +48,8 @@ type GetOptions struct {
 func DefaultGetOptions() *GetOptions {
 	return &GetOptions{
 		GlobalOptions: DefaultGlobalOptions(),
-		Owner:         "",
 		LabelSelector: "",
 		FieldSelector: "",
-		StatusFilter:  []string{},
 		Limit:         0,
 		Continue:      "",
 		FleetName:     "",
@@ -86,10 +82,8 @@ func NewCmdGet() *cobra.Command {
 func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
-	fs.StringVar(&o.Owner, "owner", o.Owner, "filter by owner")
-	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, as a comma-separated list of key=value.")
-	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '==', and '!=' (e.g., --field-selector='key1=value1,key2=value2').")
-	fs.StringSliceVar(&o.StatusFilter, "status-filter", o.StatusFilter, "Filter the results by status field path using key-value pairs. Example: --status-filter=updated.status=UpToDate")
+	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, supporting operators like '=', '!=', and 'in' (e.g., -l='key1=value1,key2!=value2,key3 in (value3, value4)').")
+	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '==', and '!=' (e.g., --field-selector='key1=value1,key2!=value2').")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
 	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
 	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
@@ -125,14 +119,6 @@ func (o *GetOptions) Validate(args []string) error {
 	}
 	if len(name) > 0 && len(o.FieldSelector) > 0 {
 		return fmt.Errorf("cannot specify field selector when fetching a single resource")
-	}
-	if len(o.Owner) > 0 {
-		if kind != DeviceKind && kind != FleetKind {
-			return fmt.Errorf("owner can only be specified when fetching devices and fleets")
-		}
-		if len(name) > 0 {
-			return fmt.Errorf("cannot specify owner together with a device or fleet name")
-		}
 	}
 	if o.Summary || o.SummaryOnly {
 		if kind != DeviceKind {
@@ -186,10 +172,8 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		response, err = c.GetRenderedDeviceSpecWithResponse(ctx, name, &api.GetRenderedDeviceSpecParams{})
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
-			Owner:         util.StrToPtrWithNilDefault(o.Owner),
 			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			StatusFilter:  util.SliceToPtrWithNilDefault(o.StatusFilter),
 			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
 			Continue:      util.StrToPtrWithNilDefault(o.Continue),
 			SummaryOnly:   util.BoolToPtr(o.SummaryOnly),
@@ -209,11 +193,11 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		response, err = c.ReadFleetWithResponse(ctx, name, nil)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
-			Owner:         util.StrToPtrWithNilDefault(o.Owner),
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector:   util.StrToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector:   util.StrToPtrWithNilDefault(o.FieldSelector),
+			Limit:           util.Int32ToPtrWithNilDefault(o.Limit),
+			Continue:        util.StrToPtrWithNilDefault(o.Continue),
+			AddDevicesCount: util.BoolToPtr(true),
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == TemplateVersionKind && len(name) > 0:

@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -68,7 +69,7 @@ var _ = Describe("DeviceStore create", func() {
 				Name: util.StrToPtr("newresourcename"),
 			},
 			Spec: &api.DeviceSpec{
-				Os: &api.DeviceOSSpec{Image: imageName},
+				Os: &api.DeviceOsSpec{Image: imageName},
 			},
 			Status: nil,
 		}
@@ -96,7 +97,7 @@ var _ = Describe("DeviceStore create", func() {
 				Name: util.StrToPtr("mydevice-1"),
 			},
 			Spec: &api.DeviceSpec{
-				Os: &api.DeviceOSSpec{
+				Os: &api.DeviceOsSpec{
 					Image: "newos",
 				},
 			},
@@ -108,7 +109,7 @@ var _ = Describe("DeviceStore create", func() {
 			if raceCalled {
 				return
 			}
-			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOSSpec{Image: "bah"}}}
+			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "bah"}}}
 			device, err := model.NewDeviceFromApiResource(&otherupdate)
 			device.OrgID = orgId
 			device.ResourceVersion = lo.ToPtr(int64(5))
@@ -278,8 +279,8 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("List with paging", func() {
 			listParams := store.ListParams{
-				Limit:  1000,
-				Labels: map[string]string{"key": "value-1"}}
+				Limit:         1000,
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}, false)}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
@@ -288,10 +289,8 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("List with status field filter paging", func() {
 			listParams := store.ListParams{
-				Filter: map[string][]string{
-					"status.updated.status": {"Unknown", "Updating"},
-				},
-				Limit: 1000,
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorOrDie("status.updated.status in (Unknown, Updating)", selector.WithPrivateSelectors()),
 			}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
@@ -302,24 +301,26 @@ var _ = Describe("DeviceStore create", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", util.StrToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", util.StrToPtr("Fleet/fleet-b"), nil, nil)
 			listParams := store.ListParams{
-				Owners: []string{"Fleet/fleet-a"},
-				Limit:  1000,
+				Limit: 1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+					map[string]string{"metadata.owner": "Fleet/fleet-a"}, false, selector.WithPrivateSelectors()),
 			}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
 			listParams = store.ListParams{
-				Owners: []string{"Fleet/fleet-b"},
-				Limit:  1000,
+				Limit: 1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+					map[string]string{"metadata.owner": "Fleet/fleet-b"}, false, selector.WithPrivateSelectors()),
 			}
 			devices, err = devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
 			listParams = store.ListParams{
-				Owners: []string{"Fleet/fleet-a", "Fleet/fleet-b"},
-				Limit:  1000,
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorOrDie("metadata.owner in (Fleet/fleet-a, Fleet/fleet-b)", selector.WithPrivateSelectors()),
 			}
 			devices, err = devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
@@ -333,7 +334,7 @@ var _ = Describe("DeviceStore create", func() {
 					Name: util.StrToPtr("newresourcename"),
 				},
 				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOSSpec{Image: imageName},
+					Os: &api.DeviceOsSpec{Image: imageName},
 				},
 				Status: nil,
 			}
@@ -352,7 +353,7 @@ var _ = Describe("DeviceStore create", func() {
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOSSpec{
+					Os: &api.DeviceOsSpec{
 						Image: "newos",
 					},
 				},
@@ -410,7 +411,7 @@ var _ = Describe("DeviceStore create", func() {
 					Name: util.StrToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOSSpec{Image: "newos"},
+					Os: &api.DeviceOsSpec{Image: "newos"},
 				},
 				Status: &status,
 			}

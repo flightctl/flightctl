@@ -3,7 +3,7 @@ REPORTS ?= $(ROOT_DIR)/reports
 GO_TEST_FORMAT = pkgname
 GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
 
-GO_UNITTEST_DIRS 		= ./internal/...
+GO_UNITTEST_DIRS 		= ./internal/... ./api/...
 GO_INTEGRATIONTEST_DIRS = ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 
@@ -20,7 +20,7 @@ GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_uni
 GO_TEST_INTEGRATION_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_integration_test.xml $(GOTEST_PUBLISH_FLAGS)
 
 _integration_test: $(REPORTS)
-	gotestsum $(GO_TEST_E2E_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
+	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_E2E_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
 	$(MAKE) _collect_junit
 
 _e2e_test: $(REPORTS)
@@ -28,7 +28,7 @@ _e2e_test: $(REPORTS)
 	test/scripts/run_e2e_tests.sh "$(REPORTS)" $(GO_E2E_DIRS)
 
 _unit_test: $(REPORTS)
-	gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
+	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
 	$(MAKE) _collect_junit
 
 _collect_junit: $(REPORTS)

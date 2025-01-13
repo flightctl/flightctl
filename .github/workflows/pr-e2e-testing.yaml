@@ -14,7 +14,7 @@ permissions:
 jobs:
   # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
   e2e:
-    runs-on: "ubuntu-latest"
+    runs-on: "ubuntu-24.04"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,17 +38,7 @@ jobs:
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
         with:
-          setup_podman4: yes
           setup_kvm: yes
-
-      - name: Fix swtpm in qemu/libvirt (broken apparmor profile and swtpm permissions)
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: |
-          sudo apparmor_status
-          sudo aa-complain /usr/bin/swtpm
-          sudo apparmor_parser -r /etc/apparmor.d/usr.bin.swtpm
-          sudo mkdir -p /var/lib/swtpm-localca
-          sudo chmod a+rwx /var/lib/swtpm-localca
 
       - name: Create kind cluster
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
@@ -74,3 +64,11 @@ jobs:
       - name: Run E2E Tests
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run:  make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output
+
+      - name: Collect and Upload Logs
+        if: always() && steps.filter.outputs.notdocs == 'true'
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'e2e-logs'

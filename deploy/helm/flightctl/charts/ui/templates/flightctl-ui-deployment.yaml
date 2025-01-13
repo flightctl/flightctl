@@ -44,6 +44,11 @@ spec:
             value: /app/serving-cert/tls.crt
           - name: IS_OCP_PLUGIN
             value: "true"
+          - name: K8S_RBAC_NS
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: K8S_RBAC_NS
           {{- else }}
           - name: INTERNAL_OIDC_URL
             valueFrom:

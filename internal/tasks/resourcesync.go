@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -93,9 +94,14 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 
 	fleetsPreOwned := make([]api.Fleet, 0)
 
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner}, false)
+	if err != nil {
+		return err
+	}
+
 	listParams := store.ListParams{
-		Owners: []string{*owner},
-		Limit:  100,
+		Limit:         100,
+		FieldSelector: fs,
 	}
 	for {
 		listRes, err := r.store.Fleet().List(ctx, rs.OrgID, listParams)

@@ -100,6 +100,7 @@ specs
 SpiceDB
 substring
 systemd
+targetRevision
 TBD
 TemplateVersion
 TemplateVersions
@@ -126,6 +127,9 @@ webhooks
 workflows
 X.509
 YAML
+openshift
+acm
+namespaces
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -170,6 +174,8 @@ v3.4
 WorkDir
  - docs/user/managing-fleets.md
 OverlappingSelectors
+factory-berlinsite
+factory-madridsite
  - docs/user/building-images.md
 usr
  - docs/user/registering-microshift-devices-acm.md
@@ -184,3 +190,17 @@ LessThanOrEquals
 NotContains
 NotEquals
 NotIn
+ - docs/user/kubernetes-auth.md
+global.auth.type
+insecureSkipTlsVerify
+internalOpenShiftApiUrl
+global.target
+RoleBinding
+ClusterRole
+global.auth.caCert
+global.auth.insecureSkipTlsVerify
+global.auth.k8s.apiUrl
+global.auth.k8s.externalApiToken
+global.auth.k8s.externalOpenShiftApiUrl
+caCert
+ClusterRoleBinding

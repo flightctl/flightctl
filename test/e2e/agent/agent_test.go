@@ -113,11 +113,11 @@ var _ = Describe("VM Agent behavior", func() {
 				logrus.Infof("Current image for %s is %s", deviceId, currentImage)
 				repo, _ := parseImageReference(currentImage)
 				newImageReference = repo + ":not-existing"
-				device.Spec.Os = &v1alpha1.DeviceOSSpec{Image: newImageReference}
+				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 				logrus.Infof("Updating %s to image %s", deviceId, device.Spec.Os.Image)
 			})
 
-			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Retrying",
+			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Error",
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
 				}, "2m")

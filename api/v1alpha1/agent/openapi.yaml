@@ -1,23 +1,34 @@
 openapi: 3.0.1
 info:
-  title: Open Device Management API - agent endpoint
-  version: undefined
+  title: Flight Control API
+  version: v1alpha1
+  description: |
+    [Flight Control](https://flightctl.io) is a service for declarative management of fleets of edge devices and their workloads.
+  contact:
+    name: The Flight Control Team
+    url: https://flightctl.io
+    email: team@flightctl.io
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
   - url: /
+tags:
+  - name: device
+    description: Operations on Device resources.
+  - name: enrollmentrequest
+    description: Operations on EnrollmentRequest resources.
 paths:
   /api/v1/devices/{name}/status:
     put:
       tags:
         - device
-      description: replace status of the specified Device
+      description: Update the status of a Device resource.
       operationId: replaceDeviceStatus
       parameters:
         - name: name
           in: path
-          description: name of the Device
+          description: The name of the Device resource to update.
           required: true
           schema:
             type: string
@@ -59,22 +70,21 @@ paths:
     get:
       tags:
         - device
-      description: get the full specification for the specified device
+      description: Get the rendered, self-contained device specification for a Device resource.
       operationId: getRenderedDeviceSpec
       parameters:
         - name: name
           in: path
-          description: Name of the device
+          description: The name of the Device resource to get the rendered device specification for.
           required: true
           schema:
             type: string
         - name: knownRenderedVersion
           in: query
-          description: The last known renderedVersion
+          description: The last known renderedVersion.
           required: false
           schema:
             type: string
-
       responses:
         "200":
           description: OK
@@ -108,12 +118,12 @@ paths:
     get:
       tags:
         - enrollmentrequest
-      description: read the specified Enrollment
+      description: Get an EnrollmentRequest resource.
       operationId: readEnrollmentRequest
       parameters:
         - name: name
           in: path
-          description: the fingerprint of the EnrollmentRequest
+          description: The name of the EnrollmentRequest resource to get.
           required: true
           schema:
             type: string
@@ -130,8 +140,20 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:
@@ -140,7 +162,7 @@ paths:
     post:
       tags:
         - enrollmentrequest
-      description: request enrollment of a Device
+      description: Create an EnrollmentRequest resource.
       operationId: createEnrollmentRequest
       requestBody:
         content:
@@ -151,12 +173,6 @@ paths:
       responses:
         "201":
           description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
-        "208":
-          description: Already Reported
           content:
             application/json:
               schema:
@@ -173,8 +189,20 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
         "409":
           description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
           content:
             application/json:
               schema:

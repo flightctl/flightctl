@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -39,20 +40,20 @@ func New(
 	}
 }
 
-func (s *Server) Run() error {
+func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
 	publisher, err := tasks.TaskQueuePublisher(s.provider)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create fleet queue publisher")
 		return err
 	}
-	configStorage, err := tasks.NewConfigStorage(s.cfg.KV.Hostname, s.cfg.KV.Port)
+	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
-		s.log.WithError(err).Error("failed to create configstorage")
+		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
 	callbackManager := tasks.NewCallbackManager(publisher, s.log)
-	if err = tasks.LaunchConsumers(context.Background(), s.provider, s.store, callbackManager, s.k8sClient, configStorage, 1, 1); err != nil {
+	if err = tasks.LaunchConsumers(ctx, s.provider, s.store, callbackManager, s.k8sClient, kvStore, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}
@@ -62,7 +63,7 @@ func (s *Server) Run() error {
 		<-sigShutdown
 		s.log.Println("Shutdown signal received")
 		s.provider.Stop()
-		configStorage.Close()
+		kvStore.Close()
 	}()
 	s.provider.Wait()
 
