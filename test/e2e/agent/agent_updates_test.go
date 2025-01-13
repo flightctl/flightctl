@@ -54,9 +54,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
 				}, "2m")
 
-			// Check the device status after the update completes
-			response = harness.GetDeviceWithStatusSystem(deviceId)
-			device = response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUpToDate))
 			logrus.Info("Device updated to new image 🎉")
@@ -72,14 +69,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "the device is applying update renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", string(status.UpdateStateApplyingUpdate))
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "1m")
 
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", string(status.UpdateStateRebooting))
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
@@ -88,7 +85,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
 				func(device *v1alpha1.Device) bool {
 					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", string(status.UpdateStateUpdated))
+						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
@@ -112,14 +109,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "the device is applying update renderedVersion: 3",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", string(status.UpdateStateApplyingUpdate))
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "1m")
 
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", string(status.UpdateStateRebooting))
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
@@ -128,13 +125,13 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
 				func(device *v1alpha1.Device) bool {
 					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", string(status.UpdateStateUpdated))
+						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown"))))
+			Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:base")
 			Expect(device.Spec.Applications).To(BeNil())
 			logrus.Info("Application demo_embedded_app is not present in new image 🌞")
@@ -147,7 +144,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 		})
 	})
 })
-
 
 // conditionExists checks if a specific condition exists for the device with the given type, status, and reason.
 func conditionExists(device *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {

@@ -401,7 +401,7 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
 		repo, _ := h.parseImageReference(currentImage)
 		newImageReference = repo + version
-		device.Spec.Os = &v1alpha1.DeviceOSSpec{Image: newImageReference}
+		device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
 
@@ -419,6 +419,7 @@ func (h *Harness) parseImageReference(image string) (string, string) {
 	repo := strings.Join(parts[:len(parts)-1], ":")
 
 	return repo, tag
+}
 
 func (h *Harness) CleanUpResources(resourceType string) (string, error) {
 	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
