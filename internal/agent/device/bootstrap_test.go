@@ -4,20 +4,18 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestInitialization(t *testing.T) {
@@ -35,6 +33,7 @@ func TestInitialization(t *testing.T) {
 			mockHookManager *hook.MockManager,
 			mockEnrollmentClient *client.MockEnrollment,
 			mockSystemClient *client.MockSystem,
+			mockLifecycleInitializer *lifecycle.MockInitializer,
 		)
 		expectedError error
 	}{
@@ -47,13 +46,15 @@ func TestInitialization(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				_ *client.MockEnrollment,
 				mockSystemClient *client.MockSystem,
-
+				mockLifecycleInitializer *lifecycle.MockInitializer,
 			) {
 				gomock.InOrder(
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
+					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
@@ -74,13 +75,16 @@ func TestInitialization(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				_ *client.MockEnrollment,
 				mockSystemClient *client.MockSystem,
+				mockLifecycleInitializer *lifecycle.MockInitializer,
 			) {
 				bootedOSVersion := "2.0.0"
 				gomock.InOrder(
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
+					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(true),
@@ -102,18 +106,16 @@ func TestInitialization(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				mockEnrollmentClient *client.MockEnrollment,
 				mockSystemClient *client.MockSystem,
+				mockLifecycleInitializer *lifecycle.MockInitializer,
+
 			) {
-				mockEnrollmentRequest := mockEnrollmentRequest(v1alpha1.ConditionStatusTrue)
 				gomock.InOrder(
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, nil).Times(1),
+					mockLifecycleInitializer.EXPECT().IsInitialized().Return(false),
 					mockSpecManager.EXPECT().Initialize().Return(nil),
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, nil).Times(1),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
-					mockStatusManager.EXPECT().Get(gomock.Any()).Return(nil),
-					mockEnrollmentClient.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(nil, nil),
-					mockEnrollmentClient.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(mockEnrollmentRequest, nil),
-					mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).Times(1),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
+					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
@@ -138,21 +140,17 @@ func TestInitialization(t *testing.T) {
 			mockHookManager := hook.NewMockManager(ctrl)
 			mockEnrollmentClient := client.NewMockEnrollment(ctrl)
 			mockSystemClient := client.NewMockSystem(ctrl)
-
-			backoff := wait.Backoff{
-				Steps: 1,
-			}
+			mockLifecycleInitializer := lifecycle.NewMockInitializer(ctrl)
 
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,
 				specManager:             mockSpecManager,
 				hookManager:             mockHookManager,
+				lifecycle:               mockLifecycleInitializer,
 				deviceReadWriter:        mockReadWriter,
 				managementServiceConfig: &client.Config{},
-				enrollmentClient:        mockEnrollmentClient,
 				systemClient:            mockSystemClient,
 				log:                     log.NewPrefixLogger("test"),
-				backoff:                 backoff,
 			}
 
 			ctx := context.TODO()
@@ -164,6 +162,7 @@ func TestInitialization(t *testing.T) {
 				mockHookManager,
 				mockEnrollmentClient,
 				mockSystemClient,
+				mockLifecycleInitializer,
 			)
 
 			err := b.Initialize(ctx)
@@ -361,37 +360,3 @@ func TestEnsureBootedOS(t *testing.T) {
 		})
 	}
 }
-
-func mockEnrollmentRequest(status v1alpha1.ConditionStatus) *v1alpha1.EnrollmentRequest {
-	condition := v1alpha1.Condition{
-		Type:               v1alpha1.EnrollmentRequestApproved,
-		LastTransitionTime: time.Now(),
-		Status:             status,
-		Reason:             "reason",
-		Message:            "message",
-	}
-	return &v1alpha1.EnrollmentRequest{
-		Metadata: v1alpha1.ObjectMeta{
-			Name: util.StrToPtr("mock-request"),
-		},
-		Spec: v1alpha1.EnrollmentRequestSpec{
-			Csr: "different csr string",
-		},
-		Status: &v1alpha1.EnrollmentRequestStatus{
-			Conditions:  []v1alpha1.Condition{condition},
-			Certificate: util.StrToPtr(mockManagementCert),
-		},
-	}
-}
-
-var mockManagementCert = `-----BEGIN CERTIFICATE-----
-MIIBjDCCATGgAwIBAgIINoR3ImoPCTEwCgYIKoZIzj0EAwIwDTELMAkGA1UEAxMC
-Y2EwHhcNMjQwMjI3MjEwODUxWhcNMzQwMjI0MjEwODUyWjANMQswCQYDVQQDEwJj
-YTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABFv6UUQcSOlh5KeccQZrgRNG9na3
-kLnS+ujwMQyFqqpMVez+oiED+601q572Cs/SCqsdoszGhw5+kj3OchYkREGjezB5
-MA4GA1UdDwEB/wQEAwICpDAPBgNVHRMBAf8EBTADAQH/MCkGA1UdDgQiBCBjMAN8
-gDGCoybdkHp5RcjIxHlF/AJ6j1f8OjLrU8r4ZzArBgNVHSMEJDAigCBjMAN8gDGC
-oybdkHp5RcjIxHlF/AJ6j1f8OjLrU8r4ZzAKBggqhkjOPQQDAgNJADBGAiEA/h5w
-CHzlbDp2BUZwuOuYowGj4Npzvaw56bZy/6gcorYCIQC3gp8uwlVHK10n+q7NcrqD
-Ip8s5o3V6ts3shDNpknA/Q==
------END CERTIFICATE-----`
