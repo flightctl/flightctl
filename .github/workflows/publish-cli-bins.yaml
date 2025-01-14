@@ -16,14 +16,8 @@ jobs:
         arch: [amd64, arm64]
     env:
       NAME: flightctl-${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.os == 'darwin' && 'macos-latest' || 'ubuntu-24.04' }}
+    runs-on: "ubuntu-24.04"
     steps:
-      - name: Install Go (if macOS)
-        if: ${{ matrix.os == 'darwin' }}
-        run: |
-          brew install go
-          go version
-
       - name: "Checkout"
         uses: actions/checkout@v4
 
@@ -59,26 +53,24 @@ jobs:
   verify:
     strategy:
       matrix:
-        os: [linux, darwin]
-        arch: [amd64, arm64]
-    env:
-      NAME: flightctl-${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.os == 'darwin' && 'macos-latest' || 'ubuntu-24.04' }}
-    if: ${{ !(matrix.os == 'linux' && matrix.arch == 'arm64') }}
+        env:
+          - runner: ubuntu-24.04
+            build: linux-amd64
+          - runner: macos-latest
+            build: darwin-arm64
+    runs-on: ${{ matrix.env.runner }}
     needs: [build]
 
     steps:
       - name: "Load binary"
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.NAME }}
+          name: flightctl-${{ matrix.env.build }}
 
       - name: "Verify"
         run: |
-          chmod +x ${{ env.NAME }}
-          ls -l
-          file ${{ env.NAME }}
-          ./${{ env.NAME }} version
+          chmod +x flightctl-${{ matrix.env.build }}
+          ./flightctl-${{ matrix.env.build }} version
           exit $?
 
   publish:
