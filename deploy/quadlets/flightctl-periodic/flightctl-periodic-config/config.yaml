@@ -6,5 +6,6 @@ database:
     user: admin
     password: adminpass   # we should funnel this via secrets instead
 service: {}
-queue:
-    amqpUrl: amqp://user:password@flightctl-rabbitmq:5672/
+kv:
+    hostname: flightctl-kv
+    port: 6379

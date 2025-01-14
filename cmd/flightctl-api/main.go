@@ -90,11 +90,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
-	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
-
-	metrics := instrumentation.NewApiMetrics(cfg)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+
+	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("failed connecting to Redis queue: %v", err)
+	}
+
+	metrics := instrumentation.NewApiMetrics(cfg)
 
 	// create the agent service listener as tcp (combined HTTP+gRPC)
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
