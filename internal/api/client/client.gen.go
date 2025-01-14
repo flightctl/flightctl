@@ -5488,7 +5488,7 @@ func (r ReplaceEnrollmentRequestResponse) StatusCode() int {
 type ApproveEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *EnrollmentRequestApproval
+	JSON200      *EnrollmentRequestApprovalStatus
 	JSON400      *Error
 	JSON401      *Error
 	JSON403      *Error
@@ -8912,7 +8912,7 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest EnrollmentRequestApproval
+		var dest EnrollmentRequestApprovalStatus
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
