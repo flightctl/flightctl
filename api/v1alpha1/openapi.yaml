@@ -3943,6 +3943,8 @@ components:
           format: date-time
         lifecycle:
           $ref: '#/components/schemas/DeviceLifecycleStatus'
+        attestationReport:
+          $ref: '#/components/schemas/AttestationReport'
     DeviceSystemInfo:
       required:
         - architecture
@@ -4179,6 +4181,15 @@ components:
         - "DeviceResourceStatusCritical"
         - "DeviceResourceStatusError"
         - "DeviceResourceStatusUnknown"
+    AttestationReport:
+      type: object
+      description: Attestation report to be parsed by attestation engine.
+      properties:
+        report:
+          type: string
+          description: The attestation report.
+      required:
+        - report
 
     EnrollmentRequestApproval:
       type: object
