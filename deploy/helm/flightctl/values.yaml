@@ -123,27 +123,6 @@ periodic:
     image: quay.io/flightctl/flightctl-periodic
     tag: ""
     pullPolicy: Always
-rabbitmq:
-  enabled: true
-  replicaCount: 1
-  image:
-    image: docker.io/library/rabbitmq
-    tag: 3.13-management
-    pullPolicy: IfNotPresent
-  ports:
-    amqp: 5672
-    management: 15672
-  persistence:
-    enabled: true
-    accessMode: ReadWriteOnce
-    size: 10Gi
-  auth:
-    username: user
-    password: password
-  service:
-    type: ClusterIP
-    amqpPort: 5672
-    managementPort: 15672
 prometheus:
   enabled: false
 ui:

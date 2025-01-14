@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - flightctl-db:/var/lib/pgsql/data
+      - flightctl-db:/var/lib/pgsql/data:z
     networks:
       - flightctl-network
     restart: unless-stopped
@@ -72,16 +72,6 @@ services:
       DB_PASSWORD: keycloak
     volumes:
       - ./keycloak/realm-flightctl.json:/opt/keycloak/data/import/realm.json
-    networks:
-      - flightctl-network
-    restart: unless-stopped
-
-  flightctl-mq:
-    container_name: flightctl-mq
-    image: ${RABBITMQ_IMAGE:-docker.io/library/rabbitmq:3.13-management}
-    ports:
-      - "5672:5672"
-      - "15672:15672"
     networks:
       - flightctl-network
     restart: unless-stopped

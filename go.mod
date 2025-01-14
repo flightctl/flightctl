@@ -33,7 +33,6 @@ require (
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/client_golang v1.19.0
-	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/samber/lo v1.44.0

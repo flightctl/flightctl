@@ -18,7 +18,6 @@ const (
 type Config struct {
 	Database   *dbConfig         `json:"database,omitempty"`
 	Service    *svcConfig        `json:"service,omitempty"`
-	Queue      *queueConfig      `json:"queue,omitempty"`
 	KV         *kvConfig         `json:"kv,omitempty"`
 	Auth       *authConfig       `json:"auth,omitempty"`
 	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
@@ -54,10 +53,6 @@ type svcConfig struct {
 	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
 	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
 	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
-}
-
-type queueConfig struct {
-	AmqpURL string `json:"amqpUrl,omitempty"`
 }
 
 type kvConfig struct {
@@ -131,9 +126,6 @@ func NewDefault() *Config {
 			HttpMaxHeaderBytes:    32 * 1024, // 32KB
 			HttpMaxUrlLength:      2000,
 			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
-		},
-		Queue: &queueConfig{
-			AmqpURL: "amqp://localhost:5672",
 		},
 		KV: &kvConfig{
 			Hostname: "localhost",

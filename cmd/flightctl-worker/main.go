@@ -41,14 +41,18 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
-	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+
+	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("failed connecting to Redis queue: %v", err)
+	}
+
 	k8sClient, err := k8sclient.NewK8SClient()
 	if err != nil {
 		log.WithError(err).Warning("initializing k8s client, assuming k8s is not supported")
 		k8sClient = nil
 	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
 	server := workerserver.New(cfg, log, store, provider, k8sClient)
 	if err := server.Run(ctx); err != nil {

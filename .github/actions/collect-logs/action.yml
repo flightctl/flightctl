@@ -46,7 +46,7 @@ runs:
           fi
         done
 
-        for statefulset in flightctl-kv flightctl-rabbitmq; do
+        for statefulset in flightctl-kv; do
           echo "Collecting logs for $statefulset..."
           if kubectl logs -n ${{ inputs.namespace-internal }} statefulset/$statefulset --all-containers=true \
              > ${{ inputs.log-directory }}/${statefulset}_${timestamp}.log; then
