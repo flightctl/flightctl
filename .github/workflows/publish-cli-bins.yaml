@@ -9,89 +9,159 @@ on:
   pull_request:
 
 jobs:
+  setup:
+    name: Set Up Shared Environment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
   build:
+    name: Build Binaries
     strategy:
       matrix:
-        os: [linux, darwin]
-        arch: [amd64, arm64]
-    env:
-      NAME: flightctl-${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: "ubuntu-24.04"
+        os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
+    runs-on: ubuntu-latest
+    needs: setup
     steps:
-      - name: "Checkout"
-        uses: actions/checkout@v4
-
-      - name: "Build"
-        env:
-          GOARCH: ${{ matrix.arch }}
-          GOOS: ${{ matrix.os }}
+      - name: Set up Environment Variables
         run: |
-          make build-cli
+          # Split os-arch into os and arch
+          IFS="-" read -r GOOS GOARCH <<< "${{ matrix.os_arch }}"
+          # Export variables to GITHUB_ENV for subsequent steps
+          {
+            echo "GOOS=$GOOS"
+            echo "GOARCH=$GOARCH"
+          } >> $GITHUB_ENV
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache Git Repository
+        uses: actions/cache@v4
+        with:
+          path: .git
+          key: ${{ runner.os }}-git-${{ hashFiles('**/.git') }}
+          restore-keys: |
+            ${{ runner.os }}-git-
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.21
+
+      # Cache Go modules
+      - name: Cache Go Modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      # Install dependencies
+      - name: Install Dependencies
+        run: go mod tidy
+
+      - name: Build
+        run: |
+          GOOS="${GOOS}" GOARCH="${GOARCH}" make build-cli
           SHA=$(shasum -a 256 bin/flightctl | awk '{ print $1 }')
-          echo $SHA > ${{ env.NAME }}-sha256.txt
-          mv bin/flightctl ${{ env.NAME }}
-          tar cvf ${{ env.NAME }}.tar.gz ${{ env.NAME }}
+          echo "${SHA}" > "flightctl-${{ matrix.os_arch }}-sha256.txt"
+          mv bin/flightctl "flightctl-${{ matrix.os_arch }}"
+          tar cvf "flightctl-${{ matrix.os_arch }}.tar.gz" "flightctl-${{ matrix.os_arch }}"
 
-      - name: "Save tar binary"
+      - name: Save tar binary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.NAME }}.tar.gz
-          path: ${{ env.NAME }}.tar.gz
+          name: flightctl-${{ matrix.os_arch }}.tar.gz
+          path: flightctl-${{ matrix.os_arch }}.tar.gz
 
-      - name: "Save binary"
+      - name: Save binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.NAME }}
-          path: ${{ env.NAME }}
+          name: flightctl-${{ matrix.os_arch }}
+          path: flightctl-${{ matrix.os_arch }}
 
-      - name: "Save checksum"
+      - name: Save checksum
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.NAME }}-sha256.txt
-          path: ${{ env.NAME }}-sha256.txt
+          name: flightctl-${{ matrix.os_arch }}-sha256.txt
+          path: flightctl-${{ matrix.os_arch }}-sha256.txt
 
   verify:
+    name: Verify Binaries
     strategy:
       matrix:
-        env:
-          - runner: ubuntu-24.04
-            build: linux-amd64
-          - runner: macos-latest
-            build: darwin-arm64
-    runs-on: ${{ matrix.env.runner }}
-    needs: [build]
+        os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
+        include:
+          - os_arch: "linux-amd64"
+            runner: "ubuntu-latest"
+          - os_arch: "linux-arm64"
+            runner: "ubuntu-latest"
+          - os_arch: "darwin-amd64"
+            runner: "macos-latest"
+          - os_arch: "darwin-arm64"
+            runner: "macos-latest"
+    runs-on: ${{ matrix.runner }}
+    needs: build
 
     steps:
-      - name: "Load binary"
+      - name: Load binary
         uses: actions/download-artifact@v4
         with:
-          name: flightctl-${{ matrix.env.build }}
+          name: flightctl-${{ matrix.os_arch }}
 
-      - name: "Verify"
+      - name: Make Executable
+        run: chmod +x flightctl-${{ matrix.os_arch }}
+
+      - name: Setup QEMU
         run: |
-          chmod +x flightctl-${{ matrix.env.build }}
-          ./flightctl-${{ matrix.env.build }} version
-          exit $?
+          if [[ "${{ matrix.os_arch }}" == "linux-arm64" ]]; then
+            docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          fi
+
+      - name: Verify
+        run: |
+          # Verify version output
+          if [[ "${{ matrix.os_arch }}" == "linux-arm64" ]]; then
+            docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace ubuntu:latest /workspace/flightctl-${{ matrix.os_arch }} version
+          else
+            ./flightctl-${{ matrix.os_arch }} version
+          fi
+          if [ $? -gt 0 ]; then
+            echo "Error: Version command failed"
+            exit 1
+          fi
 
   publish:
+    name: Publish Binaries
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: "ubuntu-24.04"
-    needs: [verify]
+    runs-on: ubuntu-latest
+    needs: verify
     permissions:
       contents: write
 
     steps:
-      - name: "Checkout"
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: "Load binary archives"
+      - name: Load binary archives
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
           path: release
 
       # if this is a push to the main branch, we update the latest release of binaries
-      - name: "Publish latest"
+      - name: Publish latest
         if: ${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -107,7 +177,7 @@ jobs:
           fi
 
       # if this is a tag, we upload the release binaries, the release already exists
-      - name: "Publish tag"
+      - name: Publish tag
         if: ${{ github.ref_type == 'tag' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
