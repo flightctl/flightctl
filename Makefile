@@ -1,5 +1,5 @@
 GOBASE=$(shell pwd)
-GOBIN=$(GOBASE)/bin
+GOBIN=$(GOBASE)/bin/
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
 GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
@@ -83,8 +83,11 @@ build: bin build-cli
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-worker
 
-build-cli:
+build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
+
+build-agent: bin
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
 
 build-api: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
