@@ -84,7 +84,7 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *LoginOptions) Validate(args []string) error {
-	if err := o.GlobalOptions.Validate(args); err != nil {
+	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
 		return err
 	}
 	parsedUrl, err := url.Parse(args[0])
