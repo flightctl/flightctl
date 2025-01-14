@@ -415,7 +415,7 @@ func copyImageManifests(ctx context.Context, log *log.PrefixLogger, writer filei
 	}()
 
 	// recursively copy image files to agent destination
-	err = filepath.Walk(mountPoint, func(filePath string, info os.FileInfo, err error) error {
+	err = filepath.Walk(writer.PathFor(mountPoint), func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
