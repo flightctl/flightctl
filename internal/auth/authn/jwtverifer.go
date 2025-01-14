@@ -71,6 +71,11 @@ func (j JWTAuth) ValidateToken(ctx context.Context, token string) (bool, error) 
 	return true, nil
 }
 
+func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
+	// TODO return filled identity information
+	return &common.Identity{}, nil
+}
+
 func (j JWTAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
 		Type: "OIDC",
