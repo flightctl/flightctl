@@ -22,6 +22,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
+	github.com/jellydator/ttlcache/v3 v3.3.0
 	github.com/lestrrat-go/jwx/v2 v2.1.0
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/mackerelio/go-osstat v0.2.5
@@ -46,7 +47,7 @@ require (
 	go.uber.org/mock v0.4.0
 	golang.org/x/crypto v0.25.0
 	golang.org/x/net v0.27.0
-	golang.org/x/sync v0.7.0
+	golang.org/x/sync v0.8.0
 	golang.org/x/sys v0.24.0
 	golang.org/x/term v0.22.0
 	google.golang.org/grpc v1.64.0
