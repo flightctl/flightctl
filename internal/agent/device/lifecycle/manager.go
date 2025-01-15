@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -37,6 +38,8 @@ type LifecycleManager struct {
 	enrollmentClient client.Enrollment
 	defaultLabels    map[string]string
 	enrollmentCSR    []byte
+	statusManager    status.Manager
+	systemdClient    *client.Systemd
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -51,6 +54,8 @@ func NewManager(
 	enrollmentClient client.Enrollment,
 	enrollmentCSR []byte,
 	defaultLabels map[string]string,
+	statusManager status.Manager,
+	systemdClient *client.Systemd,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *LifecycleManager {
@@ -64,6 +69,8 @@ func NewManager(
 		enrollmentCSR:        enrollmentCSR,
 		defaultLabels:        defaultLabels,
 		backoff:              backoff,
+		statusManager:        statusManager,
+		systemdClient:        systemdClient,
 	}
 }
 
@@ -92,13 +99,66 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 }
 
 func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
-	// TODO: implement
+	// this controller currently does not implement a sync operation
 	return nil
 }
 
 func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
-	// TODO: implement
+	if current.Decommission == nil && desired.Decommission != nil {
+		m.log.Warn("Detected decommissioning request from flightctl service")
+		m.updateWithStartedCondition(ctx)
+		m.log.Warn("Updated Condition to decommissioning started")
+
+		// todo - switch handling based on decommission target type once we support more types
+
+		m.updateWithCompletedCondition(ctx)
+		m.log.Warn("No errors during decommissioning, updated Condition to decommissioning completed")
+
+		// after this point the device will no longer be able to communicate with the management service
+		m.log.Warn("Preparing to wipe agent certificate and keys and reboot")
+		return m.wipeAndReboot(ctx)
+	}
 	return nil
+}
+
+func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) {
+	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceDecommissioning,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.DecommissionStateStarted),
+		Message: "The device has started decommissioning",
+	})
+	if updateErr != nil {
+		m.log.Warnf("Failed setting status: %v", updateErr)
+	}
+}
+
+func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) {
+	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceDecommissioning,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.DecommissionStateComplete),
+		Message: "The device has completed decommissioning and will wipe its management certificate",
+	})
+	if updateErr != nil {
+		m.log.Warnf("Failed setting status: %v", updateErr)
+	}
+}
+
+// point of no return - wipes management cert and keys
+func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
+	err := m.deviceReadWriter.RemoveFile(m.managementCertPath)
+	if err != nil {
+		m.log.Errorf("Unable to delete mcert: %v", err)
+		return err
+	}
+
+	m.enrollmentUIEndpoint = ""
+	m.enrollmentClient = nil
+	m.enrollmentCSR = nil
+
+	// TODO: incorporate before-reboot hooks
+	return m.systemdClient.Reboot(ctx)
 }
 
 func (m *LifecycleManager) IsInitialized() bool {

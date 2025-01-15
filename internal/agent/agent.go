@@ -169,6 +169,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		enrollmentClient,
 		csr,
 		a.config.DefaultLabels,
+		statusManager,
+		systemdClient,
 		backoff,
 		a.log,
 	)
