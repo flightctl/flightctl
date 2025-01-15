@@ -37,7 +37,7 @@ deploy_service() {
 
 if [[ $# -ne 1 ]]; then
     echo "Usage: $0 <service_name>"
-    echo "Available services: db, rabbitmq, kv"
+    echo "Available services: db, kv"
     exit 1
 fi
 

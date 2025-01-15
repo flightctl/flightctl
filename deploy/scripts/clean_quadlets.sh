@@ -16,7 +16,7 @@ if [ -d "$SYSTEMD_DIR" ]; then
 fi
 
 # Remove volumes
-for volume in flightctl-db flightctl-api-certs rabbitmq-data flightctl-redis; do
+for volume in flightctl-db flightctl-api-certs flightctl-redis; do
     if sudo podman volume inspect "$volume" >/dev/null 2>&1; then
         echo "Removing volume $volume"
         sudo podman volume rm "$volume" || echo "Warning: Failed to remove $volume"

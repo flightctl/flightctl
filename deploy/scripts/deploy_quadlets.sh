@@ -35,9 +35,8 @@ timeout --foreground 300s bash -c '
             --filter "name=flightctl-worker" \
             --filter "name=flightctl-periodic" \
             --filter "name=flightctl-db" \
-            --filter "name=flightctl-rabbitmq" \
             --filter "name=flightctl-kv" \
-            --filter "name=flightctl-ui" | wc -l | grep -q 7; then
+            --filter "name=flightctl-ui" | wc -l | grep -q 6; then
             echo "All services are running"
             exit 0
         fi
