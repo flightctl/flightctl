@@ -392,7 +392,6 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 	response := h.GetDeviceWithStatusSystem(deviceId)
 	device := response.JSON200
 	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-	//Expect(*device.Status.Summary.Info).To(Equal("Bootstrap complete"))
 	Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 	var newImageReference string
 
