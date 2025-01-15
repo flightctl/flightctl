@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"strconv"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -27,6 +28,9 @@ type Device struct {
 
 	// The rendered ignition config, exposed in a separate endpoint.
 	RenderedConfig *string
+
+	// Timestamp when the device was rendered
+	RenderTimestamp time.Time
 
 	// The rendered application provided by the service.
 	RenderedApplications *JSONField[*[]api.RenderedApplicationSpec] `gorm:"type:jsonb"`

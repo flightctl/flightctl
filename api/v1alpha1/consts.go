@@ -11,9 +11,11 @@ const (
 	DeviceKind       = "Device"
 	DeviceListKind   = "DeviceList"
 
-	DeviceAnnotationConsole         = "device-controller/console"
-	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
-	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	DeviceAnnotationConsole                 = "device-controller/console"
+	DeviceAnnotationRenderedVersion         = "device-controller/renderedVersion"
+	DeviceAnnotationTemplateVersion         = "fleet-controller/templateVersion"
+	DeviceAnnotationRenderedTemplateVersion = "device-controller/renderedTemplateVersion"
+	DeviceAnnotationSelectedForRollout      = "device-controller/selectedForRollout"
 
 	// TODO: make configurable
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
@@ -27,7 +29,12 @@ const (
 	FleetKind       = "Fleet"
 	FleetListKind   = "FleetList"
 
-	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	FleetAnnotationTemplateVersion            = "fleet-controller/templateVersion"
+	FleetAnnotationDeployingTemplateVersion   = "fleet-controller/deployingTemplateVersion"
+	FleetAnnotationBatchNumber                = "fleet-controller/batchNumber"
+	FleetAnnotationRolloutApproved            = "fleet-controller/rolloutApproved"
+	FleetAnnotationRolloutApprovalMethod      = "fleet-controller/rolloutApprovalMethod"
+	FleetAnnotationLastBatchSuccessPercentage = "fleet-controller/lastBatchSuccessPercentage"
 
 	RepositoryAPIVersion = "v1alpha1"
 	RepositoryKind       = "Repository"
