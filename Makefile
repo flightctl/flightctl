@@ -163,9 +163,8 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
 	- kind delete cluster
-	- podman-compose -f deploy/podman/compose.yaml down
 	- rm -r ~/.flightctl
 	- rm -f -r bin
 	- rm -f -r $(shell uname -m)
@@ -173,10 +172,7 @@ clean: clean-agent-vm clean-e2e-agent-images
 	- rm -f -r debian
 
 clean-quadlets:
-	- sudo systemctl stop flightctl.slice
-	- sudo rm -rf /etc/containers/systemd/flightctl*
-	- sudo podman volume rm flightctl-db flightctl-api-certs
-	- sudo podman network rm flightctl
+	deploy/scripts/clean_quadlets.sh
 
 .PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container
 tools: $(GOBIN)/golangci-lint
