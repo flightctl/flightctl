@@ -27,10 +27,10 @@ jobs:
           GOOS: ${{ matrix.os }}
         run: |
           make build-cli
-          SHA=$(sha256sum bin | awk '{ print $1 }')
+          SHA=$(shasum -a 256 bin/flightctl | awk '{ print $1 }')
           echo $SHA > ${{ env.NAME }}-sha256.txt
-          tar cvf ${{ env.NAME }}.tar.gz  bin
-          mv bin ${{ env.NAME }}
+          mv bin/flightctl ${{ env.NAME }}
+          tar cvf ${{ env.NAME }}.tar.gz ${{ env.NAME }}
 
       - name: "Save tar binary"
         uses: actions/upload-artifact@v4

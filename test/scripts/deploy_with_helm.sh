@@ -8,8 +8,6 @@ DB_SIZE_PARAMS=
 # IMAGE_PULL_SECRET_PATH=
 SQL_VERSION=${SQL_VERSION:-"latest"}
 SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-12-c8s"}
-RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
-RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
 KV_VERSION=${KV_VERSION:-"7.4.1"}
 KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
 
@@ -24,7 +22,7 @@ usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
 
 while true; do
   case "$1" in
-    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set rabbitmq.enabled=false --set kv.enabled=false" ; shift ;;
+    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set kv.enabled=false" ; shift ;;
     -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
     --db-size)
       db_size=$2
@@ -47,7 +45,6 @@ while true; do
 done
 
 SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
-RABBITMQ_ARG="--set rabbitmq.image.image=${RABBITMQ_IMAGE} --set rabbitmq.image.tag=${RABBITMQ_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
@@ -63,7 +60,6 @@ if [ -z "$ONLY_DB" ]; then
     kind_load_image localhost/flightctl-${suffix}:latest
   done
 
-  kind_load_image "${RABBITMQ_IMAGE}:${RABBITMQ_VERSION}" keep-tar
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
 fi
 
@@ -101,10 +97,10 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
-kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s
+kubectl rollout status statefulset flightctl-kv -n flightctl-internal -w --timeout=300s
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
 

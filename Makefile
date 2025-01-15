@@ -1,5 +1,5 @@
 GOBASE=$(shell pwd)
-GOBIN=$(GOBASE)/bin
+GOBIN=$(GOBASE)/bin/
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
 GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
@@ -34,11 +34,13 @@ GO_BUILD_FLAGS += $(GO_LD_FLAGS)
 
 all: build build-containers
 
+.PHONY: help
 help:
 	@echo "Targets:"
 	@echo "    generate:        regenerate all generated files"
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
+	@echo "    lint-openapi:    run spectral to lint and rulecheck the OpenAPI spec"
 	@echo "    lint-docs:       run markdownlint on documentation"
 	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
 	@echo "    spellcheck-docs: run markdown-spellcheck on documentation"
@@ -58,10 +60,9 @@ help:
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 
+.PHONY: publish
 publish: build-containers
 	hack/publish_containers.sh
-
-.PHONY: publish
 
 generate:
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
@@ -72,9 +73,6 @@ generate-proto:
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
 
-lint: tools
-	$(GOBIN)/golangci-lint run -v
-
 build: bin build-cli
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
 		./cmd/devicesimulator \
@@ -83,8 +81,11 @@ build: bin build-cli
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-worker
 
-build-cli:
+build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
+
+build-agent: bin
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
 
 build-api: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
@@ -179,10 +180,18 @@ tools: $(GOBIN)/golangci-lint
 $(GOBIN)/golangci-lint:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.61.0
 
+lint: tools
+	$(GOBIN)/golangci-lint run -v
+
+.PHONY: lint-openapi
+lint-openapi:
+	@echo "Linting OpenAPI spec"
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn /workdir/api/v1alpha1/openapi.yaml
+
 .PHONY: lint-docs
 lint-docs:
 	@echo "Linting user documentation markdown files"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:latest "docs/user/**/*.md"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.16.0 "docs/user/**/*.md"
 
 .PHONY: lint-diagrams
 lint-diagrams:
@@ -197,8 +206,6 @@ lint-diagrams:
 			fi ; \
 		done ; \
 	done
-
-# 	if basename "$$f" | grep -q --basic-regexp --file=$d/.excalidraw-ignore; then continue ; fi ; \
 
 .PHONY: spellcheck-docs
 spellcheck-docs:
