@@ -2039,7 +2039,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestApproval'
+                $ref: '#/components/schemas/EnrollmentRequestApprovalStatus'
         "400":
           description: Bad Request
           content:
@@ -4142,15 +4142,24 @@ components:
         approved:
           type: boolean
           description: Indicates whether the request has been approved.
-        approvedBy:
-          type: string
-          description: The name of the approver.
-        approvedAt:
-          type: string
-          format: date-time
-          description: The time at which the request was approved.
       required:
         - approved
+    EnrollmentRequestApprovalStatus:
+      allOf:
+      - $ref: "#/components/schemas/EnrollmentRequestApproval"
+      - type: object
+        description: EnrollmentRequestApprovalStatus contains information about the status of approval of a device enrollment request.
+        properties:
+          approvedBy:
+            type: string
+            description: The name of the approver.
+          approvedAt:
+            type: string
+            format: date-time
+            description: The time at which the request was approved.
+        required:
+        - approvedBy
+        - approvedAt
     EnrollmentServiceAuth:
       type: object
       description: EnrollmentServiceAuth contains the client authentication information for a Flight Control enrollment service.
@@ -4270,7 +4279,7 @@ components:
           items:
             $ref: '#/components/schemas/Condition'
         approval:
-          $ref: '#/components/schemas/EnrollmentRequestApproval'
+          $ref: '#/components/schemas/EnrollmentRequestApprovalStatus'
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.

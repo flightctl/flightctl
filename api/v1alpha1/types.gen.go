@@ -661,11 +661,20 @@ type EnrollmentRequestApproval struct {
 	// Approved Indicates whether the request has been approved.
 	Approved bool `json:"approved"`
 
+	// Labels A set of labels to apply to the device.
+	Labels *map[string]string `json:"labels,omitempty"`
+}
+
+// EnrollmentRequestApprovalStatus defines model for EnrollmentRequestApprovalStatus.
+type EnrollmentRequestApprovalStatus struct {
+	// Approved Indicates whether the request has been approved.
+	Approved bool `json:"approved"`
+
 	// ApprovedAt The time at which the request was approved.
-	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+	ApprovedAt time.Time `json:"approvedAt"`
 
 	// ApprovedBy The name of the approver.
-	ApprovedBy *string `json:"approvedBy,omitempty"`
+	ApprovedBy string `json:"approvedBy"`
 
 	// Labels A set of labels to apply to the device.
 	Labels *map[string]string `json:"labels,omitempty"`
@@ -700,8 +709,7 @@ type EnrollmentRequestSpec struct {
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 type EnrollmentRequestStatus struct {
-	// Approval EnrollmentRequestApproval contains information about the approval of a device enrollment request.
-	Approval *EnrollmentRequestApproval `json:"approval,omitempty"`
+	Approval *EnrollmentRequestApprovalStatus `json:"approval,omitempty"`
 
 	// Certificate The PEM-encoded signed certificate.
 	Certificate *string `json:"certificate,omitempty"`

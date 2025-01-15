@@ -412,9 +412,7 @@ func (o *GetOptions) printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...ap
 		approval, approver, approvedLabels := "Pending", "<none>", ""
 		if e.Status.Approval != nil {
 			approval = util.BoolToStr(e.Status.Approval.Approved, "Approved", "Denied")
-			if e.Status.Approval.ApprovedBy != nil {
-				approver = *e.Status.Approval.ApprovedBy
-			}
+			approver = e.Status.Approval.ApprovedBy
 			approvedLabels = strings.Join(util.LabelMapToArray(e.Status.Approval.Labels), ",")
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
