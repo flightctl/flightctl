@@ -4856,6 +4856,7 @@ components:
       - 'OverlappingSelectors'  # Fleet
       - 'Valid'                 # Fleet
       - 'Updating'              # Device
+      - 'RolloutSucceeded'      # Device (service condition)
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
       - 'DeviceDecommissioning' # Device
@@ -4871,6 +4872,7 @@ components:
       - FleetOverlappingSelectors
       - FleetValid
       - DeviceUpdating
+      - DeviceRolloutSucceeded
       - DeviceSpecValid
       - DeviceMultipleOwners
       - DeviceDecommissioning

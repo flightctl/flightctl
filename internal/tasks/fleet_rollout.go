@@ -183,6 +183,10 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	deviceApps, appErrs := f.getDeviceApps(device, templateVersion)
 	errs = append(errs, appErrs...)
 
+	err := f.setRolloutCondition(ctx, device, errs)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("failed generating device spec for %s/%s: %w", f.resourceRef.OrgID, *device.Metadata.Name, errors.Join(errs...))
 	}
@@ -207,7 +211,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
-	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec)
+	err = f.updateDeviceInStore(ctx, device, &newDeviceSpec)
 	if err != nil {
 		return fmt.Errorf("failed updating device spec: %w", err)
 	}
@@ -221,6 +225,21 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	return err
+}
+
+func (f FleetRolloutsLogic) setRolloutCondition(ctx context.Context, device *api.Device, errs []error) error {
+	condition := api.Condition{
+		Type: api.DeviceRolloutSucceeded,
+	}
+	if len(errs) > 0 {
+		condition.Status = api.ConditionStatusFalse
+		condition.Reason = "Failed"
+		condition.Message = fmt.Sprintf("failed generating spec: %v", errors.Join(errs...))
+	} else {
+		condition.Status = api.ConditionStatusTrue
+	}
+
+	return f.devStore.SetServiceConditions(ctx, f.resourceRef.OrgID, *device.Metadata.Name, []api.Condition{condition})
 }
 
 func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationSpec, []error) {
