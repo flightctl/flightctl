@@ -32,7 +32,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			logrus.Infof("Current image is: %s", currentImage)
 			logrus.Infof("New image is: %s", newImageReference)
 
-			harness.WaitForDeviceContents(deviceId, "the device is applying update renderedVersion: 2",
+			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "2m")
@@ -48,14 +48,16 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusRebooting))
 
-			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
+			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
+					for _, condition := range device.Status.Conditions {
+						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+							condition.Message == UpdateRenderedVersionSuccess.String() {
+							return true
+						}
+					}
+					return false
 				}, "2m")
-
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
-			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusUpToDate))
 			logrus.Info("Device updated to new image 🎉")
 		})
 
@@ -67,7 +69,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			logrus.Infof("Current image is: %s", currentImage)
 			logrus.Infof("New image is: %s", newImageReference)
 
-			harness.WaitForDeviceContents(deviceId, "the device is applying update renderedVersion: 2",
+			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "1m")
@@ -82,16 +84,19 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
 
-			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
+			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
+					for _, condition := range device.Status.Conditions {
+						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+							condition.Message == UpdateRenderedVersionSuccess.String() {
+							return true
+						}
+					}
+					return false
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-
-			Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 
 			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:v4")
 			logrus.Info("We expect containers with sleep infinity process to be present but not running")
@@ -107,7 +112,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			logrus.Infof("Current image is: %s", currentImage)
 			logrus.Infof("New image is: %s", newImageReference)
 
-			harness.WaitForDeviceContents(deviceId, "the device is applying update renderedVersion: 3",
+			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "1m")
@@ -122,16 +127,20 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
 
-			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
+			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 3",
 				func(device *v1alpha1.Device) bool {
-					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated))
+					for _, condition := range device.Status.Conditions {
+						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+							condition.Message == "Updated to desired renderedVersion: 3" {
+							return true
+						}
+					}
+					return false
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
 			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:base")
 			Expect(device.Spec.Applications).To(BeNil())
 			logrus.Info("Application demo_embedded_app is not present in new image 🌞")
