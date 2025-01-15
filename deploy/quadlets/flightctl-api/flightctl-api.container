@@ -1,9 +1,7 @@
 [Unit]
 Description=FlightCtl API server
 After=flightctl-db.service
-After=flightctl-rabbitmq.service
 Requires=flightctl-db.service
-Requires=flightctl-rabbitmq.service
 
 [Container]
 ContainerName=flightctl-api

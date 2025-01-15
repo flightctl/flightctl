@@ -15,7 +15,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent"
-	"github.com/flightctl/flightctl/internal/agent/device"
+	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
@@ -261,7 +261,7 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 func readBannerFile(agentDir string) (string, error) {
 	var data []byte
 	var err error
-	bannerFile := filepath.Join(agentDir, device.BannerFile)
+	bannerFile := filepath.Join(agentDir, lifecycle.BannerFile)
 	if _, err = os.Stat(bannerFile); err != nil {
 		return "", err
 	}

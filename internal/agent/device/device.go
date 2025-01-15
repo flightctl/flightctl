@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -38,6 +39,7 @@ type Agent struct {
 	systemdManager         systemd.Manager
 	osManager              os.Manager
 	policyManager          policy.Manager
+	lifecycleManager       lifecycle.Manager
 	applicationsController *applications.Controller
 	configController       *config.Controller
 	resourceController     *resource.Controller
@@ -67,6 +69,7 @@ func NewAgent(
 	hookManager hook.Manager,
 	osManager os.Manager,
 	policyManager policy.Manager,
+	lifecycleManager lifecycle.Manager,
 	applicationsController *applications.Controller,
 	configController *config.Controller,
 	resourceController *resource.Controller,
@@ -84,6 +87,7 @@ func NewAgent(
 		hookManager:            hookManager,
 		osManager:              osManager,
 		policyManager:          policyManager,
+		lifecycleManager:       lifecycleManager,
 		appManager:             appManager,
 		systemdManager:         systemdManager,
 		fetchSpecInterval:      fetchSpecInterval,
@@ -406,6 +410,10 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 		return fmt.Errorf("systemd: %w", err)
 	}
 
+	if err := a.lifecycleManager.Sync(ctx, current, desired); err != nil {
+		return fmt.Errorf("lifecycle: %w", err)
+	}
+
 	// NOTE: policy manager is reconciled early in sync() so that the agent
 	// can correct for an invalid policy.
 
@@ -428,6 +436,12 @@ func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.Rende
 func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
 	a.log.Debug("Executing after update actions")
 	defer a.log.Debug("Finished executing after update actions")
+
+	// execute after update for lifecycle
+	if err := a.lifecycleManager.AfterUpdate(ctx, current, desired); err != nil {
+		a.log.Errorf("Error executing lifecycle: %v", err)
+		return err
+	}
 
 	_, isOSReconciled, err := a.specManager.CheckOsReconciliation(ctx)
 	if err != nil {

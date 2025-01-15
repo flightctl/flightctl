@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -278,7 +279,7 @@ func TestApplicationAddRemove(t *testing.T) {
 		{
 			name:           "add app with special characters in sequence",
 			appName:        "app!!",
-			expectedName:   "app_",
+			expectedName:   "app__",
 			action:         "add",
 			expectedExists: true,
 		},
@@ -361,5 +362,54 @@ func mockPodmanInspect(restarts int) PodmanInspect {
 func newTestBackoff() wait.Backoff {
 	return wait.Backoff{
 		Steps: 1,
+	}
+}
+
+func BenchmarkNewComposeID(b *testing.B) {
+	// bench different string length
+	lengths := []int{50, 100, 253}
+	for _, size := range lengths {
+		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
+			input := strings.Repeat("a", size)
+			for i := 0; i < b.N; i++ {
+				newComposeID(input)
+			}
+		})
+	}
+}
+
+func TestNewComposeID(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple",
+			input:    "app1",
+			expected: "app1-229522",
+		},
+		{
+			name:     "with @ special character",
+			input:    "app1@2",
+			expected: "app1_2-819634",
+		},
+		{
+			name:     "with : special characters",
+			input:    "app-2:v2",
+			expected: "app-2_v2-721985",
+		},
+		{
+			name:     "with multiple !! special characters",
+			input:    "app!!",
+			expected: "app__-260528",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := newComposeID(tc.input)
+			require.Equal(tc.expected, result)
+		})
 	}
 }

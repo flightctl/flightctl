@@ -27,6 +27,7 @@ const (
 
 type AuthNMiddleware interface {
 	ValidateToken(ctx context.Context, token string) (bool, error)
+	GetIdentity(ctx context.Context, token string) (*common.Identity, error)
 	GetAuthConfig() common.AuthConfig
 }
 
@@ -150,6 +151,12 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 				return
 			}
 			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
+			identity, err := authN.GetIdentity(ctx, authToken)
+			if err != nil {
+				log.WithError(err).Error("failed to get identity")
+			} else {
+				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
 		return http.HandlerFunc(fn)
