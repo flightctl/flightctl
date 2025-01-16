@@ -369,4 +369,4 @@ NAME                                                  OWNER   SYSTEM  UPDATED   
 
 ## Where to go from here
 
-Now that you have a Flight Control-managed device, refer to [Managing Devices](managing-devices.yaml) and [Managing Fleets](managing-fleets.yaml) for how to configure and update individual or fleets of devices.
+Now that you have a Flight Control-managed device, refer to [Managing Devices](managing-devices.md) and [Managing Fleets](managing-fleets.md) for how to configure and update individual or fleets of devices.
