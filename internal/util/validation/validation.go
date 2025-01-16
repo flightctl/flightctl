@@ -140,7 +140,7 @@ func ValidateLinuxUserGroup(s *string, path string) []error {
 	// > Usernames may only be up to 32 characters long.
 
 	isID := false
-	id, err := strconv.Atoi(*s)
+	id, err := strconv.ParseInt(*s, 10, 64)
 	if err == nil {
 		isID = true
 	}
