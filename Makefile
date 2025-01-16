@@ -84,6 +84,9 @@ build: bin build-cli
 build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
+multiarch-build-cli: bin
+	./hack/build_multiarch_clis.sh
+
 build-agent: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
 
@@ -122,7 +125,7 @@ flightctl-periodic-container: bin/.flightctl-periodic-container
 
 build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container
 
-.PHONY: build-containers
+.PHONY: build-containers build-cli multiarch-build-cli
 
 
 bin:
