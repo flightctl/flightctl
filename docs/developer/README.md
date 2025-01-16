@@ -125,7 +125,7 @@ bin/devicesimulator --count=100
 Start the observability stack:
 
 ```
-podman-compose -f deploy/podman/observability.yaml up
+make deploy-e2e-extras
 ```
 
-The Grafana and Prometheus web UIs are then accessible on `http://localhost:3000` and `http://localhost:9090`, respectively.
+The Prometheus web UI is then accessible on `http://localhost:9090`

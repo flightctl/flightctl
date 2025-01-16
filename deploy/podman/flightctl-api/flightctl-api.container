@@ -1,7 +1,9 @@
 [Unit]
 Description=FlightCtl API server
-After=flightctl-db.service
-Requires=flightctl-db.service
+After=flightctl-db.service flightctl-kv.service
+Requires=flightctl-db.service flightctl-kv.service
+Wants=flightctl-periodic.service flightctl-worker.service
+Before=flightctl-periodic.service flightctl-worker.service
 
 [Container]
 ContainerName=flightctl-api
@@ -15,16 +17,13 @@ PublishPort=7443:7443
 PublishPort=7444:7444
 PublishPort=15690:15690
 PublishPort=15691:15691
-Volume=./flightctl-api-config/config.yaml:/root/.flightctl/config.yaml
+Volume=/etc/containers/systemd/flightctl-api/flightctl-api-config/config.yaml:/root/.flightctl/config.yaml
 Volume=flightctl-api-certs:/root/.flightctl/certs
 
 [Service]
 Slice=flightctl.slice
 Restart=always
 RestartSec=30
-
-ExecStartPost=/bin/systemctl start flightctl-periodic.service
-ExecStartPost=/bin/systemctl start flightctl-worker.service
 
 [Install]
 WantedBy=flightctl.slice

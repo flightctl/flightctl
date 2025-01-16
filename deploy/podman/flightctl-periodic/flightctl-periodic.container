@@ -9,7 +9,7 @@ Image=quay.io/flightctl/flightctl-periodic:latest
 Network=flightctl.network
 Environment=HOME=/root
 
-Volume=./flightctl-periodic-config/config.yaml:/root/.flightctl/config.yaml
+Volume=/etc/containers/systemd/flightctl-periodic/flightctl-periodic-config/config.yaml:/root/.flightctl/config.yaml
 
 [Service]
 Restart=always
