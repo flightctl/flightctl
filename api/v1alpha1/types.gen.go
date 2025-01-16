@@ -44,6 +44,7 @@ const (
 	CertificateSigningRequestFailed   ConditionType = "Failed"
 	DeviceDecommissioning             ConditionType = "DeviceDecommissioning"
 	DeviceMultipleOwners              ConditionType = "MultipleOwners"
+	DeviceRolloutSucceeded            ConditionType = "RolloutSucceeded"
 	DeviceSpecValid                   ConditionType = "SpecValid"
 	DeviceUpdating                    ConditionType = "Updating"
 	EnrollmentRequestApproved         ConditionType = "Approved"

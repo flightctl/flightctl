@@ -93,24 +93,24 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
 		err = t.store.Device().OverwriteRepositoryRefs(ctx, t.resourceRef.OrgID, *device.Metadata.Name, referencedRepos...)
 		if err != nil {
-			return t.setStatus(ctx, fmt.Errorf("setting repository references: %w", err))
+			return t.setStatus(ctx, device, fmt.Errorf("setting repository references: %w", err))
 		}
 	}
 
 	if renderErr != nil {
-		return t.setStatus(ctx, renderErr)
+		return t.setStatus(ctx, device, renderErr)
 	}
 
 	renderedApplications, err := t.renderApplications(ctx)
 	if err != nil {
-		return t.setStatus(ctx, err)
+		return t.setStatus(ctx, device, err)
 	}
 
 	err = t.store.Device().UpdateRendered(ctx, t.resourceRef.OrgID, t.resourceRef.Name, string(renderedConfig), string(renderedApplications))
-	return t.setStatus(ctx, err)
+	return t.setStatus(ctx, device, err)
 }
 
-func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
+func (t *DeviceRenderLogic) setStatus(ctx context.Context, device *api.Device, renderErr error) error {
 	condition := api.Condition{Type: api.DeviceSpecValid}
 
 	if renderErr == nil {
@@ -121,8 +121,15 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 		condition.Reason = "Invalid"
 		condition.Message = renderErr.Error()
 	}
+	conditions := []api.Condition{condition}
 
-	err := t.store.Device().SetServiceConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, []api.Condition{condition})
+	// If the device is not part of a fleet, ensure the rollout condition is not set
+	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
+		rolloutCondition := api.Condition{Type: api.DeviceRolloutSucceeded, Status: api.ConditionStatusUnknown}
+		conditions = append(conditions, rolloutCondition)
+	}
+
+	err := t.store.Device().SetServiceConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, conditions)
 	if err != nil {
 		t.log.Errorf("Failed setting condition for device %s/%s: %v", t.resourceRef.OrgID, t.resourceRef.Name, err)
 	}
