@@ -1,15 +1,5 @@
 {{ if .Values.kv.enabled }}
 ---
-# Secret to store the Redis password
-apiVersion: v1
-kind: Secret
-metadata:
-  name: flightctl-kv-secret
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
-type: Opaque
-data:
-  REDIS_PASSWORD: {{ .Values.kv.password | b64enc }}
----
 # ConfigMap for Redis configuration
 apiVersion: v1
 kind: ConfigMap
@@ -75,7 +65,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: flightctl-kv-secret
-                  key: REDIS_PASSWORD
+                  key: password
           command:
             - "redis-server"
             - "/etc/redis/redis.conf"

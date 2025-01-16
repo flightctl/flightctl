@@ -16,20 +16,12 @@ Params:
 {{- $secretData := (lookup "v1" "Secret" $namespace .secret).data }}
 {{- if $secretData }}
   {{- if hasKey $secretData .key }}
-    {{- $password = index $secretData .key | b64dec }}
+    {{- $password = index $secretData .key }}
   {{- else -}}
     {{- printf "\nERROR: The secret \"%s\" does not contain the key \"%s\"\n" .secret .key | fail -}}
   {{- end -}}
 {{- else -}}
-  {{- $password = (include "keycloak.generatePassword" .context) }}
+  {{- $password = (include "flightctl.generatePassword" .context) }}
 {{- end -}}
 {{- printf "%s" $password -}}
 {{- end -}}
-
-{{/*
-Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
-*/}}
-{{- define "keycloak.generatePassword" }}
-{{- $password := (randAlphaNum 20) }}
-{{- printf "%s-%s-%s-%s" (substr 0 5 $password) (substr 5 10 $password) (substr 10 15 $password) (substr 15 20 $password) }}
-{{- end }}
