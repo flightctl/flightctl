@@ -22,7 +22,20 @@ jobs:
     name: Build Binaries
     strategy:
       matrix:
-        os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
+        os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
+        include:
+          - os_arch: "linux-amd64"
+            ext: ""
+          - os_arch: "linux-arm64"
+            ext: ""
+          - os_arch: "darwin-amd64"
+            ext: ""
+          - os_arch: "darwin-arm64"
+            ext: ""
+          - os_arch: "windows-amd64"
+            ext: ".exe"
+          - os_arch: "windows-arm64"
+            ext: ".exe"
     runs-on: ubuntu-latest
     needs: setup
     steps:
@@ -74,8 +87,8 @@ jobs:
           GOOS="${GOOS}" GOARCH="${GOARCH}" make build-cli
           SHA=$(shasum -a 256 bin/flightctl | awk '{ print $1 }')
           echo "${SHA}" > "flightctl-${{ matrix.os_arch }}-sha256.txt"
-          mv bin/flightctl "flightctl-${{ matrix.os_arch }}"
-          tar cvf "flightctl-${{ matrix.os_arch }}.tar.gz" "flightctl-${{ matrix.os_arch }}"
+          mv bin/flightctl${{ matrix.ext }}  "flightctl-${{ matrix.os_arch }}${{ matrix.ext }}"
+          tar cvf "flightctl-${{ matrix.os_arch }}.tar.gz" "flightctl-${{ matrix.os_arch }}${{ matrix.ext }}"
 
       - name: Save tar binary
         env:
@@ -88,8 +101,8 @@ jobs:
       - name: Save binary
         uses: actions/upload-artifact@v4
         with:
-          name: flightctl-${{ matrix.os_arch }}
-          path: flightctl-${{ matrix.os_arch }}
+          name: flightctl-${{ matrix.os_arch }}${{ matrix.ext }}
+          path: flightctl-${{ matrix.os_arch }}${{ matrix.ext }}
 
       - name: Save checksum
         uses: actions/upload-artifact@v4
@@ -97,8 +110,20 @@ jobs:
           name: flightctl-${{ matrix.os_arch }}-sha256.txt
           path: flightctl-${{ matrix.os_arch }}-sha256.txt
 
+  verify-windows:
+    name: Verify Binaries on windows
+    runs-on: "windows-latest"
+    needs: build
+    steps:
+      - name: Load binary
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-windows-amd64.exe
+      - name: Verify
+        run: .\flightctl-windows-amd64.exe version
+
   verify:
-    name: Verify Binaries
+    name: Verify Binaries on linux/macos
     strategy:
       matrix:
         os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]

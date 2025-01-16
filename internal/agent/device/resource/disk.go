@@ -4,11 +4,10 @@ import (
 	"context"
 	"math"
 	"sync"
-	"syscall"
 	"time"
 
-	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -169,22 +168,16 @@ type DiskUsage struct {
 }
 
 func getDirUsage(dir string) (*DiskUsage, error) {
-	var stat syscall.Statfs_t
-	err := syscall.Statfs(dir, &stat)
-	if err != nil {
-		return nil, err
-	}
-
-	bsize, err := safecast.ToUint64(stat.Bsize)
+	inodes, total, free, used, err := fileio.GetDirUsage(dir)
 	if err != nil {
 		return nil, err
 	}
 
 	return &DiskUsage{
-		Inodes: stat.Files,
-		Total:  stat.Blocks * bsize,
-		Free:   stat.Bavail * bsize,
-		Used:   (stat.Blocks - stat.Bfree) * bsize,
+		Inodes: inodes,
+		Total:  total,
+		Free:   free,
+		Used:   used,
 	}, nil
 }
 

@@ -1,7 +1,6 @@
 package fileio
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"crypto/rand"
@@ -13,10 +12,8 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
-	"syscall"
 
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
-	"github.com/google/renameio"
 	"github.com/vincent-petithory/dataurl"
 	"k8s.io/klog/v2"
 )
@@ -135,17 +132,7 @@ func (w *writer) copyFile(src, dst string) error {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
-	stat, ok := srcFileInfo.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("failed to retrieve UID and GID")
-	}
-
-	// set file ownership
-	if err := os.Chown(dstTarget, int(stat.Uid), int(stat.Gid)); err != nil {
-		return fmt.Errorf("failed to set UID and GID: %w", err)
-	}
-
-	return nil
+	return setChown(srcFileInfo, dstTarget)
 }
 
 func (w *writer) CreateManagedFile(file ign3types.File) (ManagedFile, error) {
@@ -189,37 +176,6 @@ func (w *writer) overwriteFileWithRandomData(file string) error {
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
 // directly since we need to 1) Chown 2) go through a buffer since files provided can be big
-func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, uid, gid int) error {
-	dir := filepath.Dir(fpath)
-	if err := os.MkdirAll(dir, dirMode); err != nil {
-		return fmt.Errorf("failed to create directory %q: %w", dir, err)
-	}
-	t, err := renameio.TempFile(dir, fpath)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = t.Cleanup()
-	}()
-	// Set permissions before writing data, in case the data is sensitive.
-	if err := t.Chmod(fileMode); err != nil {
-		return err
-	}
-	w := bufio.NewWriter(t)
-	if _, err := w.Write(b); err != nil {
-		return err
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	if uid != -1 && gid != -1 {
-		if err := t.Chown(uid, gid); err != nil {
-			return err
-		}
-	}
-	return t.CloseAtomicallyReplace()
-}
-
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
 func getFileOwnership(file ign3types.File) (int, int, error) {
 	uid, gid := 0, 0 // default to root
