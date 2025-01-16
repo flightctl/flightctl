@@ -24,7 +24,6 @@ import (
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/lthibault/jitterbug"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -106,23 +105,16 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	ctx, a.cancelFn = context.WithCancel(ctx)
+	// orchestrates reconciling the device spec and pushing status updates
+	ticker := NewTicker(
+		a.fetchSpecInterval,
+		func(ctx context.Context) { a.syncSpec(ctx, a.syncSpecFn) },
+		a.fetchStatusInterval,
+		a.pushStatus,
+	)
+	defer ticker.Stop()
 
-	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer specTicker.Stop()
-	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer statusTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-specTicker.C:
-			a.syncSpec(ctx, a.syncSpecFn)
-		case <-statusTicker.C:
-			a.pushStatus(ctx)
-		}
-	}
+	return ticker.Run(ctx)
 }
 
 // Stop ensures that the device agent stops reconciling during graceful shutdown.
