@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -185,13 +186,13 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		cfg.DefaultLabels["alias"] = agentName
 		cfg.ConfigDir = agent.DefaultConfigDir
 		cfg.DataDir = agent.DefaultConfigDir
-		cfg.EnrollmentService = agent.EnrollmentService{}
+		cfg.EnrollmentService = types.EnrollmentService{}
 		cfg.EnrollmentService.Config = *client.NewDefault()
-		cfg.EnrollmentService.Config.Service = client.Service{
+		cfg.EnrollmentService.Config.Service = types.Service{
 			Server:               agentConfigTemplate.EnrollmentService.Config.Service.Server,
 			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent.CacertFile),
 		}
-		cfg.EnrollmentService.Config.AuthInfo = client.AuthInfo{
+		cfg.EnrollmentService.Config.AuthInfo = types.AuthInfo{
 			ClientCertificate: filepath.Join(cfg.ConfigDir, agent.EnrollmentCertFile),
 			ClientKey:         filepath.Join(cfg.ConfigDir, agent.EnrollmentKeyFile),
 		}
@@ -201,9 +202,9 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		cfg.LogPrefix = agentName
 
 		// create managementService config
-		cfg.ManagementService = agent.ManagementService{}
+		cfg.ManagementService = types.ManagementService{}
 		cfg.ManagementService.Config = *client.NewDefault()
-		cfg.ManagementService.Service = client.Service{
+		cfg.ManagementService.Service = types.Service{
 			Server:               agentConfigTemplate.ManagementService.Config.Service.Server,
 			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent.CacertFile),
 		}

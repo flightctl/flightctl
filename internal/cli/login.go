@@ -11,6 +11,7 @@ import (
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -26,7 +27,7 @@ type LoginOptions struct {
 	Username           string
 	Password           string
 	authConfig         *v1alpha1.AuthConfig
-	clientConfig       *client.Config
+	clientConfig       *types.Config
 }
 
 func DefaultLoginOptions() *LoginOptions {
@@ -260,9 +261,9 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	return resp.JSON200, nil
 }
 
-func (o *LoginOptions) getClientConfig(apiUrl string) (*client.Config, error) {
-	config := &client.Config{
-		Service: client.Service{
+func (o *LoginOptions) getClientConfig(apiUrl string) (*types.Config, error) {
+	config := &types.Config{
+		Service: types.Service{
 			Server:             apiUrl,
 			InsecureSkipVerify: o.InsecureSkipVerify,
 		},

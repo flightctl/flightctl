@@ -35,7 +35,7 @@ jobs:
       - name: Create cluster
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make cluster
-      
+
       - name: Deploy
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make deploy
@@ -71,7 +71,7 @@ jobs:
 
       - name: Simulator run
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m --data-dir bin/agent/etc/flightctl
 
       - name: Collect and Upload Logs
         if: always() && steps.filter.outputs.notdocs == 'true'

@@ -199,7 +199,8 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 	defer func() {
 		_ = t.Cleanup()
 	}()
-	// Set permissions before writing data, in case the data is sensitive.
+	// Set permissions before writing data to prevent potential exposure of sensitive data
+	// through temporarily incorrect permissions.
 	if err := t.Chmod(fileMode); err != nil {
 		return err
 	}
