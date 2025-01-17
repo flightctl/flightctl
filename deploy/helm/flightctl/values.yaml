@@ -14,6 +14,7 @@
 ## @param global.auth.insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
 ## @param global.auth.k8s.apiUrl API URL of k8s cluster that will be used as authentication authority
 ## @param global.auth.k8s.externalOpenShiftApiUrl API URL of OpenShift cluster that can be accessed by external client to retrieve auth token
+## @param global.apiUrl is an alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator
 ## @param global.auth.k8s.externalApiToken In case flightctl is not running within a cluster, you can provide api token
 ## @param global.auth.k8s.rbacNs Namespace that should be used for the RBAC checks
 ## @param global.auth.oidc.oidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
@@ -26,7 +27,6 @@
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
 
-
 global:
   target: "standalone" # standalone, acm
   baseDomain: ""
@@ -35,6 +35,7 @@ global:
     key: ""
   storageClassName: ""
   imagePullSecretName: ""
+  apiUrl: "" # alternative to global.auth.k8s.externalOpenShiftApiUrl used by multiclusterhub operator
   auth:
     type: "builtin" # builtin, k8s, oidc, none
     caCert: ""
@@ -122,27 +123,6 @@ periodic:
     image: quay.io/flightctl/flightctl-periodic
     tag: ""
     pullPolicy: Always
-rabbitmq:
-  enabled: true
-  replicaCount: 1
-  image:
-    image: docker.io/library/rabbitmq
-    tag: 3.13-management
-    pullPolicy: IfNotPresent
-  ports:
-    amqp: 5672
-    management: 15672
-  persistence:
-    enabled: true
-    accessMode: ReadWriteOnce
-    size: 10Gi
-  auth:
-    username: user
-    password: password
-  service:
-    type: ClusterIP
-    amqpPort: 5672
-    managementPort: 15672
 prometheus:
   enabled: false
 ui:

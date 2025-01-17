@@ -9,9 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,11 +22,11 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/util/validation"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -35,23 +37,25 @@ import (
 
 const secondsInDay int = 24 * 60 * 60
 const agentPath = "certs/"
+const maxAttempts = 3
 
 type CertificateOptions struct {
 	GlobalOptions
-	Name         string
-	Expiration   string
-	OutputFormat string
-	OutputDir    string
-	EncryptKey   bool
-	SignerName   string
+	Name       string
+	Expiration string
+	Output     string
+	OutputDir  string
+	EncryptKey bool
+	SignerName string
 }
 
 func DefaultCertificateOptions() *CertificateOptions {
 	return &CertificateOptions{
 		GlobalOptions: DefaultGlobalOptions(),
+		Name:          "",
 		Expiration:    "7d",
-		OutputFormat:  "reference",
-		OutputDir:     "./",
+		Output:        "embedded",
+		OutputDir:     ".",
 		EncryptKey:    false,
 		SignerName:    "enrollment",
 	}
@@ -62,7 +66,7 @@ func NewCmdCertificate() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "certificate request [flags]",
 		// more subcommands may be added later
-		Short:     "Request a new enrollment certificate for a device with 'certificate request'",
+		Short:     "Request a new certificate for a device with 'certificate request'",
 		Args:      cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: []string{"request"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,16 +86,27 @@ func NewCmdCertificate() *cobra.Command {
 
 func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
-	fs.StringVarP(&o.Name, "name", "n", "csr", "Specify a name for the certificate signing request")
-	fs.StringVarP(&o.Expiration, "expiration", "x", "7d", "Specify desired certificate expiration in days, example: 7d")
-	fs.StringVarP(&o.OutputFormat, "output-format", "o", "default", "Specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file")
-	fs.StringVarP(&o.OutputDir, "output-dir", "d", "./", "Specify desired output directory for key, cert, and ca files (defaults to current directory)")
-	fs.StringVarP(&o.SignerName, "cert-type", "t", "enrollment", "Specify the type of certificate requested: 'enrollment' or 'ca' (default 'enrollment')")
-	fs.BoolVarP(&o.EncryptKey, "encrypt", "s", false, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime")
+	fs.StringVarP(&o.Name, "name", "n", o.Name, "Specify a name for the certificate signing request.")
+	fs.StringVarP(&o.Expiration, "expiration", "x", o.Expiration, "Specify desired certificate expiration in days, example: 7d.")
+	fs.StringVarP(&o.Output, "output", "o", o.Output, "Specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file.")
+	fs.StringVarP(&o.OutputDir, "output-dir", "d", o.OutputDir, "Specify desired output directory for key, cert, and ca files.")
+	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'enrollment' or 'ca'.")
+	fs.BoolVarP(&o.EncryptKey, "encrypt", "e", o.EncryptKey, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime.")
 }
 
 func (o *CertificateOptions) Complete(cmd *cobra.Command, args []string) error {
-	return o.GlobalOptions.Complete(cmd, args)
+	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
+		return err
+	}
+
+	if len(o.Name) == 0 {
+		if o.SignerName == "enrollment" {
+			o.Name = "client-enrollment"
+		} else {
+			o.Name = "cert"
+		}
+	}
+	return nil
 }
 
 func (o *CertificateOptions) Validate(args []string) error {
@@ -99,14 +114,17 @@ func (o *CertificateOptions) Validate(args []string) error {
 		return err
 	}
 
-	errs := validation.ValidateSignerName(o.SignerName)
-	if len(errs) > 0 {
+	if errs := validation.ValidateResourceName(&o.Name); len(errs) > 0 {
+		return fmt.Errorf("invalid resource name: %s", errors.Join(errs...).Error())
+	}
+
+	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
 		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
 	}
 
 	// check if user updated output format while requesting a cert that is not an enrollment cert -
 	// output format is only relevant for enrollment certs
-	if o.SignerName != "enrollment" && o.OutputFormat != "default" {
+	if o.SignerName != "enrollment" && len(o.Output) > 0 {
 		return fmt.Errorf("output format cannot be set for certificate types other than 'enrollment'")
 	}
 
@@ -120,11 +138,8 @@ func (o *CertificateOptions) Validate(args []string) error {
 }
 
 func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
-	log := log.InitLogs()
-
-	name := createUniqueName(o.Name)
-
-	log.Infof("creating new ecdsa key pair...")
+	keypath := filepath.Join(o.OutputDir, o.Name+".key")
+	fmt.Fprintf(os.Stderr, "Creating new ECDSA key pair and writing to %q.\n", keypath)
 	_, priv, err := fccrypto.NewKeyPair()
 	if err != nil {
 		return fmt.Errorf("creating new key pair: %w", err)
@@ -132,9 +147,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	// write out the key asap - in case process is interrupted, key is needed to access
 	// status of CSR via enrollmentconfig API
-	keypath := o.OutputDir + name + ".key"
 	if !o.EncryptKey {
-		log.Infof("writing private key to: %s...\n", keypath)
 		err = fccrypto.WriteKey(keypath, priv)
 		if err != nil {
 			return fmt.Errorf("writing private key to %s: %w", keypath, err)
@@ -144,16 +157,10 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		if err != nil {
 			return fmt.Errorf("getting password: %w", err)
 		}
-		log.Infof("writing encrypted private key to: %s...\n", keypath)
 		err = fccrypto.WritePasswordEncryptedKey(keypath, priv, pw)
 		if err != nil {
 			return fmt.Errorf("writing encrypted private key to %s: %w", keypath, err)
 		}
-	}
-
-	csrResourceJSON, err := createCsr(o, name, priv)
-	if err != nil {
-		return fmt.Errorf("creating csr resource: %w", err)
 	}
 
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
@@ -161,12 +168,10 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	log.Infof("submitting CSR to flightctl service...")
-	status, err := submitCsr(name, c, ctx, csrResourceJSON)
+	csrName, err := o.submitCsrWithRetries(ctx, c, priv)
 	if err != nil {
-		return fmt.Errorf("submitting csr to flightctl service: %w", err)
+		return err
 	}
-	log.Infof("%s: %s\n", status, name)
 
 	// if this isn't an enrollment cert, approval may take arbitrary time, so don't poll for
 	// the cert here - we're done!
@@ -174,45 +179,93 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
+	fmt.Fprintf(os.Stderr, "Waiting for certificate to be approved and issued...")
+	var currentCsr *api.CertificateSigningRequest
 	err = wait.PollWithContext(ctx, time.Second, 2*time.Minute, func(ctx context.Context) (bool, error) {
-		log.Infof("checking for certificate...")
-		currentCsr, err := getCsr(o, name, c, ctx)
+		fmt.Fprint(os.Stderr, ".")
+		currentCsr, err = getCsr(csrName, c, ctx)
 		if err != nil {
-			return false, fmt.Errorf("reading csr: %s: %w", ctx.Value("name"), err)
+			return false, fmt.Errorf("reading CSR %q: %w", ctx.Value("name"), err)
 		}
 		return checkCsrCertReady(currentCsr), nil
 	})
-	if err != nil {
+	switch err {
+	case nil:
+		fmt.Fprintln(os.Stderr, " success.")
+	case wait.ErrWaitTimeout:
+		return fmt.Errorf("timeout polling for certificate")
+	default:
 		return fmt.Errorf("polling for certificate: %w", err)
-	}
-	log.Infof("certificate is ready")
-	currentCsr, err := getCsr(o, name, c, ctx)
-	if err != nil {
-		return fmt.Errorf("reading csr %s: %w", name, err)
 	}
 
 	// get URIs and other data from enrollmentconfig API
-	response, err := c.EnrollmentConfigWithResponse(ctx, name)
+	response, err := c.GetEnrollmentConfigWithResponse(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("getting enrollment config for %s: %w", name, err)
+		return fmt.Errorf("getting enrollment config: %w", err)
 	}
-	err = validateHttpResponse(response.Body, response.StatusCode(), http.StatusOK)
-	if err != nil {
-		return fmt.Errorf("getting enrollment config for %s: %w", name, err)
+	if err := validateHttpResponse(response.Body, response.StatusCode(), http.StatusOK); err != nil {
+		return fmt.Errorf("getting enrollment config: %w", err)
 	}
 
-	switch o.OutputFormat {
+	// write out agent cert
+	err = os.WriteFile(filepath.Join(o.OutputDir, o.Name+".crt"), *currentCsr.Status.Certificate, 0600)
+	if err != nil {
+		return fmt.Errorf("writing cert file: %w", err)
+	}
+
+	// write out ca bundle
+	cadata, err := base64.StdEncoding.DecodeString(response.JSON200.EnrollmentService.Service.CertificateAuthorityData)
+	if err != nil {
+		return fmt.Errorf("base64 decoding CA data: %w", err)
+	}
+	err = os.WriteFile(filepath.Join(o.OutputDir, "ca.crt"), cadata, 0600)
+	if err != nil {
+		return fmt.Errorf("writing CA cert file: %w", err)
+	}
+
+	switch o.Output {
 	case "embedded":
-		err = createEmbeddedConfig(name, ctx, priv, response)
+		err = createEmbeddedConfig(currentCsr, priv, response)
+	case "reference":
+		err = createReferenceConfig(o.Name, response)
 	default:
-		err = createReferenceConfig(name, currentCsr, priv, response, o.OutputDir)
-
 	}
 	if err != nil {
-		return fmt.Errorf("creating output as %s: %w", o.OutputFormat, err)
+		return fmt.Errorf("creating output as %q: %w", o.Output, err)
 	}
 
 	return nil
+}
+
+func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apiclient.ClientWithResponses, priv crypto.PrivateKey) (string, error) {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		csrName := createUniqueName(o.Name)
+		csrResourceJSON, err := createCsr(o, csrName, priv)
+		if err != nil {
+			return "", fmt.Errorf("creating CSR resource: %w", err)
+		}
+
+		fmt.Fprintf(os.Stderr, "Submitting certificate signing request %q...", csrName)
+		response, err := c.CreateCertificateSigningRequestWithBodyWithResponse(ctx, "application/json", bytes.NewReader(csrResourceJSON))
+		if err != nil {
+			return "", fmt.Errorf("submitting CSR: %w", err)
+		}
+		if response.HTTPResponse == nil {
+			return "", fmt.Errorf("submitting CSR: empty HTTP response")
+		}
+		switch response.HTTPResponse.StatusCode {
+		case http.StatusCreated:
+			fmt.Fprintln(os.Stderr, " success.")
+			return csrName, nil
+		case http.StatusConflict:
+			fmt.Fprintln(os.Stderr, " failed because a CSR with that name already exists.")
+			continue
+		default:
+			fmt.Fprintln(os.Stderr, " failed.")
+			return "", fmt.Errorf("submitting CSR failed with status %q: %w", response.HTTPResponse.Status, err)
+		}
+	}
+	return "", fmt.Errorf("submitting CSR failed after %d attempts, giving up", maxAttempts)
 }
 
 func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]byte, error) {
@@ -253,7 +306,7 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 		Spec: api.CertificateSigningRequestSpec{
 			ExpirationSeconds: &expirationSeconds,
 			Request:           csrPEM,
-			SignerName:        "enrollment",
+			SignerName:        o.SignerName,
 			Usages:            &[]string{"clientAuth", "CA:false"},
 		},
 	}
@@ -265,25 +318,7 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 	return csrResourceJSON, nil
 }
 
-func submitCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context, csrResourceJSON []byte) (string, error) {
-	var status string
-
-	response, err := c.ReplaceCertificateSigningRequestWithBodyWithResponse(ctx, name, "application/json", bytes.NewReader(csrResourceJSON))
-	if err != nil {
-		return "", err
-	}
-
-	if response.HTTPResponse != nil {
-		status = response.HTTPResponse.Status
-		statuscode := response.HTTPResponse.StatusCode
-		if statuscode != http.StatusOK && statuscode != http.StatusCreated {
-			return status, fmt.Errorf("%s: applying CertificateSigningRequest: %s", name, string(response.Body))
-		}
-	}
-	return status, nil
-}
-
-func getCsr(o *CertificateOptions, name string, c *apiclient.ClientWithResponses, ctx context.Context) (*api.CertificateSigningRequest, error) {
+func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) (*api.CertificateSigningRequest, error) {
 	response, err := c.ReadCertificateSigningRequestWithResponse(ctx, name)
 	if err != nil {
 		return nil, err
@@ -304,98 +339,50 @@ func getCsr(o *CertificateOptions, name string, c *apiclient.ClientWithResponses
 	return &currentCsr, nil
 }
 
-func createEmbeddedConfig(name string, ctx context.Context, priv crypto.PrivateKey, response *apiclient.EnrollmentConfigResponse) error {
+func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.GetEnrollmentConfigResponse) error {
 	pemPriv, err := fccrypto.PEMEncodeKey(priv)
 	if err != nil {
-		return err
+		return fmt.Errorf("PEM encoding private key: %w", err)
 	}
-	response.JSON200.EnrollmentService.Authentication.ClientKeyData = base64.StdEncoding.EncodeToString(pemPriv)
-
-	marshalled, err := yaml.Marshal(response.JSON200)
-	if err != nil {
-		return fmt.Errorf("marshalling resource: %w", err)
-	}
-
-	_, err = fmt.Print(string(marshalled))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func writeCertFile(data []byte, path string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("creating file %s\n", path)
-	}
-	defer f.Close()
-	_, err = f.Write(data)
-	if err != nil {
-		return fmt.Errorf("writing data to %s: %w\n", path, err)
-	}
-
-	return nil
-}
-
-func createReferenceConfig(name string, currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.EnrollmentConfigResponse, path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err := os.MkdirAll(path, 0644)
-		if err != nil {
-			return fmt.Errorf("creating directory %s: %w\n", path, err)
-		}
-	}
-
-	// write out agent cert
-	certpath := path + name + ".crt"
-	cert := currentCsr.Status.Certificate
-	err := writeCertFile(*cert, certpath)
-	if err != nil {
-		return err
-	}
-
-	// write out ca bundle
-	capath := path + "ca.crt"
 	cadata, err := base64.StdEncoding.DecodeString(response.JSON200.EnrollmentService.Service.CertificateAuthorityData)
 	if err != nil {
-		return fmt.Errorf("decoding CA data: %w", err)
+		return fmt.Errorf("base64 decoding CA data: %w", err)
 	}
-	err = writeCertFile(cadata, capath)
+
+	config := &agent.Config{}
+	config.EnrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
+	config.EnrollmentService.AuthInfo.ClientKeyData = pemPriv
+	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
+	config.EnrollmentService.Service.CertificateAuthorityData = cadata
+	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshalling agent config: %w", err)
 	}
 
-	// print config to stdout
-	response.JSON200.EnrollmentService.Authentication.ClientKeyData = agentPath + name + ".key"
-	response.JSON200.EnrollmentService.Authentication.ClientCertificateData = agentPath + name + ".crt"
-	response.JSON200.EnrollmentService.Service.CertificateAuthorityData = agentPath + "ca.crt"
+	fmt.Print(string(marshalled))
+	return nil
+}
 
-	marshalled, err := yaml.Marshal(response.JSON200)
+func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse) error {
+	config := &agent.Config{}
+	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
+	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
+	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
+	config.EnrollmentService.Service.CertificateAuthority = filepath.Join(agentPath, "ca.crt")
+	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling resource: %w\n", err)
+		return fmt.Errorf("marshalling agent config: %w", err)
 	}
 
-	s := string(marshalled)
-	// these replacements are necessary only because the enrollmentconfig API struct fields do not 1:1 match
-	// the agent.Config and client.Config fields, which maybe should change
-	updateCert := strings.Replace(s, "client-certificate-data", "client-certificate", -1)
-	updateKey := strings.Replace(updateCert, "client-key-data", "client-key", -1)
-	stringOut := strings.Replace(updateKey, "certificate-authority-data", "certificate-authority", -1)
-
-	_, err = fmt.Print(stringOut)
-	if err != nil {
-		return err
-	}
-
+	fmt.Print(string(marshalled))
 	return nil
 }
 
 func createUniqueName(n string) string {
-	if n == "csr" {
-		u := uuid.NewString()
-		n = n + "-" + u[:8]
-	}
-	return n
+	u := uuid.NewString()
+	return n + "-" + u[:8]
 }
 
 func checkCsrCertReady(csr *api.CertificateSigningRequest) bool {

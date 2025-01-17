@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -37,6 +39,17 @@ func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *GlobalOptions) Validate(args []string) error {
+	if _, err := os.Stat(o.ConfigFilePath); errors.Is(err, os.ErrNotExist) {
+		if o.Context != "" {
+			return fmt.Errorf("context '%s' does not exist", o.Context)
+		}
+		return fmt.Errorf("you must log in to perform this operation. Please use the 'login' command to authenticate before proceeding")
+	}
+	return o.ValidateCmd(args)
+}
+
+// Validates GlobalOptions without requiring ConfigFilePath to exist. This is useful for any CLI cmd that does not require user login.
+func (o *GlobalOptions) ValidateCmd(args []string) error {
 	return nil
 }
 

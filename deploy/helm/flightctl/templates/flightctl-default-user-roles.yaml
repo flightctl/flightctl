@@ -1,0 +1,96 @@
+{{ if eq .Values.global.target "acm" }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-admin
+  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - flightctl.io
+    resources:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-viewer
+  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+rules:
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices
+      - fleets
+      - resourcesyncs
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-operator
+  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+rules:
+  - verbs:
+      - get
+      - list
+      - create
+      - delete
+      - update
+      - patch
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices
+      - fleets
+      - resourcesyncs
+  - verbs:
+      - get
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices/console
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
+      - repositories
+      - fleets/templateversions
+
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-installer
+  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+rules:
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
+      - enrollmentrequests
+  - verbs:
+      - post
+    apiGroups:
+      - flightctl.io
+    resources:
+      - enrollmentrequests/approval
+  - verbs:
+      - get
+      - list
+      - create
+    apiGroups:
+      - flightctl.io
+    resources:
+      - certificatesigningrequests
+{{ end }}

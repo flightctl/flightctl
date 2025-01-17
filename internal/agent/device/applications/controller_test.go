@@ -3,6 +3,8 @@ package applications
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,8 +12,10 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -158,3 +162,201 @@ func newTestRenderedDeviceSpec(appSpecs []testApp) (*v1alpha1.RenderedDeviceSpec
 		Applications: &applications,
 	}, nil
 }
+
+func createTestLabels(labels map[string]string) (string, error) {
+	type inspect struct {
+		Config client.ImageConfig `json:"Config"`
+	}
+
+	inspectData := []inspect{
+		{
+			Config: client.ImageConfig{
+				Labels: labels,
+			},
+		},
+	}
+
+	data, err := json.Marshal(inspectData)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal ImageConfig: %w", err)
+	}
+	return string(data), nil
+}
+
+func TestControllerSync(t *testing.T) {
+	require := require.New(t)
+
+	app1Image := "quay.io/org/app1:v1.1.0"
+	app2Image := "quay.io/org/app2:v1.1.0"
+	app1LabelMap := map[string]string{
+		"com.example.one":   "value1",
+		"appType":           "compose",
+		"com.example.three": "value3",
+	}
+	app1Labels, err := createTestLabels(app1LabelMap)
+	require.NoError(err)
+
+	type testRendered struct {
+		version string
+		apps    []testApp
+	}
+
+	type transitionStep struct {
+		current []testRendered
+		desired []testRendered
+	}
+	testCases := []struct {
+		name       string
+		steps      []transitionStep
+		setupMocks func(
+			mockAppManager *MockManager,
+			mockExecuter *executer.MockExecuter,
+		)
+	}{
+		{
+			name: "add 2 apps from none",
+			steps: []transitionStep{
+				{
+					current: []testRendered{
+						{version: "1", apps: []testApp{}}, // empty
+					},
+					desired: []testRendered{
+						{version: "2", apps: []testApp{
+							{name: "app1", image: app1Image},
+							{name: "app2", image: app2Image},
+						}},
+					},
+				},
+			},
+			setupMocks: func(
+				mockAppManager *MockManager,
+				mockExecuter *executer.MockExecuter,
+			) {
+				// ensure app1
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", app1Image}).Return(app1Labels, "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", app1Image}).Return("/mount", "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", app1Image}).Return("", "", 0)
+				mockAppManager.EXPECT().Ensure(gomock.Any()).Return(nil)
+
+				// ensure app2
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", app2Image}).Return(app1Labels, "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", app2Image}).Return("/mount", "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", app2Image}).Return("", "", 0)
+				mockAppManager.EXPECT().Ensure(gomock.Any()).Return(nil)
+			},
+		},
+		{
+			name: "add 2 apps then remove",
+			steps: []transitionStep{
+				{
+					current: []testRendered{
+						{version: "1", apps: []testApp{}}, // empty
+					},
+					desired: []testRendered{
+						{version: "2", apps: []testApp{
+							{name: "app1", image: app1Image},
+							{name: "app2", image: app2Image},
+						}},
+					},
+				},
+				{
+					current: []testRendered{
+						{version: "2", apps: []testApp{
+							{name: "app1", image: app1Image},
+							{name: "app2", image: app2Image},
+						}},
+					},
+					desired: []testRendered{
+						{version: "3", apps: []testApp{}}, // remove all
+					},
+				},
+			},
+			setupMocks: func(
+				mockAppManager *MockManager,
+				mockExecuter *executer.MockExecuter,
+			) {
+				// renderedVersion 1 -> 2 (add apps)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", app1Image}).Return(app1Labels, "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", app2Image}).Return(app1Labels, "", 0)
+
+				// ensure app1
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", app1Image}).Return("/mount", "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", app1Image}).Return("", "", 0)
+				mockAppManager.EXPECT().Ensure(gomock.Any()).Return(nil)
+
+				// ensure app2
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", app2Image}).Return("/mount", "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", app2Image}).Return("", "", 0)
+				mockAppManager.EXPECT().Ensure(gomock.Any()).Return(nil)
+
+				// renderedVersion 2 -> 3 (remove apps)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", app1Image}).Return(app1Labels, "", 0)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", app2Image}).Return(app1Labels, "", 0)
+
+				// remove app1
+				mockAppManager.EXPECT().Remove(gomock.Any()).Return(nil)
+				// remove app2
+				mockAppManager.EXPECT().Remove(gomock.Any()).Return(nil)
+			},
+		},
+	}
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			tmpDir := t.TempDir()
+			readWriter := fileio.NewReadWriter()
+			readWriter.SetRootdir(tmpDir)
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExecuter := executer.NewMockExecuter(ctrl)
+			mockAppManager := NewMockManager(ctrl)
+			podmanClient := client.NewPodman(log, mockExecuter, newTestBackoff())
+
+			controller := NewController(podmanClient, mockAppManager, readWriter, log)
+
+			countainerMountDir := "/mount"
+			err = readWriter.MkdirAll(countainerMountDir, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+			embeddedAppPath := filepath.Join(countainerMountDir, "podman-compose.yaml")
+			err = readWriter.WriteFile(embeddedAppPath, []byte(composeSpec), fileio.DefaultFilePermissions)
+			require.NoError(err)
+
+			tt.setupMocks(mockAppManager, mockExecuter)
+
+			for i, step := range tt.steps {
+				t.Logf("Applying %d...", i+1)
+
+				var currentApps []testApp
+				for _, version := range step.current {
+					currentApps = append(currentApps, version.apps...)
+				}
+
+				var desiredApps []testApp
+				for _, version := range step.desired {
+					desiredApps = append(desiredApps, version.apps...)
+				}
+
+				// generate current and desired for each step
+				current, err := newTestRenderedDeviceSpec(currentApps)
+				require.NoError(err)
+				desired, err := newTestRenderedDeviceSpec(desiredApps)
+				require.NoError(err)
+
+				err = controller.Sync(ctx, current, desired)
+				require.NoError(err)
+			}
+		})
+	}
+}
+
+const composeSpec = `
+version: "3"
+services:
+  test-service:
+    image: alpine
+`
