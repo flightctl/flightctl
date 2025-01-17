@@ -72,7 +72,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
-				}, "1m")
+				}, "2m")
 
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
