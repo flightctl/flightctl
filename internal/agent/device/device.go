@@ -24,7 +24,6 @@ import (
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/lthibault/jitterbug"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -47,8 +46,8 @@ type Agent struct {
 	bootcClient            container.BootcClient
 	podmanClient           *client.Podman
 
-	fetchSpecInterval   util.Duration
-	fetchStatusInterval util.Duration
+	fetchSpecInterval    util.Duration
+	statusUpdateInterval util.Duration
 
 	once     sync.Once
 	cancelFn context.CancelFunc
@@ -65,7 +64,7 @@ func NewAgent(
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
-	fetchStatusInterval util.Duration,
+	statusUpdateInterval util.Duration,
 	hookManager hook.Manager,
 	osManager os.Manager,
 	policyManager policy.Manager,
@@ -91,7 +90,7 @@ func NewAgent(
 		appManager:             appManager,
 		systemdManager:         systemdManager,
 		fetchSpecInterval:      fetchSpecInterval,
-		fetchStatusInterval:    fetchStatusInterval,
+		statusUpdateInterval:   statusUpdateInterval,
 		applicationsController: applicationsController,
 		configController:       configController,
 		resourceController:     resourceController,
@@ -106,23 +105,15 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	ctx, a.cancelFn = context.WithCancel(ctx)
+	// orchestrates periodic fetching of device specs and pushing status updates
+	engine := NewEngine(
+		a.fetchSpecInterval,
+		func(ctx context.Context) { a.syncSpec(ctx, a.syncSpecFn) },
+		a.statusUpdateInterval,
+		a.statusUpdate,
+	)
 
-	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer specTicker.Stop()
-	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer statusTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-specTicker.C:
-			a.syncSpec(ctx, a.syncSpecFn)
-		case <-statusTicker.C:
-			a.pushStatus(ctx)
-		}
-	}
+	return engine.Run(ctx)
 }
 
 // Stop ensures that the device agent stops reconciling during graceful shutdown.
@@ -291,7 +282,7 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 	return nil
 }
 
-func (a *Agent) pushStatus(ctx context.Context) {
+func (a *Agent) statusUpdate(ctx context.Context) {
 	startTime := time.Now()
 	a.log.Debug("Started collecting device status")
 	defer func() {
