@@ -306,7 +306,7 @@ func TestFieldSelectorMap(t *testing.T) {
 	}
 
 	for _, op := range testCases {
-		fr, err := NewFieldSelectorFromMap(op.Input, false)
+		fr, err := NewFieldSelectorFromMap(op.Input)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", op, err, err)
 			continue

@@ -21,53 +21,37 @@ type AnnotationSelector struct {
 	selector selector.Selector
 }
 
-// NewAnnotationSelectorFromMapOrDie creates an AnnotationSelector from a map of annotations
-// with an optional invert flag. It panics if the creation fais.
-//
-// Parameters:
-//
-//	annotations - A map where keys are annotation names and values are annotation values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewAnnotationSelectorFromMapOrDie creates an AnnotationSelector from a map of annotations.
+// It panics if the creation fais.
 //
 // Example:
 //
 //	annotations := map[string]string{"env": "prod", "tier": "backend"}
 //	selector := NewAnnotationSelectorFromMapOrDie(annotations)
 //	// selector represents: "env=prod,tier=backend"
-func NewAnnotationSelectorFromMapOrDie(annotations map[string]string, invert bool) *AnnotationSelector {
-	ls, err := NewAnnotationSelectorFromMap(annotations, invert)
+func NewAnnotationSelectorFromMapOrDie(annotations map[string]string) *AnnotationSelector {
+	ls, err := NewAnnotationSelectorFromMap(annotations)
 	if err != nil {
 		panic(err)
 	}
 	return ls
 }
 
-// NewAnnotationSelectorFromMap creates an AnnotationSelector from a map of annotations
-// with an optional invert flag.
-//
-// Parameters:
-//
-//	annotations - A map where keys are annotation names and values are annotation values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewAnnotationSelectorFromMap creates an AnnotationSelector from a map of annotations.
 //
 // Example:
 //
 //	annotations := map[string]string{"env": "prod", "tier": "backend"}
-//	selector, err := NewAnnotationSelectorFromMap(annotations, true)
+//	selector, err := NewAnnotationSelectorFromMap(annotations)
 //	// selector represents: "env!=prod,tier!=backend"
-func NewAnnotationSelectorFromMap(annotations map[string]string, invert bool) (*AnnotationSelector, error) {
+func NewAnnotationSelectorFromMap(annotations map[string]string) (*AnnotationSelector, error) {
 	if len(annotations) == 0 {
 		return NewAnnotationSelector("")
 	}
 
-	operator := selection.Equals
-	if invert {
-		operator = selection.NotEquals
-	}
-
 	var parts []string
 	for key, val := range annotations {
-		parts = append(parts, key+string(operator)+val)
+		parts = append(parts, key+string(selection.Equals)+val)
 	}
 
 	return NewAnnotationSelector(strings.Join(parts, ","))

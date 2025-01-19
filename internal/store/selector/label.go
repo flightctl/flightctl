@@ -19,53 +19,37 @@ type LabelSelector struct {
 	selector selector.Selector
 }
 
-// NewLabelSelectorFromMapOrDie creates a LabelSelector from a map of labels
-// with an optional invert flag. It panics if the creation fails.
-//
-// Parameters:
-//
-//	labels - A map where keys are label names and values are label values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewLabelSelectorFromMapOrDie creates a LabelSelector from a map of labels.
+// It panics if the creation fails.
 //
 // Example:
 //
 //	labels := map[string]string{"env": "prod", "tier": "backend"}
 //	selector := NewLabelSelectorFromMapOrDie(labels)
 //	// selector represents: "env=prod,tier=backend"
-func NewLabelSelectorFromMapOrDie(labels map[string]string, invert bool) *LabelSelector {
-	ls, err := NewLabelSelectorFromMap(labels, invert)
+func NewLabelSelectorFromMapOrDie(labels map[string]string) *LabelSelector {
+	ls, err := NewLabelSelectorFromMap(labels)
 	if err != nil {
 		panic(err)
 	}
 	return ls
 }
 
-// NewLabelSelectorFromMap creates a LabelSelector from a map of labels
-// with an optional invert flag.
-//
-// Parameters:
-//
-//	labels - A map where keys are label names and values are label values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewLabelSelectorFromMap creates a LabelSelector from a map of labels.
 //
 // Example:
 //
 //	labels := map[string]string{"env": "prod", "tier": "backend"}
-//	selector, err := NewLabelSelectorFromMap(labels, true)
-//	// selector represents: "env!=prod,tier!=backend"
-func NewLabelSelectorFromMap(labels map[string]string, invert bool) (*LabelSelector, error) {
+//	selector, err := NewLabelSelectorFromMap(labels)
+//	// selector represents: "env=prod,tier=backend"
+func NewLabelSelectorFromMap(labels map[string]string) (*LabelSelector, error) {
 	if len(labels) == 0 {
 		return NewLabelSelector("")
 	}
 
-	operator := selection.Equals
-	if invert {
-		operator = selection.NotEquals
-	}
-
 	var parts []string
 	for key, val := range labels {
-		parts = append(parts, key+string(operator)+val)
+		parts = append(parts, key+string(selection.Equals)+val)
 	}
 
 	return NewLabelSelector(strings.Join(parts, ","))
