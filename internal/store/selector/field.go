@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
 	"github.com/flightctl/flightctl/pkg/queryparser"
 	"github.com/flightctl/flightctl/pkg/queryparser/sql"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 type FieldSelector struct {
@@ -129,6 +130,21 @@ func NewFieldSelector(input string, opts ...FieldSelectorOption) (*FieldSelector
 		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax, err)
 	}
 
+	var allErrs field.ErrorList
+	requirements, _ := selector.Requirements()
+	for _, r := range requirements {
+		if len(r.Key()) > 1 {
+			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(),
+				fmt.Sprintf("keysets with multiple selectors are not supported: %v", r.Key())))
+			continue
+		}
+	}
+
+	// If validation errors exist, aggregate and return them as a single error.
+	if err = allErrs.ToAggregate(); err != nil {
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax, err)
+	}
+
 	fs := &FieldSelector{
 		selector: selector,
 	}
@@ -239,7 +255,7 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 		}
 
 		key, values, operator := req.Key(), req.Values(), req.Operator()
-		resolvedFields, err := fs.resolveSelectorField(key)
+		resolvedFields, err := fs.resolveSelectorField(key.String())
 		if err != nil {
 			return nil, err
 		}
@@ -258,10 +274,10 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			}
 
 			var valuesToken queryparser.TokenSet
-			if values.Len() > 0 {
+			if len(values) > 0 {
 				valuesToken = queryparser.NewTokenSet()
-				for _, val := range values.List() {
-					valueToken, err := fs.createValueToken(operator, resolvedField, val)
+				for _, val := range values {
+					valueToken, err := fs.createValueToken(operator, resolvedField, val.String())
 					if err != nil {
 						return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 							fmt.Errorf("failed to parse value for selector %q: %w", key, err))

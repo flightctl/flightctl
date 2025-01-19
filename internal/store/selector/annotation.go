@@ -115,8 +115,14 @@ func NewAnnotationSelector(input string) (*AnnotationSelector, error) {
 	var allErrs field.ErrorList
 	requirements, _ := selector.Requirements()
 	for _, r := range requirements {
+		if len(r.Key()) > 1 {
+			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(),
+				fmt.Sprintf("keysets with multiple keys are not supported: %v", r.Key())))
+			continue
+		}
+
 		// Convert the key to lowercase before validation.
-		lowerKey := strings.ToLower(r.Key())
+		lowerKey := strings.ToLower(r.Key().String())
 		if errs := validation.IsQualifiedName(lowerKey); len(errs) != 0 {
 			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(), strings.Join(errs, "; ")))
 		}
@@ -220,8 +226,8 @@ func (s *AnnotationSelector) Tokenize(ctx context.Context, input any) (querypars
 			return nil, err
 		}
 
-		key := strings.TrimSpace(req.Key())
-		values := req.Values().List()
+		key := req.Key()
+		values := req.Values()
 		operator := req.Operator()
 
 		reTokens, err := s.parseRequirement(key, values, operator)
@@ -242,7 +248,7 @@ func (s *AnnotationSelector) Tokenize(ctx context.Context, input any) (querypars
 
 // parseRequirement parses a single annotation requirement into queryparser tokens.
 // It resolves the field, operator, and values for the requirement.
-func (s *AnnotationSelector) parseRequirement(key string, values []string, operator selection.Operator) (queryparser.TokenSet, error) {
+func (s *AnnotationSelector) parseRequirement(key selector.Tuple, values []selector.Tuple, operator selection.Operator) (queryparser.TokenSet, error) {
 	// Create a token for the field
 	fieldToken := queryparser.NewTokenSet().AddFunctionToken("K", func() queryparser.TokenSet {
 		return queryparser.NewTokenSet().AddValueToken(s.field.FieldName)
@@ -250,7 +256,7 @@ func (s *AnnotationSelector) parseRequirement(key string, values []string, opera
 
 	// Create an EXISTS token for the key
 	existsToken := queryparser.NewTokenSet().AddFunctionToken("EXISTS", func() queryparser.TokenSet {
-		return queryparser.NewTokenSet().Append(fieldToken, s.createKeyToken(key))
+		return queryparser.NewTokenSet().Append(fieldToken, s.createKeyToken(key.String()))
 	})
 
 	// Helper to wrap tokens with ISNULL and NOT logic
@@ -278,7 +284,7 @@ func (s *AnnotationSelector) parseRequirement(key string, values []string, opera
 		valuesTokens := queryparser.NewTokenSet()
 		for _, val := range values {
 			valuesTokens = valuesTokens.Append(queryparser.NewTokenSet().AddFunctionToken("CONTAINS", func() queryparser.TokenSet {
-				return queryparser.NewTokenSet().Append(fieldToken, s.createPairToken(key, val))
+				return queryparser.NewTokenSet().Append(fieldToken, s.createPairToken(key.String(), val.String()))
 			}))
 		}
 

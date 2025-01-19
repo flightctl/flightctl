@@ -94,9 +94,9 @@ func TestFieldSelectorQueries(t *testing.T) {
 		"!model.field1":                   "ISNULL(K(field1))",                                       //DoesNotExist
 		"model.field1=true":               "EQ(K(field1),V(true))",                                   //Equals
 		"model.field1==true":              "EQ(K(field1),V(true))",                                   //DoubleEquals
-		"model.field1 in (true,false)":    "IN(K(field1),V(false),V(true))",                          //In
+		"model.field1 in (true,false)":    "IN(K(field1),V(true),V(false))",                          //In
 		"model.field1!=true":              "OR(ISNULL(K(field1)),NOTEQ(K(field1),V(true)))",          //NotEquals
-		"model.field1 notin (true,false)": "OR(ISNULL(K(field1)),NOTIN(K(field1),V(false),V(true)))", //NotIn
+		"model.field1 notin (true,false)": "OR(ISNULL(K(field1)),NOTIN(K(field1),V(true),V(false)))", //NotIn
 
 		// Numbers
 		"model.field2":             "ISNOTNULL(K(field2))",                             //Exists
@@ -165,7 +165,7 @@ func TestFieldSelectorQueries(t *testing.T) {
 		"model.field16.some.array[12].val=\"text\"": "EQ(K(field16 -> 'some' -> 'array' -> 12 -> 'val'),V(\"text\"))", //Equals + array index
 
 		// Multiple requirements
-		"model.field1, model.field1 notin (true,false)": "AND(ISNOTNULL(K(field1)),OR(ISNULL(K(field1)),NOTIN(K(field1),V(false),V(true))))",                     // Exists + NotIn
+		"model.field1, model.field1 notin (true,false)": "AND(ISNOTNULL(K(field1)),OR(ISNULL(K(field1)),NOTIN(K(field1),V(true),V(false))))",                     // Exists + NotIn
 		"model.field2 >= 0, model.field2 <= 10":         "AND(GTE(K(field2),V(0)), LTE(K(field2),V(10)))",                                                        // GreaterThanOrEquals + LessThanOrEquals
 		"model.field6 != text1, model.field6 != text2":  "AND(OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text1))), OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text2))))", // NotEquals
 

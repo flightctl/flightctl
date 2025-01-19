@@ -17,6 +17,11 @@ func TestAnnotationSelectorOperations(t *testing.T) {
 		"key notin (val1,val2)",
 	}
 
+	testBadStrings := []string{
+		"ke@y",
+		"(k1, k2)=(v1, v2)",
+	}
+
 	for _, test := range testGoodStrings {
 		ls, err := NewAnnotationSelector(test)
 		if err != nil {
@@ -27,6 +32,14 @@ func TestAnnotationSelectorOperations(t *testing.T) {
 		_, _, err = ls.Parse(context.Background(), &goodTestModel{}, NewSelectorName("model.field16"))
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", test, err, err)
+		}
+	}
+
+	for _, test := range testBadStrings {
+		_, err := NewAnnotationSelector(test)
+		if err == nil {
+			t.Errorf("%v: did not get expected error\n", test)
+			continue
 		}
 	}
 }
