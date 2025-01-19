@@ -310,55 +310,12 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Ren
 		}
 	}
 
-	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
+	if err := a.appManager.BeforeUpdate(ctx, desired); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
 
 	if err := a.hookManager.OnBeforeUpdating(ctx, current, desired); err != nil {
 		return fmt.Errorf("hooks: %w", err)
-	}
-
-	return nil
-}
-
-func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alpha1.RenderedDeviceSpec) error {
-	if desired.Applications == nil {
-		a.log.Debug("No applications to pre-check")
-		return nil
-	}
-	a.log.Debug("Pre-checking applications dependencies")
-	defer a.log.Debug("Finished pre-checking application dependencies")
-
-	// ensure dependencies for image based application manifests
-	imageProviders, err := applications.ImageProvidersFromSpec(desired)
-	if err != nil {
-		return fmt.Errorf("%w: parsing image providers: %w", errors.ErrNoRetry, err)
-	}
-
-	for _, imageProvider := range imageProviders {
-		// pull the image if it does not exist. it is possible that the image
-		// tag such as latest in which case it will be pulled later. but we
-		// don't want to require calling out the network on every sync.
-		if a.podmanClient.ImageExists(ctx, imageProvider.Image) {
-			a.log.Debugf("Image %q already exists", imageProvider.Image)
-			continue
-		}
-
-		providerImage := imageProvider.Image
-		resp, err := a.podmanClient.Pull(ctx, providerImage, client.WithRetry())
-		if err != nil {
-			a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
-			return err
-		}
-		a.log.Debugf("Pulled image %q: %s", providerImage, resp)
-
-		addType, err := applications.TypeFromImage(ctx, a.podmanClient, providerImage)
-		if err != nil {
-			return fmt.Errorf("%w: getting application type: %w", errors.ErrNoRetry, err)
-		}
-		if err := applications.EnsureDependenciesFromType(addType); err != nil {
-			return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
-		}
 	}
 
 	return nil
