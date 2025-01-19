@@ -53,9 +53,6 @@ spec:
             requests:
               cpu: {{ .Values.db.resources.requests.cpu}}
               memory: {{ .Values.db.resources.requests.memory}}
-            limits:
-              cpu: {{ .Values.db.resources.limits.cpu}}
-              memory: {{ .Values.db.resources.limits.memory}}
       restartPolicy: Always
       volumes:
         - name: flightctl-db
