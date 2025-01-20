@@ -50,12 +50,13 @@ type PodmanContainerConfig struct {
 }
 
 type PodmanEvent struct {
-	ID         string            `json:"ID"`
-	Image      string            `json:"Image"`
-	Name       string            `json:"Name"`
-	Status     string            `json:"Status"`
-	Type       string            `json:"Type"`
-	Attributes map[string]string `json:"Attributes"`
+	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
+	ID                string            `json:"ID"`
+	Image             string            `json:"Image"`
+	Name              string            `json:"Name"`
+	Status            string            `json:"Status"`
+	Type              string            `json:"Type"`
+	Attributes        map[string]string `json:"Attributes"`
 }
 
 type PodmanMonitor struct {
@@ -340,6 +341,9 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 			continue
 		}
 		statuses = append(statuses, *appStatus)
+
+		m.log.Debugf("Application %s status: %s", app.Name(), appStatus.Status)
+		m.log.Debugf("Application %s summary status: %s", app.Name(), appSummary.Status)
 
 		// phases can get worse but not better
 		switch appSummary.Status {

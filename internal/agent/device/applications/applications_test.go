@@ -27,7 +27,7 @@ func TestApplicationStatus(t *testing.T) {
 			expected:              AppCompose,
 		},
 		{
-			name: "app preparing to start with containers",
+			name: "app single container preparing to start init",
 			containers: []Container{
 				{
 					Status: ContainerStatusInit,
@@ -39,7 +39,19 @@ func TestApplicationStatus(t *testing.T) {
 			expected:              AppCompose,
 		},
 		{
-			name: "app starting",
+			name: "app single container preparing to start created",
+			containers: []Container{
+				{
+					Status: ContainerStatusCreated,
+				},
+			},
+			expectedReady:         "0/1",
+			expectedStatus:        v1alpha1.ApplicationStatusPreparing,
+			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
+			expected:              AppCompose,
+		},
+		{
+			name: "app multiple containers starting init",
 			containers: []Container{
 				{
 					Name:   "container1",
@@ -52,7 +64,24 @@ func TestApplicationStatus(t *testing.T) {
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1alpha1.ApplicationStatusStarting,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
+			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
+			expected:              AppCompose,
+		},
+		{
+			name: "app multiple containers starting created",
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusCreated,
+				},
+				{
+					Name:   "container2",
+					Status: ContainerStatusRunning,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1alpha1.ApplicationStatusStarting,
+			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
 			expected:              AppCompose,
 		},
 		{
@@ -78,6 +107,23 @@ func TestApplicationStatus(t *testing.T) {
 				{
 					Name:   "container1",
 					Status: ContainerStatusDie,
+				},
+				{
+					Name:   "container2",
+					Status: ContainerStatusRunning,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1alpha1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
+			expected:              AppCompose,
+		},
+		{
+			name: "app running degraded",
+			containers: []Container{
+				{
+					Name:   "container1",
+					Status: ContainerStatusDied,
 				},
 				{
 					Name:   "container2",
@@ -184,10 +230,10 @@ func TestApplicationStatus(t *testing.T) {
 			status, summary, err := application.Status()
 			require.NoError(err)
 
-			require.Equal(status.Ready, tt.expectedReady)
-			require.Equal(status.Restarts, tt.expectedRestarts)
-			require.Equal(status.Status, tt.expectedStatus)
-			require.Equal(summary.Status, tt.expectedSummaryStatus)
+			require.Equal(tt.expectedReady, status.Ready)
+			require.Equal(tt.expectedRestarts, status.Restarts)
+			require.Equal(tt.expectedStatus, status.Status)
+			require.Equal(tt.expectedSummaryStatus, summary.Status)
 		})
 	}
 
