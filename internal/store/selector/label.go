@@ -19,53 +19,37 @@ type LabelSelector struct {
 	selector selector.Selector
 }
 
-// NewLabelSelectorFromMapOrDie creates a LabelSelector from a map of labels
-// with an optional invert flag. It panics if the creation fails.
-//
-// Parameters:
-//
-//	labels - A map where keys are label names and values are label values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewLabelSelectorFromMapOrDie creates a LabelSelector from a map of labels.
+// It panics if the creation fails.
 //
 // Example:
 //
 //	labels := map[string]string{"env": "prod", "tier": "backend"}
 //	selector := NewLabelSelectorFromMapOrDie(labels)
 //	// selector represents: "env=prod,tier=backend"
-func NewLabelSelectorFromMapOrDie(labels map[string]string, invert bool) *LabelSelector {
-	ls, err := NewLabelSelectorFromMap(labels, invert)
+func NewLabelSelectorFromMapOrDie(labels map[string]string) *LabelSelector {
+	ls, err := NewLabelSelectorFromMap(labels)
 	if err != nil {
 		panic(err)
 	}
 	return ls
 }
 
-// NewLabelSelectorFromMap creates a LabelSelector from a map of labels
-// with an optional invert flag.
-//
-// Parameters:
-//
-//	labels - A map where keys are label names and values are label values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewLabelSelectorFromMap creates a LabelSelector from a map of labels.
 //
 // Example:
 //
 //	labels := map[string]string{"env": "prod", "tier": "backend"}
-//	selector, err := NewLabelSelectorFromMap(labels, true)
-//	// selector represents: "env!=prod,tier!=backend"
-func NewLabelSelectorFromMap(labels map[string]string, invert bool) (*LabelSelector, error) {
+//	selector, err := NewLabelSelectorFromMap(labels)
+//	// selector represents: "env=prod,tier=backend"
+func NewLabelSelectorFromMap(labels map[string]string) (*LabelSelector, error) {
 	if len(labels) == 0 {
 		return NewLabelSelector("")
 	}
 
-	operator := selection.Equals
-	if invert {
-		operator = selection.NotEquals
-	}
-
 	var parts []string
 	for key, val := range labels {
-		parts = append(parts, key+string(operator)+val)
+		parts = append(parts, key+string(selection.Equals)+val)
 	}
 
 	return NewLabelSelector(strings.Join(parts, ","))
@@ -203,14 +187,10 @@ func (ls *LabelSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			return nil, err
 		}
 
-		key := strings.TrimSpace(req.Key())
-		values := req.Values().List()
-		operator := req.Operator()
-
-		reTokens, err := ls.parseRequirement(key, values, operator)
+		reTokens, err := ls.parseRequirement(req.Key(), req.Values(), req.Operator())
 		if err != nil {
 			return nil, NewSelectorError(flterrors.ErrLabelSelectorParseFailed,
-				fmt.Errorf("failed to resolve operation for key %q: %w", key, err))
+				fmt.Errorf("failed to resolve operation for key %q: %w", req.Key(), err))
 		}
 		tokens = tokens.Append(reTokens)
 	}
@@ -225,39 +205,54 @@ func (ls *LabelSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 
 // parseRequirement parses a single label requirement into queryparser tokens.
 // It resolves the field, operator, and values for the requirement.
-func (ls *LabelSelector) parseRequirement(key string, values []string, operator selection.Operator) (queryparser.TokenSet, error) {
+func (ls *LabelSelector) parseRequirement(key selector.Tuple, values []selector.Tuple, operator selection.Operator) (queryparser.TokenSet, error) {
 	// Create a token for the field
 	fieldToken := queryparser.NewTokenSet().AddFunctionToken("K", func() queryparser.TokenSet {
 		return queryparser.NewTokenSet().AddValueToken(ls.field.FieldName)
 	})
 
-	// Create an EXISTS token for the key
-	existsToken := queryparser.NewTokenSet().AddFunctionToken("EXISTS", func() queryparser.TokenSet {
-		return queryparser.NewTokenSet().Append(fieldToken, ls.createKeyToken(key))
-	})
-
-	// Helper to wrap tokens with ISNULL and NOT logic
-	addISNULLAndNot := func(tokens queryparser.TokenSet) queryparser.TokenSet {
-		return queryparser.NewTokenSet().AddFunctionToken("OR", func() queryparser.TokenSet {
-			return queryparser.NewTokenSet().AddFunctionToken("ISNULL", func() queryparser.TokenSet {
-				return fieldToken
-			}).AddFunctionToken("NOT", func() queryparser.TokenSet {
-				return tokens
+	// Create an EXISTS token for the key(s)
+	existsToken := queryparser.NewTokenSet()
+	if len(key) > 1 {
+		existsToken = existsToken.AddFunctionToken("ALLEXISTS", func() queryparser.TokenSet {
+			ts := queryparser.NewTokenSet()
+			for _, k := range key {
+				ts = ts.AddFunctionToken("V", func() queryparser.TokenSet {
+					return queryparser.NewTokenSet().AddValueToken(k)
+				})
+			}
+			return fieldToken.Append(ts)
+		})
+	} else {
+		existsToken = existsToken.AddFunctionToken("EXISTS", func() queryparser.TokenSet {
+			return fieldToken.AddFunctionToken("V", func() queryparser.TokenSet {
+				return queryparser.NewTokenSet().AddValueToken(key[0])
 			})
 		})
 	}
 
+	// Helper to wrap tokens with ISNULL and NOT logic
+	addISNULLAndNot := func(tokens queryparser.TokenSet) queryparser.TokenSet {
+		return queryparser.NewTokenSet().AddFunctionToken("OR", func() queryparser.TokenSet {
+			return queryparser.NewTokenSet().
+				AddFunctionToken("ISNULL", func() queryparser.TokenSet {
+					return fieldToken
+				}).
+				AddFunctionToken("NOT", func() queryparser.TokenSet {
+					return tokens
+				})
+		})
+	}
+
+	// Operator-specific token generation
 	switch operator {
 	case selection.Exists:
-		// Return the EXISTS token for the "Exists" operator
 		return existsToken, nil
 
 	case selection.DoesNotExist:
-		// Wrap the EXISTS token in a NOT token and add an ISNULL check
 		return addISNULLAndNot(existsToken), nil
 
 	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.In, selection.NotIn:
-		// Create tokens for values using the "CONTAINS" function
 		valuesTokens := queryparser.NewTokenSet()
 		for _, val := range values {
 			valuesTokens = valuesTokens.Append(queryparser.NewTokenSet().AddFunctionToken("CONTAINS", func() queryparser.TokenSet {
@@ -265,7 +260,7 @@ func (ls *LabelSelector) parseRequirement(key string, values []string, operator 
 			}))
 		}
 
-		// If there are multiple values, wrap them in an OR token
+		// Wrap multiple values in an OR token if necessary
 		if len(values) > 1 {
 			valuesTokens = queryparser.NewTokenSet().AddFunctionToken("OR", func() queryparser.TokenSet {
 				return valuesTokens
@@ -277,7 +272,7 @@ func (ls *LabelSelector) parseRequirement(key string, values []string, operator 
 			return existsToken.Append(valuesTokens)
 		})
 
-		// Wrap the "NotEquals" and "NotIn" operators in a NOT token and add an ISNULL check
+		// Wrap NotEquals and NotIn with NOT and ISNULL logic
 		if operator == selection.NotEquals || operator == selection.NotIn {
 			tokens = addISNULLAndNot(tokens)
 		}
@@ -289,17 +284,18 @@ func (ls *LabelSelector) parseRequirement(key string, values []string, operator 
 	}
 }
 
-// createKeyToken generates a token for a key in the label selector.
-func (ls *LabelSelector) createKeyToken(key string) queryparser.TokenSet {
-	return queryparser.NewTokenSet().AddFunctionToken("V", func() queryparser.TokenSet {
-		return queryparser.NewTokenSet().AddValueToken(key)
-	})
-}
-
 // createPairToken generates a token for a key-value pair in the label selector.
-func (ls *LabelSelector) createPairToken(key, value string) queryparser.TokenSet {
+func (ls *LabelSelector) createPairToken(key selector.Tuple, value selector.Tuple) queryparser.TokenSet {
+	// Create JSON-like key-value pairs
+	pairs := make([]string, len(key))
+	for i, k := range key {
+		pairs[i] = fmt.Sprintf("\"%s\": \"%s\"", k, value[i])
+	}
+
+	// Build and return the token set
 	return queryparser.NewTokenSet().AddFunctionToken("V", func() queryparser.TokenSet {
-		return queryparser.NewTokenSet().AddValueToken(fmt.Sprintf("{\"%s\": \"%s\"}", key, value))
+		jsonPairs := fmt.Sprintf("{%s}", strings.Join(pairs, ","))
+		return queryparser.NewTokenSet().AddValueToken(jsonPairs)
 	})
 }
 

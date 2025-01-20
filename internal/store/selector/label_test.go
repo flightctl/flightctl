@@ -15,6 +15,19 @@ func TestLabelSelectorOperations(t *testing.T) {
 		"key!=val",
 		"key in (val1,val2)",
 		"key notin (val1,val2)",
+		"(k1, k2)",
+		"!(k1, k2)",
+		"(k1, k2)=(v1, v2)",
+		"(k1, k2)!=(v1, v2)",
+		"(k1, k2) in ((v1, v2),(v3, v4))",
+		"(k1, k2) notin ((v1, v2))",
+	}
+
+	testBadStrings := []string{
+		"ke@y",
+		"key=v@al",
+		"(k1, k2)=val",
+		"(k1, k2) in (v1, v2)",
 	}
 
 	for _, test := range testGoodStrings {
@@ -27,6 +40,14 @@ func TestLabelSelectorOperations(t *testing.T) {
 		_, _, err = ls.Parse(context.Background(), &goodTestModel{}, NewSelectorName("model.field16"))
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", test, err, err)
+		}
+	}
+
+	for _, test := range testBadStrings {
+		_, err := NewLabelSelector(test)
+		if err == nil {
+			t.Errorf("%v: did not get expected error\n", test)
+			continue
 		}
 	}
 }
@@ -52,14 +73,30 @@ func TestLabelSelectorQueries(t *testing.T) {
 		"key!=val":              "OR(ISNULL(K(field16)),NOT(AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val\"})))))",                                                  //NotEquals
 		"key notin (val1,val2)": "OR(ISNULL(K(field16)),NOT(AND(EXISTS(K(field16),V(key)),OR(CONTAINS(K(field16),V({\"key\": \"val1\"})),CONTAINS(K(field16),V({\"key\": \"val2\"}))))))", //NotIn
 		"key=val1, key2!=val": "AND(" +
-			"AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val1\"})))," +
-			"OR(ISNULL(K(field16)),NOT(AND(EXISTS(K(field16),V(key2)),CONTAINS(K(field16),V({\"key2\": \"val\"})))))" +
+			"  AND(EXISTS(K(field16),V(key)),CONTAINS(K(field16),V({\"key\": \"val1\"})))," +
+			"  OR(ISNULL(K(field16)),NOT(AND(EXISTS(K(field16),V(key2)),CONTAINS(K(field16),V({\"key2\": \"val\"})))))" +
 			")",
-	}
-
-	testBadOperations := []string{
-		"ke@y",
-		"key=v@al",
+		"(key1, key2) = (val1,val2)": "AND(" +
+			"ALLEXISTS(K(field16),V(key1),V(key2)),CONTAINS(K(field16),V({\"key1\": \"val1\"\\,\"key2\": \"val2\"}))" +
+			")",
+		"(key1, key2) != (val1,val2)": "OR(" +
+			"ISNULL(K(field16))," +
+			"NOT(" +
+			"    AND(ALLEXISTS(K(field16),V(key1),V(key2)),CONTAINS(K(field16),V({\"key1\": \"val1\"\\,\"key2\": \"val2\"})))" +
+			"  )" +
+			")",
+		"(key1, key2) != (,val2)": "OR(" +
+			"ISNULL(K(field16))," +
+			"NOT(" +
+			"    AND(ALLEXISTS(K(field16),V(key1),V(key2)),CONTAINS(K(field16),V({\"key1\": \"\"\\,\"key2\": \"val2\"})))" +
+			"  )" +
+			")",
+		"(key1, key2) != (,)": "OR(" +
+			"ISNULL(K(field16))," +
+			"NOT(" +
+			"    AND(ALLEXISTS(K(field16),V(key1),V(key2)),CONTAINS(K(field16),V({\"key1\": \"\"\\,\"key2\": \"\"})))" +
+			"  )" +
+			")",
 	}
 
 	fr, err := SelectorFieldResolver(&goodTestModel{})
@@ -96,14 +133,6 @@ func TestLabelSelectorQueries(t *testing.T) {
 
 		if !set1.Matches(set2) {
 			t.Errorf("%v: %v not match %v\n", k8s, set1, set2)
-		}
-	}
-
-	for _, test := range testBadOperations {
-		_, err := NewLabelSelector(test)
-		if err == nil {
-			t.Errorf("%v: did not get expected error\n", test)
-			continue
 		}
 	}
 }
@@ -158,7 +187,7 @@ func TestLabelSelectorMap(t *testing.T) {
 	}
 
 	for _, op := range testCases {
-		ls, err := NewLabelSelectorFromMap(op.Input, false)
+		ls, err := NewLabelSelectorFromMap(op.Input)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", op, err, err)
 			continue

@@ -241,7 +241,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 	}
 	if options.withSummary {
 		fs, err := selector.NewFieldSelectorFromMap(
-			map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, name)}, false)
+			map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, name)})
 		if err != nil {
 			return nil, err
 		}

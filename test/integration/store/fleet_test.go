@@ -234,7 +234,7 @@ var _ = Describe("FleetStore create", func() {
 		It("List by label", func() {
 			listParams := store.ListParams{
 				Limit:         1000,
-				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}, false)}
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
 			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(1))
@@ -657,7 +657,7 @@ var _ = Describe("FleetStore create", func() {
 			listParams := store.ListParams{
 				Limit: 100,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
-					map[string]string{"metadata.owner": owner}, false, selector.WithPrivateSelectors()),
+					map[string]string{"metadata.owner": owner}, selector.WithPrivateSelectors()),
 			}
 
 			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {})

@@ -114,7 +114,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			listParams := store.ListParams{
 				Limit: 100,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
-					map[string]string{"metadata.owner": *fleetowner}, false, selector.WithPrivateSelectors()),
+					map[string]string{"metadata.owner": *fleetowner}, selector.WithPrivateSelectors()),
 			}
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, fleetowner)
 			callbackCalled := false
@@ -236,7 +236,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("List with paging", func() {
 			listParams := store.ListParams{
 				Limit:         1000,
-				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}, false)}
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
 			resourcesyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))

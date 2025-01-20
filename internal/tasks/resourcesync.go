@@ -94,7 +94,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 
 	fleetsPreOwned := make([]api.Fleet, 0)
 
-	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner}, false)
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner})
 	if err != nil {
 		return err
 	}

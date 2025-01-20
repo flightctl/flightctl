@@ -78,7 +78,7 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	owner := util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)
 	f.owner = *owner
 
-	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner}, false)
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner})
 	if err != nil {
 		return err
 	}

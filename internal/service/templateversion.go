@@ -42,7 +42,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	}
 
 	var fieldSelector *selector.FieldSelector
-	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}, false); err != nil {
+	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}); err != nil {
 		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 	}
 
@@ -102,7 +102,7 @@ func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request ser
 	orgId := store.NullOrgId
 
 	var fieldSelector *selector.FieldSelector
-	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}, false); err != nil {
+	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}); err != nil {
 		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
 	}
 
