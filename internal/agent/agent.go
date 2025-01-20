@@ -142,7 +142,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
 	// create application manager
-	applicationManager := applications.NewManager(a.log, executer, podmanClient, systemClient)
+	applicationManager := applications.NewManager(
+		a.log,
+		deviceReadWriter,
+		executer,
+		podmanClient,
+		systemClient,
+	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationManager.Stop)

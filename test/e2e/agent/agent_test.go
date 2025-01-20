@@ -204,6 +204,19 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 })
 
+func parseImageReference(image string) (string, string) {
+	// Split the image string by the colon to separate the repository and the tag.
+	parts := strings.Split(image, ":")
+
+	// The tag is the last part after the last colon.
+	tag := parts[len(parts)-1]
+
+	// The repository is composed of all parts before the last colon, joined back together with colons.
+	repo := strings.Join(parts[:len(parts)-1], ":")
+
+	return repo, tag
+}
+
 var mode = 0644
 var modePointer = &mode
 

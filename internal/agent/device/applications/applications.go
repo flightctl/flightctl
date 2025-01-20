@@ -25,6 +25,7 @@ const (
 type ContainerStatusType string
 
 const (
+	ContainerStatusCreated ContainerStatusType = "created"
 	ContainerStatusInit    ContainerStatusType = "init"
 	ContainerStatusRunning ContainerStatusType = "start"
 	ContainerStatusDie     ContainerStatusType = "die" // docker only
@@ -35,20 +36,6 @@ const (
 
 func (c ContainerStatusType) String() string {
 	return string(c)
-}
-
-func (c ContainerStatusType) Vaild() bool {
-	switch c {
-	case ContainerStatusInit,
-		ContainerStatusRunning,
-		ContainerStatusDie,
-		ContainerStatusDied,
-		ContainerStatusRemove,
-		ContainerStatusExited:
-		return true
-	default:
-		return false
-	}
 }
 
 type AppType string
@@ -66,6 +53,7 @@ type Manager interface {
 	Ensure(app Application) error
 	Remove(app Application) error
 	Update(app Application) error
+	BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
 	AfterUpdate(ctx context.Context) error
 	Stop(ctx context.Context) error
 	status.Exporter
@@ -355,8 +343,8 @@ func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.Image
 	return providers, nil
 }
 
-// TypeFromImage returns the app type from the image label.
-func TypeFromImage(ctx context.Context, podman *client.Podman, image string) (AppType, error) {
+// typeFromImage returns the app type from the image label take from the image in local container storage.
+func typeFromImage(ctx context.Context, podman *client.Podman, image string) (AppType, error) {
 	labels, err := podman.InspectLabels(ctx, image)
 	if err != nil {
 		return "", err
@@ -368,8 +356,8 @@ func TypeFromImage(ctx context.Context, podman *client.Podman, image string) (Ap
 	return ParseAppType(appTypeLabel)
 }
 
-// EnsureDependenciesFromType ensures that the dependencies required for the given app type are available.
-func EnsureDependenciesFromType(appType AppType) error {
+// ensureDependenciesFromType ensures that the dependencies required for the given app type are available.
+func ensureDependenciesFromType(appType AppType) error {
 	var deps []string
 	switch appType {
 	case AppCompose:

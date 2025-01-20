@@ -1,0 +1,16 @@
+[Unit]
+Description=FlightCtl Key Value service
+
+[Container]
+ContainerName=flightctl-kv
+Image=docker.io/redis:7.4.1
+Environment=HOME=/root
+
+PublishPort=6379:6379
+Volume=flightctl-redis:/var/lib/redis/data
+Volume=/etc/containers/systemd/flightctl-kv/flightctl-kv-config/redis.conf:/etc/redis/redis.conf:Z
+
+[Service]
+Type=notify
+Restart=always
+RestartSec=30

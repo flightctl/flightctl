@@ -1,0 +1,28 @@
+name: "API Quality"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  lint-openapi:
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - '.spectral.yaml'
+              - 'api/**/openapi.yaml'
+
+      - name: Running Spectral Linter
+        if: ${{ steps.filter.outputs.api == 'true' }}
+        run: make lint-openapi
