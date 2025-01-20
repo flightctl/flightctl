@@ -13,7 +13,7 @@ data:
   hostname: {{ printf "keycloak-db.%s" .Release.Namespace | b64enc | quote }}
   database: {{ printf "keycloak" | b64enc | quote }}
   username: {{ printf "keycloak" | b64enc | quote }}
-  password: {{ $password | b64enc | quote }}
+  password: {{ $password }}
 {{- if ne .Values.namespace .Values.db.namespace }}
 ---
 apiVersion: v1
