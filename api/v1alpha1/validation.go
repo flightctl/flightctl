@@ -369,7 +369,6 @@ func (r EnrollmentRequest) Validate() []error {
 func (r EnrollmentRequestApproval) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateLabelsWithPath(r.Labels, "labels")...)
-	allErrs = append(allErrs, validation.ValidateString(r.ApprovedBy, "approvedBy", 0, 2048, nil, "")...)
 	return allErrs
 }
 

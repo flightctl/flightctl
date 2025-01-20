@@ -11,9 +11,10 @@ const (
 	DeviceKind       = "Device"
 	DeviceListKind   = "DeviceList"
 
-	DeviceAnnotationConsole         = "device-controller/console"
-	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
-	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	DeviceAnnotationConsole          = "device-controller/console"
+	DeviceAnnotationRenderedVersion  = "device-controller/renderedVersion"
+	DeviceAnnotationTemplateVersion  = "fleet-controller/templateVersion"
+	DeviceAnnotationLastRolloutError = "fleet-controller/lastRolloutError"
 
 	// TODO: make configurable
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
