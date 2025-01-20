@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
+	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -22,7 +23,7 @@ import (
 
 const ClientCertExpiryDays = 365
 
-func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApproval) error {
+func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
@@ -70,7 +71,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		Type:    v1alpha1.EnrollmentRequestApproved,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  "ManuallyApproved",
-		Message: "Approved by " + *approval.ApprovedBy,
+		Message: "Approved by " + approval.ApprovedBy,
 	}
 	v1alpha1.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
 	return nil
@@ -383,24 +384,31 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
 			return server.ApproveEnrollmentRequest400JSONResponse{Message: "Enrollment request is already approved"}, nil
 		}
-		if request.Body.ApprovedAt != nil {
-			return server.ApproveEnrollmentRequest400JSONResponse{Message: "ApprovedAt is not allowed to be set when approving enrollment requests"}, nil
-		}
-		request.Body.ApprovedAt = util.TimeToPtr(time.Now())
 
-		// The same check should happen for ApprovedBy, but we don't have a way to identify
-		// users yet, so we'll let the UI set it for now.
-		if request.Body.ApprovedBy == nil {
-			request.Body.ApprovedBy = util.StrToPtr("unknown")
+		identity, err := authcommon.GetIdentity(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve user identity while approving enrollment request: %w", err)
 		}
 
-		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, request.Body); err != nil {
+		approvedBy := "unknown"
+		if identity != nil && len(identity.Username) > 0 {
+			approvedBy = identity.Username
+		}
+
+		approvalStatus := v1alpha1.EnrollmentRequestApprovalStatus{
+			Approved:   request.Body.Approved,
+			Labels:     request.Body.Labels,
+			ApprovedAt: time.Now(),
+			ApprovedBy: approvedBy,
+		}
+
+		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
 			return server.ApproveEnrollmentRequest400JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			return nil, fmt.Errorf("Error creating device from enrollment request: %v", err.Error())
+			return nil, fmt.Errorf("error creating device from enrollment request: %v", err.Error())
 		}
 	}
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
