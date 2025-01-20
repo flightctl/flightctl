@@ -91,7 +91,7 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	ctx, m.cancelFn = context.WithCancel(ctx)
 
 	// list of podman events to listen for
-	events := []string{"create", "init", "start", "die", "sync", "remove", "exited"}
+	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
 	m.cmd = m.client.EventsSinceCmd(ctx, events, m.bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
