@@ -28,6 +28,9 @@ import (
 // and are now validated in this test for label-specific restrictions.
 func TestInvalidLabelSelectors(t *testing.T) {
 	testBadSelectors := []string{
+		"(x,y) = (@,a)",
+		"(x,y) = (@,@)",
+		"(@,y) = (a,b)",
 		"key=axahm2EJ8Phiephe2eixohbee9eGeiyees1thuozi1xoh0GiuH3diewi8iem7Nui", //value too long
 		strings.Repeat("a", 254), //breaks DNS rule that len(key) <= 253
 		"key=" + strings.Repeat("a", 254),

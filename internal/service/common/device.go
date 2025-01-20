@@ -184,7 +184,14 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 			device.Status.Updated.Info = util.StrToPtr("The device has been updated to the fleet's latest device spec.")
 		} else {
 			device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
-			device.Status.Updated.Info = util.StrToPtr("The device has not yet been scheduled for update to the fleet's latest device spec.")
+			errorMessage := "The device has not yet been scheduled for update to the fleet's latest device spec."
+			if device.Metadata.Annotations != nil {
+				lastRolloutError, ok := (*device.Metadata.Annotations)[api.DeviceAnnotationLastRolloutError]
+				if ok && lastRolloutError != "" {
+					errorMessage = fmt.Sprintf("The device could not be updated to the fleet's latest device spec: %s", lastRolloutError)
+				}
+			}
+			device.Status.Updated.Info = util.StrToPtr(errorMessage)
 		}
 	} else {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate

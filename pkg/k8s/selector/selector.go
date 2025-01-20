@@ -19,7 +19,6 @@ limitations under the License.
 Modifications by Assaf Albo (asafbss): Added support for the containment operator and unified fields and labels selector.
 */
 
-//nolint:gosimple,staticcheck
 package selector
 
 import (
@@ -146,6 +145,26 @@ func (s internalSelector) DeepCopySelector() Selector {
 	return s.DeepCopy()
 }
 
+type Tuple []string
+
+func tuple(elements ...string) Tuple {
+	for i := range elements {
+		elements[i] = strings.TrimSpace(elements[i])
+	}
+	return Tuple(elements)
+}
+
+func (t Tuple) String() string {
+	switch len(t) {
+	case 0:
+		return ""
+	case 1:
+		return t[0]
+	default:
+		return fmt.Sprintf("(%s)", strings.Join(t, ","))
+	}
+}
+
 // ByKey sorts requirements by key to obtain deterministic parser
 type ByKey []Requirement
 
@@ -153,7 +172,7 @@ func (a ByKey) Len() int { return len(a) }
 
 func (a ByKey) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
-func (a ByKey) Less(i, j int) bool { return a[i].key < a[j].key }
+func (a ByKey) Less(i, j int) bool { return a[i].key.String() < a[j].key.String() }
 
 // Requirement contains values, a key, and an operator that relates the key and values.
 // The zero value of Requirement is invalid.
@@ -161,12 +180,12 @@ func (a ByKey) Less(i, j int) bool { return a[i].key < a[j].key }
 // Requirement should be initialized via NewRequirement constructor for creating a valid Requirement.
 // +k8s:deepcopy-gen=true
 type Requirement struct {
-	key      string
+	key      Tuple
 	operator selection.Operator
 	// In huge majority of cases we have at most one value here.
 	// It is generally faster to operate on a single-element slice
 	// than on a single-element map, so we have a slice here.
-	strValues []string
+	strValues []Tuple
 }
 
 // NewRequirement is the constructor for a Requirement.
@@ -179,7 +198,7 @@ type Requirement struct {
 //
 // The empty string is a valid value in the input values set.
 // Returned error, if not nil, is guaranteed to be an aggregated field.ErrorList
-func NewRequirement(key string, op selection.Operator, vals []string, opts ...field.PathOption) (*Requirement, error) {
+func NewRequirement(key Tuple, op selection.Operator, vals []Tuple, opts ...field.PathOption) (*Requirement, error) {
 	var allErrs field.ErrorList
 	path := field.ToPath(opts...)
 
@@ -206,9 +225,11 @@ func NewRequirement(key string, op selection.Operator, vals []string, opts ...fi
 			allErrs = append(allErrs, field.Invalid(valuePath, vals, "for 'Gt', 'Lt', 'Gte', Lte operators, exactly one value is required"))
 		}
 		for i := range vals {
-			if _, err := strconv.ParseInt(vals[i], 10, 64); err != nil {
-				if _, err := time.Parse(time.RFC3339, vals[i]); err != nil {
-					allErrs = append(allErrs, field.Invalid(valuePath.Index(i), vals[i], "for 'Gt', 'Lt', 'Gte', and 'Lte' operators, the value must be a number or a valid time in RFC3339 format"))
+			for j := range vals[i] {
+				if _, err := strconv.ParseInt(vals[i][j], 10, 64); err != nil {
+					if _, err := time.Parse(time.RFC3339, vals[i][j]); err != nil {
+						allErrs = append(allErrs, field.Invalid(valuePath.Index(i), vals[i][j], "for 'Gt', 'Lt', 'Gte', and 'Lte' operators, the value must be a number or a valid time in RFC3339 format"))
+					}
 				}
 			}
 		}
@@ -218,9 +239,9 @@ func NewRequirement(key string, op selection.Operator, vals []string, opts ...fi
 	return &Requirement{key: key, operator: op, strValues: vals}, allErrs.ToAggregate()
 }
 
-func (r *Requirement) hasValue(value string) bool {
+func (r *Requirement) hasValue(value Tuple) bool {
 	for i := range r.strValues {
-		if r.strValues[i] == value {
+		if slices.Equal(r.strValues[i], value) {
 			return true
 		}
 	}
@@ -238,50 +259,106 @@ func (r *Requirement) hasValue(value string) bool {
 //     Requirement's key.
 //  5. The operator is GreaterThanOperator or LessThanOperator, and Labels has
 //     the Requirement's key and the corresponding value satisfies mathematical inequality.
+//
+//nolint:gocyclo
 func (r *Requirement) Matches(ls k8sLabels.Labels) bool {
 	switch r.operator {
 	case selection.In, selection.Equals, selection.DoubleEquals:
-		if !ls.Has(r.key) {
-			return false
+		v := make(Tuple, len(r.key))
+		for i := range r.key {
+			if !ls.Has(r.key[i]) {
+				return false
+			}
+			v[i] = ls.Get(r.key[i])
 		}
-		return r.hasValue(ls.Get(r.key))
+		return r.hasValue(tuple(v...))
+
 	case selection.Contains:
-		if !ls.Has(r.key) {
-			return false
+		v := make(Tuple, len(r.key))
+		for i := range r.key {
+			if !ls.Has(r.key[i]) {
+				return false
+			}
+			v[i] = ls.Get(r.key[i])
 		}
 		if len(r.strValues) != 1 {
 			klog.V(10).Infof("Invalid values count %+v of requirement %#v, for 'Contains' operator, exactly one value is required", len(r.strValues), r)
 			return false
 		}
-
-		return strings.Contains(ls.Get(r.key), r.strValues[0])
-	case selection.NotContains:
-		if !ls.Has(r.key) {
+		if len(r.strValues[0]) != len(r.key) {
+			klog.V(10).Infof("Mismatch between key count (%d) and strValues[0] length (%d)", len(r.key), len(r.strValues[0]))
 			return false
+		}
+		for i := range r.strValues[0] {
+			if !strings.Contains(v[i], r.strValues[0][i]) {
+				return false
+			}
+		}
+		return true
+
+	case selection.NotContains:
+		v := make(Tuple, len(r.key))
+		for i := range r.key {
+			if !ls.Has(r.key[i]) {
+				return true
+			}
+			v[i] = ls.Get(r.key[i])
 		}
 		if len(r.strValues) != 1 {
-			klog.V(10).Infof("Invalid values count %+v of requirement %#v, for 'NotContains' operator, exactly one value is required", len(r.strValues), r)
+			klog.V(10).Infof("Invalid values count %+v of requirement %#v, for 'Contains' operator, exactly one value is required", len(r.strValues), r)
 			return false
 		}
+		if len(r.strValues[0]) != len(r.key) {
+			klog.V(10).Infof("Mismatch between key count (%d) and strValues[0] length (%d)", len(r.key), len(r.strValues[0]))
+			return false
+		}
+		for i := range r.strValues[0] {
+			if !strings.Contains(v[i], r.strValues[0][i]) {
+				return true
+			}
+		}
+		return false
 
-		return !strings.Contains(ls.Get(r.key), r.strValues[0])
 	case selection.NotIn, selection.NotEquals:
-		if !ls.Has(r.key) {
-			return true
+		v := make(Tuple, len(r.key))
+		for i := range r.key {
+			if !ls.Has(r.key[i]) {
+				return true
+			}
+			v[i] = ls.Get(r.key[i])
 		}
-		return !r.hasValue(ls.Get(r.key))
+		return !r.hasValue(tuple(v...))
+
 	case selection.Exists:
-		return ls.Has(r.key)
-	case selection.DoesNotExist:
-		return !ls.Has(r.key)
-	case selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
-		if !ls.Has(r.key) {
-			return false
+		for i := range r.key {
+			if !ls.Has(r.key[i]) {
+				return false
+			}
 		}
-		lsValue, err := strconv.ParseInt(ls.Get(r.key), 10, 64)
-		if err != nil {
-			klog.V(10).Infof("ParseInt failed for value %+v in label %+v, %+v", ls.Get(r.key), ls, err)
-			return false
+		return true
+
+	case selection.DoesNotExist:
+		for i := range r.key {
+			if !ls.Has(r.key[i]) {
+				return true
+			}
+		}
+		return false
+
+	case selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
+		var err error
+
+		// Parse the tuple values from the labels
+		v := make([]int64, len(r.key))
+		for i := range r.key {
+			if !ls.Has(r.key[i]) {
+				return false
+			}
+			v[i], err = strconv.ParseInt(ls.Get(r.key[i]), 10, 64)
+			if err != nil {
+				klog.V(10).Infof("ParseInt failed for value %+v in label %+v, %+v", ls.Get(r.key[i]), ls, err)
+				return false
+			}
 		}
 
 		// There should be only one strValue in r.strValues, and can be converted to an integer.
@@ -290,23 +367,66 @@ func (r *Requirement) Matches(ls k8sLabels.Labels) bool {
 			return false
 		}
 
-		var rValue int64
-		for i := range r.strValues {
-			rValue, err = strconv.ParseInt(r.strValues[i], 10, 64)
+		if len(r.strValues[0]) != len(r.key) {
+			klog.V(10).Infof("Mismatch between key count (%d) and strValues[0] length (%d)", len(r.key), len(r.strValues[0]))
+			return false
+		}
+
+		rValues := make([]int64, len(r.strValues[0]))
+		for i := range r.strValues[0] {
+			rValues[i], err = strconv.ParseInt(r.strValues[0][i], 10, 64)
 			if err != nil {
-				klog.V(10).Infof("ParseInt failed for value %+v in requirement %#v, for 'Gt', 'Lt' operators, the value must be an integer", r.strValues[i], r)
+				klog.V(10).Infof("ParseInt failed for value %+v in requirement %#v, for 'Gt', 'Lt' operators, the value must be an integer", r.strValues[0][i], r)
 				return false
 			}
 		}
-		return (r.operator == selection.GreaterThan && lsValue > rValue) || (r.operator == selection.LessThan && lsValue < rValue) ||
-			(r.operator == selection.GreaterThanOrEquals && lsValue >= rValue) || (r.operator == selection.LessThanOrEquals && lsValue <= rValue)
+
+		// Perform lexicographical comparison
+		for i := range v {
+			switch r.operator {
+			case selection.GreaterThan:
+				if v[i] < rValues[i] {
+					return false // Lexicographically less
+				} else if v[i] > rValues[i] {
+					return true // Lexicographically greater
+				}
+			case selection.LessThan:
+				if v[i] > rValues[i] {
+					return false // Lexicographically greater
+				} else if v[i] < rValues[i] {
+					return true // Lexicographically less
+				}
+			case selection.GreaterThanOrEquals:
+				if v[i] < rValues[i] {
+					return false // Lexicographically less
+				} else if v[i] > rValues[i] {
+					return true // Lexicographically greater
+				}
+			case selection.LessThanOrEquals:
+				if v[i] > rValues[i] {
+					return false // Lexicographically greater
+				} else if v[i] < rValues[i] {
+					return true // Lexicographically less
+				}
+			}
+		}
+
+		// If all elements are equal, handle equality at the end
+		switch r.operator {
+		case selection.GreaterThan, selection.LessThan:
+			return false // Equal tuples do not satisfy strict inequality
+		case selection.GreaterThanOrEquals, selection.LessThanOrEquals:
+			return true // Equal tuples satisfy non-strict inequality
+		}
+		return false
+
 	default:
 		return false
 	}
 }
 
 // Key returns requirement key
-func (r *Requirement) Key() string {
+func (r *Requirement) Key() Tuple {
 	return r.key
 }
 
@@ -316,30 +436,37 @@ func (r *Requirement) Operator() selection.Operator {
 }
 
 // Values returns requirement values
-func (r *Requirement) Values() sets.String {
-	ret := sets.String{}
+func (r *Requirement) Values() []Tuple {
+	t := make([]Tuple, 0, len(r.strValues))
+	s := sets.NewString()
 	for i := range r.strValues {
-		ret.Insert(r.strValues[i])
+		if !s.Has(r.strValues[i].String()) {
+			s.Insert(r.strValues[i].String())
+			t = append(t, r.strValues[i])
+		}
 	}
-	return ret
-}
-
-// ValuesUnsorted returns a copy of requirement values as passed to NewRequirement without sorting.
-func (r *Requirement) ValuesUnsorted() []string {
-	ret := make([]string, 0, len(r.strValues))
-	ret = append(ret, r.strValues...)
-	return ret
+	return t
 }
 
 // Equal checks the equality of requirement.
 func (r Requirement) Equal(x Requirement) bool {
-	if r.key != x.key {
+	if !slices.Equal(r.key, x.key) {
 		return false
 	}
 	if r.operator != x.operator {
 		return false
 	}
-	return slices.Equal(r.strValues, x.strValues)
+
+	if len(r.strValues) != len(x.strValues) {
+		return false
+	}
+
+	for i := range r.strValues {
+		if !slices.Equal(r.strValues[i], x.strValues[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // Empty returns true if the internalSelector doesn't restrict selection space
@@ -357,7 +484,7 @@ func (r *Requirement) String() string {
 	var sb strings.Builder
 	sb.Grow(
 		// length of r.key
-		len(r.key) +
+		len(r.key.String()) +
 			// length of 'r.operator' + 2 spaces for the worst case ('in', 'notin' and 'contains', 'notcontains')
 			len(r.operator) + 2 +
 			// length of 'r.strValues' slice times. Heuristically 5 chars per word
@@ -365,7 +492,7 @@ func (r *Requirement) String() string {
 	if r.operator == selection.DoesNotExist {
 		sb.WriteString("!")
 	}
-	sb.WriteString(r.key)
+	sb.WriteString(r.key.String())
 
 	switch r.operator {
 	case selection.Equals:
@@ -399,11 +526,17 @@ func (r *Requirement) String() string {
 		sb.WriteString("(")
 	}
 	if len(r.strValues) == 1 {
-		sb.WriteString(r.strValues[0])
+		sb.WriteString(r.strValues[0].String())
 	} else { // only > 1 since == 0 prohibited by NewRequirement
 		// normalizes value order on output, without mutating the in-memory selector representation
 		// also avoids normalization when it is not required, and ensures we do not mutate shared data
-		sb.WriteString(strings.Join(safeSort(r.strValues), ","))
+		sb.WriteString(strings.Join(func() []string {
+			s := make([]string, len(r.strValues))
+			for i, v := range r.strValues {
+				s[i] = v.String()
+			}
+			return s
+		}(), ","))
 	}
 
 	switch r.operator {
@@ -411,17 +544,6 @@ func (r *Requirement) String() string {
 		sb.WriteString(")")
 	}
 	return sb.String()
-}
-
-// safeSort sorts input strings without modification
-func safeSort(in []string) []string {
-	if sort.StringsAreSorted(in) {
-		return in
-	}
-	out := make([]string, len(in))
-	copy(out, in)
-	sort.Strings(out)
-	return out
 }
 
 // Add adds requirements to the selector. It copies the current selector returning a new one
@@ -461,14 +583,15 @@ func (s internalSelector) String() string {
 // to be set, and if so returns the value it requires.
 func (s internalSelector) RequiresExactMatch(label string) (value string, found bool) {
 	for ix := range s {
-		if s[ix].key == label {
-			switch s[ix].operator {
-			case selection.Equals, selection.DoubleEquals, selection.In:
-				if len(s[ix].strValues) == 1 {
-					return s[ix].strValues[0], true
+		for i := range s[ix].key {
+			if s[ix].key[i] == label {
+				switch s[ix].operator {
+				case selection.Equals, selection.DoubleEquals, selection.In:
+					if len(s[ix].strValues) == 1 && i < len(s[ix].strValues[0]) {
+						return s[ix].strValues[0][i], true
+					}
 				}
 			}
-			return "", false
 		}
 	}
 	return "", false
@@ -729,7 +852,7 @@ func (p *Parser) parse() (internalSelector, error) {
 	for {
 		tok, lit := p.lookahead(Values)
 		switch tok {
-		case IdentifierToken, DoesNotExistToken:
+		case IdentifierToken, DoesNotExistToken, OpenParToken:
 			r, err := p.parseRequirement()
 			if err != nil {
 				return nil, fmt.Errorf("unable to parse requirement: %v", err)
@@ -741,7 +864,7 @@ func (p *Parser) parse() (internalSelector, error) {
 				return requirements, nil
 			case CommaToken:
 				t2, l2 := p.lookahead(Values)
-				if t2 != IdentifierToken && t2 != DoesNotExistToken {
+				if t2 != IdentifierToken && t2 != DoesNotExistToken && t2 != OpenParToken {
 					return nil, fmt.Errorf("found '%s', expected: identifier after ','", l2)
 				}
 			default:
@@ -754,54 +877,103 @@ func (p *Parser) parse() (internalSelector, error) {
 		}
 	}
 }
-
 func (p *Parser) parseRequirement() (*Requirement, error) {
 	key, operator, err := p.parseKeyAndInferOperator()
 	if err != nil {
 		return nil, err
 	}
-	if operator == selection.Exists || operator == selection.DoesNotExist { // operator found lookahead set checked
-		return NewRequirement(key, operator, []string{}, field.WithPath(p.path))
+	if operator == selection.Exists || operator == selection.DoesNotExist {
+		return NewRequirement(key, operator, nil, field.WithPath(p.path))
 	}
 	operator, err = p.parseOperator()
 	if err != nil {
 		return nil, err
 	}
-	var values sets.String
+	var values []Tuple
 	switch operator {
 	case selection.In, selection.NotIn:
-		values, err = p.parseValues()
+		if len(key) > 1 {
+			values, err = p.parseTuples()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			vals, err := p.parseValues()
+			if err != nil {
+				return nil, err
+			}
+			for _, v := range vals {
+				values = append(values, tuple(v))
+			}
+		}
 	case selection.Equals, selection.DoubleEquals, selection.NotEquals, selection.Contains, selection.NotContains,
 		selection.GreaterThan, selection.LessThan, selection.GreaterThanOrEquals, selection.LessThanOrEquals:
-		values, err = p.parseExactValue()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return NewRequirement(key, operator, values.List(), field.WithPath(p.path))
+		var v []string
 
+		if t, _ := p.lookahead(Values); t == OpenParToken {
+			v, err = p.parseValues()
+		} else {
+			v, err = p.parseExactValue()
+		}
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, tuple(v...))
+	}
+
+	for _, v := range values {
+		if len(key) != len(v) {
+			return nil, fmt.Errorf(
+				"length mismatch: key %v has %d elements but value %v has %d elements",
+				key, len(key), v, len(v),
+			)
+		}
+	}
+
+	// Construct the requirement and return
+	return NewRequirement(key, operator, values, field.WithPath(p.path))
 }
 
 // parseKeyAndInferOperator parses literals.
 // in case of no operator '!, in, notin, ==, =, !=' are found
 // the 'exists' operator is inferred
-func (p *Parser) parseKeyAndInferOperator() (string, selection.Operator, error) {
+func (p *Parser) parseKeyAndInferOperator() (Tuple, selection.Operator, error) {
 	var operator selection.Operator
+	var key Tuple
+	var err error
+
 	tok, literal := p.consume(Values)
+	key = Tuple{literal}
+
 	if tok == DoesNotExistToken {
 		operator = selection.DoesNotExist
 		tok, literal = p.consume(Values)
+		key = Tuple{literal}
+	}
+	// Handle multi-key parsing for keyset
+	if tok == OpenParToken {
+		p.position--
+		key, err = p.parseValues() // Parse the keyset
+		if err != nil {
+			return nil, "", err
+		}
+		for _, k := range key {
+			if strings.TrimSpace(k) == "" {
+				return nil, "", fmt.Errorf("empty key found in keyset")
+			}
+		}
+		tok, literal = IdentifierToken, key.String()
 	}
 	if tok != IdentifierToken {
 		err := fmt.Errorf("found '%s', expected: identifier", literal)
-		return "", "", err
+		return nil, "", err
 	}
 	if t, _ := p.lookahead(Values); t == EndOfStringToken || t == CommaToken {
 		if operator != selection.DoesNotExist {
 			operator = selection.Exists
 		}
 	}
-	return literal, operator, nil
+	return key, operator, nil
 }
 
 // parseOperator returns operator and eventually matchType
@@ -838,8 +1010,42 @@ func (p *Parser) parseOperator() (op selection.Operator, err error) {
 	return op, nil
 }
 
+func (p *Parser) parseTuples() ([]Tuple, error) {
+	tok, lit := p.consume(Values)
+	if tok != OpenParToken {
+		return nil, fmt.Errorf("found '%s', expected: '('", lit)
+	}
+
+	var ret []Tuple
+	for {
+		tok, lit = p.lookahead(Values)
+		switch tok {
+		case OpenParToken: // Start parsing a nested group
+			s, err := p.parseValues() // Parse a single set of values
+			if err != nil {
+				return nil, fmt.Errorf("error parsing nested values: %w", err)
+			}
+			ret = append(ret, s)
+
+			tok, lit = p.consume(Values)
+			if tok == CommaToken {
+				continue // Continue to the next group
+			} else if tok == ClosedParToken {
+				return ret, nil // End of the multi-value group
+			} else {
+				return nil, fmt.Errorf("found '%s', expected ',' or ')'", lit)
+			}
+		case ClosedParToken: // Empty nested group
+			p.consume(Values)
+			return nil, fmt.Errorf("unexpected closing parenthesis")
+		default: // Invalid token
+			return nil, fmt.Errorf("found '%s', expected '(' or ')'", lit)
+		}
+	}
+}
+
 // parseValues parses the values for set based matching (x,y,z)
-func (p *Parser) parseValues() (sets.String, error) {
+func (p *Parser) parseValues() ([]string, error) {
 	tok, lit := p.consume(Values)
 	if tok != OpenParToken {
 		return nil, fmt.Errorf("found '%s' expected: '('", lit)
@@ -857,7 +1063,7 @@ func (p *Parser) parseValues() (sets.String, error) {
 		return s, nil
 	case ClosedParToken: // handles "()"
 		p.consume(Values)
-		return sets.NewString(""), nil
+		return []string{""}, nil
 	default:
 		return nil, fmt.Errorf("found '%s', expected: ',', ')' or identifier", lit)
 	}
@@ -865,13 +1071,13 @@ func (p *Parser) parseValues() (sets.String, error) {
 
 // parseIdentifiersList parses a (possibly empty) list of
 // of comma separated (possibly empty) identifiers
-func (p *Parser) parseIdentifiersList() (sets.String, error) {
-	s := sets.NewString()
+func (p *Parser) parseIdentifiersList() ([]string, error) {
+	s := make([]string, 0)
 	for {
 		tok, lit := p.consume(Values)
 		switch tok {
 		case IdentifierToken:
-			s.Insert(lit)
+			s = append(s, lit)
 			tok2, lit2 := p.lookahead(Values)
 			switch tok2 {
 			case CommaToken:
@@ -882,17 +1088,17 @@ func (p *Parser) parseIdentifiersList() (sets.String, error) {
 				return nil, fmt.Errorf("found '%s', expected: ',' or ')'", lit2)
 			}
 		case CommaToken: // handled here since we can have "(,"
-			if s.Len() == 0 {
-				s.Insert("") // to handle (,
+			if len(s) == 0 {
+				s = append(s, "") // to handle (,
 			}
 			tok2, _ := p.lookahead(Values)
 			if tok2 == ClosedParToken {
-				s.Insert("") // to handle ,)  Double "" removed by StringSet
+				s = append(s, "") // to handle ,)  Double "" removed by StringSet
 				return s, nil
 			}
 			if tok2 == CommaToken {
 				p.consume(Values)
-				s.Insert("") // to handle ,, Double "" removed by StringSet
+				s = append(s, "") // to handle ,, Double "" removed by StringSet
 			}
 		default: // it can be operator
 			return s, fmt.Errorf("found '%s', expected: ',', or identifier", lit)
@@ -901,17 +1107,14 @@ func (p *Parser) parseIdentifiersList() (sets.String, error) {
 }
 
 // parseExactValue parses the only value for exact match style
-func (p *Parser) parseExactValue() (sets.String, error) {
-	s := sets.NewString()
+func (p *Parser) parseExactValue() ([]string, error) {
 	tok, _ := p.lookahead(Values)
 	if tok == EndOfStringToken || tok == CommaToken {
-		s.Insert("")
-		return s, nil
+		return []string{""}, nil
 	}
 	tok, lit := p.consume(Values)
 	if tok == IdentifierToken {
-		s.Insert(lit)
-		return s, nil
+		return []string{lit}, nil
 	}
 	return nil, fmt.Errorf("found '%s', expected: identifier", lit)
 }
@@ -989,12 +1192,12 @@ func SelectorFromSet(ls k8sLabels.Set) Selector {
 // nil and empty Sets are considered equivalent to Everything().
 // The Set is validated client-side, which allows to catch errors early.
 func ValidatedSelectorFromSet(ls k8sLabels.Set) (Selector, error) {
-	if ls == nil || len(ls) == 0 {
+	if len(ls) == 0 {
 		return internalSelector{}, nil
 	}
 	requirements := make([]Requirement, 0, len(ls))
 	for label, value := range ls {
-		r, err := NewRequirement(label, selection.Equals, []string{value})
+		r, err := NewRequirement(tuple(label), selection.Equals, []Tuple{tuple(value)})
 		if err != nil {
 			return nil, err
 		}
@@ -1011,12 +1214,13 @@ func ValidatedSelectorFromSet(ls k8sLabels.Set) (Selector, error) {
 // Note: this method copies the Set; if the Set is immutable, consider wrapping it with ValidatedSetSelector
 // instead, which does not copy.
 func SelectorFromValidatedSet(ls k8sLabels.Set) Selector {
-	if ls == nil || len(ls) == 0 {
+	if len(ls) == 0 {
 		return internalSelector{}
 	}
 	requirements := make([]Requirement, 0, len(ls))
 	for label, value := range ls {
-		requirements = append(requirements, Requirement{key: label, operator: selection.Equals, strValues: []string{value}})
+		requirements = append(requirements, Requirement{key: tuple(label),
+			operator: selection.Equals, strValues: []Tuple{tuple(value)}})
 	}
 	// sort to have deterministic string representation
 	sort.Sort(ByKey(requirements))

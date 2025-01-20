@@ -117,7 +117,7 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 	}
 
 	// Create a new LabelSelector from the fleet's match labels.
-	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet), false)
+	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet))
 	if err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 
 func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx context.Context) error {
 	fs, err := selector.NewFieldSelectorFromMap(
-		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)}, false)
+		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)})
 	if err != nil {
 		return err
 	}
@@ -253,14 +253,26 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx conte
 
 func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.Context, fleet *api.Fleet) error {
 	// Create a new LabelSelector from the fleet's match labels.
-	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet), true)
+	labelsMap := getMatchLabelsSafe(fleet)
+
+	// Build the keyset-based selector string
+	var keys, values []string
+	for k, v := range labelsMap {
+		keys = append(keys, k)
+		values = append(values, v)
+	}
+
+	// Construct the selector string using the keyset.
+	// This selector matches objects whose labels do not match the specified key-value pairs as a whole.
+	// For example, the selector "(k1,k2) != (v1,v2)" matches objects that do not have both k1=v1 and k2=v2 together.
+	ls, err := selector.NewLabelSelector(fmt.Sprintf("(%s) != (%s)", strings.Join(keys, ","), strings.Join(values, ",")))
 	if err != nil {
 		return err
 	}
 
 	// Construct the FieldSelector to match devices owned by the fleet.
 	fs, err := selector.NewFieldSelectorFromMap(
-		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)}, false)
+		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)})
 	if err != nil {
 		return err
 	}

@@ -21,6 +21,8 @@ const (
 	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
+	// MinSyncInterval is the minimum interval allowed for the spec fetch and status update
+	MinSyncInterval = util.Duration(2 * time.Second)
 	// DefaultConfigDir is the default directory where the device's configuration is stored
 	DefaultConfigDir = "/etc/flightctl"
 	// DefaultConfigFile is the default path to the agent's configuration file
@@ -183,6 +185,10 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 
+	if err := cfg.validateSyncIntervals(); err != nil {
+		return err
+	}
+
 	requiredFields := []struct {
 		value     string
 		name      string
@@ -230,4 +236,14 @@ func (cfg *Config) String() string {
 		return "<error>"
 	}
 	return string(contents)
+}
+
+func (cfg *Config) validateSyncIntervals() error {
+	if cfg.SpecFetchInterval < MinSyncInterval {
+		return fmt.Errorf("minimum spec fetch interval is %s have %s", MinSyncInterval, cfg.SpecFetchInterval)
+	}
+	if cfg.StatusUpdateInterval < MinSyncInterval {
+		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
+	}
+	return nil
 }

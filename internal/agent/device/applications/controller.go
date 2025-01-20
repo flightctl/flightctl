@@ -167,7 +167,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 				name = provider.Image
 			}
 
-			appType, err := TypeFromImage(ctx, podman, provider.Image)
+			appType, err := typeFromImage(ctx, podman, provider.Image)
 			if err != nil {
 				return nil, fmt.Errorf("%w from image: %w", errors.ErrParseAppType, err)
 			}

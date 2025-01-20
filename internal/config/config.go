@@ -173,6 +173,17 @@ func Load(cfgFile string) (*Config, error) {
 	if err := yaml.Unmarshal(contents, c); err != nil {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
+
+	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
+		c.KV.Password = kvPass
+	}
+	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
+		c.Database.User = dbUser
+	}
+	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
+		c.Database.Password = dbPass
+	}
+
 	return c, nil
 }
 

@@ -4435,7 +4435,7 @@ type ApproveEnrollmentRequestResponseObject interface {
 	VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error
 }
 
-type ApproveEnrollmentRequest200JSONResponse EnrollmentRequestApproval
+type ApproveEnrollmentRequest200JSONResponse EnrollmentRequestApprovalStatus
 
 func (response ApproveEnrollmentRequest200JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")

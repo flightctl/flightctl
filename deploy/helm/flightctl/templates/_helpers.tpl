@@ -92,3 +92,12 @@
     {{- end }}
   {{- end }}
 {{- end }}
+
+{{/*
+Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
+*/}}
+{{- define "flightctl.generatePassword" }}
+{{- $password := (randAlphaNum 20) }}
+{{- $pass := printf "%s-%s-%s-%s" (substr 0 5 $password) (substr 5 10 $password) (substr 10 15 $password) (substr 15 20 $password) }}
+{{- print ($pass | b64enc) }}
+{{- end }}

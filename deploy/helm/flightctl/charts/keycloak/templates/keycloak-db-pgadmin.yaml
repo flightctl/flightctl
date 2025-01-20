@@ -7,5 +7,5 @@ metadata:
 type: Opaque
 data:
   username: {{ printf "admin" | b64enc | quote }}
-  password: {{ include "keycloak.lookupOrGeneratePassword" (dict "secret" "keycloak-db-pgadmin" "namespace" .Release.Namespace "key" "password" "context" $) | b64enc | quote }}
+  password: {{ include "keycloak.lookupOrGeneratePassword" (dict "secret" "keycloak-db-pgadmin" "namespace" .Release.Namespace "key" "password" "context" $) }}
 {{ end }}

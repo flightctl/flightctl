@@ -78,7 +78,7 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	owner := util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)
 	f.owner = *owner
 
-	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner}, false)
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner})
 	if err != nil {
 		return err
 	}
@@ -184,6 +184,13 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	errs = append(errs, appErrs...)
 
 	if len(errs) > 0 {
+		annotations := map[string]string{
+			api.DeviceAnnotationLastRolloutError: errors.Join(errs...).Error(),
+		}
+		err := f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
+		if err != nil {
+			errs = append(errs, err)
+		}
 		return fmt.Errorf("failed generating device spec for %s/%s: %w", f.resourceRef.OrgID, *device.Metadata.Name, errors.Join(errs...))
 	}
 
@@ -215,7 +222,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	annotations := map[string]string{
 		api.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
 	}
-	err = f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, nil)
+	err = f.devStore.UpdateAnnotations(ctx, f.resourceRef.OrgID, *device.Metadata.Name, annotations, []string{api.DeviceAnnotationLastRolloutError})
 	if err != nil {
 		return fmt.Errorf("failed updating templateVersion annotation: %w", err)
 	}
