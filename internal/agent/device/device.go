@@ -24,7 +24,6 @@ import (
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/lthibault/jitterbug"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -47,8 +46,8 @@ type Agent struct {
 	bootcClient            container.BootcClient
 	podmanClient           *client.Podman
 
-	fetchSpecInterval   util.Duration
-	fetchStatusInterval util.Duration
+	fetchSpecInterval    util.Duration
+	statusUpdateInterval util.Duration
 
 	once     sync.Once
 	cancelFn context.CancelFunc
@@ -65,7 +64,7 @@ func NewAgent(
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
-	fetchStatusInterval util.Duration,
+	statusUpdateInterval util.Duration,
 	hookManager hook.Manager,
 	osManager os.Manager,
 	policyManager policy.Manager,
@@ -91,7 +90,7 @@ func NewAgent(
 		appManager:             appManager,
 		systemdManager:         systemdManager,
 		fetchSpecInterval:      fetchSpecInterval,
-		fetchStatusInterval:    fetchStatusInterval,
+		statusUpdateInterval:   statusUpdateInterval,
 		applicationsController: applicationsController,
 		configController:       configController,
 		resourceController:     resourceController,
@@ -106,23 +105,15 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	ctx, a.cancelFn = context.WithCancel(ctx)
+	// orchestrates periodic fetching of device specs and pushing status updates
+	engine := NewEngine(
+		a.fetchSpecInterval,
+		func(ctx context.Context) { a.syncSpec(ctx, a.syncSpecFn) },
+		a.statusUpdateInterval,
+		a.statusUpdate,
+	)
 
-	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer specTicker.Stop()
-	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer statusTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-specTicker.C:
-			a.syncSpec(ctx, a.syncSpecFn)
-		case <-statusTicker.C:
-			a.pushStatus(ctx)
-		}
-	}
+	return engine.Run(ctx)
 }
 
 // Stop ensures that the device agent stops reconciling during graceful shutdown.
@@ -291,7 +282,7 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 	return nil
 }
 
-func (a *Agent) pushStatus(ctx context.Context) {
+func (a *Agent) statusUpdate(ctx context.Context) {
 	startTime := time.Now()
 	a.log.Debug("Started collecting device status")
 	defer func() {
@@ -319,55 +310,12 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Ren
 		}
 	}
 
-	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
+	if err := a.appManager.BeforeUpdate(ctx, desired); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
 
 	if err := a.hookManager.OnBeforeUpdating(ctx, current, desired); err != nil {
 		return fmt.Errorf("hooks: %w", err)
-	}
-
-	return nil
-}
-
-func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alpha1.RenderedDeviceSpec) error {
-	if desired.Applications == nil {
-		a.log.Debug("No applications to pre-check")
-		return nil
-	}
-	a.log.Debug("Pre-checking applications dependencies")
-	defer a.log.Debug("Finished pre-checking application dependencies")
-
-	// ensure dependencies for image based application manifests
-	imageProviders, err := applications.ImageProvidersFromSpec(desired)
-	if err != nil {
-		return fmt.Errorf("%w: parsing image providers: %w", errors.ErrNoRetry, err)
-	}
-
-	for _, imageProvider := range imageProviders {
-		// pull the image if it does not exist. it is possible that the image
-		// tag such as latest in which case it will be pulled later. but we
-		// don't want to require calling out the network on every sync.
-		if a.podmanClient.ImageExists(ctx, imageProvider.Image) {
-			a.log.Debugf("Image %q already exists", imageProvider.Image)
-			continue
-		}
-
-		providerImage := imageProvider.Image
-		resp, err := a.podmanClient.Pull(ctx, providerImage, client.WithRetry())
-		if err != nil {
-			a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
-			return err
-		}
-		a.log.Debugf("Pulled image %q: %s", providerImage, resp)
-
-		addType, err := applications.TypeFromImage(ctx, a.podmanClient, providerImage)
-		if err != nil {
-			return fmt.Errorf("%w: getting application type: %w", errors.ErrNoRetry, err)
-		}
-		if err := applications.EnsureDependenciesFromType(addType); err != nil {
-			return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
-		}
 	}
 
 	return nil

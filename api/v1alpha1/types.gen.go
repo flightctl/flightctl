@@ -661,11 +661,20 @@ type EnrollmentRequestApproval struct {
 	// Approved Indicates whether the request has been approved.
 	Approved bool `json:"approved"`
 
+	// Labels A set of labels to apply to the device.
+	Labels *map[string]string `json:"labels,omitempty"`
+}
+
+// EnrollmentRequestApprovalStatus defines model for EnrollmentRequestApprovalStatus.
+type EnrollmentRequestApprovalStatus struct {
+	// Approved Indicates whether the request has been approved.
+	Approved bool `json:"approved"`
+
 	// ApprovedAt The time at which the request was approved.
-	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+	ApprovedAt time.Time `json:"approvedAt"`
 
 	// ApprovedBy The name of the approver.
-	ApprovedBy *string `json:"approvedBy,omitempty"`
+	ApprovedBy string `json:"approvedBy"`
 
 	// Labels A set of labels to apply to the device.
 	Labels *map[string]string `json:"labels,omitempty"`
@@ -700,8 +709,7 @@ type EnrollmentRequestSpec struct {
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 type EnrollmentRequestStatus struct {
-	// Approval EnrollmentRequestApproval contains information about the approval of a device enrollment request.
-	Approval *EnrollmentRequestApproval `json:"approval,omitempty"`
+	Approval *EnrollmentRequestApprovalStatus `json:"approval,omitempty"`
 
 	// Certificate The PEM-encoded signed certificate.
 	Certificate *string `json:"certificate,omitempty"`
@@ -1460,6 +1468,12 @@ type GetRenderedDeviceSpecParams struct {
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
+// GetEnrollmentConfigParams defines parameters for GetEnrollmentConfig.
+type GetEnrollmentConfigParams struct {
+	// Csr The name of a CertificateSigningRequest resource to query for an issued certificate. If provided, the service will check if the CertificateSigningRequest contains an issued certificate and in this case include it the returned EnrollmentConfig. In all other case, the enrollment certificate field will be empty.
+	Csr *string `form:"csr,omitempty" json:"csr,omitempty"`
+}
+
 // ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.
 type ListEnrollmentRequestsParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -1552,6 +1566,9 @@ type PatchCertificateSigningRequestApplicationJSONPatchPlusJSONRequestBody = Pat
 
 // ReplaceCertificateSigningRequestJSONRequestBody defines body for ReplaceCertificateSigningRequest for application/json ContentType.
 type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
+
+// UpdateCertificateSigningRequestApprovalJSONRequestBody defines body for UpdateCertificateSigningRequestApproval for application/json ContentType.
+type UpdateCertificateSigningRequestApprovalJSONRequestBody = CertificateSigningRequest
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device

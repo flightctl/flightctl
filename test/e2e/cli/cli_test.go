@@ -158,7 +158,7 @@ var _ = Describe("cli operation", func() {
 		It("should have worked, and we can have a certificate", func() {
 			out, err := harness.CLI("certificate", "request", "-n", randString(5))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("certificate is ready"))
+			Expect(out).To(ContainSubstring("enrollment-service:"))
 		})
 	})
 

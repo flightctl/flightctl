@@ -4,8 +4,8 @@ packages:
 
     # add or remove files that should be synced
     files_to_sync:
-        - packaging/rpm/flightctl.spec
-        - .packit.yaml
+      - packaging/rpm/flightctl.spec
+      - .packit.yaml
 
     upstream_package_name: flightctl
     downstream_package_name: flightctl

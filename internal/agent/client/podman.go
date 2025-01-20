@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
@@ -88,7 +87,8 @@ func (p *Podman) pullImage(ctx context.Context, image string) (string, error) {
 	return out, nil
 }
 
-// Inspect returns the JSON output of the image inspection.
+// Inspect returns the JSON output of the image inspection. The expectation is
+// that the image exists in local container storage.
 func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -311,9 +311,29 @@ func IsPodmanRootless() bool {
 	return os.Geteuid() != 0
 }
 
-// SanitizePodmanLabel replaces all sequences of non-alphanumeric characters with an underscore.
-// this provides a safe label value for Podman.
+// SanitizePodmanLabel sanitizes a string to be used as a label in Podman.
+// Podman labels must be lowercase and can only contain alpha numeric
+// characters, hyphens, and underscores. Any other characters are replaced with
+// an underscore.
 func SanitizePodmanLabel(name string) string {
-	re := regexp.MustCompile(`[^A-Za-z0-9_-]+`)
-	return re.ReplaceAllString(name, "_")
+	var result strings.Builder
+	result.Grow(len(name))
+
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		// lower case alpha numeric characters, hyphen, and underscore are allowed
+		case (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_':
+			result.WriteByte(c)
+		// upper case alpha characters are converted to lower case
+		case c >= 'A' && c <= 'Z':
+			// add 32 to ascii value convert to lower case
+			result.WriteByte(c + 32)
+		// any special characters are replaced with an underscore
+		default:
+			result.WriteByte('_')
+		}
+	}
+
+	return result.String()
 }

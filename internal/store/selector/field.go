@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
 	"github.com/flightctl/flightctl/pkg/queryparser"
 	"github.com/flightctl/flightctl/pkg/queryparser/sql"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 type FieldSelector struct {
@@ -38,17 +39,14 @@ func WithPrivateSelectors() FieldSelectorOption {
 
 // NewFieldSelectorFromMapOrDie creates a FieldSelector from a map of key-value pairs,
 // where each pair represents a field selector condition. If the operation fails,
-// it panics. This function is a convenience wrapper around NewFieldSelectorFromMap.
-//
-// The `invert` parameter allows toggling between equality (`=`) and inequality (`!=`) operators
-// for the field selector conditions. By default, it uses equality (`=`).
+// it panics.
 //
 // Example:
 //
-//	fs := NewFieldSelectorFromMapOrDie(map[string]string{"key": "value"}, true)
-//	// Equivalent to creating a selector: "key!=value"
-func NewFieldSelectorFromMapOrDie(fields map[string]string, invert bool, opts ...FieldSelectorOption) *FieldSelector {
-	fs, err := NewFieldSelectorFromMap(fields, invert, opts...)
+//	fs := NewFieldSelectorFromMapOrDie(map[string]string{"key1": "value1", "key2": "value2"})
+//	// Equivalent to creating a selector: "key1=value1,key2=value2"
+func NewFieldSelectorFromMapOrDie(fields map[string]string, opts ...FieldSelectorOption) *FieldSelector {
+	fs, err := NewFieldSelectorFromMap(fields, opts...)
 	if err != nil {
 		panic(err)
 	}
@@ -58,29 +56,18 @@ func NewFieldSelectorFromMapOrDie(fields map[string]string, invert bool, opts ..
 // NewFieldSelectorFromMap creates a FieldSelector from a map of key-value pairs,
 // where each pair represents a field selector condition.
 //
-// The `invert` parameter allows toggling between equality (`=`) and inequality (`!=`) operators
-// for the field selector conditions. By default, it uses equality (`=`).
-//
 // Example:
 //
 //	fs, err := NewFieldSelectorFromMap(map[string]string{"key1": "value1", "key2": "value2"})
 //	// Equivalent to creating a selector: "key1=value1,key2=value2"
-//
-//	fs, err := NewFieldSelectorFromMap(map[string]string{"key1": "value1"}, true)
-//	// Equivalent to creating a selector: "key1!=value1"
-func NewFieldSelectorFromMap(fields map[string]string, invert bool, opts ...FieldSelectorOption) (*FieldSelector, error) {
+func NewFieldSelectorFromMap(fields map[string]string, opts ...FieldSelectorOption) (*FieldSelector, error) {
 	if len(fields) == 0 {
 		return NewFieldSelector("")
 	}
 
-	operator := selection.Equals
-	if invert {
-		operator = selection.NotEquals
-	}
-
 	var parts []string
 	for key, val := range fields {
-		parts = append(parts, key+string(operator)+val)
+		parts = append(parts, key+string(selection.Equals)+val)
 	}
 
 	return NewFieldSelector(strings.Join(parts, ","), opts...)
@@ -126,6 +113,21 @@ func NewFieldSelectorOrDie(input string, opts ...FieldSelectorOption) *FieldSele
 func NewFieldSelector(input string, opts ...FieldSelectorOption) (*FieldSelector, error) {
 	selector, err := fields.ParseSelector(input)
 	if err != nil {
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax, err)
+	}
+
+	var allErrs field.ErrorList
+	requirements, _ := selector.Requirements()
+	for _, r := range requirements {
+		if len(r.Key()) > 1 {
+			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(),
+				fmt.Sprintf("keysets with multiple selectors are not supported: %v", r.Key())))
+			continue
+		}
+	}
+
+	// If validation errors exist, aggregate and return them as a single error.
+	if err = allErrs.ToAggregate(); err != nil {
 		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax, err)
 	}
 
@@ -239,7 +241,7 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 		}
 
 		key, values, operator := req.Key(), req.Values(), req.Operator()
-		resolvedFields, err := fs.resolveSelectorField(key)
+		resolvedFields, err := fs.resolveSelectorField(key.String())
 		if err != nil {
 			return nil, err
 		}
@@ -258,10 +260,10 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			}
 
 			var valuesToken queryparser.TokenSet
-			if values.Len() > 0 {
+			if len(values) > 0 {
 				valuesToken = queryparser.NewTokenSet()
-				for _, val := range values.List() {
-					valueToken, err := fs.createValueToken(operator, resolvedField, val)
+				for _, val := range values {
+					valueToken, err := fs.createValueToken(operator, resolvedField, val.String())
 					if err != nil {
 						return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 							fmt.Errorf("failed to parse value for selector %q: %w", key, err))

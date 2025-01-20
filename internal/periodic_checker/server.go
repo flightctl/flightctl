@@ -1,6 +1,7 @@
 package periodic
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"syscall"
@@ -35,7 +36,10 @@ func New(
 
 // TODO: expose metrics
 func (s *Server) Run() error {
-	provider := queues.NewAmqpProvider(s.cfg.Queue.AmqpURL, s.log)
+	provider, err := queues.NewRedisProvider(context.Background(), s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	if err != nil {
+		return err
+	}
 	defer provider.Stop()
 
 	publisher, err := tasks.TaskQueuePublisher(provider)

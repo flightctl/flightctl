@@ -103,6 +103,7 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 }
 
 func (c *Controller) removeImagePackage(app *application[*v1alpha1.ImageApplicationProvider]) error {
+	c.log.Debugf("Removing image package from disk: %s", app.Name())
 	appPath, err := app.Path()
 	if err != nil {
 		return err
@@ -166,7 +167,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 				name = provider.Image
 			}
 
-			appType, err := TypeFromImage(ctx, podman, provider.Image)
+			appType, err := typeFromImage(ctx, podman, provider.Image)
 			if err != nil {
 				return nil, fmt.Errorf("%w from image: %w", errors.ErrParseAppType, err)
 			}
@@ -274,7 +275,7 @@ func (c *Controller) ensureEmbedded() error {
 		suffixPatterns := []string{"*.yml", "*.yaml"}
 		for _, pattern := range suffixPatterns {
 			// search for compose files
-			files, err := filepath.Glob(filepath.Join(lifecycle.EmbeddedComposeAppPath, element.Name(), pattern))
+			files, err := filepath.Glob(c.readWriter.PathFor(filepath.Join(lifecycle.EmbeddedComposeAppPath, element.Name(), pattern)))
 			if err != nil {
 				fmt.Printf("Error searching for pattern %s: %v\n", pattern, err)
 				continue

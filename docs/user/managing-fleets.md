@@ -102,6 +102,8 @@ We also provide some helper functions:
 
 You can also combine helpers in pipelines, for example `{{ getOrDefault .metadata.labels \"key\" \"default\" | upper | replace \" \" \"-\" }}`.
 
+Note: Always make sure to use proper Go template syntax. For example, `{{ .metadata.labels.target-revision }}` is not valid because of the hyphen, and you would need to use something like `{{ index .metadata.labels \"target-revision\" }}` instead.
+
 Here are some examples of what you can do with placeholders in device templates:
 
 * You can label devices by their deployment stage (say, `stage: testing` and `stage: production`) and then use the label with the key `stage` as placeholder when referencing the OS image to use (say, `quay.io/myorg/myimage:latest-{{ .metadata.labels.stage }}`) or when referencing a folder with configuration in a Git repository.

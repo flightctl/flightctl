@@ -1456,17 +1456,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/enrollmentconfig/{name}:
+  /api/v1/enrollmentconfig:
     get:
       tags:
         - enrollmentrequest
-      description: Get an EnrollmentConfig.
-      operationId: enrollmentConfig
+      description: Get enrollment information.
+      operationId: getEnrollmentConfig
       parameters:
-        - name: name
-          in: path
-          description: The name of approved CertificateSigningRequest.
-          required: true
+        - name: csr
+          in: query
+          description: The name of a CertificateSigningRequest resource to query for an issued certificate. If provided, the service will check if the CertificateSigningRequest contains an issued certificate and in this case include it the returned EnrollmentConfig. In all other case, the enrollment certificate field will be empty.
+          required: false
           schema:
             type: string
       responses:
@@ -2039,7 +2039,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestApproval'
+                $ref: '#/components/schemas/EnrollmentRequestApprovalStatus'
         "400":
           description: Bad Request
           content:
@@ -2426,18 +2426,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
   /api/v1/certificatesigningrequests/{name}/approval:
-    post:
+    put:
       tags:
         - certificatesigningrequest
-      description: approve the specified CertificateSigningRequest
-      operationId: approveCertificateSigningRequest
+      description: Approve or deny a CertificateSigningRequest.
+      operationId: updateCertificateSigningRequestApproval
       parameters:
         - name: name
           in: path
-          description: The name of the CertificateSigningRequest resource to approve or deny.
+          description: The name of the CertificateSigningRequest to approve or deny.
           required: true
           schema:
             type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateSigningRequest'
+        required: true
       responses:
         "200":
           description: OK
@@ -2471,62 +2477,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "500":
-          description: InternalServerError
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    delete:
-      tags:
-        - certificatesigningrequest
-      description: deny the specified CertificateSigningRequest
-      operationId: denyCertificateSigningRequest
-      parameters:
-        - name: name
-          in: path
-          description: The name of the CertificateSigningRequest resource to delete.
-          required: true
-          schema:
-            type: string
-            uniqueItems: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: NotFound
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "409":
-          description: Conflict
           content:
             application/json:
               schema:
@@ -4192,15 +4142,24 @@ components:
         approved:
           type: boolean
           description: Indicates whether the request has been approved.
-        approvedBy:
-          type: string
-          description: The name of the approver.
-        approvedAt:
-          type: string
-          format: date-time
-          description: The time at which the request was approved.
       required:
         - approved
+    EnrollmentRequestApprovalStatus:
+      allOf:
+      - $ref: "#/components/schemas/EnrollmentRequestApproval"
+      - type: object
+        description: EnrollmentRequestApprovalStatus contains information about the status of approval of a device enrollment request.
+        properties:
+          approvedBy:
+            type: string
+            description: The name of the approver.
+          approvedAt:
+            type: string
+            format: date-time
+            description: The time at which the request was approved.
+        required:
+        - approvedBy
+        - approvedAt
     EnrollmentServiceAuth:
       type: object
       description: EnrollmentServiceAuth contains the client authentication information for a Flight Control enrollment service.
@@ -4320,7 +4279,7 @@ components:
           items:
             $ref: '#/components/schemas/Condition'
         approval:
-          $ref: '#/components/schemas/EnrollmentRequestApproval'
+          $ref: '#/components/schemas/EnrollmentRequestApprovalStatus'
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.

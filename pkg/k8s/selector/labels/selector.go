@@ -19,6 +19,7 @@ Modifications by Assaf Albo (asafbss): Added support for the containment operato
 package labels
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/flightctl/flightctl/pkg/k8s/selector"
@@ -125,32 +126,33 @@ func ParseToRequirements(selector string, opts ...field.PathOption) ([]selector.
 func validate(requirements []selector.Requirement, path *field.Path) error {
 	var allErrs field.ErrorList
 	for _, r := range requirements {
-		key := r.Key()
-		if err := validateLabelKey(key, path.Child("key")); err != nil {
-			allErrs = append(allErrs, err)
-		}
+		key := r.Key()       // A set of keys (RequirementKey)
+		values := r.Values() // A list of corresponding value slices
 
-		valuePath := path.Child("values")
-		vals := r.Values().List()
-		for i := range vals {
-			if err := validateLabelValue(key, vals[i], valuePath.Index(i)); err != nil {
-				allErrs = append(allErrs, err)
+		// Validate each key in the set
+		for i := range key {
+			if errs := validation.IsQualifiedName(key[i]); len(errs) != 0 {
+				allErrs = append(allErrs, field.Invalid(path.Child("key"), key[i], strings.Join(errs, "; ")))
+			}
+
+			p := path.Child("values")
+			for j, val := range values {
+				// Check for length mismatch between keys and values
+				if len(val) != len(key) {
+					allErrs = append(allErrs, field.Invalid(
+						p.Index(j).Key(key.String()), val,
+						fmt.Sprintf("length mismatch: key set %v has %d elements but value %v has %d elements",
+							key, len(key), val, len(val)),
+					))
+					continue
+				}
+
+				// Validate the value corresponding to the i-th key
+				if errs := validation.IsValidLabelValue(val[i]); len(errs) != 0 {
+					allErrs = append(allErrs, field.Invalid(p.Index(j).Key(key.String()), val[i], strings.Join(errs, "; ")))
+				}
 			}
 		}
 	}
 	return allErrs.ToAggregate()
-}
-
-func validateLabelKey(k string, path *field.Path) *field.Error {
-	if errs := validation.IsQualifiedName(k); len(errs) != 0 {
-		return field.Invalid(path, k, strings.Join(errs, "; "))
-	}
-	return nil
-}
-
-func validateLabelValue(k, v string, path *field.Path) *field.Error {
-	if errs := validation.IsValidLabelValue(v); len(errs) != 0 {
-		return field.Invalid(path.Key(k), v, strings.Join(errs, "; "))
-	}
-	return nil
 }

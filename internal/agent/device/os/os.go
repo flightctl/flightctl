@@ -2,7 +2,6 @@ package os
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -44,12 +43,7 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) err
 		return err
 	}
 
-	osImage := bootcInfo.GetBootedImage()
-	if osImage == "" {
-		return fmt.Errorf("getting booted os image: %w", err)
-	}
-
-	status.Os.Image = osImage
+	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
 	return nil
 }

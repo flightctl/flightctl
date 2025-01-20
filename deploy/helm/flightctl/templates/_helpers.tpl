@@ -14,6 +14,8 @@
 {{- define "flightctl.getOpenShiftAPIUrl" }}
   {{- if .Values.global.auth.k8s.externalOpenShiftApiUrl }}
     {{- printf .Values.global.auth.k8s.externalOpenShiftApiUrl }}
+  {{- else if .Values.global.apiUrl }}
+    {{- printf .Values.global.apiUrl }}
   {{- else }}
     {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
     {{- printf "https://api.%s:6443" $openShiftBaseDomain }}
@@ -89,4 +91,13 @@
       {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
     {{- end }}
   {{- end }}
+{{- end }}
+
+{{/*
+Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
+*/}}
+{{- define "flightctl.generatePassword" }}
+{{- $password := (randAlphaNum 20) }}
+{{- $pass := printf "%s-%s-%s-%s" (substr 0 5 $password) (substr 5 10 $password) (substr 10 15 $password) (substr 15 20 $password) }}
+{{- print ($pass | b64enc) }}
 {{- end }}

@@ -26,12 +26,26 @@ spec:
           env:
             - name: HOME
               value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-worker-config
               subPath: config.yaml
               readOnly: true
-
       restartPolicy: Always
       volumes:
         - name: flightctl-worker-config

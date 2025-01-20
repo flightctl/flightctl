@@ -123,11 +123,10 @@ type ClientInterface interface {
 
 	ReplaceCertificateSigningRequest(ctx context.Context, name string, body ReplaceCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DenyCertificateSigningRequest request
-	DenyCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// UpdateCertificateSigningRequestApprovalWithBody request with any body
+	UpdateCertificateSigningRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ApproveCertificateSigningRequest request
-	ApproveCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteDevices request
 	DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -180,8 +179,8 @@ type ClientInterface interface {
 
 	ReplaceDeviceStatus(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// EnrollmentConfig request
-	EnrollmentConfig(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentConfig request
+	GetEnrollmentConfig(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteEnrollmentRequests request
 	DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -479,8 +478,8 @@ func (c *Client) ReplaceCertificateSigningRequest(ctx context.Context, name stri
 	return c.Client.Do(req)
 }
 
-func (c *Client) DenyCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDenyCertificateSigningRequestRequest(c.Server, name)
+func (c *Client) UpdateCertificateSigningRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateCertificateSigningRequestApprovalRequestWithBody(c.Server, name, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -491,8 +490,8 @@ func (c *Client) DenyCertificateSigningRequest(ctx context.Context, name string,
 	return c.Client.Do(req)
 }
 
-func (c *Client) ApproveCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewApproveCertificateSigningRequestRequest(c.Server, name)
+func (c *Client) UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateCertificateSigningRequestApprovalRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -731,8 +730,8 @@ func (c *Client) ReplaceDeviceStatus(ctx context.Context, name string, body Repl
 	return c.Client.Do(req)
 }
 
-func (c *Client) EnrollmentConfig(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewEnrollmentConfigRequest(c.Server, name)
+func (c *Client) GetEnrollmentConfig(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentConfigRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1810,42 +1809,19 @@ func NewReplaceCertificateSigningRequestRequestWithBody(server string, name stri
 	return req, nil
 }
 
-// NewDenyCertificateSigningRequestRequest generates requests for DenyCertificateSigningRequest
-func NewDenyCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+// NewUpdateCertificateSigningRequestApprovalRequest calls the generic UpdateCertificateSigningRequestApproval builder with application/json body
+func NewUpdateCertificateSigningRequestApprovalRequest(server string, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests/%s/approval", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateCertificateSigningRequestApprovalRequestWithBody(server, name, "application/json", bodyReader)
 }
 
-// NewApproveCertificateSigningRequestRequest generates requests for ApproveCertificateSigningRequest
-func NewApproveCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
+// NewUpdateCertificateSigningRequestApprovalRequestWithBody generates requests for UpdateCertificateSigningRequestApproval with any type of body
+func NewUpdateCertificateSigningRequestApprovalRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1870,10 +1846,12 @@ func NewApproveCertificateSigningRequestRequest(server string, name string) (*ht
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -2485,23 +2463,16 @@ func NewReplaceDeviceStatusRequestWithBody(server string, name string, contentTy
 	return req, nil
 }
 
-// NewEnrollmentConfigRequest generates requests for EnrollmentConfig
-func NewEnrollmentConfigRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentConfigRequest generates requests for GetEnrollmentConfig
+func NewGetEnrollmentConfigRequest(server string, params *GetEnrollmentConfigParams) (*http.Request, error) {
 	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
 
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/enrollmentconfig/%s", pathParam0)
+	operationPath := fmt.Sprintf("/api/v1/enrollmentconfig")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2509,6 +2480,28 @@ func NewEnrollmentConfigRequest(server string, name string) (*http.Request, erro
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Csr != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "csr", runtime.ParamLocationQuery, *params.Csr); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -4460,11 +4453,10 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceCertificateSigningRequestWithResponse(ctx context.Context, name string, body ReplaceCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceCertificateSigningRequestResponse, error)
 
-	// DenyCertificateSigningRequestWithResponse request
-	DenyCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DenyCertificateSigningRequestResponse, error)
+	// UpdateCertificateSigningRequestApprovalWithBodyWithResponse request with any body
+	UpdateCertificateSigningRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error)
 
-	// ApproveCertificateSigningRequestWithResponse request
-	ApproveCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ApproveCertificateSigningRequestResponse, error)
+	UpdateCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error)
 
 	// DeleteDevicesWithResponse request
 	DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error)
@@ -4517,8 +4509,8 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceStatusWithResponse(ctx context.Context, name string, body ReplaceDeviceStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
 
-	// EnrollmentConfigWithResponse request
-	EnrollmentConfigWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*EnrollmentConfigResponse, error)
+	// GetEnrollmentConfigWithResponse request
+	GetEnrollmentConfigWithResponse(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error)
 
 	// DeleteEnrollmentRequestsWithResponse request
 	DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error)
@@ -4903,34 +4895,7 @@ func (r ReplaceCertificateSigningRequestResponse) StatusCode() int {
 	return 0
 }
 
-type DenyCertificateSigningRequestResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *CertificateSigningRequest
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DenyCertificateSigningRequestResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DenyCertificateSigningRequestResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ApproveCertificateSigningRequestResponse struct {
+type UpdateCertificateSigningRequestApprovalResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
@@ -4939,12 +4904,11 @@ type ApproveCertificateSigningRequestResponse struct {
 	JSON403      *Error
 	JSON404      *Error
 	JSON409      *Error
-	JSON500      *Error
 	JSON503      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r ApproveCertificateSigningRequestResponse) Status() string {
+func (r UpdateCertificateSigningRequestApprovalResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -4952,7 +4916,7 @@ func (r ApproveCertificateSigningRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ApproveCertificateSigningRequestResponse) StatusCode() int {
+func (r UpdateCertificateSigningRequestApprovalResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5307,7 +5271,7 @@ func (r ReplaceDeviceStatusResponse) StatusCode() int {
 	return 0
 }
 
-type EnrollmentConfigResponse struct {
+type GetEnrollmentConfigResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentConfig
@@ -5319,7 +5283,7 @@ type EnrollmentConfigResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r EnrollmentConfigResponse) Status() string {
+func (r GetEnrollmentConfigResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5327,7 +5291,7 @@ func (r EnrollmentConfigResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r EnrollmentConfigResponse) StatusCode() int {
+func (r GetEnrollmentConfigResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5524,7 +5488,7 @@ func (r ReplaceEnrollmentRequestResponse) StatusCode() int {
 type ApproveEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *EnrollmentRequestApproval
+	JSON200      *EnrollmentRequestApprovalStatus
 	JSON400      *Error
 	JSON401      *Error
 	JSON403      *Error
@@ -6476,22 +6440,21 @@ func (c *ClientWithResponses) ReplaceCertificateSigningRequestWithResponse(ctx c
 	return ParseReplaceCertificateSigningRequestResponse(rsp)
 }
 
-// DenyCertificateSigningRequestWithResponse request returning *DenyCertificateSigningRequestResponse
-func (c *ClientWithResponses) DenyCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DenyCertificateSigningRequestResponse, error) {
-	rsp, err := c.DenyCertificateSigningRequest(ctx, name, reqEditors...)
+// UpdateCertificateSigningRequestApprovalWithBodyWithResponse request with arbitrary body returning *UpdateCertificateSigningRequestApprovalResponse
+func (c *ClientWithResponses) UpdateCertificateSigningRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error) {
+	rsp, err := c.UpdateCertificateSigningRequestApprovalWithBody(ctx, name, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDenyCertificateSigningRequestResponse(rsp)
+	return ParseUpdateCertificateSigningRequestApprovalResponse(rsp)
 }
 
-// ApproveCertificateSigningRequestWithResponse request returning *ApproveCertificateSigningRequestResponse
-func (c *ClientWithResponses) ApproveCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ApproveCertificateSigningRequestResponse, error) {
-	rsp, err := c.ApproveCertificateSigningRequest(ctx, name, reqEditors...)
+func (c *ClientWithResponses) UpdateCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error) {
+	rsp, err := c.UpdateCertificateSigningRequestApproval(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseApproveCertificateSigningRequestResponse(rsp)
+	return ParseUpdateCertificateSigningRequestApprovalResponse(rsp)
 }
 
 // DeleteDevicesWithResponse request returning *DeleteDevicesResponse
@@ -6659,13 +6622,13 @@ func (c *ClientWithResponses) ReplaceDeviceStatusWithResponse(ctx context.Contex
 	return ParseReplaceDeviceStatusResponse(rsp)
 }
 
-// EnrollmentConfigWithResponse request returning *EnrollmentConfigResponse
-func (c *ClientWithResponses) EnrollmentConfigWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*EnrollmentConfigResponse, error) {
-	rsp, err := c.EnrollmentConfig(ctx, name, reqEditors...)
+// GetEnrollmentConfigWithResponse request returning *GetEnrollmentConfigResponse
+func (c *ClientWithResponses) GetEnrollmentConfigWithResponse(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error) {
+	rsp, err := c.GetEnrollmentConfig(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseEnrollmentConfigResponse(rsp)
+	return ParseGetEnrollmentConfigResponse(rsp)
 }
 
 // DeleteEnrollmentRequestsWithResponse request returning *DeleteEnrollmentRequestsResponse
@@ -7620,76 +7583,15 @@ func ParseReplaceCertificateSigningRequestResponse(rsp *http.Response) (*Replace
 	return response, nil
 }
 
-// ParseDenyCertificateSigningRequestResponse parses an HTTP response from a DenyCertificateSigningRequestWithResponse call
-func ParseDenyCertificateSigningRequestResponse(rsp *http.Response) (*DenyCertificateSigningRequestResponse, error) {
+// ParseUpdateCertificateSigningRequestApprovalResponse parses an HTTP response from a UpdateCertificateSigningRequestApprovalWithResponse call
+func ParseUpdateCertificateSigningRequestApprovalResponse(rsp *http.Response) (*UpdateCertificateSigningRequestApprovalResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DenyCertificateSigningRequestResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CertificateSigningRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseApproveCertificateSigningRequestResponse parses an HTTP response from a ApproveCertificateSigningRequestWithResponse call
-func ParseApproveCertificateSigningRequestResponse(rsp *http.Response) (*ApproveCertificateSigningRequestResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ApproveCertificateSigningRequestResponse{
+	response := &UpdateCertificateSigningRequestApprovalResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -7736,13 +7638,6 @@ func ParseApproveCertificateSigningRequestResponse(rsp *http.Response) (*Approve
 			return nil, err
 		}
 		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Error
@@ -8528,15 +8423,15 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 	return response, nil
 }
 
-// ParseEnrollmentConfigResponse parses an HTTP response from a EnrollmentConfigWithResponse call
-func ParseEnrollmentConfigResponse(rsp *http.Response) (*EnrollmentConfigResponse, error) {
+// ParseGetEnrollmentConfigResponse parses an HTTP response from a GetEnrollmentConfigWithResponse call
+func ParseGetEnrollmentConfigResponse(rsp *http.Response) (*GetEnrollmentConfigResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &EnrollmentConfigResponse{
+	response := &GetEnrollmentConfigResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9017,7 +8912,7 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest EnrollmentRequestApproval
+		var dest EnrollmentRequestApprovalStatus
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

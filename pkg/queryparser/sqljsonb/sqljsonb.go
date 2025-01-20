@@ -136,12 +136,17 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
 			handle:        Wrap(sp.queryExists),
 		},
+		"ALLEXISTS": {
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR", "NOT"),
+			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
+			handle:        Wrap(sp.queryAllExist),
+		},
 		"K": {
-			usedBy: queryparser.NewSet[string]().Add("ISNULL", "CONTAINS", "EXISTS"),
+			usedBy: queryparser.NewSet[string]().Add("ISNULL", "CONTAINS", "EXISTS", "ALLEXISTS"),
 			handle: Wrap(sp.queryKey),
 		},
 		"V": {
-			usedBy: queryparser.NewSet[string]().Add("CONTAINS", "EXISTS"),
+			usedBy: queryparser.NewSet[string]().Add("CONTAINS", "EXISTS", "ALLEXISTS"),
 			handle: sp.queryValue,
 		},
 	}
@@ -305,6 +310,18 @@ func (sp *SQLParser) queryExists(args ...string) (*FunctionResult, error) {
 	return &FunctionResult{
 		Args:  []any{gorm.Expr("?")},
 		Query: existsQuery,
+	}, nil
+}
+
+func (sp *SQLParser) queryAllExist(args ...string) (*FunctionResult, error) {
+	if err := validateArgsCount(args, 2); err != nil {
+		return nil, err
+	}
+
+	allKeysExistQuery := fmt.Sprintf("%s ?& ARRAY[%s]", args[0], strings.Join(args[1:], ", "))
+	return &FunctionResult{
+		Args:  []any{gorm.Expr("?")},
+		Query: allKeysExistQuery,
 	}, nil
 }
 

@@ -34,11 +34,6 @@ periodic:
   image:
     image: localhost/flightctl-periodic
     pullPolicy: IfNotPresent
-rabbitmq:
-  image:
-    image: quay.io/flightctl/docker-io-rabbitmq
-    tag: 3.13-management
-    pullPolicy: IfNotPresent
 prometheus:
   enabled: true
 ui:
