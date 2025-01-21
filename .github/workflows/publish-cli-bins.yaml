@@ -40,7 +40,6 @@ jobs:
       - name: Build
         run: |
           make multiarch-build-cli
-          pwd
 
   save:
     name: Save artefacts (linux)

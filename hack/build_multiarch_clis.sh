@@ -74,6 +74,7 @@ for GOARCH in amd64 arm64; do
     mkdir -p "${GH_ARCHIVES}"
 
     cp "bin/flightctl${EXE}" "${BIN}/"
+    cp "bin/flightctl${EXE}" "flightctl-${GOOS}-${GOOS}${EXE}"
     if [ "${GOOS}" == "linux" ]; then
       tar -zhcf "${ARCHIVES}/flightctl.tar.gz" -C "${BIN}" flightctl
     else
