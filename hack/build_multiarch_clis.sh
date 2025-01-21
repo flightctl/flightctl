@@ -69,7 +69,7 @@ for GOARCH in amd64 arm64; do
     GH_ARCHIVES="bin/clis/gh-archives/${GOARCH}/${OS}"
     GH_OUT="${GH_ARCHIVES}/flightctl-${GOOS}-${GOARCH}${TGZ}"
 
-    mkdir -p "${TMP}"
+    mkdir -p "${BIN}"
     mkdir -p "${ARCHIVES}"
     mkdir -p "${GH_ARCHIVES}"
 
