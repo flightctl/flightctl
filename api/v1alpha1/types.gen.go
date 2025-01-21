@@ -153,6 +153,13 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for RestartPolicy.
+const (
+	RestartPolicyAlways    RestartPolicy = "Always"
+	RestartPolicyNever     RestartPolicy = "Never"
+	RestartPolicyOnFailure RestartPolicy = "OnFailure"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -978,7 +985,13 @@ type HttpRepoSpec struct {
 
 // ImageApplicationProvider defines model for ImageApplicationProvider.
 type ImageApplicationProvider struct {
-	// Image Reference to the container image for the application package.
+	// Image Reference to the container image to be used.
+	Image string `json:"image"`
+}
+
+// ImageField defines model for ImageField.
+type ImageField struct {
+	// Image Reference to the container image to be used.
 	Image string `json:"image"`
 }
 
@@ -1275,6 +1288,9 @@ type ResourceSyncStatus struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
 
+// RestartPolicy Restart policy for the container, default is Always.
+type RestartPolicy string
+
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
 	// Strategy The rollout strategy to use.
@@ -1295,6 +1311,15 @@ type RolloutPolicy struct {
 
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+}
+
+// SingleContainerProvider defines model for SingleContainerProvider.
+type SingleContainerProvider struct {
+	// Image Reference to the container image to be used.
+	Image string `json:"image"`
+
+	// RestartPolicy Restart policy for the container, default is Always.
+	RestartPolicy *RestartPolicy `json:"restartPolicy,omitempty"`
 }
 
 // SshConfig Configuration for SSH transport.
@@ -1655,6 +1680,32 @@ func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvide
 
 // MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
 func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsSingleContainerProvider returns the union data inside the ApplicationSpec as a SingleContainerProvider
+func (t ApplicationSpec) AsSingleContainerProvider() (SingleContainerProvider, error) {
+	var body SingleContainerProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSingleContainerProvider overwrites any union data inside the ApplicationSpec as the provided SingleContainerProvider
+func (t *ApplicationSpec) FromSingleContainerProvider(v SingleContainerProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeSingleContainerProvider performs a merge with any union data inside the ApplicationSpec, using the provided SingleContainerProvider
+func (t *ApplicationSpec) MergeSingleContainerProvider(v SingleContainerProvider) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

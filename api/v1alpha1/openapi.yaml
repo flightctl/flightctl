@@ -3578,13 +3578,41 @@ components:
               description: The name of the application must be between 1 and 253 characters and start with a letter or number.
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProvider'
+            - $ref: '#/components/schemas/SingleContainerProvider'
             # extend application providers
     ImageApplicationProvider:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ImageField'
+        - type: object
+          description: Reference to the container image for the application package.
+    SingleContainerProvider:
+      type: object
+      description: A single container deployment, including image reference, restart policy.
+      allOf:
+        - $ref: '#/components/schemas/ImageField'
+        - type: object
+          properties:
+            restartPolicy:
+              $ref: '#/components/schemas/RestartPolicy'
+    RestartPolicy:
+      type: string
+      description: Restart policy for the container, default is Always.
+      enum:
+        - Always
+        - OnFailure
+        - Never
+      x-enum-varnames:
+        - "RestartPolicyAlways"
+        - "RestartPolicyOnFailure"
+        - "RestartPolicyNever"
+      default: Always
+    ImageField:
       type: object
       properties:
         image:
           type: string
-          description: Reference to the container image for the application package.
+          description: Reference to the container image to be used.
       required:
         - image
     ApplicationEnvVars:
