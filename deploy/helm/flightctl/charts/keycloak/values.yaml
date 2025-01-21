@@ -21,4 +21,4 @@ db:
   image: quay.io/sclorg/postgresql-16-c9s:latest
   ## @param imagePullPolicy The container imagePullPolicy to use for the Keycloak database
   imagePullPolicy: IfNotPresent
-directAccessGrantsEnabled: false
+directAccessGrantsEnabled: true
