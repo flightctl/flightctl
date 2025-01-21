@@ -4145,6 +4145,7 @@ components:
       required:
         - approved
     EnrollmentRequestApprovalStatus:
+      description: EnrollmentRequestApprovalStatus represents information about the status of a device enrollment request approval.
       allOf:
       - $ref: "#/components/schemas/EnrollmentRequestApproval"
       - type: object

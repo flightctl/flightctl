@@ -709,6 +709,7 @@ type EnrollmentRequestSpec struct {
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 type EnrollmentRequestStatus struct {
+	// Approval EnrollmentRequestApprovalStatus represents information about the status of a device enrollment request approval.
 	Approval *EnrollmentRequestApprovalStatus `json:"approval,omitempty"`
 
 	// Certificate The PEM-encoded signed certificate.
