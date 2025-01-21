@@ -50,10 +50,10 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 			return nil, err
 		}
 	}
-	device.Metadata.Annotations = oldDevice.Metadata.Annotations
-	UpdateServiceSideStatus(ctx, st, log, orgId, device)
+	oldDevice.Status = device.Status
+	UpdateServiceSideStatus(ctx, st, log, orgId, oldDevice)
 
-	result, err := st.Device().UpdateStatus(ctx, orgId, device)
+	result, err := st.Device().UpdateStatus(ctx, orgId, oldDevice)
 	switch err {
 	case nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
@@ -168,13 +168,18 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 		}
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
-	if !device.IsUpdatedToDeviceSpec() {
+	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
 		device.Status.Updated.Info = util.StrToPtr("There is a newer device spec for this device.")
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
 	if device.IsManaged() {
-		f, err := st.Fleet().Get(ctx, orgId, *device.Metadata.Name, store.WithSummary(false))
+		_, fleetName, err := util.GetResourceOwner(device.Metadata.Owner)
+		if err != nil {
+			log.Errorf("Failed to determine owner for device %q: %v", *device.Metadata.Name, err)
+			return false
+		}
+		f, err := st.Fleet().Get(ctx, orgId, fleetName, store.WithSummary(false))
 		if err != nil {
 			log.Errorf("Failed to get fleet for device %q: %v", *device.Metadata.Name, err)
 			return false
