@@ -30,6 +30,7 @@ type Writer interface {
 	MkdirAll(path string, perm fs.FileMode) error
 	CopyFile(src, dst string) error
 	CreateManagedFile(file ign3types.File) (ManagedFile, error)
+	OverwriteAndWipe(file string) error
 }
 
 type Reader interface {

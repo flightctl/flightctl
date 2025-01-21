@@ -53,6 +53,15 @@ func (s *Systemd) Stop(ctx context.Context, name string) error {
 	return nil
 }
 
+func (s *Systemd) Reboot(ctx context.Context) error {
+	args := []string{"reboot"}
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("reboot systemd: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 func (s *Systemd) Restart(ctx context.Context, name string) error {
 	args := []string{"restart", name}
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)

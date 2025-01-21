@@ -46,6 +46,24 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1alpha1.ApplicationsSummaryStatusHealthy,
 		},
 		{
+			name: "single app multiple containers started  then one manual stop",
+			apps: []Application{
+				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+			},
+			events: []PodmanEvent{
+				mockPodmanEvent("app1", "app1-service-1", "init"),
+				mockPodmanEvent("app1", "app1-service-1", "create"),
+				mockPodmanEvent("app1", "app1-service-1", "start"),
+				mockPodmanEvent("app1", "app1-service-2", "init"),
+				mockPodmanEvent("app1", "app1-service-2", "create"),
+				mockPodmanEvent("app1", "app1-service-2", "start"),
+				mockPodmanEvent("app1", "app1-service-2", "stop"),
+			},
+			expectedReady:   "1/2",
+			expectedStatus:  v1alpha1.ApplicationStatusRunning,
+			expectedSummary: v1alpha1.ApplicationsSummaryStatusDegraded,
+		},
+		{
 			name: "single app start then die",
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
