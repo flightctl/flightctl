@@ -164,6 +164,20 @@ func (mr *MockWriterMockRecorder) MkdirAll(path, perm any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirAll", reflect.TypeOf((*MockWriter)(nil).MkdirAll), path, perm)
 }
 
+// OverwriteAndWipe mocks base method.
+func (m *MockWriter) OverwriteAndWipe(file string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OverwriteAndWipe", file)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// OverwriteAndWipe indicates an expected call of OverwriteAndWipe.
+func (mr *MockWriterMockRecorder) OverwriteAndWipe(file any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteAndWipe", reflect.TypeOf((*MockWriter)(nil).OverwriteAndWipe), file)
+}
+
 // PathFor mocks base method.
 func (m *MockWriter) PathFor(filePath string) string {
 	m.ctrl.T.Helper()
@@ -395,6 +409,20 @@ func (m *MockReadWriter) MkdirAll(path string, perm fs.FileMode) error {
 func (mr *MockReadWriterMockRecorder) MkdirAll(path, perm any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirAll", reflect.TypeOf((*MockReadWriter)(nil).MkdirAll), path, perm)
+}
+
+// OverwriteAndWipe mocks base method.
+func (m *MockReadWriter) OverwriteAndWipe(file string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OverwriteAndWipe", file)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// OverwriteAndWipe indicates an expected call of OverwriteAndWipe.
+func (mr *MockReadWriterMockRecorder) OverwriteAndWipe(file any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteAndWipe", reflect.TypeOf((*MockReadWriter)(nil).OverwriteAndWipe), file)
 }
 
 // PathExists mocks base method.

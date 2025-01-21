@@ -171,10 +171,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceName,
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		a.config.ManagementService.GetClientCertificatePath(),
+		a.config.ManagementService.GetClientKeyPath(),
 		deviceReadWriter,
 		enrollmentClient,
 		csr,
 		a.config.DefaultLabels,
+		statusManager,
+		systemdClient,
 		backoff,
 		a.log,
 	)
