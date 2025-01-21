@@ -50,21 +50,33 @@ jobs:
       matrix:
         include:
           - os_arch: "linux-amd64"
+            arch: "amd64"
+            os: "linux"
             zip: ".tar.gz"
             ext: ""
           - os_arch: "linux-arm64"
+            arch: "arm64"
+            os: "linux"
             zip: ".tar.gz"
             ext: ""
           - os_arch: "darwin-amd64"
+            arch: "amd64"
+            os: "mac"
             zip: ".zip"
             ext: ""
           - os_arch: "darwin-arm64"
+            arch: "arm64"
+            os: "mac"
             zip: ".zip"
             ext: ""
           - os_arch: "windows-amd64"
+            arch: "amd64"
+            os: "windows"
             zip: ".zip"
             ext: ".exe"
           - os_arch: "windows-arm64"
+            arch: "arm64"
+            os: "windows"
             zip: ".zip"
             ext: ".exe"
 
@@ -73,19 +85,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: "flightctl-${{ matrix.os_arch }}${{ matrix.zip }}"
-          path: "flightctl-${{ matrix.os_arch }}${{ matrix.zip }}"
+          path: "bin/clis/archives/${{ matrix.arch }}/${{ matrix.os }}/flightctl${{ matrix.zip }}"
 
       - name: Save binary
         uses: actions/upload-artifact@v4
         with:
           name: "flightctl-${{ matrix.os_arch }}${{ matrix.ext }}"
-          path: "flightctl-${{ matrix.os_arch }}${{ matrix.ext }}"
+          path: "bin/clis/binaries/${{ matrix.arch }}/${{ matrix.os }}/flightctl${{ matrix.ext }}"
 
       - name: Save checksum
         uses: actions/upload-artifact@v4
         with:
           name: "flightctl-${{ matrix.os_arch }}-sha256.txt"
-          path: "flightctl-${{ matrix.os_arch }}-sha256.txt"
+          path: "bin/clis/gh-archives/${{ matrix.arch }}/${{ matrix.os }}/flightctl-${GOOS}-${GOARCH}${ext}.sha256"
 
   verify-windows:
     name: Verify Binaries on windows

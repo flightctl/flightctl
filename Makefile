@@ -185,7 +185,6 @@ $(GOBIN)/golangci-lint:
 
 lint: tools
 	$(GOBIN)/golangci-lint run -v
-	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -buildvcs=false $(GO_BUILD_FLAGS) -o /dev/null ./cmd/flightctl
 
 .PHONY: lint-openapi
 lint-openapi:

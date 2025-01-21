@@ -5,6 +5,21 @@ set -x
 #
 # $ tree bin/clis/
 # bin/clis/
+# ├── binaries
+# │   ├── amd64
+# │   │   ├── linux
+# │   │   │   └── flightctl
+# │   │   ├── mac
+# │   │   │   └── flightctl
+# │   │   └── windows
+# │   │       └── flightctl.exe
+# │   └── arm64
+# │       ├── linux
+# │       │   └── flightctl
+# │       ├── mac
+# │       │   └── flightctl
+# │       └── windows
+# │           └── flightctl.exe
 # ├── archives
 # │   ├── amd64
 # │   │   ├── linux
@@ -49,24 +64,24 @@ for GOARCH in amd64 arm64; do
       TGZ=".zip"
       EXE=".exe"
     fi
-    TMP="bin/clis/tmp/${GOARCH}/${GOOS}"
+    BIN="bin/clis/binaries/${GOARCH}/${OS}"
     ARCHIVES="bin/clis/archives/${GOARCH}/${OS}"
-    GH_ARCHIVES="bin/clis/archives/${GOARCH}/${OS}"
+    GH_ARCHIVES="bin/clis/gh-archives/${GOARCH}/${OS}"
     GH_OUT="${GH_ARCHIVES}/flightctl-${GOOS}-${GOARCH}${TGZ}"
 
     mkdir -p "${TMP}"
     mkdir -p "${ARCHIVES}"
     mkdir -p "${GH_ARCHIVES}"
 
-    cp "bin/flightctl${EXE}" "${TMP}/"
+    cp "bin/flightctl${EXE}" "${BIN}/"
     if [ "${GOOS}" == "linux" ]; then
-      tar -zhcf "${ARCHIVES}/flightctl.tar.gz" -C "${TMP}" flightctl
+      tar -zhcf "${ARCHIVES}/flightctl.tar.gz" -C "${BIN}" flightctl
     else
-      zip -9 -r -q -j "${ARCHIVES}/flightctl.zip" "${TMP}/flightctl${EXE}"
+      zip -9 -r -q -j "${ARCHIVES}/flightctl.zip" "${BIN}/flightctl${EXE}"
     fi
     cp "${ARCHIVES}/flightctl${TGZ}" "${GH_OUT}"
     sha256sum "${GH_OUT}" | awk '{ print $1 }' > "${GH_OUT}.sha256"
   done
 done
 
-echo -e "\033[0;32mAll CLI binaries have been built and archived in bin/clis/archives and bin/clis/gh-archives\033[0m"
+echo -e "\033[0;32mAll CLI binaries have been built in bin/cli/binaries and archived in bin/clis/archives and bin/clis/gh-archives\033[0m"
