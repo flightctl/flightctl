@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
+	"github.com/google/uuid"
 )
 
 // (POST /api/v1/devices)
@@ -103,7 +104,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		switch err {
 		case nil:
 			// Create an empty DeviceList and set the summary
-			emptyList := model.DeviceList.ToApiResource(nil, nil, nil)
+			emptyList, _ := model.DevicesToApiResource([]model.Device{}, nil, nil)
 			emptyList.Summary = result
 			return server.ListDevices200JSONResponse(emptyList), nil
 		default:
@@ -190,6 +191,14 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 	}
 }
 
+func DeviceVerificationCallback(before, after *api.Device) error {
+	// Ensure the device wasn't decommissioned
+	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
+		return flterrors.ErrDecommission
+	}
+	return nil
+}
+
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
 	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "update")
@@ -221,7 +230,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.DeviceUpdatedCallback)
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, DeviceVerificationCallback, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -339,7 +348,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		}
 	}
 
-	newObj := &v1alpha1.Device{}
+	newObj := &api.Device{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/devices/"+request.Name)
 	if err != nil {
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
@@ -367,7 +376,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(before *model.Device, after *model.Device)
+	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
@@ -376,7 +385,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
 
 	// create
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, updateCallback)
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
 
 	switch err {
 	case nil:
@@ -423,16 +432,21 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
 		return nil, fmt.Errorf("device already has decommissioning requested")
 	}
+
 	deviceObj.Spec.Decommissioning = request.Body
 
-	var updateCallback func(before *model.Device, after *model.Device)
+	// these fields must be un-set so that device is no longer associated with any fleet
+	deviceObj.Metadata.Owner = nil
+	deviceObj.Metadata.Labels = nil
+
+	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
 
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, nil, false, updateCallback)
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"owner"}, false, DeviceVerificationCallback, updateCallback)
 
 	switch err {
 	case nil:

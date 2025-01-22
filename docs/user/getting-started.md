@@ -126,13 +126,17 @@ $ kubectl get pods -n flightctl
 
 #### Flight Control in ACM
 
-Install a released version of the Flight Control Service into the cluster by running:
+To install a released version of the Flight Control Service into the cluster, first ensure you have a `values.acm.yaml` file.
+
+If you are not running helm from the base directory of this repository, you can find it at `deploy/helm/flightctl/values.acm.yaml`, otherwise you will need to create it.
+
+Then run the following command, making sure to specify the correct path to `values.acm.yaml`:
 
 ```console
 $ helm upgrade --install --version=<version-to-install> \
     --namespace flightctl --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl \
-    --set global.target=acm
+    --values deploy/helm/flightctl/values.acm.yaml
 
 ```
 

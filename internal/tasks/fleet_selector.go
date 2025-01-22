@@ -641,6 +641,12 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) e
 
 // Update a device's owner, which in effect updates the fleet (may require rollout to the device)
 func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, device *api.Device, newOwnerFleet string) error {
+	// do not update decommissioning devices
+	if device.Spec != nil && device.Spec.Decommissioning != nil {
+		f.log.Debugf("SKipping update of device owner for decommissioned device: %s", device.Metadata.Name)
+		return nil
+	}
+
 	fieldsToNil := []string{}
 	newOwnerRef := util.SetResourceOwner(api.FleetKind, newOwnerFleet)
 	if len(newOwnerFleet) == 0 {
@@ -650,7 +656,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, err := f.devStore.Update(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.callbackManager.DeviceUpdatedCallback)
+	_, err := f.devStore.Update(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, nil, f.callbackManager.DeviceUpdatedCallback)
 	return err
 }
 

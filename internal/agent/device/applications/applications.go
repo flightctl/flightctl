@@ -28,6 +28,7 @@ const (
 	ContainerStatusCreated ContainerStatusType = "created"
 	ContainerStatusInit    ContainerStatusType = "init"
 	ContainerStatusRunning ContainerStatusType = "start"
+	ContainerStatusStop    ContainerStatusType = "stop"
 	ContainerStatusDie     ContainerStatusType = "die" // docker only
 	ContainerStatusDied    ContainerStatusType = "died"
 	ContainerStatusRemove  ContainerStatusType = "remove"

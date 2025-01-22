@@ -17,11 +17,12 @@ import (
 const defaultPodmanTimeout = 2 * time.Minute
 
 type ComposeSpec struct {
-	Services map[string]ComposeService `yaml:"services"`
+	Services map[string]ComposeService `json:"services"`
 }
 
 type ComposeService struct {
-	Image string `yaml:"image"`
+	Image         string `json:"image"`
+	ContainerName string `json:"container_name"`
 }
 
 type Compose struct {
@@ -199,6 +200,10 @@ func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *ComposeSpec)
 func (c *ComposeSpec) Verify() error {
 	var errs []error
 	for name, service := range c.Services {
+		containerName := service.ContainerName
+		if service.ContainerName != "" {
+			errs = append(errs, fmt.Errorf("service %s has a hard coded container_name %s which is not supported", name, containerName))
+		}
 		image := service.Image
 		if image == "" {
 			errs = append(errs, fmt.Errorf("service %s is missing an image", name))

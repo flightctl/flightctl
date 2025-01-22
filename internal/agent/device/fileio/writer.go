@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"io/fs"
@@ -149,6 +150,41 @@ func (w *writer) copyFile(src, dst string) error {
 
 func (w *writer) CreateManagedFile(file ign3types.File) (ManagedFile, error) {
 	return newManagedFile(file, w)
+}
+
+func (w *writer) OverwriteAndWipe(file string) error {
+	if err := w.overwriteFileWithRandomData(file); err != nil {
+		return fmt.Errorf("could not overwrite file %s with random data: %w", file, err)
+	}
+	if err := w.RemoveFile(file); err != nil {
+		return fmt.Errorf("could not remove file %s: %w", file, err)
+	}
+	return nil
+}
+
+func (w *writer) overwriteFileWithRandomData(file string) error {
+	f, err := os.OpenFile(filepath.Join(w.rootDir, file), os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer f.Close()
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+	fileSize := fileInfo.Size()
+
+	randomData := make([]byte, fileSize)
+	if _, err := rand.Read(randomData); err != nil {
+		return fmt.Errorf("failed to generate random data: %w", err)
+	}
+
+	if _, err := f.WriteAt(randomData, 0); err != nil {
+		return fmt.Errorf("failed to write random data: %w", err)
+	}
+
+	return nil
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile

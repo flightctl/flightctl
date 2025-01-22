@@ -82,14 +82,10 @@ db:
   maxConnections: 200
   storage:
     size: "60Gi"
-  ## @param db.resources the request/limit resource requests for the DB deployment pod
   resources:
     requests:
       cpu: "512m"
       memory: "512Mi"
-    limits:
-      cpu: "2000m"
-      memory: "2Gi"
 
 kv:
   enabled: true

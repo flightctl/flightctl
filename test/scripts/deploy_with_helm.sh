@@ -89,7 +89,7 @@ fi
 
 AUTH_ARGS=""
 if [ "$AUTH" ]; then
-  AUTH_ARGS="--set global.auth.type=builtin --set keycloak.directAccessGrantsEnabled=true"
+  AUTH_ARGS="--set global.auth.type=builtin"
 fi
 
 helm dependency build ./deploy/helm/flightctl
@@ -126,13 +126,12 @@ LOGGED_IN=false
 for i in {1..60}; do
   if [ "$AUTH" ]; then
     PASS=$(kubectl get secret keycloak-demouser-secret -n flightctl-external -o json | jq -r '.data.password' | base64 -d)
-    TOKEN=$(curl -d client_id=flightctl -d username=demouser -d password=${PASS} -d grant_type=password http://auth.${IP}.nip.io:${KEYCLOAK_PORT}/realms/flightctl/protocol/openid-connect/token | jq -r '.access_token')
-    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:${API_PORT} --token ${TOKEN}; then
+    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} -u demouser -p ${PASS}; then
       LOGGED_IN=true
       break
     fi
   else
-    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:${API_PORT}; then
+    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT}; then
       LOGGED_IN=true
       break
     fi

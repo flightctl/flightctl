@@ -44,8 +44,6 @@ spec:
       labels:
         flightctl.service: flightctl-kv
     spec:
-      securityContext:
-        fsGroup: 1001
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
@@ -57,9 +55,6 @@ spec:
           ports:
             - name: kv
               containerPort: 6379
-          securityContext:
-            runAsUser: 1001
-            runAsGroup: 1001
           env:
             - name: REDIS_PASSWORD
               valueFrom:
