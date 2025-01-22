@@ -3,10 +3,10 @@ package store_test
 import (
 	"context"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -138,8 +138,8 @@ var _ = Describe("TemplateVersion", func() {
 			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
-			err = storeInst.Fleet().Delete(ctx, otherOrgId, callback, "myfleet")
+			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
+			err = storeInst.Fleet().Delete(ctx, otherOrgId, "myfleet", callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})

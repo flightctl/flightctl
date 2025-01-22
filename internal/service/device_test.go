@@ -53,11 +53,11 @@ func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*v
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *v1alpha1.Device, fieldsToUnset []string, fromAPI bool, callback store.DeviceStoreCallback) (*v1alpha1.Device, error) {
+func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *v1alpha1.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*v1alpha1.Device, error) {
 	return device, nil
 }
 
-func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *v1alpha1.Device, fieldsToUnset []string, fromAPI bool, callback store.DeviceStoreCallback) (*v1alpha1.Device, bool, error) {
+func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *v1alpha1.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*v1alpha1.Device, bool, error) {
 	return device, false, nil
 }
 

@@ -8,20 +8,20 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
+	"github.com/google/uuid"
 )
 
-func FleetFromReader(r io.Reader) (*v1alpha1.Fleet, error) {
-	var fleet v1alpha1.Fleet
+func FleetFromReader(r io.Reader) (*api.Fleet, error) {
+	var fleet api.Fleet
 	decoder := json.NewDecoder(r)
 	decoder.DisallowUnknownFields()
 	err := decoder.Decode(&fleet)
@@ -193,7 +193,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -235,7 +235,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 		return server.DeleteFleet403JSONResponse{Message: "unauthorized to delete fleet because it is owned by another resource"}, nil
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, h.callbackManager.FleetUpdatedCallback, request.Name)
+	err = h.store.Fleet().Delete(ctx, orgId, request.Name, h.callbackManager.FleetUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteFleet200JSONResponse{}, nil
@@ -317,7 +317,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		}
 	}
 
-	newObj := &v1alpha1.Fleet{}
+	newObj := &api.Fleet{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/fleets/"+request.Name)
 	if err != nil {
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
@@ -342,12 +342,12 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(before *model.Fleet, after *model.Fleet)
+	var updateCallback func(uuid.UUID, *api.Fleet, *api.Fleet)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
-	result, err := h.store.Fleet().Update(ctx, orgId, newObj, updateCallback)
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback)
 
 	switch err {
 	case nil:
