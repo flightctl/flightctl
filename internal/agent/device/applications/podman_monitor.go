@@ -92,6 +92,7 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 
 	// list of podman events to listen for
 	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
+	m.log.Debugf("Replaying podman events since boot time: %s", m.bootTime)
 	m.cmd = m.client.EventsSinceCmd(ctx, events, m.bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
