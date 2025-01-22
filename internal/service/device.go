@@ -5,9 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -15,15 +14,26 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
-	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
-	"k8s.io/apimachinery/pkg/labels"
+	"github.com/google/uuid"
 )
 
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "create")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.CreateDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.CreateDevice403JSONResponse{Message: Forbidden}, nil
+	}
+
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
+		return server.CreateDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
@@ -34,12 +44,16 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 		return server.CreateDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
+
 	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
@@ -49,51 +63,48 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
 	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "list")
 	if err != nil {
-		return server.ListDevices401JSONResponse{Message: fmt.Sprintf("auth failed: %v", err)}, nil
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ListDevices503JSONResponse{Message: AuthorizationServerUnavailable}, nil
 	}
 	if !allowed {
-		return server.ListDevices403JSONResponse{Message: "cannot list devices"}, nil
+		return server.ListDevices403JSONResponse{Message: Forbidden}, nil
 	}
 
 	orgId := store.NullOrgId
 
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		// If a label selector is provided, ensure keys without value still have '=' appended
-		labels := strings.Split(*request.Params.LabelSelector, ",")
-		for i, label := range labels {
-			l := strings.Split(label, "=")
-			if len(l) == 1 {
-				labels[i] = l[0] + "="
-			}
+	var fieldSelector *selector.FieldSelector
+	if request.Params.FieldSelector != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
+			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 		}
-		labelSelector = strings.Join(labels, ",")
 	}
 
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+		}
 	}
 
 	// Check if SummaryOnly is true
 	if request.Params.SummaryOnly != nil && *request.Params.SummaryOnly {
 		// Check for unsupported parameters
-		if request.Params.StatusFilter != nil ||
-			request.Params.Limit != nil ||
+		if request.Params.Limit != nil ||
 			request.Params.Continue != nil {
 			return server.ListDevices400JSONResponse{
-				Message: "Only 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true",
+				Message: "parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true",
 			}, nil
 		}
+
 		result, err := h.store.Device().Summary(ctx, orgId, store.ListParams{
-			Labels: labelMap,
-			Owners: util.OwnerQueryParamsToArray(request.Params.Owner),
+			FieldSelector: fieldSelector,
+			LabelSelector: labelSelector,
 		})
 
 		switch err {
 		case nil:
 			// Create an empty DeviceList and set the summary
-			emptyList := model.DeviceList.ToApiResource(nil, nil, nil)
+			emptyList, _ := model.DevicesToApiResource([]model.Device{}, nil, nil)
 			emptyList.Summary = result
 			return server.ListDevices200JSONResponse(emptyList), nil
 		default:
@@ -101,46 +112,16 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 		}
 	}
 
-	statusFilter := []string{}
-	if request.Params.StatusFilter != nil {
-		for _, filter := range *request.Params.StatusFilter {
-			statusFilter = append(statusFilter, fmt.Sprintf("status.%s", filter))
-		}
-	}
-
-	filterMap, err := ConvertFieldFilterParamsToMap(statusFilter)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to convert status filter: %v", err)}, nil
-	}
-
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector k8sselector.Selector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
-		}
-	}
-
-	var sortField *store.SortField
-	if request.Params.SortBy != nil {
-		sortField = &store.SortField{
-			FieldName: selector.SelectorName(*request.Params.SortBy),
-			Order:     *request.Params.SortOrder,
-		}
-	}
-
 	listParams := store.ListParams{
-		Labels:        labelMap,
-		Filter:        filterMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
-		Owners:        util.OwnerQueryParamsToArray(request.Params.Owner),
 		FieldSelector: fieldSelector,
-		SortBy:        sortField,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -168,9 +149,17 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 // (DELETE /api/v1/devices)
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "deletecollection")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteDevices503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteDevices403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
+	err = h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevices200JSONResponse{}, nil
@@ -181,6 +170,14 @@ func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.Delet
 
 // (GET /api/v1/devices/{name})
 func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDeviceRequestObject) (server.ReadDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReadDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReadDevice403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -194,8 +191,30 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 	}
 }
 
+func DeviceVerificationCallback(before, after *api.Device) error {
+	// Ensure the device wasn't decommissioned
+	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
+		return flterrors.ErrDecommission
+	}
+	return nil
+}
+
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceDevice403JSONResponse{Message: Forbidden}, nil
+	}
+
+	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
+		return server.ReplaceDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+	}
+
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -209,7 +228,9 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
 	}
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.DeviceUpdatedCallback)
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
+
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, DeviceVerificationCallback, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -232,9 +253,17 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 
 // (DELETE /api/v1/devices/{name})
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "delete")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteDevice403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
+	err = h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil
@@ -247,6 +276,14 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 
 // (GET /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.ReadDeviceStatusRequestObject) (server.ReadDeviceStatusResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/status", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReadDeviceStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReadDeviceStatus403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -262,17 +299,41 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 
 // (PUT /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	return common.ReplaceDeviceStatus(ctx, h.store, request)
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/status", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceDeviceStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceDeviceStatus403JSONResponse{Message: Forbidden}, nil
+	}
+	return common.ReplaceDeviceStatus(ctx, h.store, h.log, request)
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	return common.GetRenderedDeviceSpec(ctx, h.store, request, h.consoleGrpcEndpoint)
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/rendered", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.GetRenderedDeviceSpec503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.GetRenderedDeviceSpec403JSONResponse{Message: Forbidden}, nil
+	}
+	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.agentEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDeviceRequestObject) (server.PatchDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "patch")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.PatchDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.PatchDevice403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -287,7 +348,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		}
 	}
 
-	newObj := &v1alpha1.Device{}
+	newObj := &api.Device{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/devices/"+request.Name)
 	if err != nil {
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
@@ -308,17 +369,23 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
 		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
 	}
+	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
+		return server.PatchDevice400JSONResponse{Message: "spec.decommissioning cannot be changed via patch request"}, nil
+	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(before *model.Device, after *model.Device)
+	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
+
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
+
 	// create
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, updateCallback)
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
 
 	switch err {
 	case nil:
@@ -329,6 +396,65 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 		return server.PatchDevice404JSONResponse{}, nil
 	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict, flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
 		return server.PatchDevice409JSONResponse{}, nil
+	default:
+		return nil, err
+	}
+}
+
+// (PATCH /api/v1/devices/{name}/status)
+func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, request server.PatchDeviceStatusRequestObject) (server.PatchDeviceStatusResponseObject, error) {
+	return nil, fmt.Errorf("not yet implemented")
+}
+
+// (PUT /api/v1/devices/{name}/decommission)
+func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decommission", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DecommissionDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DecommissionDevice403JSONResponse{Message: Forbidden}, nil
+	}
+
+	orgId := store.NullOrgId
+	deviceObj, err := h.store.Device().Get(ctx, orgId, request.Name)
+	if err != nil {
+		switch err {
+		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
+		case flterrors.ErrResourceNotFound:
+			return server.DecommissionDevice404JSONResponse{}, nil
+		default:
+			return nil, err
+		}
+	}
+	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
+		return nil, fmt.Errorf("device already has decommissioning requested")
+	}
+
+	deviceObj.Spec.Decommissioning = request.Body
+
+	// these fields must be un-set so that device is no longer associated with any fleet
+	deviceObj.Metadata.Owner = nil
+	deviceObj.Metadata.Labels = nil
+
+	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.DeviceUpdatedCallback
+	}
+
+	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"owner"}, false, DeviceVerificationCallback, updateCallback)
+
+	switch err {
+	case nil:
+		return server.DecommissionDevice200JSONResponse(*result), nil
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+		return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.DecommissionDevice404JSONResponse{}, nil
 	default:
 		return nil, err
 	}

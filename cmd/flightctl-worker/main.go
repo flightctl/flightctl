@@ -1,6 +1,11 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -36,14 +41,22 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
-	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+
+	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("failed connecting to Redis queue: %v", err)
+	}
+
 	k8sClient, err := k8sclient.NewK8SClient()
 	if err != nil {
 		log.WithError(err).Warning("initializing k8s client, assuming k8s is not supported")
 		k8sClient = nil
 	}
+
 	server := workerserver.New(cfg, log, store, provider, k8sClient)
-	if err := server.Run(); err != nil {
+	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
+	cancel()
 }

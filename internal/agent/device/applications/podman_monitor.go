@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -63,23 +65,24 @@ type PodmanMonitor struct {
 	cancelFn    context.CancelFunc
 	initialized bool
 
+	// apps is a map of application ID to application.
 	apps    map[string]Application
 	actions []lifecycle.Action
 
-	compose lifecycle.ActionHandler
-	client  *client.Podman
-	boot    *client.Boot
+	compose  lifecycle.ActionHandler
+	client   *client.Podman
+	bootTime string
 
 	log *log.PrefixLogger
 }
 
-func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman) *PodmanMonitor {
+func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman, bootTime string) *PodmanMonitor {
 	return &PodmanMonitor{
-		client:  podman,
-		boot:    client.NewBoot(exec),
-		compose: lifecycle.NewCompose(log, podman),
-		apps:    make(map[string]Application),
-		log:     log,
+		client:   podman,
+		compose:  lifecycle.NewCompose(log, podman),
+		apps:     make(map[string]Application),
+		bootTime: bootTime,
+		log:      log,
 	}
 }
 
@@ -87,16 +90,10 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	m.log.Debugf("Starting podman monitor")
 	ctx, m.cancelFn = context.WithCancel(ctx)
 
-	// get boot time
-	bootTime, err := m.boot.Time(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get boot time: %w", err)
-	}
-	m.log.Debugf("Boot time: %s", bootTime)
-
 	// list of podman events to listen for
-	events := []string{"init", "start", "die", "sync", "remove", "exited"}
-	m.cmd = m.client.EventsSinceCmd(ctx, events, bootTime)
+	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
+	m.log.Debugf("Replaying podman events since boot time: %s", m.bootTime)
+	m.cmd = m.client.EventsSinceCmd(ctx, events, m.bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
 	if err != nil {
@@ -179,23 +176,25 @@ func (m *PodmanMonitor) ensure(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	appName := app.Name()
-	_, ok := m.apps[appName]
+	appID := app.ID()
+	_, ok := m.apps[appID]
 	if ok {
 		// app already exists
 		return nil
 	}
-	m.apps[appName] = app
+	m.apps[appID] = app
 
 	handler, err := app.Type().ActionHandler()
 	if err != nil {
 		return err
 	}
 
+	appName := app.Name()
 	action := lifecycle.Action{
 		Handler:  handler,
 		Type:     lifecycle.ActionAdd,
 		Name:     appName,
+		ID:       appID,
 		Embedded: app.IsEmbedded(),
 	}
 
@@ -207,8 +206,9 @@ func (m *PodmanMonitor) remove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	appName := app.Name()
-	if _, ok := m.apps[appName]; !ok {
+	appID := app.ID()
+	if _, ok := m.apps[appID]; !ok {
+		m.log.Errorf("Podman application not found: %s", app.Name())
 		// app is already removed
 		return nil
 	}
@@ -218,13 +218,14 @@ func (m *PodmanMonitor) remove(app Application) error {
 		return err
 	}
 
-	delete(m.apps, appName)
+	delete(m.apps, appID)
 
 	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
 		Handler: handler,
 		Type:    lifecycle.ActionRemove,
-		Name:    appName,
+		Name:    app.Name(),
+		ID:      appID,
 	}
 
 	m.actions = append(m.actions, action)
@@ -235,8 +236,9 @@ func (m *PodmanMonitor) update(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	appID := app.ID()
 	appName := app.Name()
-	existingApp, ok := m.apps[appName]
+	existingApp, ok := m.apps[appID]
 	if !ok {
 		return errors.ErrAppNotFound
 	}
@@ -255,17 +257,18 @@ func (m *PodmanMonitor) update(app Application) error {
 		Handler: handler,
 		Type:    lifecycle.ActionUpdate,
 		Name:    appName,
+		ID:      appID,
 	}
 
 	m.actions = append(m.actions, action)
 	return nil
 }
 
-func (m *PodmanMonitor) get(name string) (Application, bool) {
+func (m *PodmanMonitor) getByID(appID string) (Application, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	app, ok := m.apps[name]
+	app, ok := m.apps[appID]
 	if ok {
 		return app, true
 	}
@@ -411,15 +414,15 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 		return
 	}
 
-	appName, ok := event.Attributes["com.docker.compose.project"]
+	projectName, ok := event.Attributes["com.docker.compose.project"]
 	if !ok {
 		m.log.Debugf("Application name not found in event attributes: %v", event)
 		return
 	}
 
-	app, ok := m.get(appName)
+	app, ok := m.apps[projectName]
 	if !ok {
-		m.log.Debugf("Application not found: %s", appName)
+		m.log.Debugf("Application project not found: %s", projectName)
 		return
 	}
 	m.updateAppStatus(ctx, app, &event)
@@ -460,6 +463,7 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	}
 
 	// add new container
+	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddContainer(Container{
 		ID:       event.ID,
 		Image:    event.Image,
@@ -500,4 +504,25 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []PodmanInspect
 		}
 	}
 	return initialStatus
+}
+
+// newComposeID generates a deterministic, lowercase, DNS-compatible ID with a fixed-length hash suffix.
+func newComposeID(input string) string {
+	const suffixLength = 6
+	id := client.SanitizePodmanLabel(input)
+	hashValue := crc32.ChecksumIEEE([]byte(id))
+	suffix := strconv.AppendUint(nil, uint64(hashValue), 10)
+	maxLength := v1alpha1.MaxDNSNameLength - suffixLength - 1
+	if len(id) > maxLength {
+		id = id[:maxLength]
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(id) + 1 + suffixLength)
+
+	builder.WriteString(id)
+	builder.WriteByte('-')
+	builder.WriteString(string(suffix[:suffixLength]))
+
+	return builder.String()
 }

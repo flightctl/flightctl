@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"crypto/rand"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,10 +13,21 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 const TIMEOUT = "1m"
 const POLLING = "250ms"
+
+var _ = BeforeSuite(func() {
+	// This will be executed before all tests run.
+	var h *e2e.Harness
+
+	fmt.Println("Before all tests!")
+	h = e2e.NewTestHarness()
+	err := h.CleanUpAllResources()
+	Expect(err).ToNot(HaveOccurred())
+})
 
 func TestCLI(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -146,7 +158,7 @@ var _ = Describe("cli operation", func() {
 		It("should have worked, and we can have a certificate", func() {
 			out, err := harness.CLI("certificate", "request", "-n", randString(5))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("certificate is ready"))
+			Expect(out).To(ContainSubstring("enrollment-service:"))
 		})
 	})
 
@@ -163,6 +175,151 @@ var _ = Describe("cli operation", func() {
 			out, err := harness.CLI("get", "fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("e2e-test-fleet"))
+		})
+	})
+
+	Context("Resources lifecycle for", func() {
+		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506"), func() {
+			By("Verify there are no resources created")
+			err := harness.CleanUpAllResources()
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Testing Device resource lifecycle")
+			out, err := harness.CLI("apply", "-f", util.GetExamplesYamlPath("device.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+
+			device := harness.GetDeviceByYaml(util.GetExamplesYamlPath("device.yaml"))
+			Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
+
+			(*device.Metadata.Labels)[newTestKey] = newTestValue
+			deviceData, err := yaml.Marshal(&device)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = harness.CLIWithStdin(string(deviceData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verifying Device update")
+			devName := *device.Metadata.Name
+			dev, err := harness.Client.ReadDeviceWithResponse(harness.Context, devName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.JSON200).ToNot(BeNil(), "failed to read updated device")
+			responseLabelValue := (*dev.JSON200.Metadata.Labels)[newTestKey]
+			Expect(responseLabelValue).To(ContainSubstring(newTestValue))
+
+			By("Cleaning up Device")
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.Device, devName))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify deletion
+			dev, err = harness.Client.ReadDeviceWithResponse(harness.Context, devName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dev.JSON404).ToNot(BeNil(), "device should not exist after deletion")
+
+			By("Testing Fleet resource lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("fleet-b.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			fleet := harness.GetFleetByYaml(util.GetExamplesYamlPath("fleet-b.yaml"))
+			Expect(fleet.Spec.Template).ToNot(BeNil(), "fleet template should not be nil")
+			Expect(fleet.Spec.Selector).ToNot(BeNil(), "fleet selector should not be nil")
+
+			By("Updating Fleet labels")
+			(*fleet.Spec.Template.Metadata.Labels)[newTestKey] = newTestValue
+			fleetData, err := yaml.Marshal(&fleet)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = harness.CLIWithStdin(string(fleetData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verifying Fleet update")
+			fleetName := *fleet.Metadata.Name
+			fleetUpdated, err := harness.Client.ReadFleetWithResponse(harness.Context, fleetName, nil)
+			Expect(fleetUpdated.JSON200).ToNot(BeNil(), "failed to read updated fleet")
+
+			Expect(err).ToNot(HaveOccurred())
+			responseLabelValue = (*fleetUpdated.JSON200.Spec.Template.Metadata.Labels)[newTestKey]
+			Expect(responseLabelValue).To(ContainSubstring(newTestValue))
+
+			By("Cleaning up Fleet")
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.Fleet, fleetName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Repository: Resources lifecycle")
+			Eventually(func() error {
+				out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("repository-flightctl.yaml"))
+				return err
+			}, "30s", "1s").Should(BeNil(), "failed to apply Repository")
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+
+			repo := harness.GetRepositoryByYaml(util.GetExamplesYamlPath("repository-flightctl.yaml"))
+
+			//Update repo name
+			updatedName := "flightctl-new"
+			*repo.Metadata.Name = updatedName
+			repoData, err := yaml.Marshal(&repo)
+			Expect(err).ToNot(HaveOccurred())
+			out, err = harness.CLIWithStdin(string(repoData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(updatedName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.Repository, updatedName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("ResourceSync: Resources lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("resourcesync.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			rSync := harness.GetResourceSyncByYaml(util.GetExamplesYamlPath("resourcesync.yaml"))
+
+			//Update rSync name
+			rSyncNewName := "flightctl-new"
+			*rSync.Metadata.Name = rSyncNewName
+			rSyncData, err := yaml.Marshal(&rSync)
+			Expect(err).ToNot(HaveOccurred())
+			out, err = harness.CLIWithStdin(string(rSyncData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(rSyncNewName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.ResourceSync, rSyncNewName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("EnrollmentRequest: Resources lifecycle")
+			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("enrollmentrequest.yaml"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			er := harness.GetEnrollmentRequestByYaml(util.GetExamplesYamlPath("enrollmentrequest.yaml"))
+
+			//Update er name
+			erNewName := randString(64)
+			*er.Metadata.Name = erNewName
+			erData, err := yaml.Marshal(&er)
+			Expect(err).ToNot(HaveOccurred())
+			out, err = harness.CLIWithStdin(string(erData), "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(erNewName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erNewName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("CertificateSigningRequest: Resources lifecycle")
+			Eventually(func() error {
+				out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("csr.yaml"))
+				return err
+			}, "30s", "1s").Should(BeNil(), "failed to apply CSR")
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			csr := harness.GetCertificateSigningRequestByYaml(util.GetExamplesYamlPath("csr.yaml"))
+
+			//Update csr name
+			csrNewName := randString(64)
+			*csr.Metadata.Name = csrNewName
+			csrData, err := yaml.Marshal(&csr)
+			Expect(err).ToNot(HaveOccurred())
+			out, err = harness.CLIWithStdin(string(csrData), "apply", "-f", "-")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(csrNewName))
+
+			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrNewName))
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 })
@@ -205,3 +362,8 @@ spec:
         matchLabels:
             fleet: default
 `
+
+var (
+	newTestKey   = "testKey"
+	newTestValue = "newValue"
+)

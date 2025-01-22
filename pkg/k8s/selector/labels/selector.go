@@ -19,6 +19,7 @@ Modifications by Assaf Albo (asafbss): Added support for the containment operato
 package labels
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/flightctl/flightctl/pkg/k8s/selector"
@@ -27,20 +28,58 @@ import (
 )
 
 // Parse takes a string representing a selector and returns a selector
+// object, or panic when an error occur. This parsing function differs from ParseSelector
+// as they parse different selectors with different syntaxes.
+// The input will cause an error if it does not follow this form:
+//
+//	<selector-syntax>         ::= <requirement> | <requirement> "," <selector-syntax>
+//	<requirement>             ::= [!] KEY [ <set-based-restriction> | <exact-match-restriction> ]
+//	<set-based-restriction>   ::= "" | <inclusion-exclusion> <value-set>
+//	<inclusion-exclusion>     ::= <inclusion> | <exclusion>
+//	<exclusion>               ::= "notin"
+//	<inclusion>               ::= "in"
+//	<value-set>               ::= "(" <values> ")"
+//	<values>                  ::= VALUE | VALUE "," <values>
+//	<exact-match-restriction> ::= ["="|"=="|"!="] VALUE
+//
+// KEY is a sequence of one or more characters following [ DNS_SUBDOMAIN "/" ] DNS_LABEL. Max length is 63 characters.
+// VALUE is a sequence of zero or more characters "([A-Za-z0-9_-\.])". Max length is 63 characters.
+// Delimiter is white space: (' ', '\t')
+// Example of valid syntax:
+//
+//	"x in (foo,,baz),y,z notin ()"
+//
+// Note:
+//  1. Inclusion - " in " - denotes that the KEY exists and is equal to any of the
+//     VALUEs in its requirement
+//  2. Exclusion - " notin " - denotes that the KEY is not equal to any
+//     of the VALUEs in its requirement or does not exist
+//  3. The empty string is a valid VALUE
+//  4. A requirement with just a KEY - as in "y" above - denotes that
+//     the KEY exists and can be any VALUE.
+//  5. A requirement with just !KEY requires that the KEY not exist.
+func ParseSelectorOrDie(s string) selector.Selector {
+	parsedSelector, err := Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return parsedSelector
+}
+
+// Parse takes a string representing a selector and returns a selector
 // object, or an error. This parsing function differs from ParseSelector
 // as they parse different selectors with different syntaxes.
 // The input will cause an error if it does not follow this form:
 //
-//	<selector-syntax>           ::= <requirement> | <requirement> "," <selector-syntax>
-//	<requirement>               ::= [!] KEY [ <set-based-restriction> | <exact-match-restriction> | <partial-match-restriction> ]
-//	<set-based-restriction>     ::= "" | <inclusion-exclusion> <value-set>
-//	<inclusion-exclusion>       ::= <inclusion> | <exclusion>
-//	<exclusion>                 ::= "notin"
-//	<inclusion>                 ::= "in"
-//	<value-set>                 ::= "(" <values> ")"
-//	<values>                    ::= VALUE | VALUE "," <values>
-//	<exact-match-restriction>   ::= ["="|"=="|"!="] VALUE
-//	<partial-match-restriction> ::= ["~="] VALUE
+//	<selector-syntax>         ::= <requirement> | <requirement> "," <selector-syntax>
+//	<requirement>             ::= [!] KEY [ <set-based-restriction> | <exact-match-restriction> ]
+//	<set-based-restriction>   ::= "" | <inclusion-exclusion> <value-set>
+//	<inclusion-exclusion>     ::= <inclusion> | <exclusion>
+//	<exclusion>               ::= "notin"
+//	<inclusion>               ::= "in"
+//	<value-set>               ::= "(" <values> ")"
+//	<values>                  ::= VALUE | VALUE "," <values>
+//	<exact-match-restriction> ::= ["="|"=="|"!="] VALUE
 //
 // KEY is a sequence of one or more characters following [ DNS_SUBDOMAIN "/" ] DNS_LABEL. Max length is 63 characters.
 // VALUE is a sequence of zero or more characters "([A-Za-z0-9_-\.])". Max length is 63 characters.
@@ -87,32 +126,33 @@ func ParseToRequirements(selector string, opts ...field.PathOption) ([]selector.
 func validate(requirements []selector.Requirement, path *field.Path) error {
 	var allErrs field.ErrorList
 	for _, r := range requirements {
-		key := r.Key()
-		if err := validateLabelKey(key, path.Child("key")); err != nil {
-			allErrs = append(allErrs, err)
-		}
+		key := r.Key()       // A set of keys (RequirementKey)
+		values := r.Values() // A list of corresponding value slices
 
-		valuePath := path.Child("values")
-		vals := r.Values().List()
-		for i := range vals {
-			if err := validateLabelValue(key, vals[i], valuePath.Index(i)); err != nil {
-				allErrs = append(allErrs, err)
+		// Validate each key in the set
+		for i := range key {
+			if errs := validation.IsQualifiedName(key[i]); len(errs) != 0 {
+				allErrs = append(allErrs, field.Invalid(path.Child("key"), key[i], strings.Join(errs, "; ")))
+			}
+
+			p := path.Child("values")
+			for j, val := range values {
+				// Check for length mismatch between keys and values
+				if len(val) != len(key) {
+					allErrs = append(allErrs, field.Invalid(
+						p.Index(j).Key(key.String()), val,
+						fmt.Sprintf("length mismatch: key set %v has %d elements but value %v has %d elements",
+							key, len(key), val, len(val)),
+					))
+					continue
+				}
+
+				// Validate the value corresponding to the i-th key
+				if errs := validation.IsValidLabelValue(val[i]); len(errs) != 0 {
+					allErrs = append(allErrs, field.Invalid(p.Index(j).Key(key.String()), val[i], strings.Join(errs, "; ")))
+				}
 			}
 		}
 	}
 	return allErrs.ToAggregate()
-}
-
-func validateLabelKey(k string, path *field.Path) *field.Error {
-	if errs := validation.IsQualifiedName(k); len(errs) != 0 {
-		return field.Invalid(path, k, strings.Join(errs, "; "))
-	}
-	return nil
-}
-
-func validateLabelValue(k, v string, path *field.Path) *field.Error {
-	if errs := validation.IsValidLabelValue(v); len(errs) != 0 {
-		return field.Invalid(path.Key(k), v, strings.Join(errs, "; "))
-	}
-	return nil
 }

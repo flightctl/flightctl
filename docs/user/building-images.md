@@ -68,7 +68,7 @@ The following procedure describes the early binding method of building the agent
 Use the `flightctl` CLI to authenticate with the Flight Control service, then run the following command to obtain enrollment credentials with a validity of one year, in the format of an agent configuration file:
 
 ```console
-flightctl certificate request --cert-type=enrollment --expiration=365d --output-format=embedded > config.yaml
+flightctl certificate request --signer=enrollment --expiration=365d --output=embedded > config.yaml
 ```
 
 The returned `config.yaml` contains the URLs of the Flight Control service, its CA bundle, and the enrollment client certificate and key for the agent. It should look similar to this:
@@ -81,7 +81,7 @@ enrollment-service:
   service:
     certificate-authority-data: LS0tLS1CRUdJTiBD...
     server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
-  enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8080
+  enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8081
   grpc-management-endpoint: grpcs://agent-grpc.flightctl.127.0.0.1.nip.io:7444
 ```
 

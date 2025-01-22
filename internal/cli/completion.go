@@ -71,7 +71,7 @@ func (o *CompletionOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *CompletionOptions) Validate(args []string) error {
-	if err := o.GlobalOptions.Validate(args); err != nil {
+	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
 		return err
 	}
 

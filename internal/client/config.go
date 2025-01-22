@@ -197,44 +197,70 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	if len(tlsServerName) == 0 {
 		u, err := url.Parse(config.Service.Server)
 		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing server url: %w", err)
 		}
 		tlsServerName = u.Hostname()
 	}
 
-	tlsConfig := tls.Config{
-		ServerName:         tlsServerName,
-		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
+	tlsConfig, err := CreateTLSConfigFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: creating TLS config: %w", err)
 	}
-
-	if len(config.Service.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
-		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
-		}
-
-		tlsConfig.RootCAs = caPool
-	}
-
-	if len(config.AuthInfo.ClientCertificateData) > 0 {
-		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
-		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{clientCert}
-	}
+	tlsConfig.ServerName = tlsServerName
 
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tlsConfig,
+			TLSClientConfig: tlsConfig,
 		},
 	}
 	return httpClient, nil
 }
 
+func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
+	tlsConfig := tls.Config{
+		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
+	}
+
+	if err := addServiceCAToTLSConfig(&tlsConfig, config); err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+	}
+
+	if err := addClientCertToTLSConfig(&tlsConfig, config); err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
+	}
+	return &tlsConfig, nil
+}
+
+func addServiceCAToTLSConfig(tlsConfig *tls.Config, config *Config) error {
+	if len(config.Service.CertificateAuthorityData) > 0 {
+		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+		if err != nil {
+			return err
+		}
+		tlsConfig.RootCAs = caPool
+	}
+	return nil
+}
+
+func addClientCertToTLSConfig(tlsConfig *tls.Config, config *Config) error {
+	if len(config.AuthInfo.ClientCertificateData) > 0 {
+		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
+		if err != nil {
+			return err
+		}
+		tlsConfig.Certificates = []tls.Certificate{clientCert}
+	}
+	return nil
+}
+
 // NewGRPCClientFromConfig returns a new gRPC Client from the given config.
-func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.RouterServiceClient, error) {
+func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterServiceClient, error) {
+	grpcEndpoint := config.Service.Server
+	if endpoint != "" {
+		grpcEndpoint = endpoint
+	}
+
 	config = config.DeepCopy()
 	if err := config.Flatten(); err != nil {
 		return nil, err
@@ -267,9 +293,10 @@ func NewGRPCClientFromConfig(config *Config, grpcEndpoint string) (grpc_v1.Route
 		}
 		tlsConfig.Certificates = []tls.Certificate{clientCert}
 	}
-
-	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "grpcs://")
-	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "grpc://")
+	// our transport is http, but the grpc library has special encoding for the endpoint
+	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "http://")
+	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
+	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
 	client, err := grpc.NewClient(grpcEndpoint, grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)))
 

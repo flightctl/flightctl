@@ -1,8 +1,6 @@
 package agent_test
 
 import (
-	"strings"
-
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
@@ -26,46 +24,132 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	})
 
 	Context("updates", func() {
-		It("should update to the requested image", Label("updates"), func() {
+		It("should update to the requested image", Label("updates", "rh-75523"), func() {
 
-			// Check the device status right after bootstrap
-			response := harness.GetDeviceWithStatusSystem(deviceId)
-			device := response.JSON200
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-			Expect(*device.Status.Summary.Info).To(Equal("Bootstrap complete"))
-			Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
+			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
 
-			var newImageReference string
+			currentImage := device.Status.Os.Image
+			logrus.Infof("Current image is: %s", currentImage)
+			logrus.Infof("New image is: %s", newImageReference)
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				currentImage := device.Status.Os.Image
-				logrus.Infof("current image for %s is %s", deviceId, currentImage)
-				repo, _ := parseImageReference(currentImage)
-				newImageReference = repo + ":v2"
-				device.Spec.Os = &v1alpha1.DeviceOSSpec{Image: newImageReference}
-				logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
-			})
-
-			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
+			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", "Update")
-				}, "1m")
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
+				}, "2m")
+
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "True", "Rebooting")
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
 				}, "2m")
 
-			harness.WaitForDeviceContents(deviceId, "status.Os.Image gets updated",
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusRebooting))
+
+			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return device.Status.Os.Image == newImageReference &&
-						conditionExists(device, "Updating", "False", "Updated")
+					for _, condition := range device.Status.Conditions {
+						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+							condition.Message == UpdateRenderedVersionSuccess.String() {
+							return true
+						}
+					}
+					return false
+				}, "2m")
+			logrus.Info("Device updated to new image 🎉")
+		})
+
+		It("Should update to v4 with embedded application", Label("updates", "rh-77667"), func() {
+
+			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
+
+			currentImage := device.Status.Os.Image
+			logrus.Infof("Current image is: %s", currentImage)
+			logrus.Infof("New image is: %s", newImageReference)
+
+			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
 				}, "2m")
 
-			// TODO(hexfusion): we were expecting this update status not to be unknown at this point
-			// related to: https://issues.redhat.com/browse/EDM-679
-			// Expect(device.Status.Updated.Status).ToNot(Equal(v1alpha1.DeviceUpdatedStatusType("Unknown")))
-			logrus.Info("Device updated to new image 🎉")
+			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+
+			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
+				}, "2m")
+
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
+
+			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 2",
+				func(device *v1alpha1.Device) bool {
+					for _, condition := range device.Status.Conditions {
+						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+							condition.Message == UpdateRenderedVersionSuccess.String() {
+							return true
+						}
+					}
+					return false
+				}, "2m")
+
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+
+			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:v4")
+			logrus.Info("We expect containers with sleep infinity process to be present but not running")
+			stdout, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stdout.String()).To(ContainSubstring("sleep infinity"))
+
+			logrus.Info("We expect podman containers with sleep infinity process to be present but not running 👌")
+
+			device, newImageReference = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":base")
+
+			currentImage = device.Status.Os.Image
+			logrus.Infof("Current image is: %s", currentImage)
+			logrus.Infof("New image is: %s", newImageReference)
+
+			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
+				}, "1m")
+
+			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+
+			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
+				func(device *v1alpha1.Device) bool {
+					return conditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
+				}, "2m")
+
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
+
+			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 3",
+				func(device *v1alpha1.Device) bool {
+					for _, condition := range device.Status.Conditions {
+						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+							condition.Message == "Updated to desired renderedVersion: 3" {
+							return true
+						}
+					}
+					return false
+				}, "2m")
+
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+
+			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:base")
+			Expect(device.Spec.Applications).To(BeNil())
+			logrus.Info("Application demo_embedded_app is not present in new image 🌞")
+
+			stdout1, err1 := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
+			Expect(err1).NotTo(HaveOccurred())
+			Expect(stdout1.String()).NotTo(ContainSubstring("sleep infinity"))
+
+			logrus.Info("Went back to base image and checked that there is no application now👌")
 		})
 	})
 })
@@ -80,19 +164,4 @@ func conditionExists(device *v1alpha1.Device, conditionType, conditionStatus, co
 		}
 	}
 	return false
-}
-
-// parseImageReference splits the given image string into its repository and tag components.
-// The image string is expected to be in the format "repository[:port]/image:tag".
-func parseImageReference(image string) (string, string) {
-	// Split the image string by the colon to separate the repository and the tag.
-	parts := strings.Split(image, ":")
-
-	// The tag is the last part after the last colon.
-	tag := parts[len(parts)-1]
-
-	// The repository is composed of all parts before the last colon, joined back together with colons.
-	repo := strings.Join(parts[:len(parts)-1], ":")
-
-	return repo, tag
 }

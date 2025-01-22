@@ -17,12 +17,14 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
-	"github.com/flightctl/flightctl/internal/container"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -92,15 +94,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// create bootc client
-	bootcClient := container.NewBootcCmd(executer)
-
-	// create podman client
-	podmanClient := client.NewPodman(a.log, executer)
-
-	// create systemd client
-	systemdClient := client.NewSystemd(executer)
-
 	// TODO: this needs tuned
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
@@ -109,13 +102,31 @@ func (a *Agent) Run(ctx context.Context) error {
 		Steps:    6,
 	}
 
+	// create bootc client
+	bootcClient := client.NewBootc(a.log, executer)
+
+	// create podman client
+	podmanClient := client.NewPodman(a.log, executer, backoff)
+
+	// create systemd client
+	systemdClient := client.NewSystemd(executer)
+
+	// create system client
+	systemClient := client.NewSystem(executer, deviceReadWriter, a.config.DataDir)
+	if err := systemClient.Initialize(); err != nil {
+		return err
+	}
+
 	// create shutdown manager
 	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+
+	policyManager := policy.NewManager(a.log)
 
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
 		a.config.DataDir,
+		policyManager,
 		deviceReadWriter,
 		bootcClient,
 		backoff,
@@ -128,10 +139,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(executer, a.log)
+	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
 	// create application manager
-	applicationManager := applications.NewManager(a.log, executer, podmanClient)
+	applicationManager := applications.NewManager(
+		a.log,
+		deviceReadWriter,
+		executer,
+		podmanClient,
+		systemClient,
+	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationManager.Stop)
@@ -139,20 +156,41 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create systemd manager
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
+	// create os manager
+	osManager := os.NewManager(a.log, bootcClient, podmanClient)
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
-		resourceManager,
-		hookManager,
-		applicationManager,
-		systemdManager,
-		executer,
+		systemClient,
 		a.log,
 	)
 
+	// create lifecycle manager
+	lifecycleManager := lifecycle.NewManager(
+		deviceName,
+		a.config.EnrollmentService.EnrollmentUIEndpoint,
+		a.config.ManagementService.GetClientCertificatePath(),
+		a.config.ManagementService.GetClientKeyPath(),
+		deviceReadWriter,
+		enrollmentClient,
+		csr,
+		a.config.DefaultLabels,
+		statusManager,
+		systemdClient,
+		backoff,
+		a.log,
+	)
+
+	// register status exporters
+	statusManager.RegisterStatusExporter(applicationManager)
+	statusManager.RegisterStatusExporter(systemdManager)
+	statusManager.RegisterStatusExporter(resourceManager)
+	statusManager.RegisterStatusExporter(osManager)
+	statusManager.RegisterStatusExporter(specManager)
+
 	// create config controller
 	configController := config.NewController(
-		hookManager,
 		deviceReadWriter,
 		a.log,
 	)
@@ -161,16 +199,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceName,
 		executer,
 		deviceReadWriter,
-		csr,
 		specManager,
 		statusManager,
 		hookManager,
-		enrollmentClient,
-		a.config.EnrollmentService.EnrollmentUIEndpoint,
+		lifecycleManager,
 		&a.config.ManagementService.Config,
-		backoff,
+		systemClient,
 		a.log,
-		a.config.DefaultLabels,
 	)
 
 	// bootstrap
@@ -179,7 +214,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create the gRPC client this must be done after bootstrap
-	grpcClient, err := newGrpcClient(a.config)
+	grpcClient, err := newGrpcClient(&a.config.ManagementService)
 	if err != nil {
 		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
@@ -188,14 +223,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	resourceController := resource.NewController(
 		a.log,
 		resourceManager,
-	)
-
-	// create os image controller
-	osImageController := device.NewOSImageController(
-		executer,
-		statusManager,
-		specManager,
-		a.log,
 	)
 
 	// create console controller
@@ -224,9 +251,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
 		hookManager,
+		osManager,
+		policyManager,
+		lifecycleManager,
 		applicationsController,
 		configController,
-		osImageController,
 		resourceController,
 		consoleController,
 		bootcClient,
@@ -239,7 +268,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager.Register("agent", agent.Stop)
 
 	go shutdownManager.Run(ctx)
-	go hookManager.Run(ctx)
 	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
@@ -253,11 +281,8 @@ func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newGrpcClient(cfg *Config) (grpc_v1.RouterServiceClient, error) {
-	if cfg.GrpcManagementEndpoint == "" {
-		return nil, fmt.Errorf("no gRPC endpoint, disabling console functionality")
-	}
-	client, err := client.NewGRPCClientFromConfig(&cfg.ManagementService.Config, cfg.GrpcManagementEndpoint)
+func newGrpcClient(cfg *ManagementService) (grpc_v1.RouterServiceClient, error) {
+	client, err := client.NewGRPCClientFromConfig(&cfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}

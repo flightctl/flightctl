@@ -10,6 +10,7 @@ import (
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -19,8 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, configStorage ConfigStorage, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, configStorage, *resourceRef)
+func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, kvStore, *resourceRef)
 	if resourceRef.Op == DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -39,7 +40,7 @@ type DeviceRenderLogic struct {
 	log             logrus.FieldLogger
 	store           store.Store
 	k8sClient       k8sclient.K8SClient
-	configStorage   ConfigStorage
+	kvStore         kvstore.KVStore
 	resourceRef     ResourceReference
 	ownerFleet      *string
 	templateVersion *string
@@ -47,8 +48,8 @@ type DeviceRenderLogic struct {
 	applications    *[]api.ApplicationSpec
 }
 
-func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, configStorage ConfigStorage, resourceRef ResourceReference) DeviceRenderLogic {
-	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, configStorage: configStorage, resourceRef: resourceRef}
+func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef ResourceReference) DeviceRenderLogic {
+	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
@@ -72,10 +73,11 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 		t.ownerFleet = &owner
 
-		if device.Metadata.Annotations != nil {
-			tvString := (*device.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]
-			t.templateVersion = &tvString
+		if device.Metadata.Annotations == nil {
+			return fmt.Errorf("device has no templateversion annotation")
 		}
+		tvString := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
+		t.templateVersion = &tvString
 	}
 
 	ignitionConfig, referencedRepos, renderErr := t.renderConfig(ctx)
@@ -141,12 +143,6 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 		name, renderedApplication, renderErr := renderApplication(ctx, &application)
 		applicationName := util.DefaultIfNil(name, "<unknown>")
 
-		if paramErr := validateNoParametersInConfig(&application, t.ownerFleet != nil); paramErr != nil {
-			// An error message regarding invalid parameters should take precedence
-			// because it may be the cause of the render error
-			renderErr = paramErr
-		}
-
 		// Append invalid configs only if there's an error
 		if renderErr != nil {
 			invalidApplications = append(invalidApplications, applicationName)
@@ -195,16 +191,9 @@ func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_ty
 	for i := range *t.deviceConfig {
 		configItem := (*t.deviceConfig)[i]
 		name, repoName, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
-		paramErr := validateNoParametersInConfig(&configItem, t.ownerFleet != nil)
 
 		if repoName != nil {
 			referencedRepos = append(referencedRepos, *repoName)
-		}
-
-		// An error message regarding invalid parameters should take precedence
-		// because it may be the cause of the render error
-		if paramErr != nil {
-			err = paramErr
 		}
 
 		if err != nil {
@@ -230,24 +219,6 @@ func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_ty
 
 type RenderItem interface {
 	MarshalJSON() ([]byte, error)
-}
-
-func validateNoParametersInConfig(item RenderItem, deviceBelongsToFleet bool) error {
-	cfgJson, err := item.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("failed converting configuration to json: %w", err)
-	}
-
-	// If we're rendering the device config and it still has parameters, something went wrong
-	if ContainsParameter(cfgJson) {
-		if deviceBelongsToFleet {
-			return fmt.Errorf("configuration contains parameter, perhaps due to a missing device label")
-		} else {
-			return fmt.Errorf("configuration contains parameter, but parameters can only be used in fleet templates")
-		}
-	}
-
-	return nil
 }
 
 func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
@@ -316,79 +287,21 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
-	repoURL, err := repo.Spec.Data.GetRepoURL()
-	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
+	var ignition *config_latest_types.Config
 
-	var gitHash string
-
-	// If the device is part of a fleet, we need to make sure the repo and targetRevision are frozen
-	if t.ownerFleet != nil && t.templateVersion != nil {
-		repoKey := ConfigStorageRepositoryUrlKey{
-			OrgID:           t.resourceRef.OrgID,
-			Fleet:           *t.ownerFleet,
-			TemplateVersion: *t.templateVersion,
-			Repository:      gitSpec.GitRef.Repository,
-		}
-		origRepoURL, err := t.configStorage.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
+	// If the device is not part of a fleet, just clone from git into ignition
+	if t.ownerFleet == nil {
+		ignition, _, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
 		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
-		if repoURL != string(origRepoURL) {
-			t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
-			err = repo.Spec.Data.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
-			if err != nil {
-				return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-			}
-		}
-
-		gitRevisionKey := ConfigStorageGitRevisionKey{
-			OrgID:           t.resourceRef.OrgID,
-			Fleet:           *t.ownerFleet,
-			TemplateVersion: *t.templateVersion,
-			Repository:      gitSpec.GitRef.Repository,
-			TargetRevision:  gitSpec.GitRef.TargetRevision,
-		}
-		hashBytes, err := t.configStorage.Get(ctx, gitRevisionKey.ComposeKey())
+	} else {
+		ignition, err = t.cloneCachedGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
 		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-		}
-		gitHash = string(hashBytes)
-	}
-
-	gitRevision := gitSpec.GitRef.TargetRevision
-	if gitHash != "" {
-		gitRevision = gitHash
-	}
-
-	mfs, clonedHash, err := CloneGitRepo(repo, &gitRevision, nil)
-	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
-
-	if gitHash == "" && t.ownerFleet != nil && t.templateVersion != nil {
-		gitRevisionKey := ConfigStorageGitRevisionKey{
-			OrgID:           t.resourceRef.OrgID,
-			Fleet:           *t.ownerFleet,
-			TemplateVersion: *t.templateVersion,
-			Repository:      gitSpec.GitRef.Repository,
-			TargetRevision:  gitSpec.GitRef.TargetRevision,
-		}
-		updated, err := t.configStorage.SetNX(ctx, gitRevisionKey.ComposeKey(), []byte(clonedHash))
-		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed storing frozen git revision %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-		}
-		if !updated {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed freezing git revision %s/%s: unexpectedly changed", t.resourceRef.OrgID, gitSpec.GitRef.Repository)
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
 	}
 
-	// Create an ignition from the git subtree and merge it into the rendered config
-	ignition, err := ConvertFileSystemToIgnition(mfs, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
-	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed parsing git config item %s: %w", gitSpec.Name, err)
-	}
 	mergedConfig := config_latest.Merge(**ignitionConfig, *ignition)
 	*ignitionConfig = &mergedConfig
 
@@ -405,18 +318,18 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	}
 
 	var secretData map[string][]byte
-	var configStoreKey ConfigStorageK8sSecretKey
+	var key kvstore.K8sSecretKey
 	needToStoreData := false
 
-	if t.ownerFleet != nil && t.templateVersion != nil {
-		configStoreKey = ConfigStorageK8sSecretKey{
+	if t.ownerFleet != nil {
+		key = kvstore.K8sSecretKey{
 			OrgID:           t.resourceRef.OrgID,
 			Fleet:           *t.ownerFleet,
 			TemplateVersion: *t.templateVersion,
 			Namespace:       k8sSpec.SecretRef.Namespace,
 			Name:            k8sSpec.SecretRef.Name,
 		}
-		data, err := t.configStorage.Get(ctx, configStoreKey.ComposeKey())
+		data, err := t.kvStore.Get(ctx, key.ComposeKey())
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed fetching cached secret data: %w", err)
 		}
@@ -431,7 +344,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	}
 
 	if secretData == nil {
-		secret, err := t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+		secret, err := t.k8sClient.GetSecret(ctx, k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
@@ -443,7 +356,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed marhsalling secret data %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
-		updated, err := t.configStorage.SetNX(ctx, configStoreKey.ComposeKey(), secretDataToStore)
+		updated, err := t.kvStore.SetNX(ctx, key.ComposeKey(), secretDataToStore)
 		if err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("failed storing secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
@@ -505,6 +418,13 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	if repo.Spec == nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
 	}
+
+	if t.ownerFleet != nil {
+		err = t.getFrozenRepositoryURL(ctx, repo)
+		if err != nil {
+			return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
+		}
+	}
 	repoURL, err := repo.Spec.Data.GetRepoURL()
 	if err != nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
@@ -516,17 +436,17 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	var httpData []byte
-	var configStoreKey ConfigStorageHttpKey
+	var httpKey kvstore.HttpKey
 	needToStoreData := false
 
-	if t.ownerFleet != nil && t.templateVersion != nil {
-		configStoreKey = ConfigStorageHttpKey{
+	if t.ownerFleet != nil {
+		httpKey = kvstore.HttpKey{
 			OrgID:           t.resourceRef.OrgID,
 			Fleet:           *t.ownerFleet,
 			TemplateVersion: *t.templateVersion,
 			URL:             repoURL,
 		}
-		data, err := t.configStorage.Get(ctx, configStoreKey.ComposeKey())
+		data, err := t.kvStore.Get(ctx, httpKey.ComposeKey())
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed fetching cached data: %w", err)
 		}
@@ -545,7 +465,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	if needToStoreData {
-		updated, err := t.configStorage.SetNX(ctx, configStoreKey.ComposeKey(), httpData)
+		updated, err := t.kvStore.SetNX(ctx, httpKey.ComposeKey(), httpData)
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed storing data: %w", err)
 		}
@@ -564,4 +484,117 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
 
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
+}
+
+func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *model.Repository) error {
+	repoURL, err := repo.Spec.Data.GetRepoURL()
+	if err != nil {
+		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+	}
+
+	repoKey := kvstore.RepositoryUrlKey{
+		OrgID:           t.resourceRef.OrgID,
+		Fleet:           *t.ownerFleet,
+		TemplateVersion: *t.templateVersion,
+		Repository:      repo.Name,
+	}
+	origRepoURL, err := t.kvStore.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
+	if err != nil {
+		return fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+	}
+	if repoURL != string(origRepoURL) {
+		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, repo.Name)
+		err = repo.Spec.Data.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
+		if err != nil {
+			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *model.Repository, targetRevision string, path, mountPath string) (*config_latest_types.Config, error) {
+	// 1. Get the frozen repository URL
+	err := t.getFrozenRepositoryURL(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Do we have the mapping of targetRevision -> frozenHash cached?
+	gitRevisionKey := kvstore.GitRevisionKey{
+		OrgID:           t.resourceRef.OrgID,
+		Fleet:           *t.ownerFleet,
+		TemplateVersion: *t.templateVersion,
+		Repository:      repo.Name,
+		TargetRevision:  targetRevision,
+	}
+	frozenHashBytes, err := t.kvStore.Get(ctx, gitRevisionKey.ComposeKey())
+	if err != nil {
+		return nil, fmt.Errorf("failed fetching frozen git revision: %w", err)
+	}
+
+	// 3. If we have the frozen hash, try to get the git data from the cache
+	gitContentsKey := kvstore.GitContentsKey{
+		OrgID:           t.resourceRef.OrgID,
+		Fleet:           *t.ownerFleet,
+		TemplateVersion: *t.templateVersion,
+		Repository:      repo.Name,
+		TargetRevision:  targetRevision,
+		Path:            path,
+	}
+
+	if frozenHashBytes != nil {
+		cachedGitData, err := t.kvStore.Get(ctx, gitContentsKey.ComposeKey())
+		if err != nil {
+			return nil, fmt.Errorf("failed fetching cached git data: %w", err)
+		}
+
+		// If we got the git data from cache, change the mount path and return
+		if cachedGitData != nil {
+			wrapper, err := ignition.NewWrapperFromJson(cachedGitData)
+			if err != nil {
+				return nil, fmt.Errorf("fetched invalid json-encoded ignition from kvstore: %w", err)
+			}
+
+			wrapper.ChangeMountPath(mountPath)
+			ign := wrapper.AsIgnitionConfig()
+			return &ign, nil
+		}
+	}
+
+	// 4. We didn't get the data from the cache, so we need to clone from git
+	revisionToClone := targetRevision
+	if frozenHashBytes != nil {
+		revisionToClone = string(frozenHashBytes)
+	}
+
+	// We clone from git and get ignition with no mount path prefix (i.e., set to "/")
+	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path, "/")
+	if err != nil {
+		return nil, fmt.Errorf("failed cloning git: %w", err)
+	}
+
+	// 5. If we didn't freeze the hash yet, do it now
+	if frozenHashBytes == nil {
+		_, err = t.kvStore.SetNX(ctx, gitRevisionKey.ComposeKey(), []byte(hash))
+		if err != nil {
+			return nil, fmt.Errorf("failed freezing git hash: %w", err)
+		}
+	}
+
+	// 6. Cache the git data
+	wrapper := ignition.NewWrapperFromIgnition(*ign)
+	jsonData, err := wrapper.AsJson()
+	if err != nil {
+		return nil, fmt.Errorf("failed converting git ignition to json: %w", err)
+	}
+	_, err = t.kvStore.SetNX(ctx, gitContentsKey.ComposeKey(), jsonData)
+	if err != nil {
+		return nil, fmt.Errorf("failed caching git data: %w", err)
+	}
+
+	// 7. Change the mount path to what was requested and return
+	wrapper.ChangeMountPath(mountPath)
+	ignToReturn := wrapper.AsIgnitionConfig()
+	return &ignToReturn, nil
 }

@@ -1,248 +1,187 @@
 package hook
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"html/template"
 	"os"
-	"path/filepath"
+	reflect "reflect"
+	"regexp"
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
+type CommandLineVarKey string
+
 const (
 	DefaultHookActionTimeout = 10 * time.Second
-	// FilePathKey is a placeholder which will be replaced with the file path
-	FilePathKey = "FilePath"
-	noValueKey  = "<no value>"
+
+	// PathKey defines the name of the variable that contains the path operated on
+	PathKey CommandLineVarKey = "Path"
+	// FilesKey defines the name of the variable that contains a space-
+	// separated list of files created, updated, or removed during the update
+	FilesKey CommandLineVarKey = "Files"
+	// CreatedKey defines the name of the variable that contains a space-
+	// separated list of files created during the update
+	CreatedKey CommandLineVarKey = "CreatedFiles"
+	// UpdatedKey defines the name of the variable that contains a space-
+	// separated list of files updated during the update
+	UpdatedKey CommandLineVarKey = "UpdatedFiles"
+	// RemovedKey defines the name of the variable that contains a space-
+	// separated list of files removed during the update
+	RemovedKey CommandLineVarKey = "RemovedFiles"
+	// BackupKey defines the name of the variable that contains a space-
+	// separated list of files backed up before removal from the system
+	// into a temporary location deleted after the action completes.
+	BackupKey CommandLineVarKey = "BackupFiles"
+
+	leftDelim     = `{{`
+	rightDelim    = `}}`
+	optWhitespace = `\s*`
 )
 
-type HookDefinition struct {
-	name        string
-	description string
-	path        string
-	actionHooks []ActionHookFactory
-	ops         []v1alpha1.FileOperation
+var (
+	matchers = map[CommandLineVarKey]*regexp.Regexp{
+		PathKey:    regexp.MustCompile(leftDelim + optWhitespace + string(PathKey) + optWhitespace + rightDelim),
+		FilesKey:   regexp.MustCompile(leftDelim + optWhitespace + string(FilesKey) + optWhitespace + rightDelim),
+		CreatedKey: regexp.MustCompile(leftDelim + optWhitespace + string(CreatedKey) + optWhitespace + rightDelim),
+		UpdatedKey: regexp.MustCompile(leftDelim + optWhitespace + string(UpdatedKey) + optWhitespace + rightDelim),
+		RemovedKey: regexp.MustCompile(leftDelim + optWhitespace + string(RemovedKey) + optWhitespace + rightDelim),
+	}
+)
+
+type actionContext struct {
+	hook            api.DeviceLifecycleHookType
+	systemRebooted  bool
+	createdFiles    map[string]ignv3types.File
+	updatedFiles    map[string]ignv3types.File
+	removedFiles    map[string]ignv3types.File
+	commandLineVars map[CommandLineVarKey]string
 }
 
-func (h *HookDefinition) Name() string {
-	return h.name
+func newActionContext(hook api.DeviceLifecycleHookType, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) *actionContext {
+	actionContext := &actionContext{
+		hook:            hook,
+		systemRebooted:  systemRebooted,
+		createdFiles:    make(map[string]ignv3types.File),
+		updatedFiles:    make(map[string]ignv3types.File),
+		removedFiles:    make(map[string]ignv3types.File),
+		commandLineVars: make(map[CommandLineVarKey]string),
+	}
+	resetCommandLineVars(actionContext)
+	if current != nil || desired != nil {
+		computeFileDiff(actionContext, current, desired)
+	}
+	return actionContext
 }
 
-func (h *HookDefinition) Description() string {
-	return h.description
-}
-
-func (h *HookDefinition) Path() string {
-	return h.path
-}
-
-func (h *HookDefinition) ActionFactories() []ActionHookFactory {
-	return h.actionHooks
-}
-
-func (h *HookDefinition) Ops() []v1alpha1.FileOperation {
-	return h.ops
-}
-
-type apiHookActionFactory struct {
-	v1alpha1.HookAction
-}
-
-func newApiHookActionFactory(ha v1alpha1.HookAction) ActionHookFactory {
-	return &apiHookActionFactory{
-		HookAction: ha,
+func resetCommandLineVars(actionCtx *actionContext) {
+	clear(actionCtx.commandLineVars)
+	for _, key := range []CommandLineVarKey{PathKey, FilesKey, CreatedKey, UpdatedKey, RemovedKey, BackupKey} {
+		actionCtx.commandLineVars[key] = ""
 	}
 }
 
-func (a *apiHookActionFactory) createExecutableActionHook(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
-	spec, err := a.AsHookAction0()
-	if err != nil {
-		return nil, err
+func computeFileDiff(actionCtx *actionContext, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) {
+	currentFileList := []ignv3types.File{}
+	desiredFileList := []ignv3types.File{}
+
+	if current != nil && current.Config != nil {
+		currentIgnition, err := config.ParseAndConvertConfigFromStr(*current.Config)
+		if err == nil {
+			currentFileList = append(currentFileList, currentIgnition.Storage.Files...)
+		}
 	}
-	actionTimeout, err := parseTimeout(spec.Executable.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	envVars := util.FromPtr(spec.Executable.EnvVars)
-	if err = validateEnvVars(envVars); err != nil {
-		return nil, err
-	}
-	return newExecutableActionHook(spec.Executable.Run,
-		util.FromPtr(spec.Executable.EnvVars),
-		exec,
-		actionTimeout,
-		spec.Executable.WorkDir,
-		log), nil
-}
-
-func (a *apiHookActionFactory) createSystemdActionHook(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
-	spec, err := a.AsHookAction1()
-	if err != nil {
-		return nil, err
-	}
-	actionTimeout, err := parseTimeout(spec.Systemd.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	return newSystemdActionHook(spec.Systemd.Unit.Name,
-		spec.Systemd.Unit.Operations,
-		exec,
-		actionTimeout,
-		log), nil
-}
-
-func (a *apiHookActionFactory) Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
-	hookActionType, err := a.Type()
-	if err != nil {
-		return nil, err
-	}
-	var actionHook ActionHook
-	switch hookActionType {
-	case v1alpha1.ExecutableActionType:
-		actionHook, err = a.createExecutableActionHook(exec, log)
-	case v1alpha1.SystemdActionType:
-		actionHook, err = a.createSystemdActionHook(exec, log)
-	default:
-		return nil, fmt.Errorf("%w: %s", errors.ErrActionTypeNotFound, hookActionType)
-	}
-	return actionHook, err
-}
-
-//lint:ignore U1000 unused: evaluate if this is needed
-type builtinHookFactory func(ctx context.Context, path string, exec executer.Executer, log *log.PrefixLogger) error
-
-//lint:ignore U1000 unused: evaluate if this is needed
-type builtinActionHook func(ctx context.Context, path string) error
-
-func (b builtinActionHook) OnChange(ctx context.Context, path string) error {
-	return b(ctx, path)
-}
-
-func (b builtinHookFactory) Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error) {
-	return builtinActionHook(func(ctx context.Context, path string) error {
-		return b(ctx, path, exec, log)
-	}), nil
-}
-
-type systemdActionHook struct {
-	actionTimeout time.Duration
-	operations    []v1alpha1.HookActionSystemdUnitOperations
-	unitName      string
-	exec          executer.Executer
-	log           *log.PrefixLogger
-}
-
-func newSystemdActionHook(unitName string, operations []v1alpha1.HookActionSystemdUnitOperations, exec executer.Executer, actionTimeout time.Duration, log *log.PrefixLogger) ActionHook {
-	return &systemdActionHook{
-		actionTimeout: actionTimeout,
-		operations:    operations,
-		unitName:      unitName,
-		exec:          exec,
-		log:           log,
-	}
-}
-
-func (s *systemdActionHook) OnChange(ctx context.Context, path string) error {
-	var unitName string
-	var err error
-	if s.unitName != "" {
-		unitName = s.unitName
-	} else {
-		// attempt to extract the systemd unit name from the file path
-		unitName, err = getSystemdUnitNameFromFilePath(path)
-		if err != nil {
-			s.log.Errorf("%v: skipping...", err)
-			return nil
+	if desired != nil && desired.Config != nil {
+		desiredIgnition, err := config.ParseAndConvertConfigFromStr(*desired.Config)
+		if err == nil {
+			desiredFileList = append(desiredFileList, desiredIgnition.Storage.Files...)
 		}
 	}
 
-	for _, op := range s.operations {
-		if err := s.executeSystemdOperation(ctx, op, unitName); err != nil {
-			return err
+	currentFileMap := make(map[string]ignv3types.File)
+	for _, f := range currentFileList {
+		currentFileMap[f.Path] = f
+	}
+	for _, f := range desiredFileList {
+		if content, ok := currentFileMap[f.Path]; !ok {
+			actionCtx.createdFiles[f.Path] = ignv3types.File{}
+		} else if !reflect.DeepEqual(f, content) {
+			actionCtx.updatedFiles[f.Path] = ignv3types.File{}
 		}
 	}
 
-	return nil
+	desiredFileMap := make(map[string]ignv3types.File)
+	for _, f := range desiredFileList {
+		desiredFileMap[f.Path] = f
+	}
+	for _, f := range currentFileList {
+		if content, ok := desiredFileMap[f.Path]; !ok {
+			actionCtx.removedFiles[f.Path] = content
+		}
+	}
 }
 
-func (s *systemdActionHook) executeSystemdOperation(ctx context.Context, op v1alpha1.HookActionSystemdUnitOperations, unitName string) error {
-	ctx, cancel := context.WithTimeout(ctx, s.actionTimeout)
+func executeAction(ctx context.Context, exec executer.Executer, log *log.PrefixLogger, action api.HookAction, actionCtx *actionContext, actionTimeout time.Duration) error {
+	actionType, err := action.Type()
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, actionTimeout)
 	defer cancel()
 
-	systemdClient := client.NewSystemd(s.exec)
-
-	switch op {
-	case v1alpha1.SystemdStart:
-		if err := systemdClient.Start(ctx, unitName); err != nil {
+	switch actionType {
+	case api.HookActionTypeRun:
+		runAction, err := action.AsHookActionRun()
+		if err != nil {
 			return err
 		}
-	case v1alpha1.SystemdStop:
-		if err := systemdClient.Stop(ctx, unitName); err != nil {
-			return err
-		}
-	case v1alpha1.SystemdRestart:
-		if err := systemdClient.Restart(ctx, unitName); err != nil {
-			return err
-		}
-	case v1alpha1.SystemdReload:
-		if err := systemdClient.Reload(ctx, unitName); err != nil {
-			return err
-		}
-	case v1alpha1.SystemdEnable:
-		if err := systemdClient.Enable(ctx, unitName); err != nil {
-			return err
-		}
-	case v1alpha1.SystemdDisable:
-		if err := systemdClient.Disable(ctx, unitName); err != nil {
-			return err
-		}
-	case v1alpha1.SystemdDaemonReload:
-		if err := systemdClient.DaemonReload(ctx); err != nil {
-			return err
-		}
+		return executeRunAction(ctx, exec, log, runAction, actionCtx)
+	default:
+		return fmt.Errorf("unknown hook action type %q", actionType)
 	}
-	return nil
 }
 
-// getSystemdUnitNameFromFilePath attempts to extract the systemd unit name from
-// the file path or returns an error if the file does not have a valid systemd
-// file suffix.
-func getSystemdUnitNameFromFilePath(filePath string) (string, error) {
-	unitName := filepath.Base(filePath)
+func executeRunAction(ctx context.Context, exec executer.Executer, log *log.PrefixLogger,
+	action api.HookActionRun, actionCtx *actionContext) error {
 
-	// list of valid systemd unit file extensions from systemd documentation
-	// ref. https://www.freedesktop.org/software/systemd/man/systemd.unit.html
-	validExtensions := []string{
-		".service",   // Service unit
-		".socket",    // Socket unit
-		".device",    // Device unit
-		".mount",     // Mount unit
-		".automount", // Automount unit
-		".swap",      // Swap unit
-		".target",    // Target unit
-		".path",      // Path unit
-		".timer",     // Timer unit
-		".slice",     // Slice unit
-		".scope",     // Scope unit
-	}
+	var workDir string
+	if action.WorkDir != nil {
+		workDir = *action.WorkDir
+		dirExists, err := dirExists(workDir)
+		if err != nil {
+			return err
+		}
 
-	// Check if the unit name ends with a valid extension
-	for _, ext := range validExtensions {
-		if strings.HasSuffix(unitName, ext) {
-			return unitName, nil
+		// we expect the directory to exist should be created by config if its new.
+		if !dirExists {
+			return fmt.Errorf("workdir %s: %w", workDir, os.ErrNotExist)
 		}
 	}
 
-	return "", fmt.Errorf("invalid systemd unit file: %s", filePath)
+	// render variables in args if they exist
+	commandLine := replaceTokens(action.Run, actionCtx.commandLineVars)
+	cmd, args := splitCommandAndArgs(commandLine)
+
+	if err := validateEnvVars(action.EnvVars); err != nil {
+		return err
+	}
+	envVars := util.LabelMapToArray(action.EnvVars)
+
+	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
+	if exitCode != 0 {
+		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
+		return fmt.Errorf("%s (exit code %d)", stderr, exitCode)
+	}
+
+	return nil
 }
 
 func dirExists(path string) (bool, error) {
@@ -263,112 +202,51 @@ func parseTimeout(timeout *string) (time.Duration, error) {
 	return time.ParseDuration(*timeout)
 }
 
-func validateEnvVars(envVars []string) error {
-	for _, envVar := range envVars {
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid envVar format: should be KEY=VALUE: %s", envVar)
+func splitCommandAndArgs(command string) (string, []string) {
+	parts := splitWithQuotes(command)
+	if len(parts) == 0 {
+		return "", []string{}
+	}
+	return parts[0], parts[1:]
+}
+
+func splitWithQuotes(s string) []string {
+	quoted := false
+	return strings.FieldsFunc(s, func(r rune) bool {
+		if r == '"' {
+			quoted = !quoted
 		}
-		key, value := parts[0], parts[1]
+		return !quoted && r == ' '
+	})
+}
+
+func validateEnvVars(envVars *map[string]string) error {
+	if envVars == nil {
+		return nil
+	}
+	for key, value := range *envVars {
 		if key == "" {
-			return fmt.Errorf("invalid envVar format: key cannot be empty: %s", envVar)
+			return fmt.Errorf("invalid envVar format: key cannot be empty: %s", strings.Join([]string{key, value}, "="))
 		}
 		if strings.Contains(key, " ") {
-			return fmt.Errorf("invalid envVar format: key cannot contain spaces: %s", envVar)
+			return fmt.Errorf("invalid envVar format: key cannot contain spaces: %s", strings.Join([]string{key, value}, "="))
 		}
 		if value == "" {
-			return fmt.Errorf("invalid envVar format: value cannot be empty: %s", envVar)
+			return fmt.Errorf("invalid envVar format: value cannot be empty: %s", strings.Join([]string{key, value}, "="))
 		}
 		if key != strings.ToUpper(key) {
-			return fmt.Errorf("invalid envVar format: key must be uppercase: %s", envVar)
+			return fmt.Errorf("invalid envVar format: key must be uppercase: %s", strings.Join([]string{key, value}, "="))
 		}
 	}
 	return nil
 }
 
-func replaceTokens(args string, tokens map[string]string) (string, error) {
-	tmpl, err := template.New("args").Parse(args)
-	if err != nil {
-		// unfortunately we can not use errors.As here, as we are working with basic error types.
-		if strings.Contains(err.Error(), "function") && strings.Contains(err.Error(), "not defined") {
-			return "", fmt.Errorf("%w, %w", errors.ErrInvalidTokenFormat, err)
-		}
-		return "", err
+// replaceTokens replaces all registered command line variables with the
+// provided values. Wrongly formatted or unknown variables are left in
+// in the string.
+func replaceTokens(s string, tokens map[CommandLineVarKey]string) string {
+	for key, re := range matchers {
+		s = re.ReplaceAllString(s, tokens[key])
 	}
-
-	// capture the output of the executed template in buffer
-	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, tokens)
-	if err != nil {
-		return "", err
-	}
-	output := buf.String()
-	if strings.Contains(output, noValueKey) {
-		return "", errors.ErrTokenNotSupported
-	}
-
-	return output, nil
-}
-
-func newTokenMap(filePath string) map[string]string {
-	return map[string]string{
-		FilePathKey: filePath,
-	}
-}
-
-type executableActionHook struct {
-	cmd           string
-	envVars       []string
-	exec          executer.Executer
-	actionTimeout time.Duration
-	workDir       *string
-	log           *log.PrefixLogger
-}
-
-func newExecutableActionHook(cmd string, envVars []string, exec executer.Executer, actionTimeout time.Duration, workDir *string, log *log.PrefixLogger) ActionHook {
-	return &executableActionHook{
-		cmd:           cmd,
-		envVars:       envVars,
-		exec:          exec,
-		actionTimeout: actionTimeout,
-		workDir:       workDir,
-		log:           log,
-	}
-}
-
-func (e *executableActionHook) OnChange(ctx context.Context, path string) error {
-	ctx, cancel := context.WithTimeout(ctx, e.actionTimeout)
-	defer cancel()
-
-	var workDir string
-	if e.workDir != nil {
-		workDir = *e.workDir
-		dirExists, err := dirExists(workDir)
-		if err != nil {
-			return err
-		}
-
-		// we expect the directory to exist should be created by config if its new.
-		if !dirExists {
-			return fmt.Errorf("workdir %s: %w", workDir, os.ErrNotExist)
-		}
-	}
-
-	// replace file token in args if it exists
-	tokenMap := newTokenMap(path)
-	cmd, err := replaceTokens(e.cmd, tokenMap)
-	if err != nil {
-		return err
-	}
-
-	// We cannot split the cmd by whitespace because we want to allow running a command with arguments the contain spaces
-	// For example bash -c might be useful if we want to run several commands as a single action.  Therefore, all commands
-	// will run by using 'bash -c' to let bash do the parsing
-	_, stderr, exitCode := e.exec.ExecuteWithContextFromDir(ctx, workDir, "bash", []string{"-c", cmd}, e.envVars...)
-	if exitCode != 0 {
-		e.log.Errorf("execute hook for path %s failed with exitCode %d for command %s: %s", path, exitCode, cmd, stderr)
-		return fmt.Errorf("command for path %s exited with code %d: %s", path, exitCode, stderr)
-	}
-
-	return nil
+	return s
 }

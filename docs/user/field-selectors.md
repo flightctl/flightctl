@@ -11,11 +11,10 @@ Each resource supports the following metadata fields:
 
 - `metadata.name`
 - `metadata.owner`
-- `metadata.labels`
-- `metadata.annotations`
 - `metadata.creationTimestamp`
 
-> ![NOTE] While `metadata.labels` can be selected using Field Selectors, for more extensive label querying options, consider using Label Selectors.
+> [!NOTE]
+> To query labels, use Label Selectors for advanced and flexible label filtering.
 
 ### List of Additional Supported Fields
 
@@ -47,7 +46,7 @@ flightctl get devices --field-selector 'metadata.name!=c3tkb18x9fw32fzx5l556n0p0
 This command retrieves devices owned by `Fleet/pos-fleet`, located in the `us` region, and created in 2024:
 
 ```bash
-flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region=us, metadata.creationTimestamp >= 2024-01-01T00:00:00Z, metadata.creationTimestamp < 2025-01-01T00:00:00Z'
+flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.creationTimestamp >= 2024-01-01T00:00:00Z, metadata.creationTimestamp < 2025-01-01T00:00:00Z' -l 'region=us'
 ```
 
 #### Example 3: Filter by Owner, Labels, and Device Status
@@ -55,7 +54,8 @@ flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata
 This command retrieves devices owned by `Fleet/pos-fleet`, located in the `us` region, and with a `status.updated.status` of either `Unknown` or `OutOfDate`:
 
 ```bash
-flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, metadata.labels contains region=us, status.updated.status in (Unknown, OutOfDate)'
+flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, status.updated.status in (Unknown, OutOfDate)' -l 'region=us'
+
 ```
 
 ### Fields Discovery
@@ -67,7 +67,7 @@ For example:
 ```bash
 flightctl get device --field-selector='text'
 
-Error: listing devices: 400, message: unknown or unsupported selector: unable to resolve selector name "text". Supported selectors are: [metadata.alias metadata.annotations metadata.creationTimestamp metadata.labels metadata.name metadata.nameoralias metadata.owner status.applicationsSummary.status status.lastSeen status.summary.status status.updated.status]
+Error: listing devices: 400, message: unknown or unsupported selector: unable to resolve selector name "text". Supported selectors are: [metadata.alias metadata.creationTimestamp metadata.name metadata.nameoralias metadata.owner status.applicationsSummary.status status.lastSeen status.summary.status status.updated.status]
 ```
 
 In this example, the field `text` is not a valid field for filtering. The error message provides a list of supported fields that can be used with `--field-selector` for the `device` resource.

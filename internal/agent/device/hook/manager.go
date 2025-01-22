@@ -2,270 +2,169 @@ package hook
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
-	"reflect"
-	"sync"
-	"sync/atomic"
+	"sort"
+	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
-	"github.com/flightctl/flightctl/internal/util"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"sigs.k8s.io/yaml"
+)
+
+// TODO: Deduplicate with internal/agent/config.go after agreeing how to best break import cycles
+const (
+	// ReadOnlyConfigDir is where read-only configuration files are stored
+	ReadOnlyConfigDir = "/usr/lib/flightctl"
+	// ReadOnlyConfigDir is where read-only configuration files are stored
+	UserWritableConfigDir = "/etc/flightctl"
+	// HooksDropInDirName is the subdirectory in which hooks are stored
+	HooksDropInDirName = "hooks.d"
 )
 
 var _ Manager = (*manager)(nil)
 
 type Manager interface {
-	Run(ctx context.Context)
-	Sync(current, desired *v1alpha1.RenderedDeviceSpec) error
-	OnBeforeCreate(ctx context.Context, path string)
-	OnAfterCreate(ctx context.Context, path string)
-	OnBeforeUpdate(ctx context.Context, path string)
-	OnAfterUpdate(ctx context.Context, path string)
-	OnBeforeRemove(ctx context.Context, path string)
-	OnAfterRemove(ctx context.Context, path string)
-	OnBeforeReboot(ctx context.Context, path string)
-	OnAfterReboot(ctx context.Context, path string)
-	Errors() []error
-	Close() error
-}
+	Sync(current, desired *api.RenderedDeviceSpec) error
 
-type ActionHookFactory interface {
-	Create(exec executer.Executer, log *log.PrefixLogger) (ActionHook, error)
+	OnBeforeUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) error
+	OnAfterUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) error
+	OnBeforeRebooting(ctx context.Context) error
+	OnAfterRebooting(ctx context.Context) error
 }
-
-type ActionHook interface {
-	OnChange(ctx context.Context, path string) error
-}
-
-type ActionMap map[string][]ActionHook
 
 type manager struct {
-	onBeforeCreate ActionMap
-	onAfterCreate  ActionMap
-	onBeforeUpdate ActionMap
-	onAfterUpdate  ActionMap
-	onBeforeRemove ActionMap
-	onAfterRemove  ActionMap
-	onBeforeReboot ActionMap
-	onAfterReboot  ActionMap
-	log            *log.PrefixLogger
-	mu             sync.Mutex
-	errors         map[string]error
-	backgroundJobs chan func(ctx context.Context)
-	exec           executer.Executer
-	initialized    atomic.Bool
+	log    *log.PrefixLogger
+	reader fileio.Reader
+	exec   executer.Executer
 }
 
-func NewManager(exec executer.Executer, log *log.PrefixLogger) Manager {
+func NewManager(reader fileio.Reader, exec executer.Executer, log *log.PrefixLogger) Manager {
 	return &manager{
-		onBeforeCreate: make(ActionMap),
-		onAfterCreate:  make(ActionMap),
-		onBeforeUpdate: make(ActionMap),
-		onAfterUpdate:  make(ActionMap),
-		onBeforeRemove: make(ActionMap),
-		onAfterRemove:  make(ActionMap),
-		onBeforeReboot: make(ActionMap),
-		onAfterReboot:  make(ActionMap),
-		log:            log,
-		errors:         make(map[string]error),
-		backgroundJobs: make(chan func(ctx context.Context), 100),
-		exec:           exec,
+		log:    log,
+		reader: reader,
+		exec:   exec,
 	}
 }
 
-func (m *manager) createApiHookDefinition(hookSpec v1alpha1.DeviceUpdateHookSpec) (HookDefinition, error) {
-	var actionHooks []ActionHookFactory
-	for _, action := range hookSpec.Actions {
-		actionHooks = append(actionHooks, newApiHookActionFactory(action))
-	}
-	return HookDefinition{
-		name:        util.FromPtr(hookSpec.Name),
-		description: util.FromPtr(hookSpec.Description),
-		actionHooks: actionHooks,
-		ops:         util.FromPtr(hookSpec.OnFile),
-		path:        util.FromPtr(hookSpec.Path),
-	}, nil
-}
-
-func (m *manager) generateOperationMaps(hookSpecs []v1alpha1.DeviceUpdateHookSpec, additionalHooks ...HookDefinition) (ActionMap, ActionMap, ActionMap, ActionMap, error) {
-	createMap := make(ActionMap)
-	updateMap := make(ActionMap)
-	removeMap := make(ActionMap)
-	rebootMap := make(ActionMap)
-	var hookDefinitions []HookDefinition
-	for _, hookSpec := range hookSpecs {
-		h, err := m.createApiHookDefinition(hookSpec)
-		if err != nil {
-			return nil, nil, nil, nil, err
-		}
-		hookDefinitions = append(hookDefinitions, h)
-	}
-	for _, h := range append(hookDefinitions, additionalHooks...) {
-		path := h.Path()
-		opts := h.Ops()
-		for _, actionHookFactory := range h.ActionFactories() {
-			actionHook, err := actionHookFactory.Create(m.exec, m.log)
-			if err != nil {
-				return nil, nil, nil, nil, err
-			}
-			for _, op := range opts {
-				switch op {
-				case v1alpha1.FileOperationCreate:
-					createMap[path] = append(createMap[path], actionHook)
-				case v1alpha1.FileOperationUpdate:
-					updateMap[path] = append(updateMap[path], actionHook)
-				case v1alpha1.FileOperationRemove:
-					removeMap[path] = append(removeMap[path], actionHook)
-				case v1alpha1.FileOperationReboot:
-					rebootMap[path] = append(rebootMap[path], actionHook)
-				default:
-					return nil, nil, nil, nil, errors.ErrUnsupportedFilesystemOperation
-				}
-			}
-		}
-	}
-	return createMap, updateMap, removeMap, rebootMap, nil
-}
-
-func (m *manager) Sync(currentPtr, desiredPtr *v1alpha1.RenderedDeviceSpec) error {
-	m.log.Debug("Syncing hook manager")
-	defer m.log.Debug("Finished syncing hook manager")
-
-	current := util.FromPtr(currentPtr)
-	desired := util.FromPtr(desiredPtr)
-	if m.initialized.Load() && reflect.DeepEqual(current.Hooks, desired.Hooks) {
-		m.log.Debug("Hooks are equal. Nothing to update")
-		return nil
-	}
-	desiredHooks := util.FromPtr(desired.Hooks)
-	beforeCreateMap, beforeUpdateMap, beforeRemoveMap, beforeRebootMap, err := m.generateOperationMaps(util.FromPtr(desiredHooks.BeforeUpdating), defaultBeforeUpdateHooks()...)
-	if err != nil {
-		return err
-	}
-	afterCreateMap, afterUpdateMap, afterRemoveMap, afterRebootMap, err := m.generateOperationMaps(util.FromPtr(desiredHooks.AfterUpdating), defaultAfterUpdateHooks()...)
-	if err != nil {
-		return err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.onBeforeCreate = beforeCreateMap
-	m.onBeforeUpdate = beforeUpdateMap
-	m.onBeforeRemove = beforeRemoveMap
-	m.onAfterCreate = afterCreateMap
-	m.onAfterUpdate = afterUpdateMap
-	m.onAfterRemove = afterRemoveMap
-	m.onBeforeReboot = beforeRebootMap
-	m.onAfterReboot = afterRebootMap
-	m.initialized.Store(true)
+func (m *manager) Sync(currentPtr, desiredPtr *api.RenderedDeviceSpec) error {
 	return nil
 }
 
-func (m *manager) setError(path string, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *manager) OnBeforeUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) error {
+	actionCtx := newActionContext(api.DeviceLifecycleHookBeforeUpdating, current, desired, false)
+	return m.loadAndExecuteActions(ctx, actionCtx)
+}
+
+func (m *manager) OnAfterUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) error {
+	actionCtx := newActionContext(api.DeviceLifecycleHookAfterUpdating, current, desired, systemRebooted)
+	return m.loadAndExecuteActions(ctx, actionCtx)
+}
+
+func (m *manager) OnBeforeRebooting(ctx context.Context) error {
+	actionCtx := newActionContext(api.DeviceLifecycleHookBeforeRebooting, nil, nil, false)
+	return m.loadAndExecuteActions(ctx, actionCtx)
+}
+
+func (m *manager) OnAfterRebooting(ctx context.Context) error {
+	actionCtx := newActionContext(api.DeviceLifecycleHookAfterRebooting, nil, nil, true)
+	return m.loadAndExecuteActions(ctx, actionCtx)
+}
+
+func (m *manager) loadAndExecuteActions(ctx context.Context, actionCtx *actionContext) error {
+	m.log.Debugf("Starting hook manager On%s()", actionCtx.hook)
+	defer m.log.Debugf("Finished hook manager On%s()", actionCtx.hook)
+
+	actions, err := m.loadAndMergeActions(actionCtx.hook)
 	if err != nil {
-		m.errors[path] = err
-	} else {
-		delete(m.errors, path)
+		return err
 	}
+	return m.executeActions(ctx, actions, actionCtx)
 }
 
-func (m *manager) getActionsForPath(path string, actions ActionMap) []ActionHook {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append(actions[path], actions[filepath.Dir(path)]...)
+func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]api.HookAction, error) {
+	actionsMap := map[string][]api.HookAction{}
+	// Read actions from the read-only hooks directory (/usr/lib/flightctl/hooks.d/${hookType}/*.yaml)
+	err := m.loadActions(actionsMap, filepath.Join(ReadOnlyConfigDir, HooksDropInDirName, strings.ToLower(string(hookType)), "*.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	// Overlay actions from the user-writable hooks directory (/etc/flightctl/hooks.d/${hookType}/*.yaml)
+	err = m.loadActions(actionsMap, filepath.Join(UserWritableConfigDir, HooksDropInDirName, strings.ToLower(string(hookType)), "*.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	// Sort files containing actions in lexical order, then flatten actionMap into a list of actions in that order
+	keyList := make([]string, 0, len(actionsMap))
+	for k := range actionsMap {
+		keyList = append(keyList, k)
+	}
+	sort.Strings(keyList)
+	actions := []api.HookAction{}
+	for _, k := range keyList {
+		actions = append(actions, actionsMap[k]...)
+	}
+	return actions, nil
 }
 
-func (m *manager) submitBackgroundJob(path string, actions ActionMap) {
-	actionList := m.getActionsForPath(path, actions)
-	if len(actionList) == 0 {
-		return
+func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFilesGlob string) error {
+	actionFiles, err := filepath.Glob(m.reader.PathFor(actionFilesGlob))
+	if err != nil {
+		m.log.Errorf("looking for hook actions matching %q: %v", actionFilesGlob, err)
 	}
-	m.backgroundJobs <- func(ctx context.Context) {
-		m.runActionList(ctx, path, actionList)
+	for _, f := range actionFiles {
+		contents, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("reading hook actions from %q: %w", f, err)
+		}
+		actions := []api.HookAction{}
+		if err := yaml.UnmarshalStrict(contents, &actions); err != nil {
+			return fmt.Errorf("parsing hook actions from %q: %w", f, err)
+		}
+		allErrs := []error{}
+		for i, action := range actions {
+			allErrs = append(allErrs, action.Validate(fmt.Sprintf("validating %q hook action[%d]", f, i))...)
+		}
+		if len(allErrs) > 0 {
+			return errors.Join(allErrs...)
+		}
+		actionsMap[filepath.Base(f)] = actions
 	}
+	return nil
 }
 
-func (m *manager) Run(ctx context.Context) {
-	for {
-		select {
-		case job, ok := <-m.backgroundJobs:
-			if !ok {
-				m.log.Warn("Hooks manager: jobs channel closed")
-				return
+func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, actionCtx *actionContext) error {
+	for i, action := range actions {
+		if action.If != nil {
+			conditionsMet := true
+			for j, condition := range *action.If {
+				condition := condition
+				conditionMet, err := checkCondition(&condition, actionCtx)
+				if err != nil {
+					return fmt.Errorf("failed to check %s hook action #%d condition #%d: %w", actionCtx.hook, i+1, j+1, err)
+				}
+				if !conditionMet {
+					m.log.Debugf("skipping %s hook action #%d condition #%d: condition not met", actionCtx.hook, i+1, j+1)
+					conditionsMet = false
+					break
+				}
 			}
-			job(ctx)
-		case <-ctx.Done():
-			m.log.Debug("Hooks manager: context closed")
-			return
+			if !conditionsMet {
+				continue
+			}
+		}
+
+		actionTimeout, err := parseTimeout(action.Timeout)
+		if err != nil {
+			return err
+		}
+		if err := executeAction(ctx, m.exec, m.log, action, actionCtx, actionTimeout); err != nil {
+			return fmt.Errorf("failed to execute %s hook action #%d: %w", actionCtx.hook, i+1, err)
 		}
 	}
-}
-
-func (m *manager) runActionList(ctx context.Context, path string, actionHooks []ActionHook) {
-	if len(actionHooks) == 0 {
-		return
-	}
-	var errs []error
-	for _, actionHook := range actionHooks {
-		if err := actionHook.OnChange(ctx, path); err != nil {
-			m.log.Errorf("error while running hook for path %s: %+v", path, err)
-			errs = append(errs, fmt.Errorf("failed to run hook for path %s: %w", path, err))
-		}
-	}
-	m.setError(path, errors.Join(errs...))
-}
-
-func (m *manager) runActions(ctx context.Context, path string, actions ActionMap) {
-	m.runActionList(ctx, path, m.getActionsForPath(path, actions))
-}
-
-func (m *manager) OnBeforeCreate(ctx context.Context, path string) {
-	m.runActions(ctx, path, m.onBeforeCreate)
-}
-
-func (m *manager) OnAfterCreate(ctx context.Context, path string) {
-	m.submitBackgroundJob(path, m.onAfterCreate)
-}
-
-func (m *manager) OnBeforeUpdate(ctx context.Context, path string) {
-	m.runActions(ctx, path, m.onBeforeUpdate)
-}
-
-func (m *manager) OnAfterUpdate(ctx context.Context, path string) {
-	m.submitBackgroundJob(path, m.onAfterUpdate)
-}
-
-func (m *manager) OnBeforeRemove(ctx context.Context, path string) {
-	m.runActions(ctx, path, m.onBeforeRemove)
-}
-
-func (m *manager) OnAfterRemove(ctx context.Context, path string) {
-	m.submitBackgroundJob(path, m.onAfterRemove)
-}
-
-func (m *manager) OnBeforeReboot(ctx context.Context, path string) {
-	m.runActions(ctx, path, m.onBeforeReboot)
-}
-
-func (m *manager) OnAfterReboot(ctx context.Context, path string) {
-	m.submitBackgroundJob(path, m.onAfterReboot)
-}
-
-func (m *manager) Errors() []error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	errs := make([]error, 0, len(m.errors))
-	for _, err := range m.errors {
-		errs = append(errs, err)
-	}
-	return errs
-}
-
-func (m *manager) Close() error {
-	close(m.backgroundJobs)
 	return nil
 }

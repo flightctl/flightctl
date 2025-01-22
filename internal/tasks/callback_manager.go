@@ -6,7 +6,6 @@ import (
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -31,13 +30,13 @@ const (
 )
 
 type CallbackManager interface {
-	FleetUpdatedCallback(before *model.Fleet, after *model.Fleet)
-	RepositoryUpdatedCallback(repository *model.Repository)
+	DeviceUpdatedCallback(orgId uuid.UUID, before, after *api.Device)
+	FleetUpdatedCallback(orgId uuid.UUID, before, after *api.Fleet)
+	RepositoryUpdatedCallback(orgId uuid.UUID, before, after *api.Repository)
+	TemplateVersionCreatedCallback(orgId uuid.UUID, before, after *api.TemplateVersion)
 	AllRepositoriesDeletedCallback(orgId uuid.UUID)
 	AllFleetsDeletedCallback(orgId uuid.UUID)
 	AllDevicesDeletedCallback(orgId uuid.UUID)
-	DeviceUpdatedCallback(before *model.Device, after *model.Device)
-	TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion)
 	FleetSourceUpdated(orgId uuid.UUID, name string)
 	DeviceSourceUpdated(orgId uuid.UUID, name string)
 }
@@ -75,10 +74,10 @@ func (t *callbackManager) submitTask(taskName string, resource ResourceReference
 	}
 }
 
-func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model.Fleet) {
+func (t *callbackManager) FleetUpdatedCallback(orgId uuid.UUID, before, after *api.Fleet) {
 	var templateUpdated bool
 	var selectorUpdated bool
-	var fleet *model.Fleet
+	var fleet *api.Fleet
 
 	if before == nil && after == nil {
 		// Shouldn't be here, return
@@ -96,18 +95,18 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 		selectorUpdated = true
 	} else {
 		fleet = after
-		templateUpdated = !reflect.DeepEqual(before.Spec.Data.Template.Spec, after.Spec.Data.Template.Spec)
-		selectorUpdated = !reflect.DeepEqual(before.Spec.Data.Selector, after.Spec.Data.Selector)
+		templateUpdated = !api.DeviceSpecsAreEqual(before.Spec.Template.Spec, after.Spec.Template.Spec)
+		selectorUpdated = !reflect.DeepEqual(before.Spec.Selector, after.Spec.Selector)
 	}
 
-	ref := ResourceReference{OrgID: fleet.OrgID, Kind: model.FleetKind, Name: fleet.Name}
+	ref := ResourceReference{OrgID: orgId, Kind: api.FleetKind, Name: *fleet.Metadata.Name}
 	if templateUpdated {
 		// If the template was updated, start rolling out the new spec
 		t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
 	}
 	if selectorUpdated {
 		op := FleetSelectorMatchOpUpdate
-		if fleet.Status != nil && fleet.Status.Data.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Data.Conditions, api.FleetOverlappingSelectors) {
+		if fleet.Status != nil && fleet.Status.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)
@@ -115,36 +114,45 @@ func (t *callbackManager) FleetUpdatedCallback(before *model.Fleet, after *model
 }
 
 func (t *callbackManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
-	ref := ResourceReference{OrgID: orgId, Kind: model.FleetKind, Name: name}
+	ref := ResourceReference{OrgID: orgId, Kind: api.FleetKind, Name: name}
 	t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
 }
 
-func (t *callbackManager) RepositoryUpdatedCallback(repository *model.Repository) {
+func (t *callbackManager) RepositoryUpdatedCallback(orgId uuid.UUID, before, after *api.Repository) {
+	var repository *api.Repository
+	if before != nil {
+		repository = before
+	} else {
+		repository = after
+	}
+	if repository == nil {
+		return
+	}
 	resourceRef := ResourceReference{
-		OrgID: repository.OrgID,
-		Kind:  model.RepositoryKind,
-		Name:  repository.Name,
+		OrgID: orgId,
+		Kind:  api.RepositoryKind,
+		Name:  *repository.Metadata.Name,
 	}
 	t.submitTask(RepositoryUpdatesTask, resourceRef, RepositoryUpdateOpUpdate)
 }
 
 func (t *callbackManager) AllRepositoriesDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: model.RepositoryKind}, RepositoryUpdateOpDeleteAll)
+	t.submitTask(RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}, RepositoryUpdateOpDeleteAll)
 }
 
 func (t *callbackManager) AllFleetsDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: model.FleetKind}, FleetSelectorMatchOpDeleteAll)
+	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.FleetKind}, FleetSelectorMatchOpDeleteAll)
 }
 
 func (t *callbackManager) AllDevicesDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: model.DeviceKind}, FleetSelectorMatchOpDeleteAll)
+	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.DeviceKind}, FleetSelectorMatchOpDeleteAll)
 }
 
-func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *model.Device) {
+func (t *callbackManager) DeviceUpdatedCallback(orgId uuid.UUID, before *api.Device, after *api.Device) {
 	var labelsUpdated bool
 	var ownerUpdated bool
 	var specUpdated bool
-	var device *model.Device
+	var device *api.Device
 
 	if before == nil && after == nil {
 		// Shouldn't be here, return
@@ -153,7 +161,7 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 	if before == nil {
 		// New device
 		device = after
-		if len(after.Resource.Labels) != 0 {
+		if len(*after.Metadata.Labels) != 0 {
 			labelsUpdated = true
 		}
 		ownerUpdated = false
@@ -166,12 +174,12 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 		specUpdated = false  // Nothing to render
 	} else {
 		device = after
-		labelsUpdated = !reflect.DeepEqual(before.Labels, after.Labels)
-		ownerUpdated = util.DefaultIfNil(before.Owner, "") != util.DefaultIfNil(after.Owner, "")
-		specUpdated = !reflect.DeepEqual(before.Spec, after.Spec)
+		labelsUpdated = !reflect.DeepEqual(*before.Metadata.Labels, *after.Metadata.Labels)
+		ownerUpdated = util.DefaultIfNil(before.Metadata.Owner, "") != util.DefaultIfNil(after.Metadata.Owner, "")
+		specUpdated = !api.DeviceSpecsAreEqual(*before.Spec, *after.Spec)
 	}
 
-	ref := ResourceReference{OrgID: device.OrgID, Kind: model.DeviceKind, Name: device.Name}
+	ref := ResourceReference{OrgID: orgId, Kind: api.DeviceKind, Name: *device.Metadata.Name}
 	if ownerUpdated || labelsUpdated {
 		// If the device's owner was updated, or if labels were updating that might affect parametrers,
 		// check if we need to update its spec according to its new fleet
@@ -181,7 +189,7 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 		// Check if the new labels cause the device to move to a different fleet
 		op := FleetSelectorMatchOpUpdate
 
-		if api.IsStatusConditionTrue(device.Status.Data.Conditions, api.DeviceMultipleOwners) {
+		if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)
@@ -192,15 +200,17 @@ func (t *callbackManager) DeviceUpdatedCallback(before *model.Device, after *mod
 }
 
 func (t *callbackManager) DeviceSourceUpdated(orgId uuid.UUID, name string) {
-	ref := ResourceReference{OrgID: orgId, Kind: model.DeviceKind, Name: name}
+	ref := ResourceReference{OrgID: orgId, Kind: api.DeviceKind, Name: name}
 	t.submitTask(DeviceRenderTask, ref, DeviceRenderOpUpdate)
 }
 
-func (t *callbackManager) TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion) {
+// This is called only upon create, so "before" should be nil and "after" should be the TV
+func (t *callbackManager) TemplateVersionCreatedCallback(orgId uuid.UUID, before, after *api.TemplateVersion) {
+	templateVersion := after
 	resourceRef := ResourceReference{
-		OrgID: templateVersion.OrgID,
-		Kind:  model.FleetKind,
-		Name:  templateVersion.FleetName,
+		OrgID: orgId,
+		Kind:  api.FleetKind,
+		Name:  *templateVersion.Metadata.Name,
 	}
 	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
 }

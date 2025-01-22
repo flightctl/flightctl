@@ -1,8 +1,8 @@
 GOBASE=$(shell pwd)
-GOBIN=$(GOBASE)/bin
+GOBIN=$(GOBASE)/bin/
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
-GO_FILES := $(shell find ./ -name ".go" -not -path "./bin" -not -path "./packaging/*")
+GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
 GO_CACHE := -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -v $${HOME}/go/flightctl-go-cache/.cache:/opt/app-root/src/.cache:Z
 TIMEOUT ?= 30m
 GOOS := $(shell go env GOOS)
@@ -34,11 +34,13 @@ GO_BUILD_FLAGS += $(GO_LD_FLAGS)
 
 all: build build-containers
 
+.PHONY: help
 help:
 	@echo "Targets:"
 	@echo "    generate:        regenerate all generated files"
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
+	@echo "    lint-openapi:    run spectral to lint and rulecheck the OpenAPI spec"
 	@echo "    lint-docs:       run markdownlint on documentation"
 	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
 	@echo "    spellcheck-docs: run markdown-spellcheck on documentation"
@@ -48,6 +50,7 @@ help:
 	@echo "    unit-test:       run unit tests"
 	@echo "    test:            run all tests"
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
+	@echo "    redeploy-*       redeploy the api,worker,periodic containers in kind"
 	@echo "    deploy-db:       deploy only the database as a container, for testing"
 	@echo "    deploy-mq:       deploy only the message queue broker as a container"
 	@echo "    deploy-quadlets: deploy FlightCtl using Quadlets"
@@ -57,23 +60,18 @@ help:
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 
+.PHONY: publish
 publish: build-containers
 	hack/publish_containers.sh
 
-.PHONY: publish
-
 generate:
-	go generate -v $(shell go list ./...)
-	hack/mockgen.sh
+	go generate -v $(shell go list ./... | grep -v -e api/grpc)
 
-generate-grpc:
-	hack/grpcgen.sh
+generate-proto:
+	go generate -v ./api/grpc/...
 
 tidy:
-	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy'
-
-lint: tools
-	$(GOBIN)/golangci-lint run -v
+	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
 
 build: bin build-cli
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
@@ -83,8 +81,14 @@ build: bin build-cli
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-worker
 
-build-cli:
+build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
+
+multiarch-build-cli: bin
+	./hack/build_multiarch_clis.sh
+
+build-agent: bin
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
 
 build-api: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
@@ -121,14 +125,9 @@ flightctl-periodic-container: bin/.flightctl-periodic-container
 
 build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container
 
-.PHONY: build-containers
+.PHONY: build-containers build-cli multiarch-build-cli
 
 
-update-server-container: bin/.flightctl-server-container
-	kind load docker-image localhost/flightctl-server:latest
-	kubectl delete pod -l flightctl.service=flightctl-server -n flightctl-external
-	kubectl rollout status deployment flightctl-server -n flightctl-external -w --timeout=30s
-	kubectl logs -l flightctl.service=flightctl-server -n flightctl-external -f
 bin:
 	mkdir -p bin
 
@@ -167,9 +166,8 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
 	- kind delete cluster
-	- podman-compose -f deploy/podman/compose.yaml down
 	- rm -r ~/.flightctl
 	- rm -f -r bin
 	- rm -f -r $(shell uname -m)
@@ -177,10 +175,7 @@ clean: clean-agent-vm clean-e2e-agent-images
 	- rm -f -r debian
 
 clean-quadlets:
-	- sudo systemctl stop flightctl.slice
-	- sudo rm -rf /etc/containers/systemd/flightctl*
-	- sudo podman volume rm flightctl-db flightctl-api-certs rabbitmq-data
-	- sudo podman network rm flightctl
+	deploy/scripts/clean_quadlets.sh
 
 .PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container
 tools: $(GOBIN)/golangci-lint
@@ -188,10 +183,18 @@ tools: $(GOBIN)/golangci-lint
 $(GOBIN)/golangci-lint:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.61.0
 
+lint: tools
+	$(GOBIN)/golangci-lint run -v
+
+.PHONY: lint-openapi
+lint-openapi:
+	@echo "Linting OpenAPI spec"
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn /workdir/api/v1alpha1/openapi.yaml
+
 .PHONY: lint-docs
 lint-docs:
 	@echo "Linting user documentation markdown files"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:latest "docs/user/**/*.md"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.16.0 "docs/user/**/*.md"
 
 .PHONY: lint-diagrams
 lint-diagrams:
@@ -206,8 +209,6 @@ lint-diagrams:
 			fi ; \
 		done ; \
 	done
-
-# 	if basename "$$f" | grep -q --basic-regexp --file=$d/.excalidraw-ignore; then continue ; fi ; \
 
 .PHONY: spellcheck-docs
 spellcheck-docs:

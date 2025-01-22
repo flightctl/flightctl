@@ -18,6 +18,7 @@ spec:
       labels:
         flightctl.service: flightctl-api
     spec:
+      serviceAccountName: flightctl-api
       containers:
         - name: flightctl-api
           image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
@@ -25,6 +26,21 @@ spec:
           env:
             - name: HOME
               value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
             {{- if eq .Values.global.auth.type "none" }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
@@ -35,9 +51,6 @@ spec:
               protocol: TCP
             - containerPort: 7443
               name: agent-api
-              protocol: TCP
-            - containerPort: 7444
-              name: agent-grpc
               protocol: TCP
             - containerPort: 15690
               name: api-prom-target
@@ -53,6 +66,11 @@ spec:
               name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
+            {{- if .Values.global.auth.k8s.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-api-k8s-token
+              readOnly: true
+            {{- end}}
 
       restartPolicy: Always
       volumes:
@@ -62,4 +80,9 @@ spec:
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
+        {{- if .Values.global.auth.k8s.externalApiToken}}
+        - name: flightctl-api-k8s-token
+          secret:
+            secretName: flightctl-api-k8s-token
+        {{- end}}
 {{ end }}

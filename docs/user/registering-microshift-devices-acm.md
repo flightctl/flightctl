@@ -1,153 +1,99 @@
 # Auto-Registering Devices with MicroShift into ACM
 
-## Pre-requisite
+If you have fleets of devices running an OS image that includes MicroShift, you can configure these fleets to auto-register MicroShift clusters with Red Hat Advanced Cluster Management (ACM).
 
-The Operating System image running on our fleet of devices must contain MicroShift. This is essential for running the Klusterlet, the agent responsible for communication with Red Hat Advanced Cluster Management (ACM)
+Auto-registration relies on ACM's [agent registration](https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/html/clusters/cluster_mce_overview#importing-managed-agent) method for importing clusters. That method allows fetching the Kubernetes resource manifests to install ACM's klusterlet agent and registering the agent through calls to a REST API. This REST API can be set up as configuration source for devices by creating a Repository resource and referencing that resource from the fleet's device template.
 
-## Configuring ACM Agent Registration
+## Auto-Registering a Fleet's Devices using the Web UI
 
-Auto-registration of devices with MicroShift into ACM relies on a feature called agent registration, allowing clusters to be imported via REST API calls using a CA bundle and token. Follow these [instructions](https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.11/html/clusters/cluster_mce_overview#importing-managed-agent) to configure the necessary RBAC policies for your own user. Skip running the command to import the managed clusters, as this step will be automatically handled by the fleet devices.
+## Auto-Registering a Fleet's Devices using the CLI
 
-As part of this setup, you will need to collect the following information:
+### Creating the ACM Registration Repository
 
-- Agent registration URL
-- Token
+> [!NOTE] When using ACM with integrated Flight Control, the creation of this repository happens automatically when the Flight Control service is deployed, so this section can be skipped.
 
-## Creating Repositories in Flight Control
+To set up auto-registration using the CLI, follow the procedure for ["Importing a managed cluster by using agent registration"](https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/html/clusters/cluster_mce_overview#importing-managed-agent) in ACM's documentation to configure the necessary Role-Based Access Control (RBAC) policies for your user and obtain the required registration information. Skip the last step of the actual cluster import, which will be handled by auto-registration.
 
-A new repository must be created with the data collected before from ACM's agent registration endpoint. This repository will be used by the fleet configuration using the HTTP config provider described in the following [link](https://github.com/flightctl/flightctl/blob/main/docs/user/managing-devices.md#getting-configuration-from-an-http-server).
+After following the procedure, you should have the following information available and stored in shell variables:
 
-A sample YAML file for an HTTP repository looks like:
+- `${agent_registration_host}`: The hostname part of ACM's agent registration server URL.
+- `${cacert}`: The path to the `ca.crt` file for ACM's agent registration server.
+- `${token}`: The bearer token for accessing ACM's agent registration server.
+
+With these variables defined, create a Repository resource manifest file `acm-registration-repo.yaml` for accessing the agent registration server by running the following command:
 
 ```console
-apiVersion: v1alpha1
-kind: Repository
-metadata:
-  labels: {}
-  name: acm-test
-spec:
-  httpConfig:
-    token: $token
-  type: http
-  url: https://$agent_registration_host
+cat <<- EOF > acm-registration-repo.yaml
+  apiVersion: v1alpha1
+  kind: Repository
+  metadata:
+    name: acm-registration
+  spec:
+    httpConfig:
+      token: ${token}
+      ca.crt: $(base64 -w0 < ${cacert})
+    type: http
+    url: https://${agent_registration_host}
+    validationSuffix: /agent-registration/crds/v1
+EOF
 ```
 
-**_NOTE:_** This repository will show as not accessible, because the root URL does not return a value directly. However, this endpoint will be used in the fleet spec configuration section with a set of suffixes that will return the required Kubernetes manifests for auto-registration.
+Create the Repository resource by applying the file:
 
-## Fleet Definition Overview
+```console
+flightctl apply -f acm-registration-repo.yaml
+```
 
-The following fleet definition provides an example of how devices running MicroShift can be auto-registered into an ACM hub. Here is a breakdown of its sections:
+### Adding Auto-Registration Configuration to a Fleet's Device Template
+
+To enable auto-registration in a fleet, add configuration items to the fleet's device template as shown in the following example:
 
 ```console
 apiVersion: v1alpha1
 kind: Fleet
 metadata:
-  labels: {}
   name: fleet-acm
 spec:
-  selector:
-    matchLabels:
-      fleet: acm
   template:
-    metadata:
-      generation: 1
-      labels:
-        fleet: acm-test
     spec:
       os:
-        image: quay.io/myorg/device-image-with-microshift:v1
+        image: quay.io/someorg/someimage-with-microshift:v1
       config:
-      - configType: HttpConfigProviderSpec
+      - name: acm-crd
         httpRef:
-          filePath: /var/local/crd.yaml
-          repository: acm-test
+          filePath: /var/local/acm-import/crd.yaml
+          repository: acm-registration
           suffix: /agent-registration/crds/v1
-        name: acm-crd
-      - configType: HttpConfigProviderSpec
+      - name: acm-import
         httpRef:
-          filePath: /var/local/import.yaml
-          repository: acm-test
-          suffix: /agent-registration/manifests/{{ device.metadata.name }}
-        name: acm-import
-      hooks:
-        afterUpdating:
-          - path: "/var/local/crd.yaml"
-            onFile: [Create]
-            actions:
-              - executable:
-                  run: "kubectl apply -f /var/local/crd.yaml"
-                  envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
-          - path: "/var/local/import.yaml"
-            onFile: [Create]
-            actions:
-              - executable:
-                  run: "kubectl apply -f /var/local/import.yaml"
-                  envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
+          filePath: /var/local/acm-import/import.yaml
+          repository: acm-registration
+          suffix: /agent-registration/manifests/{{.metadata.name}}
+      - name: pull-secret
+        inline:
+        - path: "/etc/crio/openshift-pull-secret"
+          content: "{\"auths\":{...}}"
+      - name: apply-acm-manifests
+        inline:
+        - path: "/etc/flightctl/hooks.d/afterupdating/50-acm-registration.yaml"
+          content: |
+            - if:
+              - path: /var/local/acm-import/crd.yaml
+                op: [created]
+              run: kubectl apply -f /var/local/acm-import/crd.yaml
+              envVars:
+                KUBECONFIG: /var/lib/microshift/resources/kubeadmin/kubeconfig
+            - if:
+              - path: /var/local/acm-import/import.yaml
+                op: [created]
+              run: kubectl apply -f /var/local/acm-import/import.yaml
+              envVars:
+                KUBECONFIG: /var/lib/microshift/resources/kubeadmin/kubeconfig
 ```
 
-### Fleet Specification Breakdown
+The added items under `.spec.template.spec.config` have the following functions:
 
-As described in the user documentation, a fleet specification is composed of various sections. Let us deep dive in the config and hooks section of our sample fleet.
-
-1. **Configuration**: The configuration section uses the HTTP configuration provider to fetch information from an endpoint. The repository `acm-test` contains the registration URL for ACM's agent registration:
-
-    ```console
-    - configType: HttpConfigProviderSpec
-      httpRef:
-        filePath: /var/local/crd.yaml
-        repository: acm-test
-        suffix: /agent-registration/crds/v1
-      name: acm-crd
-    ```
-
-    This retrieves the CRD from the ACM endpoint `https://$agent_registration_host/agent-registration/crds/v1` and stores it at the specified file path.
-
-    The next configuration retrieves the cluster import manifests. As shown below, the HttpConfigProviderSpec supports Flight Control template mechanism, so the device name can be used as part of the suffix.
-
-    ```console
-    - configType: HttpConfigProviderSpec
-      httpRef:
-        filePath: /var/local/import.yaml
-        repository: acm-test
-        suffix: /agent-registration/manifests/{{ device.metadata.name }}
-      name: acm-import
-    ```
-
-    This API call to ACM's agent registration endpoint will retrieve a set of Kubernetes manifests to deploy the Klusterlet. Once we have both the Klusterlet CRD and deployment manifests, we will use Flight Control hooks to apply them.
-
-1. **Hooks**: Once the configuration is fetched, the hooks apply the Kubernetes manifests to the device:
-
-```console
-hooks:
-  afterUpdating:
-    - path: "/var/local/crd.yaml"
-      onFile: [Create]
-      actions:
-        - executable:
-            run: "kubectl apply -f /var/local/crd.yaml"
-            envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
-            workDir: "/usr/bin/"
-    - path: "/var/local/import.yaml"
-      onFile: [Create]
-      actions:
-        - executable:
-            run: "kubectl apply -f /var/local/import.yaml"
-            envVars: ["KUBECONFIG=/var/lib/microshift/resources/kubeadmin/kubeconfig"]
-            workDir: "/usr/bin/"
-```
-
-Flight Control hooks are explained in the following [link](https://github.com/flightctl/flightctl/blob/main/docs/user/managing-devices.md#using-device-lifecycle-hooks).
-Hooks are triggered at specific moments on the lifecycle of a device such as before/after updating, before/after reboot, etc.
-The hooks definition shown above describe two hooks executed after updating the fleet, one to apply the CRD file and one to apply the rest of the Klusterlet manifests stored in the import.yaml file.
-
-## Device Reconciliation Process
-
-Once devices are enrolled in Flight Control and assigned to a fleet definition like the one above, the agent will begin a reconciliation process as outlined in the project documentation. This process ensures each device is updated with the required OS image, configuration and applications. This specific workflow  ensures all steps required to register a MicroShift cluster into ACM are performed. From updating the Operating System image to one containing MicroShift and its dependencies, getting the Klusterlet manifests into disk and apply them.
-
-Once the manifests are applied by the hooks mechanism, MicroShift will run the Klusterlet agent which will contact the ACM hub and send a Certificate Signing Request, as part of its registration process.
-
-This automated workflow allows for the large-scale, hands-free registration of thousands of MicroShift clusters into ACM.
-
-## Summary
-
-This guide outlines an automated process to register MicroShift clusters running on Flight Control managed devices into ACM at scale. By leveraging Flight Control’s configuration providers, hooks and templates, users can import MicroShift instances into ACM seamlessly and securely, streamlining cluster management across a fleet.
+- `acm-crd` uses the HTTP Configuration Provider to query the ACM agent-registration server for the Kubernetes manifests containing the custom resource definition (CRD) for ACM's klusterlet agent. These manifests are stored in the device's filesystem in the file `/var/local/acm-import/crd.yaml`.
+- `acm-import` queries the server once more to receive the import manifests for a cluster whose name is the same as the device's name, so both can be more easily correlated later. This is achieved by using the templating variable `{{ .metadata.name }}`. The returned manifests are stored in the same location on the device's filesystem as `import.yaml`.
+- `pull-secret` optionally adds your OpenShift pull secret to the device, so MicroShift can pull the ACM agent's images from the container registry. You can download your pull secret from the [OpenShift installation page](https://cloud.redhat.com/openshift/install/pull-secret). This item is not necessary if you've already provisioned your pull secret in another way, for example by embedding it into the OS image. Also, you can use other configuration providers to add this secret.
+- `apply-acm-manifests` installs an `afterUpdating` device lifecycle hook (see [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)). This hook gets called once after the agent has created the `crd.yaml` and `import.yaml` files and applies the manifests to the MicroShift cluster using the `kubectl` CLI.

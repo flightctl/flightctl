@@ -113,6 +113,14 @@ func ValidateFilePath(s *string, path string) []error {
 	return asErrors(errs)
 }
 
+func ValidateFileOrDirectoryPath(s *string, path string) []error {
+	if s == nil {
+		return []error{}
+	}
+	cleanS := strings.TrimSuffix(*s, "/")
+	return ValidateFilePath(&cleanS, path)
+}
+
 func ValidateLinuxUserGroup(s *string, path string) []error {
 	if s == nil {
 		return []error{}
@@ -132,7 +140,7 @@ func ValidateLinuxUserGroup(s *string, path string) []error {
 	// > Usernames may only be up to 32 characters long.
 
 	isID := false
-	id, err := strconv.Atoi(*s)
+	id, err := strconv.ParseInt(*s, 10, 64)
 	if err == nil {
 		isID = true
 	}
@@ -264,6 +272,11 @@ func ValidateCSR(csr []byte) []error {
 		return asErrors(errs)
 	}
 	return nil
+}
+
+func FormatInvalidError(input, path, errorMsg string) []error {
+	errors := field.ErrorList{field.Invalid(fieldPathFor(path), input, errorMsg)}
+	return asErrors(errors)
 }
 
 func fieldPathFor(path string) *field.Path {

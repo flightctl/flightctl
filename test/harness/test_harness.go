@@ -68,6 +68,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	serverCfg := *config.NewDefault()
 	serverLog := log.InitLogs()
 	serverLog.SetLevel(logrus.DebugLevel)
+	serverLog.SetOutput(os.Stdout)
 
 	// create store
 	store, dbName, err := testutil.NewTestStore(serverCfg, serverLog)
@@ -117,7 +118,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}()
 
 	go func() {
-		err := workerServer.Run()
+		err := workerServer.Run(ctx)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
 			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))
@@ -135,7 +136,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 		cancel()
 	}()
 
-	fetchSpecInterval := util.Duration(1 * time.Second)
+	fetchSpecInterval := util.Duration(2 * time.Second)
 	statusUpdateInterval := util.Duration(2 * time.Second)
 
 	os.Setenv(agent.TestRootDirEnvKey, testDirPath)

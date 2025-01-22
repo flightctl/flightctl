@@ -13,8 +13,8 @@ permissions:
 
 jobs:
   # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
-  kind-cluster:
-    runs-on: "ubuntu-latest"
+  smoke:
+    runs-on: "ubuntu-24.04"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,3 +72,11 @@ jobs:
       - name: Simulator run
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+
+      - name: Collect and Upload Logs
+        if: always() && steps.filter.outputs.notdocs == 'true'
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'smoke-logs'

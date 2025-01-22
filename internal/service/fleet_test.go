@@ -34,11 +34,11 @@ func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, callback store.FleetStoreCallback) (*v1alpha1.Fleet, error) {
+func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*v1alpha1.Fleet, error) {
 	return fleet, nil
 }
 
-func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, callback store.FleetStoreCallback) (*v1alpha1.Fleet, bool, error) {
+func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*v1alpha1.Fleet, bool, error) {
 	return fleet, false, nil
 }
 
@@ -64,7 +64,7 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 			}{
 				Spec: v1alpha1.DeviceSpec{
-					Os: &v1alpha1.DeviceOSSpec{
+					Os: &v1alpha1.DeviceOsSpec{
 						Image: "img",
 					},
 				},
@@ -164,7 +164,7 @@ func TestFleetPatchSpec(t *testing.T) {
 		Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 	}{
 		Spec: v1alpha1.DeviceSpec{
-			Os: &v1alpha1.DeviceOSSpec{
+			Os: &v1alpha1.DeviceOsSpec{
 				Image: "newimg",
 			},
 		},

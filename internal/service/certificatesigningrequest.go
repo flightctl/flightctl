@@ -5,22 +5,68 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	k8sselector "github.com/flightctl/flightctl/pkg/k8s/selector"
-	"github.com/flightctl/flightctl/pkg/k8s/selector/fields"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
+
+// nowFunc allows overriding for unit tests
+var nowFunc = time.Now
+
+func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *api.CertificateSigningRequest) {
+	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
+		return
+	}
+
+	api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
+		Type:    api.CertificateSigningRequestApproved,
+		Status:  api.ConditionStatusTrue,
+		Reason:  "Approved",
+		Message: "Auto-approved by enrollment signer",
+	})
+	api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestDenied)
+	api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestFailed)
+
+	if _, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, csr); err != nil {
+		h.log.WithError(err).Error("failed to set approval condition")
+	}
+}
+
+func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr *api.CertificateSigningRequest) {
+	if csr.Status.Certificate != nil && len(*csr.Status.Certificate) > 0 {
+		return
+	}
+
+	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
+	if err != nil {
+		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
+			Type:    api.CertificateSigningRequestFailed,
+			Status:  api.ConditionStatusTrue,
+			Reason:  "SigningFailed",
+			Message: fmt.Sprintf("Failed to sign certificate: %v", err),
+		})
+		if _, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, csr); err != nil {
+			h.log.WithError(err).Error("failed to set failure condition")
+		}
+		return
+	}
+
+	csr.Status.Certificate = &signedCert
+	if _, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, csr); err != nil {
+		h.log.WithError(err).Error("failed to set signed certificate")
+	}
+}
 
 func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.CertificateSigningRequest) ([]byte, error) {
 
@@ -39,10 +85,7 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 	if u == "" {
 		u = uuid.NewString()
 	}
-	csr.Subject.CommonName, err = crypto.BootstrapCNFromName(u)
-	if err != nil {
-		return nil, fmt.Errorf("cn: %s does not meet requirement: %w", u, err)
-	}
+	csr.Subject.CommonName = crypto.BootstrapCNFromName(u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
 	if request.Spec.ExpirationSeconds != nil {
@@ -59,9 +102,17 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 
 // (DELETE /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, request server.DeleteCertificateSigningRequestsRequestObject) (server.DeleteCertificateSigningRequestsResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "deletecollection")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteCertificateSigningRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteCertificateSigningRequests403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.CertificateSigningRequest().DeleteAll(ctx, orgId)
+	err = h.store.CertificateSigningRequest().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteCertificateSigningRequests200JSONResponse{}, nil
@@ -72,43 +123,40 @@ func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, r
 
 // (GET /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, request server.ListCertificateSigningRequestsRequestObject) (server.ListCertificateSigningRequestsResponseObject, error) {
-	orgId := store.NullOrgId
-	labelSelector := ""
-	if request.Params.LabelSelector != nil {
-		labelSelector = *request.Params.LabelSelector
-	}
-
-	labelMap, err := labels.ConvertSelectorToLabelsMap(labelSelector)
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "list")
 	if err != nil {
-		return server.ListCertificateSigningRequests400JSONResponse{Message: err.Error()}, nil
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ListCertificateSigningRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
 	}
+	if !allowed {
+		return server.ListCertificateSigningRequests403JSONResponse{Message: Forbidden}, nil
+	}
+	orgId := store.NullOrgId
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
 		return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
 	}
 
-	var fieldSelector k8sselector.Selector
+	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = fields.ParseSelector(*request.Params.FieldSelector); err != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
 		}
 	}
 
-	var sortField *store.SortField
-	if request.Params.SortBy != nil {
-		sortField = &store.SortField{
-			FieldName: selector.SelectorName(*request.Params.SortBy),
-			Order:     *request.Params.SortOrder,
+	var labelSelector *selector.LabelSelector
+	if request.Params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
+			return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
 		}
 	}
 
 	listParams := store.ListParams{
-		Labels:        labelMap,
 		Limit:         int(swag.Int32Value(request.Params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
-		SortBy:        sortField,
+		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
@@ -136,6 +184,15 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, request server.CreateCertificateSigningRequestRequestObject) (server.CreateCertificateSigningRequestResponseObject, error) {
 	orgId := store.NullOrgId
 
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "create")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.CreateCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.CreateCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
+
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
 	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
@@ -147,20 +204,38 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, re
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, request.Body)
 	switch err {
 	case nil:
-		return server.CreateCertificateSigningRequest201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+		break
+	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-
+	case flterrors.ErrDuplicateName:
+		return server.CreateCertificateSigningRequest409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}
+
+	if result.Spec.SignerName == "enrollment" {
+		h.autoApprove(ctx, orgId, result)
+	}
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+	}
+
+	return server.CreateCertificateSigningRequest201JSONResponse(*result), nil
 }
 
 // (DELETE /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, request server.DeleteCertificateSigningRequestRequestObject) (server.DeleteCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "delete")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.DeleteCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.DeleteCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
-	err := h.store.CertificateSigningRequest().Delete(ctx, orgId, request.Name)
+	err = h.store.CertificateSigningRequest().Delete(ctx, orgId, request.Name)
 	switch err {
 	case nil:
 		return server.DeleteCertificateSigningRequest200JSONResponse{}, nil
@@ -173,6 +248,14 @@ func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, re
 
 // (GET /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) ReadCertificateSigningRequest(ctx context.Context, request server.ReadCertificateSigningRequestRequestObject) (server.ReadCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "get")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReadCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReadCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
@@ -188,6 +271,14 @@ func (h *ServiceHandler) ReadCertificateSigningRequest(ctx context.Context, requ
 
 // (PATCH /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, request server.PatchCertificateSigningRequestRequestObject) (server.PatchCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "patch")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.PatchCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.PatchCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
@@ -225,10 +316,9 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj)
-
 	switch err {
 	case nil:
-		return server.PatchCertificateSigningRequest200JSONResponse(*result), nil
+		break
 	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
 		return server.PatchCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNotFound:
@@ -238,10 +328,27 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 	default:
 		return nil, err
 	}
+
+	if result.Spec.SignerName == "enrollment" {
+		h.autoApprove(ctx, orgId, result)
+	}
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+	}
+
+	return server.PatchCertificateSigningRequest200JSONResponse(*result), nil
 }
 
 // (PUT /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, request server.ReplaceCertificateSigningRequestRequestObject) (server.ReplaceCertificateSigningRequestResponseObject, error) {
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "update")
+	if err != nil {
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.ReplaceCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+	}
+	if !allowed {
+		return server.ReplaceCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
+	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -258,21 +365,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, request.Body)
 	switch err {
 	case nil:
-		if request.Body.Spec.SignerName == "enrollment" {
-			approveReq := server.ApproveCertificateSigningRequestRequestObject{
-				Name: *request.Body.Metadata.Name,
-			}
-			approveResp, _ := h.ApproveCertificateSigningRequest(ctx, approveReq)
-			_, ok := approveResp.(server.ApproveCertificateSigningRequest200JSONResponse)
-			if !ok {
-				return server.ReplaceCertificateSigningRequest400JSONResponse{Message: "CSR created but could not be approved"}, nil
-			}
-		}
-		if created {
-			return server.ReplaceCertificateSigningRequest201JSONResponse(*result), nil
-		} else {
-			return server.ReplaceCertificateSigningRequest200JSONResponse(*result), nil
-		}
+		break
 	case flterrors.ErrResourceIsNil:
 		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrResourceNameIsNil:
@@ -284,96 +377,118 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 	default:
 		return nil, err
 	}
+
+	if result.Spec.SignerName == "enrollment" {
+		h.autoApprove(ctx, orgId, result)
+	}
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+	}
+
+	if created {
+		return server.ReplaceCertificateSigningRequest201JSONResponse(*result), nil
+	} else {
+		return server.ReplaceCertificateSigningRequest200JSONResponse(*result), nil
+	}
 }
 
-// (POST /api/v1/certificatesigningrequests/{name}/approval)
+// (PUT /api/v1/certificatesigningrequests/{name}/approval)
 // NOTE: Approval currently also issues a certificate - this will change in the future based on policy
-func (h *ServiceHandler) ApproveCertificateSigningRequest(ctx context.Context, request server.ApproveCertificateSigningRequestRequestObject) (server.ApproveCertificateSigningRequestResponseObject, error) {
+func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Context, request server.UpdateCertificateSigningRequestApprovalRequestObject) (server.UpdateCertificateSigningRequestApprovalResponseObject, error) {
 	orgId := store.NullOrgId
 
-	storeCsr := h.store.CertificateSigningRequest()
-	csr, err := storeCsr.Get(ctx, orgId, request.Name)
+	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests/approval", "update")
 	if err != nil {
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return server.ApproveCertificateSigningRequest404JSONResponse{}, nil
-		}
-		return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
+		h.log.WithError(err).Error("failed to check authorization permission")
+		return server.UpdateCertificateSigningRequestApproval503JSONResponse{Message: AuthorizationServerUnavailable}, nil
 	}
-	if csr == nil {
-		return server.ApproveCertificateSigningRequest500JSONResponse{Message: "CertificateSigningRequest is nil"}, nil
+	if !allowed {
+		return server.UpdateCertificateSigningRequestApproval403JSONResponse{Message: Forbidden}, nil
+	}
+
+	newCSR := request.Body
+	common.NilOutManagedObjectMetaProperties(&newCSR.Metadata)
+	if errs := newCSR.Validate(); len(errs) > 0 {
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+	if request.Name != *newCSR.Metadata.Name {
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	}
+	if newCSR.Status == nil {
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: "status is required"}, nil
+	}
+	allowedConditionTypes := []api.ConditionType{api.CertificateSigningRequestApproved, api.CertificateSigningRequestDenied, api.CertificateSigningRequestFailed}
+	trueConditions := allowedConditionTypes
+	exclusiveConditions := []api.ConditionType{api.CertificateSigningRequestApproved, api.CertificateSigningRequestDenied}
+	errs := api.ValidateConditions(newCSR.Status.Conditions, allowedConditionTypes, trueConditions, exclusiveConditions)
+	if len(errs) > 0 {
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	}
+
+	oldCSR, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
+	switch err {
+	case nil:
+		break
+	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrResourceNotFound:
+		return server.UpdateCertificateSigningRequestApproval404JSONResponse{}, nil
+	default:
+		return nil, err
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
-	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
-		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been denied"}, nil
+	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.CertificateSigningRequestDenied) {
+		return server.UpdateCertificateSigningRequestApproval409JSONResponse{Message: "The request has already been denied"}, nil
 	}
-	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
-		return server.ApproveCertificateSigningRequest409JSONResponse{Message: "The request has already been approved"}, nil
-	}
-
-	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
-	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrCNLength) ||
-			errors.Is(err, flterrors.ErrInvalidPEMBlock) ||
-			errors.Is(err, flterrors.ErrSignature) ||
-			errors.Is(err, flterrors.ErrCSRParse) ||
-			errors.Is(err, flterrors.ErrSignCert) ||
-			errors.Is(err, flterrors.ErrEncodeCert):
-			return server.ApproveCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-		default:
-			return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
-		}
+	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.CertificateSigningRequestApproved) && oldCSR.Status.Certificate != nil && len(*oldCSR.Status.Certificate) > 0 {
+		return server.UpdateCertificateSigningRequestApproval409JSONResponse{Message: "The request has already been approved and the certificate issued"}, nil
 	}
 
-	approvedCondition := api.Condition{
-		Type:    api.CertificateSigningRequestApproved,
-		Status:  api.ConditionStatusTrue,
-		Reason:  "Approved",
-		Message: "Approved",
-	}
+	populateConditionTimestamps(newCSR, oldCSR)
+	newConditions := newCSR.Status.Conditions
 
-	csr.Status.Certificate = &signedCert
-	api.SetStatusCondition(&csr.Status.Conditions, approvedCondition)
-	_, err = storeCsr.UpdateStatus(ctx, orgId, csr)
+	// Updating the approval should only update the conditions.
+	newCSR.Spec = oldCSR.Spec
+	newCSR.Status = oldCSR.Status
+	newCSR.Status.Conditions = newConditions
 
+	result, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, newCSR)
 	switch err {
 	case nil:
-		return server.ApproveCertificateSigningRequest200JSONResponse{}, nil
+		break
 	case flterrors.ErrResourceNotFound:
-		return server.ApproveCertificateSigningRequest404JSONResponse{Message: err.Error()}, nil
+		return server.UpdateCertificateSigningRequestApproval404JSONResponse{Message: err.Error()}, nil
 	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
-		return server.ApproveCertificateSigningRequest409JSONResponse{Message: err.Error()}, nil
-	default:
-		return server.ApproveCertificateSigningRequest500JSONResponse{Message: err.Error()}, nil
-	}
-}
-
-// (DELETE /api/v1/certificatesigningrequests/{name}/approval)
-func (h *ServiceHandler) DenyCertificateSigningRequest(ctx context.Context, request server.DenyCertificateSigningRequestRequestObject) (server.DenyCertificateSigningRequestResponseObject, error) {
-	orgId := store.NullOrgId
-	approvedCondition := api.Condition{
-		Type:    api.CertificateSigningRequestApproved,
-		Status:  api.ConditionStatusFalse,
-		Reason:  "Denied",
-		Message: "Denied",
-	}
-	deniedCondition := api.Condition{
-		Type:    api.CertificateSigningRequestDenied,
-		Status:  api.ConditionStatusTrue,
-		Reason:  "Denied",
-		Message: "Denied",
-	}
-	err := h.store.CertificateSigningRequest().UpdateConditions(ctx, orgId, request.Name, []api.Condition{approvedCondition, deniedCondition})
-
-	switch err {
-	case nil:
-		return server.DenyCertificateSigningRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.DenyCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
-		return server.DenyCertificateSigningRequest409JSONResponse{}, nil
+		return server.UpdateCertificateSigningRequestApproval409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
+	}
+
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
+	}
+
+	return server.UpdateCertificateSigningRequestApproval200JSONResponse(*result), nil
+}
+
+// borrowed from https://github.com/kubernetes/kubernetes/blob/master/pkg/registry/certificates/certificates/strategy.go
+func populateConditionTimestamps(newCSR, oldCSR *api.CertificateSigningRequest) {
+	now := nowFunc()
+	for i := range newCSR.Status.Conditions {
+		// preserve existing lastTransitionTime if the condition with this type/status already exists,
+		// otherwise set to now.
+		if newCSR.Status.Conditions[i].LastTransitionTime.IsZero() {
+			lastTransition := now
+			for _, oldCondition := range oldCSR.Status.Conditions {
+				if oldCondition.Type == newCSR.Status.Conditions[i].Type &&
+					oldCondition.Status == newCSR.Status.Conditions[i].Status &&
+					!oldCondition.LastTransitionTime.IsZero() {
+					lastTransition = oldCondition.LastTransitionTime
+					break
+				}
+			}
+			newCSR.Status.Conditions[i].LastTransitionTime = lastTransition
+		}
 	}
 }

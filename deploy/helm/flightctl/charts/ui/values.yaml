@@ -1,0 +1,42 @@
+## @section Global parameters
+## @descriptionStart This section contains parameters common to all the components in the deployment, including sub-charts, ui charts, etc.
+## If you are deploying UI chart separately, there is no need to use the global section.
+## @descriptionEnd
+
+## @param global.flightctl.auth.caCert A custom CA cert for OIDC TLS.
+## @param global.flightctl.auth.internalOidcAuthority URL of OIDC authority that is accessible by UI backend.
+## @param global.flightctl.auth.insecureSkipTlsVerify Set to true if OIDC TLS certificate validation should be skipped.
+## @param global.flightctl.baseDomain Base domain to construct the FQDN for the service endpoints.
+## @param global.flightctl.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}.
+## @param global.flightctl.appCode This is only related to deployment in Red Hat's PAAS.
+
+## @section UI specific parameters
+## @descriptionStart This section provides individual parameters for UI
+## @descriptionEnd
+
+## @param image.image Image to deploy.
+## @param image.tag Image tag to pull.
+## @param image.pullPolicy K8s pull policy for pulling the image.
+image:
+  image: ""
+  tag: ""
+  pullPolicy: Always
+## @param baseURL Base URL of UI.
+baseURL: ""
+## @param auth.internalOidcAuthority URL of OIDC authority that is accessible by UI backend.
+## @param auth.insecureSkipTlsVerify Set to true if OIDC TLS certificate validation should be skipped.
+## @param auth.caCert A custom CA cert for OIDC TLS.
+auth:
+  internalOidcAuthority: ""
+  insecureSkipTlsVerify: false
+  caCert: ""
+## @param api.url URL of Flightctl API endpoint accessible by UI backend.
+## @param api.grpcUrl URL of Flightctl GRPC endpoint accessible by UI backend.
+## @param api.insecureSkipTlsVerify Set to true if Flightctl TLS certificate validation should be skipped.
+## @param api.caCert A custom CA cert for Flightctl TLS.
+api:
+  url: https://flightctl-api:3443/
+  grpcUrl: grpcs://flightctl-api-agent-grpc:7444/
+  insecureSkipTlsVerify: false
+  caCert: ""
+

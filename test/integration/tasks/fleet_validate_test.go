@@ -8,7 +8,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -76,7 +75,7 @@ var _ = Describe("FleetValidate", func() {
 			Spec: specHttp,
 		}
 
-		repoCallback := store.RepositoryStoreCallback(func(*model.Repository) {})
+		repoCallback := store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)
@@ -134,7 +133,7 @@ var _ = Describe("FleetValidate", func() {
 		badHttpConfig.HttpRef.FilePath = "http-path"
 		badHttpConfig.HttpRef.Suffix = util.StrToPtr("/suffix")
 
-		callback = store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+		callback = store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
 	})
 
 	AfterEach(func() {
@@ -143,7 +142,7 @@ var _ = Describe("FleetValidate", func() {
 
 	When("a Fleet has a valid configuration", func() {
 		It("creates a new TemplateVersion", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
 			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
@@ -196,7 +195,7 @@ var _ = Describe("FleetValidate", func() {
 
 	When("a Fleet has an invalid git configuration", func() {
 		It("sets an error Condition", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
 			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
@@ -247,7 +246,7 @@ var _ = Describe("FleetValidate", func() {
 
 	When("a Fleet has an invalid http configuration", func() {
 		It("sets an error Condition", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
 			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}
@@ -296,62 +295,9 @@ var _ = Describe("FleetValidate", func() {
 		})
 	})
 
-	When("a Fleet has a configuration with an invalid parameter", func() {
-		It("sets an error Condition", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
-			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
-
-			gitItem := api.ConfigProviderSpec{}
-			// Set a parameter that we don't support
-			goodGitConfig.GitRef.Path = "path-{{ device.metadata.owner }}"
-			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			inlineItem := api.ConfigProviderSpec{}
-			err = inlineItem.FromInlineConfigProviderSpec(*goodInlineConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			httpItem := api.ConfigProviderSpec{}
-			err = httpItem.FromHttpConfigProviderSpec(*goodHttpConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem}
-
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
-			Expect(err).To(HaveOccurred())
-
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tvList.Items).To(HaveLen(0))
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(fleet.Status.Conditions).ToNot(BeNil())
-			Expect(fleet.Status.Conditions).To(HaveLen(1))
-			Expect(fleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
-			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
-
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(2))
-			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
-			slices.Sort(repoNames)
-			Expect(repoNames[0]).To(Equal("git-repo"))
-			Expect(repoNames[1]).To(Equal("http-repo"))
-		})
-	})
-
 	When("a Fleet has an invalid configuration type", func() {
 		It("sets an error Condition", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: model.FleetKind}
+			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myfleet", Kind: api.FleetKind}
 			logic := tasks.NewFleetValidateLogic(callbackManager, log, storeInst, nil, resourceRef)
 
 			gitItem := api.ConfigProviderSpec{}

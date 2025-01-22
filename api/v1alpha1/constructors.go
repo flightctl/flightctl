@@ -2,7 +2,12 @@ package v1alpha1
 
 func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{
-		Conditions:   []Condition{},
+		Conditions: []Condition{
+			{
+				Type:   DeviceUpdating,
+				Status: ConditionStatusUnknown,
+			},
+		},
 		Applications: []DeviceApplicationStatus{},
 		ApplicationsSummary: DeviceApplicationsSummaryStatus{
 			Status: ApplicationsSummaryStatusUnknown,
@@ -22,6 +27,9 @@ func NewDeviceStatus() DeviceStatus {
 		},
 		Summary: DeviceSummaryStatus{
 			Status: DeviceSummaryStatusUnknown,
+		},
+		Lifecycle: DeviceLifecycleStatus{
+			Status: DeviceLifecycleStatusUnknown,
 		},
 	}
 }

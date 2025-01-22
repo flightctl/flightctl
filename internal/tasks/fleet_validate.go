@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
@@ -16,7 +15,7 @@ import (
 func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
 	logic := NewFleetValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
 	switch {
-	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == model.FleetKind:
+	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
 		if err != nil {
 			log.Errorf("failed validating fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
@@ -63,16 +62,16 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	templateVersion := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
 			Name:  util.TimeStampStringPtr(),
-			Owner: util.SetResourceOwner(model.FleetKind, *fleet.Metadata.Name),
+			Owner: util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name),
 		},
 		Spec: api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
 		Status: &api.TemplateVersionStatus{
 			Applications: fleet.Spec.Template.Spec.Applications,
 			Config:       fleet.Spec.Template.Spec.Config,
-			Hooks:        fleet.Spec.Template.Spec.Hooks,
 			Os:           fleet.Spec.Template.Spec.Os,
 			Resources:    fleet.Spec.Template.Spec.Resources,
 			Systemd:      fleet.Spec.Template.Spec.Systemd,
+			UpdatePolicy: fleet.Spec.Template.Spec.UpdatePolicy,
 		},
 	}
 
@@ -82,7 +81,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	}
 
 	annotations := map[string]string{
-		model.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
+		api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 	}
 	err = t.store.Fleet().UpdateAnnotations(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name, annotations, nil)
 	if err != nil {
@@ -122,16 +121,9 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 	for i := range *t.templateConfig {
 		configItem := (*t.templateConfig)[i]
 		name, repoName, err := t.validateConfigItem(ctx, &configItem)
-		paramErr := validateParameterFormatInConfig(&configItem)
 
 		if repoName != nil {
 			referencedRepos = append(referencedRepos, *repoName)
-		}
-
-		// An error message regarding invalid parameters should take precedence
-		// because it may be the cause of the render error
-		if paramErr != nil {
-			err = paramErr
 		}
 
 		if err != nil {
@@ -155,15 +147,6 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 	return referencedRepos, nil
 }
 
-func validateParameterFormatInConfig(item RenderItem) error {
-	cfgJson, err := item.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("failed converting configuration to json: %w", err)
-	}
-
-	return ValidateParameterFormat(cfgJson)
-}
-
 func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	configType, err := configItem.Type()
 	if err != nil {
@@ -174,7 +157,7 @@ func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem 
 	case api.GitConfigProviderType:
 		return t.validateGitConfig(ctx, configItem)
 	case api.KubernetesSecretProviderType:
-		return t.validateK8sConfig(configItem)
+		return t.validateK8sConfig(ctx, configItem)
 	case api.InlineConfigProviderType:
 		return t.validateInlineConfig(configItem)
 	case api.HttpConfigProviderType:
@@ -202,7 +185,7 @@ func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
 }
 
-func (t *FleetValidateLogic) validateK8sConfig(configItem *api.ConfigProviderSpec) (*string, *string, error) {
+func (t *FleetValidateLogic) validateK8sConfig(ctx context.Context, configItem *api.ConfigProviderSpec) (*string, *string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
@@ -210,7 +193,7 @@ func (t *FleetValidateLogic) validateK8sConfig(configItem *api.ConfigProviderSpe
 	if t.k8sClient == nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("kubernetes API is not available")
 	}
-	_, err = t.k8sClient.GetSecret(k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
+	_, err = t.k8sClient.GetSecret(ctx, k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 	if err != nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 	}

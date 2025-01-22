@@ -24,9 +24,7 @@ func TestModelSchemaSelectors(t *testing.T) {
 		{"status", &api.CertificateSigningRequestStatus{}, certificateSigningRequestStatusSelectors},
 		{"spec", &api.FleetSpec{}, fleetSpecSelectors},
 		{"spec", &api.ResourceSyncSpec{}, resourceSyncSpecSelectors},
-
-		// TODO: cannot scan the API schema
-		// {"spec", &api.RepositorySpec{}, repositorySpecSelectors}
+		{"spec", &api.GenericRepoSpec{}, repositorySpecSelectors},
 	}
 
 	for _, test := range testSelectors {
@@ -38,14 +36,19 @@ func TestModelSchemaSelectors(t *testing.T) {
 
 func verifySchema(schemaName string, apischema any, selectors selectorToTypeMap) error {
 	schema := scanAPISchema(schemaName, apischema)
-	for selector, typ := range selectors {
-		schemaTyp, exists := schema[selector]
+	for s, typ := range selectors {
+
+		// Normalize the selector name to ensure compatibility with schema definitions.
+		// This is especially important for hidden selectors, which might be annotated differently.
+		s = selector.NewSelectorName(s.String())
+
+		schemaTyp, exists := schema[s]
 		if !exists {
-			return fmt.Errorf("%v: does not exist in API schema", selector)
+			return fmt.Errorf("%v: does not exist in API schema", s)
 		}
 
 		if schemaTyp != typ {
-			return fmt.Errorf("%v: defined types and schema types do not match", selector)
+			return fmt.Errorf("%v: defined types and schema types do not match", s)
 		}
 	}
 	return nil
@@ -59,7 +62,7 @@ func scanAPISchema(schemaName string, apischema any) selectorToTypeMap {
 		typ = typ.Elem()
 	}
 
-	rootName := selector.SelectorName(schemaName)
+	rootName := selector.NewSelectorName(schemaName)
 	dfsType(typ, rootName, result)
 	return result
 }
@@ -79,7 +82,7 @@ func dfsType(typ reflect.Type, path selector.SelectorName, result selectorToType
 		}
 
 		name, _, _ := strings.Cut(tag, ",")
-		fieldPath := path + "." + selector.SelectorName(name)
+		fieldPath := selector.NewSelectorName(path.String() + "." + name)
 		for fieldType.Kind() == reflect.Ptr {
 			fieldType = fieldType.Elem()
 		}
@@ -118,7 +121,7 @@ func dfsType(typ reflect.Type, path selector.SelectorName, result selectorToType
 			}
 			result[fieldPath] = getArrayTypeConstant(elemType)
 			if elemType.Kind() == reflect.Struct {
-				dfsType(elemType, fieldPath+"[]", result)
+				dfsType(elemType, selector.NewSelectorName(fieldPath.String()+"[]"), result)
 			}
 		case reflect.Struct:
 			// Recurse into nested struct fields

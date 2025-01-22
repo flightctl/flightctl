@@ -7,7 +7,7 @@ Flight Control is a service for declarative, GitOps-driven management of edge de
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.21), `openssl`, `openssl-devel` and `podman-compose`
+* `git`, `make`, and `go` (>= 1.21), `openssl`, `openssl-devel`, `podman-compose` and `go-rpm-macros` (in case one need to build RPM's)
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
@@ -61,9 +61,17 @@ Use an agent VM to test a device interaction, an image is automatically created 
 hack/Containerfile.local and a qcow2 image is derived in output/qcow2/disk.qcow2, currently
 this only works on a Linux host.
 
+You can deploy a DB container of different sizes using a DB_VERSION variable for make command:
+* e2e (default) - minimal footprint for e2e testing
+* small-1k - recommended setting for a demo environment 1000 devices max
+* medium-10k - recommended setting for a demo environment 10k devices max
+
 ```
 # will create the cluster, and the agent config files in bin/agent which will be embedded in the image
+# this one will create a defailt `e2e DB container
 make deploy
+# to create a small DB container use
+# make deploy DB_VERSION=small
 make agent-vm agent-vm-console # user/password is user/user
 ```
 
@@ -106,7 +114,7 @@ make clean-agent-vm VMNAME=flightctl-device-2
 make clean-agent-vm VMNAME=flightctl-device-3
 ```
 
-Use the `devicesimulator` to simulate load from devices:
+Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices
 
 ```
 bin/devicesimulator --count=100
@@ -117,7 +125,7 @@ bin/devicesimulator --count=100
 Start the observability stack:
 
 ```
-podman-compose -f deploy/podman/observability.yaml up
+make deploy-e2e-extras
 ```
 
-The Grafana and Prometheus web UIs are then accessible on `http://localhost:3000` and `http://localhost:9090`, respectively.
+The Prometheus web UI is then accessible on `http://localhost:9090`

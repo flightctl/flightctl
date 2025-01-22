@@ -14,10 +14,12 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	client "github.com/flightctl/flightctl/internal/client"
+	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
@@ -177,14 +179,35 @@ func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.Read
 	return device
 }
 
+func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) v1alpha1.DeviceSummaryStatusType {
+	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	Expect(err).NotTo(HaveOccurred())
+	// we keep waiting for a 200 response, with filled in Status.SystemInfo
+	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.Summary.Status == "" {
+		return ""
+	}
+	return device.JSON200.Status.Summary.Status
+}
+
+func (h *Harness) GetDeviceWithUpdateStatus(enrollmentID string) v1alpha1.DeviceUpdatedStatusType {
+	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	Expect(err).NotTo(HaveOccurred())
+	// we keep waiting for a 200 response, with filled in Status.SystemInfo
+	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil {
+		return ""
+	}
+	return device.JSON200.Status.Updated.Status
+}
+
 func (h *Harness) ApiEndpoint() string {
 	ep := os.Getenv("API_ENDPOINT")
-	if ep == "" {
-		ep = "https://" + util.GetExtIP() + ":3443"
-		logrus.Infof("API_ENDPOINT not set, using default: %s", ep)
-		err := os.Setenv("API_ENDPOINT", ep)
-		Expect(err).ToNot(HaveOccurred())
-	}
+	Expect(ep).NotTo(BeEmpty(), "API_ENDPOINT environment variable must be set")
+	return ep
+}
+
+func (h *Harness) RegistryEndpoint() string {
+	ep := os.Getenv("REGISTRY_ENDPOINT")
+	Expect(ep).NotTo(BeEmpty(), "REGISTRY_ENDPOINT environment variable must be set")
 	return ep
 }
 
@@ -193,6 +216,14 @@ func (h *Harness) setArgsInCmd(cmd *exec.Cmd, args ...string) {
 		replacedArg := strings.ReplaceAll(arg, "${API_ENDPOINT}", h.ApiEndpoint())
 		cmd.Args = append(cmd.Args, replacedArg)
 	}
+}
+
+func (h *Harness) ReplaceVariableInString(s string, old string, new string) string {
+	if s == "" || old == "" {
+		replacedString := strings.ReplaceAll(s, old, new)
+		return replacedString
+	}
+	return ""
 }
 
 func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadCloser, error) {
@@ -301,7 +332,7 @@ func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*
 }
 
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
-	lastStatusPrint := ""
+	lastResourcePrint := ""
 
 	Eventually(func() error {
 		logrus.Infof("Waiting for condition: %q to be met", description)
@@ -313,15 +344,15 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		}
 		device := response.JSON200
 
-		yamlData, err := yaml.Marshal(device.Status)
+		yamlData, err := yaml.Marshal(device)
 		yamlString := string(yamlData)
 		Expect(err).ToNot(HaveOccurred())
-		if yamlString != lastStatusPrint {
+		if yamlString != lastResourcePrint {
 			fmt.Println("")
-			fmt.Println("======================= Device status change ===================== ")
+			fmt.Println("======================= Device resource change ===================== ")
 			fmt.Println(yamlString)
 			fmt.Println("================================================================== ")
-			lastStatusPrint = yamlString
+			lastResourcePrint = yamlString
 		}
 
 		if condition(device) {
@@ -329,4 +360,129 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		}
 		return errors.New("not updated")
 	}, timeout, "2s").Should(BeNil())
+}
+
+func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
+	deviceId := h.GetEnrollmentIDFromConsole()
+	logrus.Infof("Enrollment ID found in VM console output: %s", deviceId)
+	Expect(deviceId).NotTo(BeNil())
+
+	// Approve the enrollment and wait for the device details to be populated by the agent.
+	h.ApproveEnrollment(deviceId, util.TestEnrollmentApproval())
+
+	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeEmpty())
+	logrus.Infof("The device %s was approved", deviceId)
+
+	// Wait for the device to pickup enrollment and report measurements on device status.
+	Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeNil())
+	logrus.Infof("The device %s is reporting its status", deviceId)
+
+	// Check the device status.
+	response := h.GetDeviceWithStatusSystem(deviceId)
+	device := response.JSON200
+	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
+	return deviceId, device
+}
+
+func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1alpha1.Device, string) {
+	// Check the device status right after bootstrap
+	response := h.GetDeviceWithStatusSystem(deviceId)
+	device := response.JSON200
+	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+
+	var newImageReference string
+
+	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+		currentImage := device.Status.Os.Image
+		logrus.Infof("current image for %s is %s", deviceId, currentImage)
+		repo, _ := h.parseImageReference(currentImage)
+		newImageReference = repo + version
+		device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
+		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
+	})
+
+	return device, newImageReference
+}
+
+func (h *Harness) parseImageReference(image string) (string, string) {
+	// Split the image string by the colon to separate the repository and the tag.
+	parts := strings.Split(image, ":")
+
+	// The tag is the last part after the last colon.
+	tag := parts[len(parts)-1]
+
+	// The repository is composed of all parts before the last colon, joined back together with colons.
+	repo := strings.Join(parts[:len(parts)-1], ":")
+
+	return repo, tag
+}
+
+func (h *Harness) CleanUpResources(resourceType string) (string, error) {
+	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
+	return h.CLI("delete", resourceType)
+
+}
+
+func (h *Harness) CleanUpAllResources() error {
+	for _, resourceType := range util.ResourceTypes {
+		_, err := h.CleanUpResources(resourceType)
+		if err != nil {
+			// Return the error immediately if any operation fails
+			logrus.Infof("Error: %v\n", err)
+			return err
+		}
+		logrus.Infof("The instances of the %s resource type are deleted successfully", resourceType)
+
+	}
+	logrus.Infof("All the resource instances are deleted successfully")
+	return nil
+}
+
+// Generic function to read and unmarshal YAML into the given target type
+func getYamlResourceByFile[T any](yamlFile string) T {
+	if yamlFile == "" {
+		gomega.Expect(fmt.Errorf("yaml file path cannot be empty")).ToNot(gomega.HaveOccurred())
+	}
+
+	fileBytes, err := os.ReadFile(yamlFile)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to read yaml file %s: %v", yamlFile, err)
+
+	var resource T
+	err = yaml.Unmarshal(fileBytes, &resource)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to unmarshal yaml file %s: %v", yamlFile, err)
+
+	return resource
+}
+
+// Wrapper function for Device
+func (h *Harness) GetDeviceByYaml(deviceYaml string) v1alpha1.Device {
+	return getYamlResourceByFile[v1alpha1.Device](deviceYaml)
+}
+
+// Wrapper function for Fleet
+func (h *Harness) GetFleetByYaml(fleetYaml string) v1alpha1.Fleet {
+	return getYamlResourceByFile[v1alpha1.Fleet](fleetYaml)
+}
+
+// Wrapper function for Repository
+func (h *Harness) GetRepositoryByYaml(repoYaml string) v1alpha1.Repository {
+	return getYamlResourceByFile[v1alpha1.Repository](repoYaml)
+}
+
+// Wrapper function for ResourceSync
+func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1alpha1.ResourceSync {
+	return getYamlResourceByFile[v1alpha1.ResourceSync](rSyncYaml)
+}
+
+// Wrapper function for EnrollmentRequest
+func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) v1alpha1.EnrollmentRequest {
+	return getYamlResourceByFile[v1alpha1.EnrollmentRequest](erYaml)
+}
+
+// Wrapper function for CertificateSigningRequest
+func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1alpha1.CertificateSigningRequest {
+	return getYamlResourceByFile[v1alpha1.CertificateSigningRequest](csrYaml)
 }

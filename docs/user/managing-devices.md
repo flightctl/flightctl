@@ -229,6 +229,8 @@ However, there are scenarios where this is impractical, for example, when config
 
 Conceptually, this set of configuration files can be thought of as an additional, dynamic layer on top of the OS image's layers. The Flight Control Agent applies updates to this layer transactionally, ensuring that either all files have been successfully updated in the file system or have been returned to their pre-update state. Further, if the user updates both a devices OS and configuration set at the same time, the Flight Control Agent will first update the OS, then apply the specified configuration set on top.
 
+> [!Important] After the Flight Control Agent has updated the configuration on disk, this configuration still needs to be *activated*. That means, running services need to reload the new configuration into memory for it to become effective. If the update involves a reboot, services will be restarted by systemd in the right order with the new configuration automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not support this, you [use Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks) to specify rules like "if configuration file X has changed, run command Y". Also refer to this section for the set of default rules that the Flight Control Agent applies.
+
 Users can specify a list of configurations sets, in which case the Flight Control Agent applies the sets in sequence and on top of each other, such that in case of conflict the "last one wins".
 
 Configuration can come from multiple sources, called "configuration providers" in Flight Control. Flight Control currently supports the following configuration providers:
@@ -504,6 +506,65 @@ LABEL appType="compose"
 ```
 
 ## Using Device Lifecycle Hooks
+
+You can use device lifecycle hooks to make the agent run user-defined commands at specific points in the device's lifecycle. For example, you can add a shell script to your OS images that backs up your application data and then specify that this script shall be run and complete successfully before the agent can start updating the system.
+
+The following device lifecycle hooks are supported:
+
+| Lifecycle Hook | Description |
+| -------------- | ----------- |
+| `beforeUpdating` | This hook is called after the agent completed preparing for the update and before actually making changes to the system. If an action in this hook returns with failure, the agent aborts the update. |
+| `afterUpdating` | This hook is called after the agent has written the update to disk. If an action in this hook returns with failure,the agent will abort and roll back the update. |
+| `beforeRebooting` | This hook is called before the system reboots. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
+| `afterRebooting` | This hook is called when the agent first starts after a reboot. If any action in this hook returns with failure, the agent will report this but continue starting up. |
+
+Refer to the [Device API status reference](device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.
+
+Device lifecycle hooks can be defined by adding rule files to one of two locations in the device's filesystem, whereby `${lifecyclehook}` is the all-lower-case name of the hook to be defined:
+
+* Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-only and thus have to be added to the OS image during [image building](building-images.md).
+* Rules in the `/etc/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-writable and can thus be updated at runtime using the methods described in [Managing OS Configuration](#managing-os-configuration).
+
+If rules are defined in both locations they will be merged, whereby files under `/etc` take precedence over files of the same name under `/usr`. If multiple rule files are added to a hook's directory, they are processed in lexical order of their file names.
+
+A rule file is written in YAML format and contains a list of one or more actions. An action can be to run an external command ("run action"). When multiple actions are specified for a hook, these actions are performed in sequence, finishing one action before starting the next. If an action returns with failure, later actions will not be executed.
+
+A run action takes the following parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| Run | The absolute path to the command to run, followed by any flags or arguments.<br/><br/>Example: `/usr/bin/nmcli connection reload`.<br/><br/>Note that the command is not executed in a shell, so you cannot use shell variables like `$PATH` or `$HOME` or chain commands (`\|` or `;`). However, it is possible to start a shell yourself if necessary by specifying the shell as command to run.<br/><br/>Example: `/usr/bin/bash -c 'echo $SHELL $HOME $USER'` |
+| EnvVars | (Optional) A list of key/value-pairs to set as environment variables for the command. |
+| WorkDir | (Optional) The directory the command will be run from. |
+| Timeout | (Optional) The maximum duration allowed for the action to complete. The duration must be be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours. |
+| If | (Optional) A list of conditions that must be true for the action to be run (see below). If not provided, actions will run unconditionally. |
+
+By default, actions are performed every time the hook is triggered. However, for the `afterUpdating` hook you can use the `If` parameter to add conditions that must be true for an action to be performed, otherwise the action will be skipped.
+
+In particular, to only run an action if a given file or directory has changed during the update, you can define a "path condition" that takes the following parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| Path | An absolute path to a file or directory that must have changed during the update as condition for the action to be performed. Paths must be specified using forward slashes (`/`) and if the path is to a directory it must terminate with a forward slash `/`.<br/></br>If you specify a path to a file, the file must have changed to satisfy the condition.</br>If you specify a path to a directory, a file in that directory or any of its subdirectories must have changed to satisfy the condition.|
+| On | A list of file operations (`created`, `updated`, `removed`) to further limit the kind of changes to the specified path as condition for the action to be performed. |
+
+If you have specified a "path condition" for an action in the `afterUpdating` hook, you have the following variables that you can include in arguments to your command and that will be replaced with the absolute path(s) to the changed files:
+
+| Variable | Description |
+| -------- | ----------- |
+| `{{ Path }}` | The absolute path to the file or directory specified in the path condition. |
+| `{{ Files }}` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `{{ CreatedFiles }}` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `{{ UpdatedFiles }}` | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition. |
+| `{{ RemovedFiles }}` | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition. |
+
+The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml`:
+
+| If files changed below | then the agent runs | Description |
+| ------------------------ | -------------- | ----------- |
+| `/etc/systemd/system/` | `systemctl daemon-reload` | Changes to systemd units will be activated by signaling the systemd daemon to reload the systemd manager configuration. This will rerun all generators, reload all unit files, and recreate the entire dependency tree. |
+| `/etc/NetworkManager/system-connections/` | `nmcli conn reload` | Changes to Network Manager system connections will be activated by signaling Network Manager to reload all connections. |
+| `/etc/firewalld/` | `firewall-cmd --reload` | Changes to firewalld's permanent configuration will be activated by signaling firewalld to reload firewall rules as new runtime configuration. |
 
 ## Monitoring Device Resources
 

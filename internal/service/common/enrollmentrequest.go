@@ -31,12 +31,6 @@ func CreateEnrollmentRequest(ctx context.Context, st store.Store, request server
 		return server.CreateEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 
-	// verify if the enrollment request already exists, and return it with a 208 status code if it does
-	if enrollmentReq, err := st.EnrollmentRequest().Get(ctx, orgId, *request.Body.Metadata.Name); err == nil {
-		return server.CreateEnrollmentRequest208JSONResponse(*enrollmentReq), nil
-	}
-
-	// if the enrollment request does not exist, create it
 	if err := ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
 		return nil, err
 	}
@@ -47,6 +41,8 @@ func CreateEnrollmentRequest(ctx context.Context, st store.Store, request server
 		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
 	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
 		return server.CreateEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+	case flterrors.ErrDuplicateName:
+		return server.CreateEnrollmentRequest409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
 	}

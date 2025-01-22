@@ -4,7 +4,7 @@ metadata:
   labels:
     flightctl.service: flightctl-db
   name: flightctl-db
-  namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
   replicas: 1
   selector:
@@ -17,20 +17,41 @@ spec:
       labels:
         flightctl.service: flightctl-db
     spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       containers:
         - env:
             - name: PGPASSWORD
-              value: {{ .Values.db.password }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: password
             - name: POSTGRESQL_DATABASE
               value: flightctl
             - name: POSTGRESQL_MASTER_PASSWORD
-              value: {{ .Values.db.masterPassword }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
             - name: POSTGRESQL_MASTER_USER
-              value: {{ .Values.db.masterUser }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
             - name: POSTGRESQL_PASSWORD
-              value: {{ .Values.db.userPassword }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: userPassword
             - name: POSTGRESQL_USER
-              value: {{ .Values.db.user }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: user
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: {{ .Values.db.maxConnections | quote }}
           image: {{ .Values.db.image.image }}:{{ .Values.db.image.tag }}
           imagePullPolicy: {{ .Values.db.image.pullPolicy }}
           name: flightctl-db
@@ -40,13 +61,19 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/pgsql/data
               name: flightctl-db
-{{ if .Values.db.resources }}
+            - mountPath: /usr/share/container-scripts/postgresql/start/enable-superuser.sh
+              subPath: enable-superuser.sh
+              name: init-scripts
           resources:
-{{ toYaml .Values.db.resources | indent 12 }}
-{{ end }}
+            requests:
+              cpu: {{ .Values.db.resources.requests.cpu}}
+              memory: {{ .Values.db.resources.requests.memory}}
       restartPolicy: Always
       volumes:
         - name: flightctl-db
           persistentVolumeClaim:
             claimName: flightctl-db
+        - name: init-scripts
+          configMap:
+            name: flightctl-db
 

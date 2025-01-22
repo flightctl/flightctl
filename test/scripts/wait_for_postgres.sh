@@ -13,7 +13,7 @@ METHOD=${1:-"kubectl"}
 
 if [ "$METHOD" == "podman" ];
 then
-    until podman exec flightctl-db pg_isready -U ${PG_USER} --dbname ${PG_DATABASE} --host ${PG_HOST} --port ${PG_PORT}; do sleep 1; done
+    until sudo podman exec flightctl-db pg_isready -U ${PG_USER} --dbname ${PG_DATABASE} --host ${PG_HOST} --port ${PG_PORT}; do sleep 1; done
 else
     echo "Waiting for postgress deployment to be ready"
     kubectl rollout status deployment flightctl-db -n ${DB_NAMESPACE} -w --timeout=300s

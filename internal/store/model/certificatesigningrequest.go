@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -10,26 +11,18 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	CertificateSigningRequestAPI      = "v1alpha1"
-	CertificateSigningRequestKind     = "CertificateSigningRequest"
-	CertificateSigningRequestListKind = "CertificateSigningRequestList"
-)
-
 type CertificateSigningRequest struct {
 	Resource
 
-	// The desired state of the enrollment request, stored as opaque JSON object.
+	// The desired state of the certificate signing request, stored as opaque JSON object.
 	Spec *JSONField[api.CertificateSigningRequestSpec] `gorm:"type:jsonb"`
 
-	// The last reported state of the enrollment request, stored as opaque JSON object.
+	// The last reported state of the certificate signing request, stored as opaque JSON object.
 	Status *JSONField[api.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
 }
 
-type CertificateSigningRequestList []CertificateSigningRequest
-
-func (e CertificateSigningRequest) String() string {
-	val, _ := json.Marshal(e)
+func (csr CertificateSigningRequest) String() string {
+	val, _ := json.Marshal(csr)
 	return string(val)
 }
 
@@ -53,7 +46,8 @@ func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSignin
 	return &CertificateSigningRequest{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -61,9 +55,14 @@ func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSignin
 	}, nil
 }
 
-func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequest {
+func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (*api.CertificateSigningRequest, error) {
 	if csr == nil {
-		return api.CertificateSigningRequest{}
+		return &api.CertificateSigningRequest{}, nil
+	}
+
+	spec := api.CertificateSigningRequestSpec{}
+	if csr.Spec != nil {
+		spec = csr.Spec.Data
 	}
 
 	status := api.CertificateSigningRequestStatus{Conditions: []api.Condition{}}
@@ -71,38 +70,30 @@ func (csr *CertificateSigningRequest) ToApiResource() api.CertificateSigningRequ
 		status = csr.Status.Data
 	}
 
-	metadataLabels := util.LabelArrayToMap(csr.Resource.Labels)
-
-	return api.CertificateSigningRequest{
-		ApiVersion: CertificateSigningRequestAPI,
-		Kind:       CertificateSigningRequestKind,
+	return &api.CertificateSigningRequest{
+		ApiVersion: api.CertificateSigningRequestAPI,
+		Kind:       api.CertificateSigningRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(csr.Name),
 			CreationTimestamp: util.TimeToPtr(csr.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(csr.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(csr.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(csr.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(csr.ResourceVersion), 10)), nil),
 		},
-		Spec:   csr.Spec.Data,
+		Spec:   spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaining *int64) api.CertificateSigningRequestList {
-	if csrl == nil {
-		return api.CertificateSigningRequestList{
-			ApiVersion: CertificateSigningRequestAPI,
-			Kind:       CertificateSigningRequestListKind,
-			Items:      []api.CertificateSigningRequest{},
-		}
-	}
-
-	certificateSigningRequestList := make([]api.CertificateSigningRequest, len(csrl))
-	for i, certificateSigningRequest := range csrl {
-		certificateSigningRequestList[i] = certificateSigningRequest.ToApiResource()
+func CertificateSigningRequestsToApiResource(csrs []CertificateSigningRequest, cont *string, numRemaining *int64) (api.CertificateSigningRequestList, error) {
+	certificateSigningRequestList := make([]api.CertificateSigningRequest, len(csrs))
+	for i, certificateSigningRequest := range csrs {
+		apiResource, _ := certificateSigningRequest.ToApiResource()
+		certificateSigningRequestList[i] = *apiResource
 	}
 	ret := api.CertificateSigningRequestList{
-		ApiVersion: CertificateSigningRequestAPI,
-		Kind:       CertificateSigningRequestListKind,
+		ApiVersion: api.CertificateSigningRequestAPI,
+		Kind:       api.CertificateSigningRequestListKind,
 		Items:      certificateSigningRequestList,
 		Metadata:   api.ListMeta{},
 	}
@@ -110,5 +101,36 @@ func (csrl CertificateSigningRequestList) ToApiResource(cont *string, numRemaini
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
+}
+
+func CertificateSigningRequestPtrToCertificateSigningRequest(p *CertificateSigningRequest) *CertificateSigningRequest {
+	return p
+}
+
+func (csr *CertificateSigningRequest) GetKind() string {
+	return api.CertificateSigningRequestKind
+}
+
+func (csr *CertificateSigningRequest) HasNilSpec() bool {
+	return csr.Spec == nil
+}
+
+func (csr *CertificateSigningRequest) GetSpec() any {
+	return csr.Spec.Data
+}
+
+func (csr *CertificateSigningRequest) HasSameSpecAs(otherResource any) bool {
+	otherDev, ok := otherResource.(*CertificateSigningRequest) // Assert that the other resource is a *CertificateSigningRequest
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if otherDev == nil || otherDev.Spec == nil {
+		return false
+	}
+	return reflect.DeepEqual(csr.Spec.Data, otherDev.Spec.Data)
+}
+
+func (csr *CertificateSigningRequest) GetStatusAsJson() ([]byte, error) {
+	return csr.Status.MarshalJSON()
 }

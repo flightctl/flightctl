@@ -10,14 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	FleetAPI      = "v1alpha1"
-	FleetKind     = "Fleet"
-	FleetListKind = "FleetList"
-
-	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
-)
-
 type Fleet struct {
 	Resource
 
@@ -30,8 +22,6 @@ type Fleet struct {
 	// Join table with the relationship of fleets to repositories
 	Repositories []Repository `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`
 }
-
-type FleetList []Fleet
 
 func (d Fleet) String() string {
 	val, _ := json.Marshal(d)
@@ -58,10 +48,10 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 	return &Fleet{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
-			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -69,21 +59,9 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 	}, nil
 }
 
-type APIResourceOption func(*apiResourceOptions)
-
-type apiResourceOptions struct {
-	summary *api.DevicesSummary
-}
-
-func WithSummary(summary *api.DevicesSummary) APIResourceOption {
-	return func(o *apiResourceOptions) {
-		o.summary = summary
-	}
-}
-
-func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
+func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 	if f == nil {
-		return api.Fleet{}
+		return &api.Fleet{}, nil
 	}
 
 	options := apiResourceOptions{}
@@ -91,52 +69,47 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) api.Fleet {
 		opt(&options)
 	}
 
+	spec := api.FleetSpec{}
+	if f.Spec != nil {
+		spec = f.Spec.Data
+	}
+
 	status := api.FleetStatus{Conditions: []api.Condition{}}
 	if f.Status != nil {
 		status = f.Status.Data
 	}
-	status.DevicesSummary = options.summary
+	status.DevicesSummary = options.devicesSummary
 
-	metadataLabels := util.LabelArrayToMap(f.Resource.Labels)
-	metadataAnnotations := util.LabelArrayToMap(f.Resource.Annotations)
-
-	return api.Fleet{
-		ApiVersion: FleetAPI,
-		Kind:       FleetKind,
+	return &api.Fleet{
+		ApiVersion: api.FleetAPIVersion,
+		Kind:       api.FleetKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(f.Name),
 			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(f.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(f.Resource.Annotations)),
 			Generation:        f.Generation,
 			Owner:             f.Owner,
-			Annotations:       &metadataAnnotations,
 			ResourceVersion:   lo.Ternary(f.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(f.ResourceVersion), 10)), nil),
 		},
-		Spec:   f.Spec.Data,
+		Spec:   spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetList {
-	if dl == nil {
-		return api.FleetList{
-			ApiVersion: FleetAPI,
-			Kind:       FleetListKind,
-			Items:      []api.Fleet{},
-		}
-	}
-
-	fleetList := make([]api.Fleet, len(dl))
-	for i, fleet := range dl {
+func FleetsToApiResource(fleets []Fleet, cont *string, numRemaining *int64) (api.FleetList, error) {
+	fleetList := make([]api.Fleet, len(fleets))
+	for i, fleet := range fleets {
 		var opts []APIResourceOption
 		if fleet.Status.Data.DevicesSummary != nil {
-			opts = append(opts, WithSummary(fleet.Status.Data.DevicesSummary))
+			opts = append(opts, WithDevicesSummary(fleet.Status.Data.DevicesSummary))
 		}
-		fleetList[i] = fleet.ToApiResource(opts...)
+		apiResource, _ := fleet.ToApiResource(opts...)
+		fleetList[i] = *apiResource
 	}
 	ret := api.FleetList{
-		ApiVersion: FleetAPI,
-		Kind:       FleetListKind,
+		ApiVersion: api.FleetAPIVersion,
+		Kind:       api.FleetListKind,
 		Items:      fleetList,
 		Metadata:   api.ListMeta{},
 	}
@@ -144,5 +117,35 @@ func (dl FleetList) ToApiResource(cont *string, numRemaining *int64) api.FleetLi
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
+}
+
+func FleetPtrToFleet(f *Fleet) *Fleet {
+	return f
+}
+
+func (f *Fleet) GetKind() string {
+	return api.FleetKind
+}
+
+func (f *Fleet) HasNilSpec() bool {
+	return f.Spec == nil
+}
+
+func (f *Fleet) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*Fleet) // Assert that the other resource is a *Fleet
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (f.Spec == nil && other.Spec != nil) || (f.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return api.FleetSpecsAreEqual(f.Spec.Data, other.Spec.Data)
+}
+
+func (f *Fleet) GetStatusAsJson() ([]byte, error) {
+	return f.Status.MarshalJSON()
 }

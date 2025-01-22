@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -85,22 +86,35 @@ func main() {
 		log.Fatalf("running initial migration: %v", err)
 	}
 
-	tlsConfig, agentTlsConfig, grpcTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
-	provider := queues.NewAmqpProvider(cfg.Queue.AmqpURL, log)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+
+	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("failed connecting to Redis queue: %v", err)
+	}
 
 	metrics := instrumentation.NewApiMetrics(cfg)
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	// create the agent service listener as tcp (combined HTTP+gRPC)
+	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
+	if err != nil {
+		log.Fatalf("creating listener: %s", err)
+	}
+
+	agentserver := agentserver.New(log, cfg, store, ca, agentListener, agentTlsConfig, metrics)
+
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
 		if err != nil {
 			log.Fatalf("creating listener: %s", err)
 		}
-
-		server := apiserver.New(log, cfg, store, ca, listener, provider, metrics)
+		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
+		server := apiserver.New(log, cfg, store, ca, listener, provider, metrics, agentserver.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -108,21 +122,7 @@ func main() {
 	}()
 
 	go func() {
-		listener, err := middleware.NewTLSListener(cfg.Service.AgentEndpointAddress, agentTlsConfig)
-		if err != nil {
-			log.Fatalf("creating listener: %s", err)
-		}
-
-		agentserver := agentserver.New(log, cfg, store, ca, listener, metrics)
 		if err := agentserver.Run(ctx); err != nil {
-			log.Fatalf("Error running server: %s", err)
-		}
-		cancel()
-	}()
-
-	go func() {
-		grpcServer := agentserver.NewAgentGrpcServer(log, cfg, grpcTlsConfig)
-		if err := grpcServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
 		cancel()

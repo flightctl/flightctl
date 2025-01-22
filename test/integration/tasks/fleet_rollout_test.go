@@ -75,7 +75,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 			logic.SetItemsPerPage(2)
@@ -89,7 +88,7 @@ var _ = Describe("FleetRollout", func() {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(dev.Metadata.Annotations).ToNot(BeNil())
-				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
+				Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
 			}
 
 			// Second update
@@ -101,7 +100,7 @@ var _ = Describe("FleetRollout", func() {
 				dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(dev.Metadata.Annotations).ToNot(BeNil())
-				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.1"))
+				Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0.1"))
 			}
 		})
 
@@ -111,7 +110,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			logic.SetItemsPerPage(2)
@@ -123,7 +121,7 @@ var _ = Describe("FleetRollout", func() {
 			dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.Metadata.Annotations).ToNot(BeNil())
-			Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
+			Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0.0"))
 		})
 
 		When("the fleet is valid and contains parameters", func() {
@@ -135,26 +133,26 @@ var _ = Describe("FleetRollout", func() {
 
 			BeforeEach(func() {
 				gitConfig = &api.GitConfigProviderSpec{
-					Name: "paramGitConfig",
+					Name: "param-git-config",
 				}
-				gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
+				gitConfig.GitRef.Path = "path-{{ index .metadata.labels \"key\" }}"
 				gitConfig.GitRef.Repository = "repo"
 				gitConfig.GitRef.TargetRevision = "rev"
 
 				inlineConfig = &api.InlineConfigProviderSpec{
-					Name: "paramInlineConfig",
+					Name: "param-inline-config",
 				}
 				enc := api.Base64
 				inlineConfig.Inline = []api.FileSpec{
-					// Unencoded: My version is {{ device.metadata.labels[version] }}
-					{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},
+					// Unencoded: My version is {{ index .metadata.labels "version" }}
+					{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBpbmRleCAubWV0YWRhdGEubGFiZWxzICJ2ZXJzaW9uIiB9fQ=="},
 				}
 
 				httpConfig = &api.HttpConfigProviderSpec{
-					Name: "paramHttpConfig",
+					Name: "param-http-config",
 				}
 				httpConfig.HttpRef.Repository = "http-repo"
-				httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
+				httpConfig.HttpRef.FilePath = "/var/http-path-{{ index .metadata.labels \"key\" }}"
 				httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
 			})
 
@@ -180,7 +178,6 @@ var _ = Describe("FleetRollout", func() {
 				fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-				Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 				devices, err := deviceStore.List(ctx, orgId, store.ListParams{})
 				Expect(err).ToNot(HaveOccurred())
@@ -194,7 +191,7 @@ var _ = Describe("FleetRollout", func() {
 					dev, err := deviceStore.Get(ctx, orgId, fmt.Sprintf("mydevice-%d", i))
 					Expect(err).ToNot(HaveOccurred())
 					Expect(dev.Metadata.Annotations).ToNot(BeNil())
-					Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
+					Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 					Expect(dev.Spec.Config).ToNot(BeNil())
 					Expect(*dev.Spec.Config).To(HaveLen(3))
 					for _, configItem := range *dev.Spec.Config {
@@ -214,7 +211,7 @@ var _ = Describe("FleetRollout", func() {
 						case api.HttpConfigProviderType:
 							httpSpec, err := configItem.AsHttpConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
-							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("http-path-value-%d", i)))
+							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("/var/http-path-value-%d", i)))
 							Expect(httpSpec.HttpRef.Suffix).To(Equal(util.StrToPtr("/http-suffix")))
 						default:
 							Expect("").To(Equal("unexpected discriminator"))
@@ -246,7 +243,6 @@ var _ = Describe("FleetRollout", func() {
 				fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-				Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 				// Roll out to the single device
 				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
@@ -255,7 +251,7 @@ var _ = Describe("FleetRollout", func() {
 				dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
 				Expect(err).ToNot(HaveOccurred())
 				Expect(dev.Metadata.Annotations).ToNot(BeNil())
-				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
+				Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 				Expect(dev.Spec.Config).ToNot(BeNil())
 				Expect(*dev.Spec.Config).To(HaveLen(2))
 				for _, configItem := range *dev.Spec.Config {
@@ -287,7 +283,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
@@ -303,7 +298,7 @@ var _ = Describe("FleetRollout", func() {
 				otherupdate := api.Device{
 					Metadata: api.ObjectMeta{
 						Name:            util.StrToPtr("mydevice-1"),
-						Owner:           util.SetResourceOwner(model.FleetKind, "some-other-owner"),
+						Owner:           util.SetResourceOwner(api.FleetKind, "some-other-owner"),
 						ResourceVersion: util.StrToPtr("0"),
 					},
 					Spec:   &api.DeviceSpec{},
@@ -331,7 +326,6 @@ var _ = Describe("FleetRollout", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)

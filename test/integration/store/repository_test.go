@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -39,7 +40,7 @@ var _ = Describe("RepositoryStore create", func() {
 		numRepositories = 3
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
 		callbackCalled = false
-		callback = store.RepositoryStoreCallback(func(*model.Repository) { callbackCalled = true })
+		callback = store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
 
 		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
@@ -168,8 +169,8 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("List with labels", func() {
 			listParams := store.ListParams{
-				Limit:  1000,
-				Labels: map[string]string{"key": "value-1"}}
+				Limit:         1000,
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
 			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
@@ -194,8 +195,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
-			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
-			Expect(repo.Kind).To(Equal(model.RepositoryKind))
+			Expect(repo.ApiVersion).To(Equal(api.RepositoryAPIVersion))
+			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Url).To(Equal("myrepo"))
@@ -221,8 +222,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(false))
-			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
-			Expect(repo.Kind).To(Equal(model.RepositoryKind))
+			Expect(repo.ApiVersion).To(Equal(api.RepositoryAPIVersion))
+			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Url).To(Equal("myotherrepo"))
@@ -248,8 +249,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
-			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPI))
-			Expect(repo.Kind).To(Equal(model.RepositoryKind))
+			Expect(repo.ApiVersion).To(Equal(api.RepositoryAPIVersion))
+			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Url).To(Equal("myotherrepo"))

@@ -20,10 +20,10 @@ require (
 	github.com/google/go-tpm-tools v0.4.4
 	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
+	github.com/jellydator/ttlcache/v3 v3.3.0
 	github.com/lestrrat-go/jwx/v2 v2.1.0
-	github.com/lib/pq v1.10.9
-	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/mackerelio/go-osstat v0.2.5
 	github.com/oapi-codegen/nethttp-middleware v1.0.1
 	github.com/oapi-codegen/runtime v1.1.1
@@ -32,7 +32,8 @@ require (
 	github.com/openshift/library-go v0.0.0-20231130204458-653f82d961a1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/client_golang v1.19.0
-	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/redis/go-redis/v9 v9.7.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/samber/lo v1.44.0
 	github.com/secure-systems-lab/go-securesystemslib v0.8.0
 	github.com/sirupsen/logrus v1.9.3
@@ -40,12 +41,11 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.6-0.20210604193023-d5e0c0615ace
 	github.com/stretchr/testify v1.9.0
-	github.com/valkey-io/valkey-go v1.0.48
 	github.com/vincent-petithory/dataurl v1.0.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/crypto v0.25.0
 	golang.org/x/net v0.27.0
-	golang.org/x/sync v0.7.0
+	golang.org/x/sync v0.8.0
 	golang.org/x/sys v0.24.0
 	golang.org/x/term v0.22.0
 	google.golang.org/grpc v1.64.0
@@ -79,6 +79,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect

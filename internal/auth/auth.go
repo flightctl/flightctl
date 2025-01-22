@@ -14,16 +14,20 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
 
 const (
 	// DisableAuthEnvKey is the environment variable key used to disable auth when developing.
 	DisableAuthEnvKey = "FLIGHTCTL_DISABLE_AUTH"
+	k8sCACertPath     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	k8sApiService     = "https://kubernetes.default.svc"
 )
 
 type AuthNMiddleware interface {
 	ValidateToken(ctx context.Context, token string) (bool, error)
+	GetIdentity(ctx context.Context, token string) (*common.Identity, error)
 	GetAuthConfig() common.AuthConfig
 }
 
@@ -61,6 +65,49 @@ func getAuthToken(r *http.Request) (string, bool) {
 	return ParseAuthHeader(authHeader)
 }
 
+func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
+	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
+	externalOpenShiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/")
+	log.Infof("k8s auth enabled: %s", apiUrl)
+	var k8sClient k8sclient.K8SClient
+	var err error
+	if apiUrl == k8sApiService {
+		k8sClient, err = k8sclient.NewK8SClient()
+	} else {
+		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, cfg.Auth.InsecureSkipTlsVerify, cfg.Auth.CACert)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create k8s client: %w", err)
+	}
+	authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{K8sClient: k8sClient, Namespace: cfg.Auth.K8s.RBACNs}}
+	authN, err = authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl)
+	if err != nil {
+		return fmt.Errorf("failed to create k8s AuthN: %w", err)
+	}
+	return nil
+}
+
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
+	}
+	if cfg.Auth.CACert != "" {
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
+		tlsConfig.RootCAs = caCertPool
+	}
+	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
+	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
+	log.Infof("OIDC auth enabled: %s", oidcUrl)
+	authZ = NilAuth{}
+	var err error
+	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create OIDC AuthN: %w", err)
+	}
+	return nil
+}
+
 func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http.Handler) http.Handler, error) {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
@@ -68,29 +115,15 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		authZ = NilAuth{}
 		authN = authZ.(AuthNMiddleware)
 	} else if cfg.Auth != nil {
-		tlsConfig := &tls.Config{
-			InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
+		var err error
+		if cfg.Auth.K8s != nil {
+			err = initK8sAuth(cfg, log)
+		} else if cfg.Auth.OIDC != nil {
+			err = initOIDCAuth(cfg, log)
 		}
-		if cfg.Auth.CACert != "" {
-			caCertPool := x509.NewCertPool()
-			caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
-			tlsConfig.RootCAs = caCertPool
-		}
-		if cfg.Auth.OpenShiftApiUrl != "" {
-			apiUrl := strings.TrimSuffix(cfg.Auth.OpenShiftApiUrl, "/")
-			log.Println(fmt.Sprintf("OpenShift auth enabled: %s", apiUrl))
-			authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{ApiUrl: apiUrl, ClientTlsConfig: tlsConfig}}
-			authN = authn.OpenShiftAuthN{OpenShiftApiUrl: apiUrl, ClientTlsConfig: tlsConfig}
-		} else if cfg.Auth.OIDCAuthority != "" {
-			oidcUrl := strings.TrimSuffix(cfg.Auth.OIDCAuthority, "/")
-			internalOidcUrl := strings.TrimSuffix(cfg.Auth.InternalOIDCAuthority, "/")
-			log.Println(fmt.Sprintf("OIDC auth enabled: %s", oidcUrl))
-			authZ = NilAuth{}
-			var err error
-			authN, err = authn.NewJWTAuth(oidcUrl, internalOidcUrl, tlsConfig)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create JWT AuthN: %w", err)
-			}
+
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -118,6 +151,12 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 				return
 			}
 			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
+			identity, err := authN.GetIdentity(ctx, authToken)
+			if err != nil {
+				log.WithError(err).Error("failed to get identity")
+			} else {
+				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
 		return http.HandlerFunc(fn)

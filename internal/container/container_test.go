@@ -20,8 +20,6 @@ func TestBootcHost(t *testing.T) {
 
 	// spec image
 	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Spec.Image.Image)
-	// transport
-	require.Equal("registry", status.Spec.Image.Transport)
 	// booted
 	require.Equal("quay.io/flightctl/flightctl-agent-fedora", status.Status.Booted.Image.Image.Image)
 	// booted digest
@@ -30,16 +28,6 @@ func TestBootcHost(t *testing.T) {
 	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Status.Rollback.Image.Image.Image)
 	// staged image
 	require.Equal("quay.io/flightctl/flightctl-agent-basic-nginx", status.Status.Staged.Image.Image.Image)
-	// version
-	require.Equal("stream9.20240224.0", status.Status.Staged.Image.Version)
-	// timestamp
-	require.Equal("", status.Status.Staged.Image.Timestamp)
-	// ostree checksum
-	require.Equal("f627c830e921afe918402486d5fe8a7ffaf3bd8c0d21311cba28facc9b17b9e2", status.Status.Staged.Ostree.Checksum)
-	// pinned
-	require.Equal(false, status.Status.Staged.Pinned)
-	// deploy serial
-	require.Equal(4, status.Status.Staged.Ostree.DeploySerial)
 }
 
 func TestIsOsImageReconciled(t *testing.T) {
@@ -47,32 +35,32 @@ func TestIsOsImageReconciled(t *testing.T) {
 	testCases := []struct {
 		name           string
 		bootedImage    string
-		desiredOs      *v1alpha1.DeviceOSSpec
+		desiredOs      *v1alpha1.DeviceOsSpec
 		expectedResult bool
 		expectedError  error
 	}{
 		{
 			name:           "booted and desired are the same",
 			bootedImage:    "quay.io/org/flightctl-device",
-			desiredOs:      &v1alpha1.DeviceOSSpec{Image: "quay.io/org/flightctl-device"},
+			desiredOs:      &v1alpha1.DeviceOsSpec{Image: "quay.io/org/flightctl-device"},
 			expectedResult: true,
 		},
 		{
 			name:           "booted and desired have different tags",
 			bootedImage:    "quay.io/org/flightctl-device:v3",
-			desiredOs:      &v1alpha1.DeviceOSSpec{Image: "quay.io/org/flightctl-device:v9"},
+			desiredOs:      &v1alpha1.DeviceOsSpec{Image: "quay.io/org/flightctl-device:v9"},
 			expectedResult: false,
 		},
 		{
 			name:           "booted and desired are the same after image parsed to target",
 			bootedImage:    "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
-			desiredOs:      &v1alpha1.DeviceOSSpec{Image: "quay.io/org/flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5"},
+			desiredOs:      &v1alpha1.DeviceOsSpec{Image: "quay.io/org/flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5"},
 			expectedResult: true,
 		},
 		{
 			name:          "desired image cannot be parsed",
 			bootedImage:   "quay.io/org/flightctl-device",
-			desiredOs:     &v1alpha1.DeviceOSSpec{Image: "_invalid"},
+			desiredOs:     &v1alpha1.DeviceOsSpec{Image: "_invalid"},
 			expectedError: ErrParsingImage,
 		},
 	}
@@ -143,7 +131,7 @@ func Test_imageToBootcTarget(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			target, err := imageToBootcTarget(testCase.image)
+			target, err := ImageToBootcTarget(testCase.image)
 
 			if testCase.expectedError != nil {
 				require.ErrorIs(err, testCase.expectedError)

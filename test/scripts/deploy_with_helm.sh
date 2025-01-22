@@ -3,29 +3,49 @@ set -x -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 METHOD=install
 ONLY_DB=
-RABBITMQ_VERSION=${RABBITMQ_VERSION:-"3.13"}
-RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-"docker.io/rabbitmq"}
-VALKEY_VERSION=${VALKEY_VERSION:-"8.0.1"}
-VALKEY_IMAGE=${VALKEY_IMAGE:-"docker.io/valkey/valkey"}
+DB_SIZE_PARAMS=
+# If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
+# IMAGE_PULL_SECRET_PATH=
+SQL_VERSION=${SQL_VERSION:-"latest"}
+SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-12-c8s"}
+KV_VERSION=${KV_VERSION:-"7.4.1"}
+KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,auth,help -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,db-size:,auth,help -n "$0" -- "$@")
 eval set -- "$options"
+
+usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
 
 while true; do
   case "$1" in
-    -a|--only-db) ONLY_DB="--set flightctl.api.enabled=false --set flightctl.worker.enabled=false --set flightctl.periodic.enabled=false --set flightctl.rabbitmq.enabled=false --set flightctl.kv.enabled=false" ; shift ;;
-    -h|--help) echo "Usage: $0 [--only-db]"; exit 0 ;;
+    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set kv.enabled=false" ; shift ;;
+    -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
+    --db-size)
+      db_size=$2
+      if [ "$db_size" == "e2e" ]; then
+        DB_SIZE_PARAMS=""
+      elif [ "$db_size" == "small-1k" ]; then
+        DB_SIZE_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
+      elif [ "$db_size" == "medium-10k" ]; then
+        DB_SIZE_PARAMS="--set db.resources.requests.cpu=4 --set db.resources.requests.memory=8Gi --set db.resources.limits.cpu=20 --set db.resources.limits.memory=128Gi"
+      else
+        echo "Wrong parameter to --db-size flag: $db_size"
+        echo "Usage: $0 $usage"
+        exit 1
+      fi
+      shift 2
+      ;;
     --) shift; break ;;
     *) echo "Invalid option: $1" >&2; exit 1 ;;
   esac
 done
 
-RABBITMQ_ARG="--set flightctl.rabbitmq.image.image=${RABBITMQ_IMAGE} --set flightctl.rabbitmq.image.tag=${RABBITMQ_VERSION}"
-VALKEY_ARG="--set flightctl.kv.image.image=${VALKEY_IMAGE} --set flightctl.kv.image.tag=${VALKEY_VERSION}"
+SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
+KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -40,24 +60,26 @@ if [ -z "$ONLY_DB" ]; then
     kind_load_image localhost/flightctl-${suffix}:latest
   done
 
-  kind_load_image "${RABBITMQ_IMAGE}:${RABBITMQ_VERSION}" keep-tar
-  kind_load_image "${VALKEY_IMAGE}:${VALKEY_VERSION}" keep-tar
+  kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
 fi
 
+if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
+  PULL_SECRET_NAME=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.name)
+  PULL_SECRET_NAMESPACE=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.namespace)
 
+  if [ "$PULL_SECRET_NAMESPACE" != "flightctl-internal" ]; then
+    echo "Namespace for IMAGE_PULL_SECRET_PATH must be flightctl-internal"
+    exit 1
+  fi
 
-# if we need another database image we can set it with PGSQL_IMAGE (i.e. arm64 images)
-if [ ! -z "$PGSQL_IMAGE" ]; then
-  DB_IMG="localhost/flightctl-db:latest"
-  # we send the image directly to kind, so we don't need to inject the credentials in the kind cluster
-  podman pull "${PGSQL_IMAGE}"
-  podman tag "${PGSQL_IMAGE}" "${DB_IMG}"
-  kind_load_image ${DB_IMG}
-  HELM_DB_IMG="--set flightctl.db.image.image=${DB_IMG} --set flightctl.db.image.tag=latest"
+  SQL_ARG="$SQL_ARG --set global.imagePullSecretName=${PULL_SECRET_NAME}"
+  kubectl apply -f "$IMAGE_PULL_SECRET_PATH"
 fi
+
+kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
 
 API_PORT=3443
-KEYCLOAK_PORT=8080
+KEYCLOAK_PORT=8081
 GATEWAY_ARGS=""
 if [ "$GATEWAY" ]; then
   API_PORT=4443
@@ -67,7 +89,7 @@ fi
 
 AUTH_ARGS=""
 if [ "$AUTH" ]; then
-  AUTH_ARGS="--set global.auth.type=builtin --set keycloak.directAccessGrantsEnabled=true"
+  AUTH_ARGS="--set global.auth.type=builtin"
 fi
 
 helm dependency build ./deploy/helm/flightctl
@@ -75,10 +97,10 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${AUTH_ARGS} ${HELM_DB_IMG} ${RABBITMQ_ARG} ${GATEWAY_ARGS} ${VALKEY_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
-kubectl rollout status statefulset flightctl-rabbitmq -n flightctl-internal -w --timeout=300s
+kubectl rollout status statefulset flightctl-kv -n flightctl-internal -w --timeout=300s
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
 
@@ -104,13 +126,12 @@ LOGGED_IN=false
 for i in {1..60}; do
   if [ "$AUTH" ]; then
     PASS=$(kubectl get secret keycloak-demouser-secret -n flightctl-external -o json | jq -r '.data.password' | base64 -d)
-    TOKEN=$(curl -d client_id=flightctl -d username=demouser -d password=${PASS} -d grant_type=password http://auth.${IP}.nip.io:${KEYCLOAK_PORT}/realms/flightctl/protocol/openid-connect/token | jq -r '.access_token')
-    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:${API_PORT} --token ${TOKEN}; then
+    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} -u demouser -p ${PASS}; then
       LOGGED_IN=true
       break
     fi
   else
-    if ./bin/flightctl login --insecure-skip-tls-verify https://api.${IP}.nip.io:${API_PORT}; then
+    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT}; then
       LOGGED_IN=true
       break
     fi

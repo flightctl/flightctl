@@ -2,18 +2,13 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
-)
-
-var (
-	ResourceSyncAPI      = "v1alpha1"
-	ResourceSyncKind     = "ResourceSync"
-	ResourceSyncListKind = "ResourceSyncList"
 )
 
 type ResourceSync struct {
@@ -26,10 +21,8 @@ type ResourceSync struct {
 	Status *JSONField[api.ResourceSyncStatus] `gorm:"type:jsonb"`
 }
 
-type ResourceSyncList []ResourceSync
-
-func (r *ResourceSync) String() string {
-	val, _ := json.Marshal(r)
+func (rs *ResourceSync) String() string {
+	val, _ := json.Marshal(rs)
 	return string(val)
 }
 
@@ -53,7 +46,8 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 	return &ResourceSync{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
@@ -61,54 +55,46 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 	}, nil
 }
 
-func (r *ResourceSync) ToApiResource() api.ResourceSync {
-	if r == nil {
-		return api.ResourceSync{}
+func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceSync, error) {
+	if rs == nil {
+		return &api.ResourceSync{}, nil
 	}
 
 	var spec api.ResourceSyncSpec
-	if r.Spec != nil {
-		spec = r.Spec.Data
+	if rs.Spec != nil {
+		spec = rs.Spec.Data
 	}
 
 	status := api.ResourceSyncStatus{Conditions: []api.Condition{}}
-	if r.Status != nil {
-		status = r.Status.Data
+	if rs.Status != nil {
+		status = rs.Status.Data
 	}
 
-	metadataLabels := util.LabelArrayToMap(r.Resource.Labels)
-
-	return api.ResourceSync{
-		ApiVersion: ResourceSyncAPI,
-		Kind:       ResourceSyncKind,
+	return &api.ResourceSync{
+		ApiVersion: api.ResourceSyncAPIVersion,
+		Kind:       api.ResourceSyncKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(r.Name),
-			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
-			Generation:        r.Generation,
-			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),
+			Name:              util.StrToPtr(rs.Name),
+			CreationTimestamp: util.TimeToPtr(rs.CreatedAt.UTC()),
+			Labels:            lo.ToPtr(util.EnsureMap(rs.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(rs.Resource.Annotations)),
+			Generation:        rs.Generation,
+			ResourceVersion:   lo.Ternary(rs.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(rs.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.ResourceSyncList {
-	if rl == nil {
-		return api.ResourceSyncList{
-			ApiVersion: ResourceSyncAPI,
-			Kind:       ResourceSyncListKind,
-			Items:      []api.ResourceSync{},
-		}
-	}
-
-	resourceSyncList := make([]api.ResourceSync, len(rl))
-	for i, resourceSync := range rl {
-		resourceSyncList[i] = resourceSync.ToApiResource()
+func ResourceSyncsToApiResource(rss []ResourceSync, cont *string, numRemaining *int64) (api.ResourceSyncList, error) {
+	resourceSyncList := make([]api.ResourceSync, len(rss))
+	for i, resourceSync := range rss {
+		apiResource, _ := resourceSync.ToApiResource()
+		resourceSyncList[i] = *apiResource
 	}
 	ret := api.ResourceSyncList{
-		ApiVersion: ResourceSyncAPI,
-		Kind:       ResourceSyncListKind,
+		ApiVersion: api.ResourceSyncAPIVersion,
+		Kind:       api.ResourceSyncListKind,
 		Items:      resourceSyncList,
 		Metadata:   api.ListMeta{},
 	}
@@ -116,7 +102,7 @@ func (rl ResourceSyncList) ToApiResource(cont *string, numRemaining *int64) api.
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
 }
 
 // NeedsSyncToHash returns true if the resource needs to be synced to the given hash.
@@ -173,4 +159,33 @@ func (rs *ResourceSync) AddResourceParsedCondition(err error) {
 
 func (rs *ResourceSync) AddSyncedCondition(err error) {
 	rs.SetCondition(api.ResourceSyncSynced, "Success", "Fail", err)
+}
+
+func (rs *ResourceSync) GetKind() string {
+	return api.ResourceSyncKind
+}
+
+func (rs *ResourceSync) HasNilSpec() bool {
+	return rs.Spec == nil
+}
+
+func (rs *ResourceSync) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*ResourceSync) // Assert that the other resource is a *ResourceSync
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (rs.Spec == nil && other.Spec != nil) || (rs.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return reflect.DeepEqual(rs.Spec.Data, other.Spec.Data)
+}
+
+func (rs *ResourceSync) GetStatusAsJson() ([]byte, error) {
+	if rs.Status == nil {
+		return []byte("null"), nil
+	}
+	return rs.Status.MarshalJSON()
 }

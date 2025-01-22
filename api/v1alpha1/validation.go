@@ -1,16 +1,32 @@
 package v1alpha1
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"text/template"
+	"text/template/parse"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
 )
 
-const maxBase64CertificateLength = 20 * 1024 * 1024
-const maxInlineConfigLength = 1024 * 1024
+const (
+	maxBase64CertificateLength = 20 * 1024 * 1024
+	maxInlineConfigLength      = 1024 * 1024
+	// MaxDNSNameLength defines the maximum length of a DNS-1123 compliant name,
+	// as specified by RFC 1123. It is used to validate the length of strings
+	// that must conform to DNS naming requirements.
+	MaxDNSNameLength = 253
+)
+
+var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
 
 type Validator interface {
 	Validate() []error
@@ -22,33 +38,46 @@ func (r Device) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	if r.Spec != nil {
-		if r.Spec.Os != nil {
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Os.Image, "spec.os.image")...)
+		allErrs = append(allErrs, r.Spec.Validate(false)...)
+	}
+	return allErrs
+}
+
+func (r DeviceSpec) Validate(fleetTemplate bool) []error {
+	allErrs := []error{}
+	if r.UpdatePolicy != nil {
+		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
+	}
+	if r.Os != nil {
+		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
+		allErrs = append(allErrs, paramErrs...)
+		if !containsParams {
+			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Os.Image, "spec.os.image")...)
 		}
-		if r.Spec.Config != nil {
-			for _, config := range *r.Spec.Config {
-				allErrs = append(allErrs, config.Validate()...)
-			}
+	}
+	if r.Config != nil {
+		for _, config := range *r.Config {
+			allErrs = append(allErrs, config.Validate(fleetTemplate)...)
 		}
-		if r.Spec.Applications != nil {
-			allErrs = append(allErrs, validateApplications(*r.Spec.Applications)...)
+	}
+	if r.Applications != nil {
+		allErrs = append(allErrs, validateApplications(*r.Applications)...)
+	}
+	if r.Resources != nil {
+		for _, resource := range *r.Resources {
+			allErrs = append(allErrs, resource.Validate()...)
 		}
-		if r.Spec.Resources != nil {
-			for _, resource := range *r.Spec.Resources {
-				allErrs = append(allErrs, resource.Validate()...)
-			}
-		}
-		if r.Spec.Systemd != nil {
-			for i, matchPattern := range *r.Spec.Systemd.MatchPatterns {
-				matchPattern := matchPattern
-				allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
-			}
+	}
+	if r.Systemd != nil {
+		for i, matchPattern := range *r.Systemd.MatchPatterns {
+			matchPattern := matchPattern
+			allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
 		}
 	}
 	return allErrs
 }
 
-func (c ConfigProviderSpec) Validate() []error {
+func (c ConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 
 	// validate the config provider type
@@ -65,31 +94,95 @@ func (c ConfigProviderSpec) Validate() []error {
 			allErrs = append(allErrs, err)
 			break
 		}
-		allErrs = append(allErrs, provider.Validate()...)
+		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 	case HttpConfigProviderType:
 		provider, err := c.AsHttpConfigProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 			break
 		}
-		allErrs = append(allErrs, provider.Validate()...)
+		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 	case InlineConfigProviderType:
 		provider, err := c.AsInlineConfigProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 			break
 		}
-		allErrs = append(allErrs, provider.Validate()...)
+		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 	case KubernetesSecretProviderType:
 		provider, err := c.AsKubernetesSecretProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 			break
 		}
-		allErrs = append(allErrs, provider.Validate()...)
+		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 	default:
 		// if we hit this case, it means that the type should be added to the switch statement above
 		allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
+	}
+
+	return allErrs
+}
+
+func (a HookAction) Validate(path string) []error {
+	allErrs := []error{}
+
+	t, err := a.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case HookActionTypeRun:
+		runAction, err := a.AsHookActionRun()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			return allErrs
+		}
+		allErrs = append(allErrs, validation.ValidateString(&runAction.Run, path+".run", 1, 2048, nil, "")...)
+		// TODO: pull the extra validation done by the agent up here
+		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(runAction.WorkDir, path+".workDir")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook action type: %s", path, t))
+	}
+
+	if a.If != nil {
+		for i, condition := range *a.If {
+			allErrs = append(allErrs, condition.Validate(fmt.Sprintf("%s.if[%d]", path, i))...)
+		}
+	}
+
+	return allErrs
+}
+
+func (c HookCondition) Validate(path string) []error {
+	allErrs := []error{}
+
+	t, err := c.Type()
+	if err != nil {
+		allErrs = append(allErrs, err)
+		return allErrs
+	}
+
+	switch t {
+	case HookConditionTypeExpression:
+		expression, err := c.AsHookConditionExpression()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateString(&expression, path, 1, 2048, nil, "")...)
+	case HookConditionTypePathOp:
+		pathOpCondition, err := c.AsHookConditionPathOp()
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(&pathOpCondition.Path, path+".path")...)
+	default:
+		// if we hit this case, it means that the type should be added to the switch statement above
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown hook condition type: %s", path, t))
 	}
 
 	return allErrs
@@ -119,7 +212,7 @@ func (r ResourceMonitor) Validate() []error {
 
 	switch monitorType {
 	case "CPU":
-		spec, err := r.AsCPUResourceMonitorSpec()
+		spec, err := r.AsCpuResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
@@ -167,30 +260,60 @@ func (r ResourceAlertRule) Validate(specSampleInterval string) []error {
 	return allErrs
 }
 
-func (c GitConfigProviderSpec) Validate() []error {
+func (c GitConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&c.GitRef.Repository, "spec.config[].gitRef.repository")...)
-	allErrs = append(allErrs, validation.ValidateString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision", 0, 1024, nil, "")...)
-	allErrs = append(allErrs, validation.ValidateString(&c.GitRef.Path, "spec.config[].gitRef.path", 0, 2048, nil, "")...)
+
+	containsParams, paramErrs := validateParametersInString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision", 0, 1024, nil, "")...)
+	}
+
+	containsParams, paramErrs = validateParametersInString(&c.GitRef.Path, "spec.config[].gitRef.path", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateString(&c.GitRef.Path, "spec.config[].gitRef.path", 0, 2048, nil, "")...)
+	}
 	return allErrs
 }
 
-func (c KubernetesSecretProviderSpec) Validate() []error {
+func (c KubernetesSecretProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Name, "spec.config[].secretRef.name")...)
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Namespace, "spec.config[].secretRef.namespace")...)
-	allErrs = append(allErrs, validation.ValidateFilePath(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath")...)
+
+	containsParams, paramErrs := validateParametersInString(&c.SecretRef.Name, "spec.config[].secretRef.name", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Name, "spec.config[].secretRef.name")...)
+	}
+
+	containsParams, paramErrs = validateParametersInString(&c.SecretRef.Namespace, "spec.config[].secretRef.namespace", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateGenericName(&c.SecretRef.Namespace, "spec.config[].secretRef.namespace")...)
+	}
+
+	containsParams, paramErrs = validateParametersInString(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateFilePath(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath")...)
+	}
 
 	return allErrs
 }
 
-func (c InlineConfigProviderSpec) Validate() []error {
+func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
 	for i := range c.Inline {
-		allErrs = append(allErrs, validation.ValidateFilePath(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i))...)
+		containsParams, paramErrs := validateParametersInString(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i), fleetTemplate)
+		allErrs = append(allErrs, paramErrs...)
+		if !containsParams {
+			allErrs = append(allErrs, validation.ValidateFilePath(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i))...)
+		}
+
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].User, fmt.Sprintf("spec.config[].inline[%d].user", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
@@ -198,9 +321,15 @@ func (c InlineConfigProviderSpec) Validate() []error {
 		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64 {
 			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
+			// Can ignore errors because we just validated it in the previous line
+			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
+			_, paramErrs = validateParametersInString(util.StrToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
+			allErrs = append(allErrs, paramErrs...)
 		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineConfigLength, nil, "")...)
+			_, paramErrs = validateParametersInString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), fleetTemplate)
+			allErrs = append(allErrs, paramErrs...)
 		} else {
 			allErrs = append(allErrs, fmt.Errorf("unknown contentEncoding: %s", *(c.Inline[i].ContentEncoding)))
 		}
@@ -208,12 +337,22 @@ func (c InlineConfigProviderSpec) Validate() []error {
 	return allErrs
 }
 
-func (h HttpConfigProviderSpec) Validate() []error {
+func (h HttpConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
-	allErrs = append(allErrs, validation.ValidateFilePath(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath")...)
-	allErrs = append(allErrs, validation.ValidateString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", 0, 2048, nil, "")...)
+
+	containsParams, paramErrs := validateParametersInString(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateFilePath(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath")...)
+	}
+
+	containsParams, paramErrs = validateParametersInString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", 0, 2048, nil, "")...)
+	}
 
 	return allErrs
 }
@@ -230,7 +369,6 @@ func (r EnrollmentRequest) Validate() []error {
 func (r EnrollmentRequestApproval) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateLabelsWithPath(r.Labels, "labels")...)
-	allErrs = append(allErrs, validation.ValidateString(r.ApprovedBy, "approvedBy", 0, 2048, nil, "")...)
 	return allErrs
 }
 
@@ -267,23 +405,45 @@ func (r Fleet) Validate() []error {
 	}
 
 	// Validate the Device spec settings
-	if r.Spec.Template.Spec.Os != nil {
-		allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
-	}
+	allErrs = append(allErrs, r.Spec.Template.Spec.Validate(true)...)
 
-	if r.Spec.Template.Spec.Applications != nil {
-		allErrs = append(allErrs, validateApplications(*r.Spec.Template.Spec.Applications)...)
-	}
+	return allErrs
+}
 
-	if r.Spec.Template.Spec.Resources != nil {
-		for _, resource := range *r.Spec.Template.Spec.Resources {
-			allErrs = append(allErrs, resource.Validate()...)
+func (u DeviceUpdatePolicySpec) Validate() []error {
+	allErrs := []error{}
+	if u.DownloadSchedule != nil {
+		if err := u.DownloadSchedule.Validate(); err != nil {
+			allErrs = append(allErrs, err...)
+		}
+	}
+	if u.UpdateSchedule != nil {
+		if err := u.UpdateSchedule.Validate(); err != nil {
+			allErrs = append(allErrs, err...)
 		}
 	}
 
-	if r.Spec.Template.Spec.Config != nil {
-		for _, config := range *r.Spec.Template.Spec.Config {
-			allErrs = append(allErrs, config.Validate()...)
+	return allErrs
+}
+
+func (u UpdateSchedule) Validate() []error {
+	var allErrs []error
+	if u.TimeZone != nil {
+		if err := validateTimeZone(util.FromPtr(u.TimeZone)); err != nil {
+			allErrs = append(allErrs, err...)
+		}
+	}
+
+	// allow only the standard 5 input cron syntax e.g. "* * * * *"
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(u.At)
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
+	}
+
+	if u.StartGraceDuration != nil {
+		if err := validateGraceDuration(schedule, *u.StartGraceDuration); err != nil {
+			allErrs = append(allErrs, err)
 		}
 	}
 
@@ -336,7 +496,7 @@ func (r ResourceSync) Validate() []error {
 
 func (l *LabelSelector) Validate() []error {
 	if l != nil && l.MatchExpressions == nil && l.MatchLabels == nil {
-		return []error{errors.New("At least one of [matchLabels,matchExpressions] must appear in a label selector")}
+		return []error{errors.New("at least one of [matchLabels,matchExpressions] must appear in a label selector")}
 	}
 	return nil
 }
@@ -397,8 +557,11 @@ func validateSshConfig(config *SshConfig) []error {
 
 func (a ApplicationSpec) Validate() []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, 256, nil, "")...)
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, 256, nil, "")...)
+	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
+	// name must be between 1 and 253 characters and start with a letter or number.
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, MaxDNSNameLength, pattern, "")...)
+	// envVars keys and values must be between 1 and 253 characters
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, MaxDNSNameLength, nil, "")...)
 	return allErrs
 }
 
@@ -484,4 +647,148 @@ func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, e
 	default:
 		return "", fmt.Errorf("unsupported application provider type: %s", appType)
 	}
+}
+
+// note: this regex was taken from the github.com/kubernetes/kubernetes/pkg/apis/batch/validation/validation.go
+// https://data.iana.org/time-zones/theory.html#naming
+// * A name must not be empty, or contain '//', or start or end with '/'.
+// * Do not use the file name components '.' and '..'.
+// * Within a file name component, use only ASCII letters, '.', '-' and '_'.
+// * Do not use digits, as that might create an ambiguity with POSIX TZ strings.
+// * A file name component must not exceed 14 characters or start with '-'
+//
+// 0-9 and + characters are tolerated to accommodate legacy compatibility names
+var validTimeZoneCharacters = regexp.MustCompile(`^[A-Za-z\.\-_0-9+]{1,14}$`)
+
+// validateTimeZone validates the time zone string. it must be a valid IANA time zone identifier.
+func validateTimeZone(timeZone string) []error {
+	allErrs := []error{}
+
+	if len(timeZone) == 0 {
+		allErrs = append(allErrs, fmt.Errorf("time zone must not be empty"))
+		return allErrs
+	}
+
+	// the default time zone is "Local"
+	if strings.EqualFold(timeZone, "Local") {
+		return allErrs
+	}
+
+	// we only support non ambiguous time zones with 3 characters
+	validThreeLetterZones := map[string]bool{
+		"GMT": true,
+		"UTC": true,
+	}
+
+	if len(timeZone) == 3 {
+		if _, ok := validThreeLetterZones[timeZone]; !ok {
+			allErrs = append(allErrs, fmt.Errorf("invalid time zone: %s", timeZone))
+		}
+		return allErrs
+	}
+
+	// split the time zone identifier into parts
+	parts := strings.Split(timeZone, "/")
+	for _, part := range parts {
+		if part == "." || part == ".." || strings.HasPrefix(part, "-") || !validTimeZoneCharacters.MatchString(part) {
+			allErrs = append(allErrs, fmt.Errorf("invalid time zone component: %s", part))
+			return allErrs
+		}
+	}
+
+	if _, err := time.LoadLocation(timeZone); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid time zone: %s: %w", timeZone, err))
+	}
+
+	return allErrs
+}
+
+func validateGraceDuration(schedule cron.Schedule, duration string) error {
+	graceDuration, err := time.ParseDuration(duration)
+	if err != nil {
+		return fmt.Errorf("invalid duration: %w", err)
+	}
+
+	start := time.Now()
+	var cronTimes []time.Time
+	// test through the next 5 cron times
+	for i := 0; i < 5; i++ {
+		start = schedule.Next(start)
+		cronTimes = append(cronTimes, start)
+	}
+
+	// Calculate the minimum interval between cron times
+	for i := 1; i < len(cronTimes); i++ {
+		interval := cronTimes[i].Sub(cronTimes[i-1])
+		if graceDuration > interval {
+			return fmt.Errorf("%w: %s", ErrStartGraceDurationExceedsCronInterval, graceDuration)
+		}
+	}
+
+	return nil
+}
+
+func validateParametersInString(s *string, path string, fleetTemplate bool) (bool, []error) {
+	// If we're not dealing with a fleet template, assume no parameters
+	if s == nil || !fleetTemplate {
+		return false, []error{}
+	}
+
+	allErrs := []error{}
+
+	t, err := template.New("t").Option("missingkey=zero").Funcs(GetGoTemplateFuncMap()).Parse(*s)
+	if err != nil {
+		return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("invalid parameter syntax: %v", err))
+	}
+
+	// Ensure template has only supported types
+	for _, node := range t.Root.Nodes {
+		allowedNodeTypes := []parse.NodeType{
+			parse.NodeText,   // Plain text
+			parse.NodeAction, // A non-control action such as a field evaluation
+		}
+		if !slices.Contains(allowedNodeTypes, node.Type()) {
+			return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("template contains unsupported elements: %s", node.String()))
+		}
+	}
+
+	// When the template is executed here, any missing label/annotation keys are evaluated to empty
+	// strings, so an empty map is fine.
+	dev := &Device{
+		Metadata: ObjectMeta{
+			Name:   util.StrToPtr("name"),
+			Labels: &map[string]string{},
+		},
+	}
+
+	output, err := ExecuteGoTemplateOnDevice(t, dev)
+	if err != nil {
+		return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("cannot apply parameters, possibly because they access invalid fields: %v", err))
+	}
+	return output != *s, allErrs
+}
+
+func ValidateConditions(conditions []Condition, allowedConditions, trueConditions, exclusiveConditions []ConditionType) []error {
+	allErrs := []error{}
+	seen := make(map[ConditionType]bool)
+	seenExclusives := make(map[ConditionType]bool)
+	for _, c := range conditions {
+		if !slices.Contains(allowedConditions, c.Type) {
+			allErrs = append(allErrs, fmt.Errorf("not allowed condition type %q", c.Type))
+		}
+		if slices.Contains(trueConditions, c.Type) && c.Status != ConditionStatusTrue {
+			allErrs = append(allErrs, fmt.Errorf("condition %q may only be set to 'true'", c.Type))
+		}
+		if _, exists := seen[c.Type]; exists {
+			allErrs = append(allErrs, fmt.Errorf("duplicate condition type %q", c.Type))
+		}
+		seen[c.Type] = true
+		if slices.Contains(exclusiveConditions, c.Type) {
+			seenExclusives[c.Type] = true
+		}
+	}
+	if len(seenExclusives) > 1 {
+		allErrs = append(allErrs, fmt.Errorf("only one of %v may be set", exclusiveConditions))
+	}
+	return allErrs
 }

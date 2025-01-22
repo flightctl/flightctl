@@ -13,11 +13,14 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-billy/v5"
+	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -31,7 +34,7 @@ type ResourceSync struct {
 type genericResourceMap map[string]interface{}
 
 var validFileExtensions = []string{"json", "yaml", "yml"}
-var supportedResources = []string{model.FleetKind}
+var supportedResources = []string{api.FleetKind}
 
 func NewResourceSync(callbackManager CallbackManager, store store.Store, log logrus.FieldLogger) *ResourceSync {
 	return &ResourceSync{
@@ -81,7 +84,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 		return nil
 	}
 
-	owner := util.SetResourceOwner(model.ResourceSyncKind, rs.Name)
+	owner := util.SetResourceOwner(api.ResourceSyncKind, rs.Name)
 	fleets, err := r.parseFleets(resources, owner)
 	if err != nil {
 		err := fmt.Errorf("resourcesync/%s: error: %w", rs.Name, err)
@@ -93,9 +96,14 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 
 	fleetsPreOwned := make([]api.Fleet, 0)
 
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": *owner})
+	if err != nil {
+		return err
+	}
+
 	listParams := store.ListParams{
-		Owners: []string{*owner},
-		Limit:  100,
+		Limit:         100,
+		FieldSelector: fs,
 	}
 	for {
 		listRes, err := r.store.Fleet().List(ctx, rs.OrgID, listParams)
@@ -118,18 +126,19 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	fleetsToRemove := fleetsDelta(fleetsPreOwned, fleets)
 
 	r.log.Infof("resourcesync/%s: applying #%d fleets ", rs.Name, len(fleets))
-	err = r.store.Fleet().CreateOrUpdateMultiple(ctx, rs.OrgID, r.callbackManager.FleetUpdatedCallback, fleets...)
+	err = r.createOrUpdateMultiple(ctx, rs.OrgID, fleets...)
 	if err == flterrors.ErrUpdatingResourceWithOwnerNotAllowed {
 		err = fmt.Errorf("one or more fleets are managed by a different resource. %w", err)
 	}
 	if len(fleetsToRemove) > 0 {
 		r.log.Infof("resourcesync/%s: found #%d fleets to remove. removing\n", rs.Name, len(fleetsToRemove))
-		err := r.store.Fleet().Delete(ctx, rs.OrgID, r.callbackManager.FleetUpdatedCallback, fleetsToRemove...)
-		if err != nil {
-			log.Errorf("resourcesync/%s: failed to remove old fleets. error: %s", rs.Name, err.Error())
-			return err
+		for _, fleetToRemove := range fleetsToRemove {
+			err := r.store.Fleet().Delete(ctx, rs.OrgID, fleetToRemove, r.callbackManager.FleetUpdatedCallback)
+			if err != nil {
+				log.Errorf("resourcesync/%s: failed to remove old fleet %s/%s. error: %s", rs.Name, rs.OrgID, fleetToRemove, err.Error())
+				return err
+			}
 		}
-
 	}
 	rs.AddSyncedCondition(err)
 	if err != nil {
@@ -139,6 +148,18 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *mode
 	rs.Status.Data.ObservedGeneration = rs.Generation
 	r.log.Infof("resourcesync/%s: #%d fleets applied successfully\n", rs.Name, len(fleets))
 	return nil
+}
+
+func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
+	var errs []error
+	for _, resource := range resources {
+		_, _, err := r.store.Fleet().CreateOrUpdate(ctx, orgId, resource, nil, false, r.callbackManager.FleetUpdatedCallback)
+		if err == flterrors.ErrUpdatingResourceWithOwnerNotAllowed {
+			err = fmt.Errorf("one or more fleets are managed by a different resource. %w", err)
+		}
+		errs = append(errs, err)
+	}
+	return errors.Join(lo.Uniq(errs)...)
 }
 
 // Returns a list of names that are no longer present
@@ -282,7 +303,7 @@ func (r ResourceSync) parseFleets(resources []genericResourceMap, owner *string)
 		}
 
 		switch kind {
-		case model.FleetKind:
+		case api.FleetKind:
 			var fleet api.Fleet
 			err := yamlutil.Unmarshal(buf, &fleet)
 			if err != nil {

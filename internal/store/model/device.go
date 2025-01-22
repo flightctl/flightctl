@@ -10,16 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-var (
-	DeviceAPI      = "v1alpha1"
-	DeviceKind     = "Device"
-	DeviceListKind = "DeviceList"
-
-	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
-	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
-	DeviceAnnotationConsole         = "device-controller/console"
-)
-
 type Device struct {
 	Resource
 
@@ -48,8 +38,6 @@ type Device struct {
 type ServiceConditions struct {
 	Conditions *[]api.Condition `json:"conditions,omitempty"`
 }
-
-type DeviceList []Device
 
 func (d Device) String() string {
 	val, _ := json.Marshal(d)
@@ -91,10 +79,10 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	return &Device{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          util.LabelMapToArray(resource.Metadata.Labels),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
-			Annotations:     util.LabelMapToArray(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
 		Alias:  alias,
@@ -103,9 +91,9 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	}, nil
 }
 
-func (d *Device) ToApiResource() api.Device {
+func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	if d == nil {
-		return api.Device{}
+		return &api.Device{}, nil
 	}
 
 	spec := api.DeviceSpec{}
@@ -125,45 +113,35 @@ func (d *Device) ToApiResource() api.Device {
 		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 	}
 
-	metadataLabels := util.LabelArrayToMap(d.Resource.Labels)
-	metadataAnnotations := util.LabelArrayToMap(d.Resource.Annotations)
-
 	var resourceVersion *string
 	if d.ResourceVersion != nil {
 		resourceVersion = lo.ToPtr(strconv.FormatInt(*d.ResourceVersion, 10))
 	}
-	return api.Device{
-		ApiVersion: DeviceAPI,
-		Kind:       DeviceKind,
+	return &api.Device{
+		ApiVersion: api.DeviceAPIVersion,
+		Kind:       api.DeviceKind,
 		Metadata: api.ObjectMeta{
 			Name:              util.StrToPtr(d.Name),
 			CreationTimestamp: util.TimeToPtr(d.CreatedAt.UTC()),
-			Labels:            &metadataLabels,
+			Labels:            lo.ToPtr(util.EnsureMap(d.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(d.Resource.Annotations)),
 			Generation:        d.Generation,
 			Owner:             d.Owner,
-			Annotations:       &metadataAnnotations,
 			ResourceVersion:   resourceVersion,
 		},
 		Spec:   &spec,
 		Status: &status,
-	}
+	}, nil
 }
 
-func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.DeviceList {
-	if dl == nil {
-		return api.DeviceList{
-			ApiVersion: DeviceAPI,
-			Kind:       DeviceListKind,
-			Items:      []api.Device{},
-		}
-	}
-
-	deviceList := make([]api.Device, len(dl))
+func DevicesToApiResource(devices []Device, cont *string, numRemaining *int64) (api.DeviceList, error) {
+	deviceList := make([]api.Device, len(devices))
 	applicationStatuses := make(map[string]int64)
 	summaryStatuses := make(map[string]int64)
 	updateStatuses := make(map[string]int64)
-	for i, device := range dl {
-		deviceList[i] = device.ToApiResource()
+	for i, device := range devices {
+		apiResource, _ := device.ToApiResource()
+		deviceList[i] = *apiResource
 		applicationStatus := string(deviceList[i].Status.ApplicationsSummary.Status)
 		applicationStatuses[applicationStatus] = applicationStatuses[applicationStatus] + 1
 		summaryStatus := string(deviceList[i].Status.Summary.Status)
@@ -172,20 +150,46 @@ func (dl DeviceList) ToApiResource(cont *string, numRemaining *int64) api.Device
 		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 	}
 	ret := api.DeviceList{
-		ApiVersion: DeviceAPI,
-		Kind:       DeviceListKind,
+		ApiVersion: api.DeviceAPIVersion,
+		Kind:       api.DeviceListKind,
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
 		Summary: &api.DevicesSummary{
 			ApplicationStatus: applicationStatuses,
 			SummaryStatus:     summaryStatuses,
 			UpdateStatus:      updateStatuses,
-			Total:             int64(len(dl)),
+			Total:             int64(len(devices)),
 		},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
-	return ret
+	return ret, nil
+}
+
+func (d *Device) GetKind() string {
+	return api.DeviceKind
+}
+
+func (d *Device) HasNilSpec() bool {
+	return d.Spec == nil
+}
+
+func (d *Device) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*Device) // Assert that the other resource is a *Device
+	if !ok {
+		return false // Not the same type, so specs cannot be the same
+	}
+	if other == nil {
+		return false
+	}
+	if (d.Spec == nil && other.Spec != nil) || (d.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	return api.DeviceSpecsAreEqual(d.Spec.Data, other.Spec.Data)
+}
+
+func (d *Device) GetStatusAsJson() ([]byte, error) {
+	return d.Status.MarshalJSON()
 }
