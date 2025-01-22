@@ -213,14 +213,6 @@ func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, d
 		a.handleSyncError(ctx, desired, err)
 		return
 	}
-
-	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusOnline,
-		Info:   nil,
-	}))
-	if updateErr != nil {
-		a.log.Errorf("Updating device status: %v", updateErr)
-	}
 }
 
 func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {

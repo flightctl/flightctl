@@ -130,17 +130,9 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 }
 
 func (b *Bootstrap) updateStatus(ctx context.Context) {
-	updateFns := []status.UpdateStatusFn{
-		status.SetConfig(v1alpha1.DeviceConfigStatus{
-			RenderedVersion: b.specManager.RenderedVersion(spec.Current),
-		}),
-		status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-			Status: v1alpha1.DeviceSummaryStatusOnline,
-			Info:   util.StrToPtr(BootstrapComplete),
-		}),
-	}
-
-	_, updateErr := b.statusManager.Update(ctx, updateFns...)
+	_, updateErr := b.statusManager.Update(ctx, status.SetConfig(v1alpha1.DeviceConfigStatus{
+		RenderedVersion: b.specManager.RenderedVersion(spec.Current),
+	}))
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
 	}
@@ -225,7 +217,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedOS, desiredOS)
 
 	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusDegraded,
+		Status: v1alpha1.DeviceSummaryStatusError,
 		Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
 	}))
 	if updateErr != nil {

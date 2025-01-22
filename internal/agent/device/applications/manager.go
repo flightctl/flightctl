@@ -98,7 +98,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDe
 	// validate image based application specs and pull images
 	imageBasedApps := apps.ImageBased()
 	if err := m.ensureApps(ctx, imageBasedApps); err != nil {
-		return fmt.Errorf("ensuring apps: %w", err)
+		return err
 	}
 
 	return nil
