@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"syscall"
 
 	"github.com/ccoveille/go-safecast"
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
@@ -86,36 +85,7 @@ func (m *managedFile) isUpToDate() (bool, error) {
 		return false, nil
 	}
 
-	fileInfo, err := os.Stat(m.writer.PathFor(m.Path()))
-	if err != nil {
-		return false, err
-	}
-	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
-	if !ok {
-		return false, fmt.Errorf("failed to retrieve UID and GID")
-	}
-
-	uid, err := safecast.ToUint32(m.uid)
-	if err != nil {
-		return false, err
-	}
-
-	gid, err := safecast.ToUint32(m.gid)
-	if err != nil {
-		return false, err
-	}
-
-	// compare file ownership
-	if stat.Uid != uid || stat.Gid != gid {
-		return false, nil
-	}
-
-	// compare file permissions
-	if fileInfo.Mode().Perm() != m.perms.Perm() {
-		return false, nil
-	}
-
-	return true, nil
+	return setFileInfo(m.writer.PathFor(m.Path()), m.uid, m.gid, m.perms)
 }
 
 func (m *managedFile) Path() string {
