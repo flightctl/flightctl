@@ -5,13 +5,9 @@ services:
   service1:
     image: alpine
     command: ["sleep", "infinity"]
-    container_name: service1_container
   service2:
     image: alpine
     command: ["sleep", "infinity"]
-    container_name: service2_container
-
   service3:
     image: alpine
     command: ["sleep", "infinity"]
-    container_name: service3_container

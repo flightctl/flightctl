@@ -1,0 +1,8 @@
+services:
+  service1:
+    image: alpine
+    environment:
+      - FFO=$FFO
+      - SIMPLE=$SIMPLE
+      - SOME_KEY=$SOME_KEY
+    command: ["sleep", "infinity"]
