@@ -100,6 +100,30 @@ func (mr *MockCallbackManagerMockRecorder) DeviceUpdatedCallback(orgId, before, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceUpdatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).DeviceUpdatedCallback), orgId, before, after)
 }
 
+// DeviceUpdatedNoRenderCallback mocks base method.
+func (m *MockCallbackManager) DeviceUpdatedNoRenderCallback(orgId uuid.UUID, before, after *v1alpha1.Device) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "DeviceUpdatedNoRenderCallback", orgId, before, after)
+}
+
+// DeviceUpdatedNoRenderCallback indicates an expected call of DeviceUpdatedNoRenderCallback.
+func (mr *MockCallbackManagerMockRecorder) DeviceUpdatedNoRenderCallback(orgId, before, after any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceUpdatedNoRenderCallback", reflect.TypeOf((*MockCallbackManager)(nil).DeviceUpdatedNoRenderCallback), orgId, before, after)
+}
+
+// FleetRolloutSelectionUpdated mocks base method.
+func (m *MockCallbackManager) FleetRolloutSelectionUpdated(orgId uuid.UUID, name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "FleetRolloutSelectionUpdated", orgId, name)
+}
+
+// FleetRolloutSelectionUpdated indicates an expected call of FleetRolloutSelectionUpdated.
+func (mr *MockCallbackManagerMockRecorder) FleetRolloutSelectionUpdated(orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FleetRolloutSelectionUpdated", reflect.TypeOf((*MockCallbackManager)(nil).FleetRolloutSelectionUpdated), orgId, name)
+}
+
 // FleetSourceUpdated mocks base method.
 func (m *MockCallbackManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
 	m.ctrl.T.Helper()
