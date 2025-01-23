@@ -102,3 +102,8 @@ func WithGid(gid int) FileOption {
 		o.gid = gid
 	}
 }
+
+// IsNotExist returns a boolean indicating whether the error is known to report that a file or directory does not exist.
+func IsNotExist(err error) bool {
+	return os.IsNotExist(err)
+}
