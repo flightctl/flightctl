@@ -206,7 +206,7 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.D
 	for _, container := range a.containers {
 		restarts += container.Restarts
 		switch container.Status {
-		case ContainerStatusInit:
+		case ContainerStatusInit, ContainerStatusCreated:
 			initializing++
 		case ContainerStatusRunning:
 			healthy++
@@ -228,7 +228,7 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.D
 		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
 	case isStarting(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusStarting
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusPreparing
 		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown

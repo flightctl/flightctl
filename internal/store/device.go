@@ -2,9 +2,6 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -21,46 +17,55 @@ import (
 )
 
 type Device interface {
+	InitialMigration() error
+
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
-	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
-	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
-	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
+	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+
+	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
+	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
-	InitialMigration() error
+
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
 
-type IntegrationTestCallback func()
 type DeviceStore struct {
-	db  *gorm.DB
-	log logrus.FieldLogger
-
-	IntegrationTestCreateOrUpdateCallback IntegrationTestCallback
+	db           *gorm.DB
+	log          logrus.FieldLogger
+	genericStore *GenericStore[*model.Device, model.Device, api.Device, api.DeviceList]
 }
 
-type DeviceStoreCallback func(before *model.Device, after *model.Device)
+type DeviceStoreCallback func(orgId uuid.UUID, before *api.Device, after *api.Device)
+type DeviceStoreValidationCallback func(before *api.Device, after *api.Device) error
 type DeviceStoreAllDeletedCallback func(orgId uuid.UUID)
 
 // Make sure we conform to Device interface
 var _ Device = (*DeviceStore)(nil)
 
 func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
-	return &DeviceStore{db: db, log: log, IntegrationTestCreateOrUpdateCallback: func() {}}
+	genericStore := NewGenericStore[*model.Device, model.Device, api.Device, api.DeviceList](
+		db,
+		log,
+		model.NewDeviceFromApiResource,
+		(*model.Device).ToApiResource,
+		model.DevicesToApiResource,
+	)
+	return &DeviceStore{db: db, log: log, genericStore: genericStore}
 }
 
 func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTestCallback) {
-	s.IntegrationTestCreateOrUpdateCallback = c
+	s.genericStore.IntegrationTestCreateOrUpdateCallback = c
 }
 
 func (s *DeviceStore) InitialMigration() error {
@@ -146,67 +151,35 @@ func (s *DeviceStore) InitialMigration() error {
 }
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback) (*api.Device, error) {
-	updatedResource, _, _, err := s.createOrUpdate(orgId, resource, nil, true, ModeCreateOnly, callback)
-	return updatedResource, err
+	return s.genericStore.Create(ctx, orgId, resource, callback)
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error) {
-	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, callback)
-	})
-	return updatedResource, err
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, error) {
+	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+}
+
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, error) {
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+}
+
+func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	return s.genericStore.Get(ctx, orgId, name)
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
-	var devices model.DeviceList
-	var nextContinue *string
-	var numRemaining *int64
+	return s.genericStore.List(ctx, orgId, listParams)
+}
 
-	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitParamOutOfBounds
-	}
+func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
+	return s.genericStore.Delete(
+		ctx,
+		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
+		callback,
+		Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
+}
 
-	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
-	if err != nil {
-		return nil, err
-	}
-
-	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
-	}
-	result := query.Find(&devices)
-
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(devices) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    devices[len(devices)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		devices = devices[:len(devices)-1]
-
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
-		nextContinue = &contStr
-		numRemaining = &numRemainingVal
-	}
-
-	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
-	return &apiDevicelist, ErrorFromGormError(result.Error)
+func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
+	return s.genericStore.DeleteAll(ctx, orgId, callback)
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
@@ -237,146 +210,6 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 		SummaryStatus:     summaryStatus,
 		UpdateStatus:      updateStatus,
 	}, nil
-}
-
-func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
-	condition := model.Device{}
-	result := s.db.Unscoped().Where("org_id = ?", orgId).Delete(&condition)
-
-	if result.Error != nil {
-		return ErrorFromGormError(result.Error)
-	}
-	callback(orgId)
-
-	return nil
-}
-
-func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
-	device := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: name},
-	}
-	result := s.db.First(&device)
-	if result.Error != nil {
-		return nil, ErrorFromGormError(result.Error)
-	}
-	apiDevice := device.ToApiResource()
-	return &apiDevice, nil
-}
-
-func (s *DeviceStore) createDevice(device *model.Device) (bool, error) {
-	device.Generation = lo.ToPtr[int64](1)
-	device.ResourceVersion = lo.ToPtr[int64](1)
-	if result := s.db.Create(device); result.Error != nil {
-		err := ErrorFromGormError(result.Error)
-		return err == flterrors.ErrDuplicateName, err
-	}
-	return false, nil
-}
-
-func (s *DeviceStore) updateDevice(fromAPI bool, existingRecord, device *model.Device, fieldsToUnset []string) (bool, error) {
-	// do not update devices with a decommissionRequested, unless this was called via /api/v1/devices/{name}/decommission,
-	// in which case the fromAPI bool is set to false
-	if fromAPI && existingRecord.Spec != nil && existingRecord.Spec.Data.Decommissioning != nil {
-		return false, flterrors.ErrDecommission
-	}
-
-	sameSpec := api.DeviceSpecsAreEqual(device.Spec.Data, existingRecord.Spec.Data)
-
-	// Update the generation if the spec was updated
-	if !sameSpec {
-		if fromAPI {
-			if len(lo.FromPtr(existingRecord.Owner)) != 0 {
-				// Don't let the user update the device spec if it's part of a fleet
-				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-			} else {
-				// If the device isn't part of a fleet, make sure it doesn't have the TV annotation
-				existingAnnotations := util.EnsureMap(existingRecord.Annotations)
-				if existingAnnotations[api.DeviceAnnotationTemplateVersion] != "" {
-					delete(existingAnnotations, api.DeviceAnnotationTemplateVersion)
-					device.Annotations = existingAnnotations
-				}
-			}
-		}
-
-		device.Generation = lo.ToPtr(lo.FromPtr(existingRecord.Generation) + 1)
-	}
-	if device.ResourceVersion != nil && lo.FromPtr(existingRecord.ResourceVersion) != lo.FromPtr(device.ResourceVersion) {
-		return false, flterrors.ErrResourceVersionConflict
-	}
-	device.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
-	where := model.Device{Resource: model.Resource{OrgID: device.OrgID, Name: device.Name}}
-	query := s.db.Model(where).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion))
-
-	selectFields := []string{"spec", "alias"}
-	selectFields = append(selectFields, GetNonNilFieldsFromResource(device.Resource)...)
-	selectFields = append(selectFields, fieldsToUnset...)
-	query = query.Select(selectFields)
-	result := query.Updates(&device)
-	if result.Error != nil {
-		return false, ErrorFromGormError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
-	}
-	return false, nil
-}
-
-func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, callback DeviceStoreCallback) (*api.Device, bool, bool, error) {
-	if resource == nil {
-		return nil, false, false, flterrors.ErrResourceIsNil
-	}
-	if resource.Metadata.Name == nil {
-		return nil, false, false, flterrors.ErrResourceNameIsNil
-	}
-	// do not update devices with a decommissionRequested, unless this was called via /api/v1/devices/{name}/decommission,
-	// in which case the fromAPI bool is set to false
-	if fromAPI && resource.Spec != nil && resource.Spec.Decommissioning != nil {
-		return nil, false, false, flterrors.ErrDecommission
-	}
-
-	device, err := model.NewDeviceFromApiResource(resource)
-	if err != nil {
-		return nil, false, false, err
-	}
-	device.OrgID = orgId
-
-	// Use the dedicated API to update annotations
-	device.Annotations = nil
-
-	existingRecord, err := getExistingRecord[model.Device](s.db, device.Name, orgId)
-	if err != nil {
-		return nil, false, false, err
-	}
-	exists := existingRecord != nil
-
-	if exists && mode == ModeCreateOnly {
-		return nil, false, false, flterrors.ErrDuplicateName
-	}
-	if !exists && mode == ModeUpdateOnly {
-		return nil, false, false, flterrors.ErrResourceNotFound
-	}
-
-	s.IntegrationTestCreateOrUpdateCallback()
-	if !exists {
-		if retry, err := s.createDevice(device); err != nil {
-			return nil, false, retry, err
-		}
-	} else {
-		if retry, err := s.updateDevice(fromAPI, existingRecord, device, fieldsToUnset); err != nil {
-			return nil, false, retry, err
-		}
-	}
-
-	callback(existingRecord, device)
-
-	updatedResource := device.ToApiResource()
-	return &updatedResource, !exists, false, nil
-}
-
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
-	return retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, callback)
-	})
 }
 
 func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
@@ -410,54 +243,7 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 }
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	if resource.Metadata.Name == nil {
-		return nil, flterrors.ErrResourceNameIsNil
-	}
-	device := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
-	}
-	result := s.db.Model(&device).Updates(map[string]interface{}{
-		"status":           model.MakeJSONField(resource.Status),
-		"resource_version": gorm.Expr("resource_version + 1"),
-	})
-	return resource, ErrorFromGormError(result.Error)
-}
-
-func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
-	var existingRecord model.Device
-	log := log.WithReqIDFromCtx(ctx, s.log)
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
-		existingRecord = model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-		result := innerTx.First(&existingRecord)
-		if result.Error != nil {
-			return ErrorFromGormError(result.Error)
-		}
-
-		associatedRecord := model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
-
-		if err := innerTx.Unscoped().Delete(&existingRecord).Error; err != nil {
-			return ErrorFromGormError(err)
-		}
-
-		if err := innerTx.Unscoped().Delete(&associatedRecord).Error; err != nil {
-			log.Warningf("failed to delete associated enrollment request: %v", err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil
-		}
-		return err
-	}
-
-	callback(&existingRecord, nil)
-	return nil
+	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
 func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
@@ -664,12 +450,12 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 
 func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
 	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	var repos model.RepositoryList
+	var repos []model.Repository
 	err := s.db.Model(&device).Association("Repositories").Find(&repos)
 	if err != nil {
 		return nil, ErrorFromGormError(err)
 	}
-	repositories, err := repos.ToApiResource(nil, nil)
+	repositories, err := model.RepositoriesToApiResource(repos, nil, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -656,7 +656,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, err := f.devStore.Update(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.callbackManager.DeviceUpdatedCallback)
+	_, err := f.devStore.Update(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, nil, f.callbackManager.DeviceUpdatedCallback)
 	return err
 }
 

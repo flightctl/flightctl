@@ -18,7 +18,6 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
-BuildRequires:  git
 BuildRequires:  openssl-devel
 
 Requires: openssl
@@ -53,7 +52,12 @@ Flightctl Agent is a component of the flightctl tool.
     if [[ ! -f "${GOENVFILE}" ]]; then
         export GOPROXY='https://proxy.golang.org,direct'
     fi
-    SOURCE_GIT_TAG=%{release} SOURCE_GIT_TREE_STATE=clean SOURCE_GIT_COMMIT=%{release} SOURCE_GIT_TAG_NO_V=%{version} make build-cli build-agent
+
+    SOURCE_GIT_TAG=%{version} \
+    SOURCE_GIT_TREE_STATE=clean \
+    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'~g' '{print $2}') \
+    SOURCE_GIT_TAG_NO_V=%{version} \
+    make build-cli build-agent
 
 %install
     mkdir -p %{buildroot}/usr/bin
@@ -76,7 +80,7 @@ Flightctl Agent is a component of the flightctl tool.
 
     rm -f licenses.list
 
-    find -type f -name LICENSE -or -name License | while read LICENSE_FILE; do
+    find . -type f -name LICENSE -or -name License | while read LICENSE_FILE; do
         echo "%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
     done
     mkdir -vp "%{buildroot}%{_datadir}/licenses/%{NAME}"

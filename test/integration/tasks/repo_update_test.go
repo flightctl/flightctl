@@ -7,7 +7,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -128,7 +127,7 @@ var _ = Describe("RepoUpdate", func() {
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
-		fleetCallback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
+		fleetCallback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
 		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, fleetCallback)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
@@ -153,7 +152,7 @@ var _ = Describe("RepoUpdate", func() {
 			},
 		}
 
-		devCallback := store.DeviceStoreCallback(func(before *model.Device, after *model.Device) {})
+		devCallback := store.DeviceStoreCallback(func(uuid.UUID, *api.Device, *api.Device) {})
 		_, err = storeInst.Device().Create(ctx, orgId, &device1, devCallback)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
