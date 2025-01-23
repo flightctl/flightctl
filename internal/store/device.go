@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -27,7 +28,11 @@ type Device interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
-
+	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
+	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
+	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]CompletionCount, error)
+	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, busyOnly bool) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
@@ -36,7 +41,6 @@ type Device interface {
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
-
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
 
@@ -182,6 +186,146 @@ func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback D
 	return s.genericStore.DeleteAll(ctx, orgId, callback)
 }
 
+func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return 0, err
+	}
+	var devicesCount int64
+	if err := query.Count(&devicesCount).Error; err != nil {
+		return 0, ErrorFromGormError(err)
+	}
+	return devicesCount, nil
+}
+
+type CompletionCount struct {
+	Count               int64
+	SameRenderedVersion bool
+	SameTemplateVersion bool
+	UpdatingReason      api.UpdateState
+	UpdateTimedOut      bool
+}
+
+// CompletionCounts is used for finding if a rollout batch is complete or to set the success percentage of the batch.
+// The result is a count of devices grouped by some fields:
+// - rendered_template_version: taken from the annotation 'device-controller/renderedTemplateVersion'
+// - summary_status: taken from the field 'status.summary.status'
+// - updating_reason: it is the reason field from a condition having type 'Updating'
+// - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion'
+// - update_timed_out: it is a boolean value indicating if the update of the device has been timed out
+func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]CompletionCount, error) {
+	var (
+		results            []CompletionCount
+		updateTimeoutValue any
+	)
+
+	if updateTimeout != nil {
+		updateTimeoutValue = gorm.Expr("render_timestamp < ?", time.Now().Add(-(*updateTimeout)))
+	} else {
+		updateTimeoutValue = gorm.Expr("false")
+	}
+	err := s.db.Raw(fmt.Sprintf(`select count(*) as count, 
+                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version, 
+                                 elem ->> 'reason' as updating_reason,
+                                 annotations->>'%s' = ? as same_template_version, 
+								 ? as update_timed_out
+                          from devices d LEFT JOIN LATERAL (
+                            SELECT elem
+						    FROM jsonb_array_elements(d.status->'conditions') AS elem
+						    WHERE elem->>'type' = 'Updating'
+						    LIMIT 1
+							) subquery ON TRUE 
+						     where
+						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null 
+						        group by same_rendered_version, updating_reason, same_template_version, update_timed_out`,
+		api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationSelectedForRollout),
+		templateVersion,
+		updateTimeoutValue,
+		orgId,
+		owner,
+		gorm.Expr("?")).Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
+}
+
+// UnmarkRolloutSelection unmarks all previously marked devices for rollout in a fleet
+func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
+	err := s.db.Model(&model.Device{}).Where(fmt.Sprintf("org_id = ? and owner = ? and annotations ? '%s'", api.DeviceAnnotationSelectedForRollout), orgId,
+		util.ResourceOwner(api.FleetKind, fleetName), gorm.Expr("?")).Update("annotations", gorm.Expr(fmt.Sprintf("annotations - '%s'", api.DeviceAnnotationSelectedForRollout))).Error
+	return ErrorFromGormError(err)
+}
+
+// MarkRolloutSelection marks all devices that can be filtered by the list params.  If limit is provided then the number of marked devices
+// will not be greater than the provided limit.
+func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error {
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return err
+	}
+	if limit != nil {
+		query = query.Limit(*limit)
+		query = s.db.Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId,
+			query.Select("name"))
+	}
+	err = query.Update("annotations",
+		gorm.Expr(fmt.Sprintf(`jsonb_set(COALESCE(annotations, '{}'::jsonb), '{%s}', '""')`, api.DeviceAnnotationSelectedForRollout))).Error
+	return ErrorFromGormError(err)
+}
+
+// Labels may contain characters that are not allowed to be part of a valid postgres field name.  This function
+// transforms a label to a valid postgres symbol
+func labelKeyToSymbol(labelKey string) string {
+	var builder strings.Builder
+	for _, c := range labelKey {
+		switch c {
+		case '.':
+			builder.WriteString("_dot_")
+		case '-':
+			builder.WriteString("_dash_")
+		case '/':
+			builder.WriteString("_slash_")
+		default:
+			builder.WriteRune(c)
+		}
+	}
+	return builder.String()
+}
+
+// CountByLabels is used for rollout policy disruption budget to provide device count values grouped by the label values.
+func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, busyOnly bool) ([]map[string]any, error) {
+	query, err := ListQuery(&model.Device{}).BuildNoOrder(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Do not count disconnected devices
+	query = query.Where("status -> 'summary' ->> 'status' <> 'Unknown'")
+	if busyOnly {
+		// The busy devices are those that the 'status.config.renderedVersion' != annotations['device-controller/renderedVersion']
+		query = query.Where(fmt.Sprintf(`status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> '%s', '')`, api.DeviceAnnotationRenderedVersion))
+	}
+	selectList := lo.Map(groupBy, func(s string, _ int) string { return fmt.Sprintf("labels ->> '%s' as %s", s, labelKeyToSymbol(s)) })
+	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
+	selectList = append(selectList, "count(*) as count")
+	query.Select(strings.Join(selectList, ","))
+	for _, g := range labelSymbols {
+		query = query.Group(g)
+	}
+	var results []map[string]any
+	err = query.Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	ret := lo.Map(results, func(m map[string]any, _ int) map[string]any {
+		return lo.SliceToMap(append(groupBy, "count"), func(s string) (string, any) {
+			return s, m[labelKeyToSymbol(s)]
+		})
+	})
+	return ret, nil
+}
+
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
 	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
@@ -307,6 +451,9 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 	}
 
 	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+	if lo.HasKey(existingAnnotations, api.DeviceAnnotationTemplateVersion) {
+		existingAnnotations[api.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[api.DeviceAnnotationTemplateVersion]
+	}
 
 	renderedApplicationsJSON := renderedApplications
 	if strings.TrimSpace(renderedApplications) == "" {
@@ -318,6 +465,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 		"rendered_config":       &renderedConfig,
 		"rendered_applications": &renderedApplicationsJSON,
 		"resource_version":      gorm.Expr("resource_version + 1"),
+		"render_timestamp":      time.Now(),
 	})
 
 	err = ErrorFromGormError(result.Error)

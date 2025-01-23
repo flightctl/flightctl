@@ -44,6 +44,7 @@ require (
 	github.com/vincent-petithory/dataurl v1.0.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/crypto v0.25.0
+	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/net v0.27.0
 	golang.org/x/sync v0.8.0
 	golang.org/x/sys v0.24.0
@@ -131,7 +132,6 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.2.2 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
-	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.19.0 // indirect
 	golang.org/x/oauth2 v0.20.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
