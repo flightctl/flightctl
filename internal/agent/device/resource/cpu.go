@@ -119,7 +119,6 @@ func (m *CPUMonitor) sync(ctx context.Context, usage *CPUUsage) {
 
 	if err := m.CollectUsage(ctx, usage); err != nil {
 		m.log.Errorf("Failed to collect CPU usage: %v", err)
-		return
 	}
 
 	m.ensureAlerts(usage.UsedPercent)

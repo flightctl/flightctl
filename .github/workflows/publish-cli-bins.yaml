@@ -41,14 +41,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache Git Repository
-        uses: actions/cache@v4
-        with:
-          path: .git
-          key: ${{ runner.os }}-git-${{ hashFiles('**/.git') }}
-          restore-keys: |
-            ${{ runner.os }}-git-
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -133,9 +125,9 @@ jobs:
         run: |
           # Verify version output
           if [[ "${{ matrix.os_arch }}" == "linux-arm64" ]]; then
-            docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace ubuntu:latest /workspace/flightctl-${{ matrix.os_arch }} version
+            docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace ubuntu:latest /workspace/flightctl-${{ matrix.os_arch }} version -o yaml
           else
-            ./flightctl-${{ matrix.os_arch }} version
+            ./flightctl-${{ matrix.os_arch }} version -o yaml
           fi
           if [ $? -gt 0 ]; then
             echo "Error: Version command failed"
