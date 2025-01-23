@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -360,6 +361,45 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		}
 		return errors.New("not updated")
 	}, timeout, "2s").Should(BeNil())
+}
+func (h *Harness) UpdateAndWaitForDeviceConfigChange(deviceId string, inlineConfigs []v1alpha1.InlineConfigProviderSpec) error {
+
+	response := h.GetDeviceWithStatusSystem(deviceId)
+	device := response.JSON200
+	deviceRenderedVersion, err := strconv.Atoi(device.Status.Config.RenderedVersion)
+	Expect(err).ToNot(HaveOccurred())
+	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+
+		// Create ConfigProviderSpec.
+		for _, config := range inlineConfigs {
+			var configProviderSpec v1alpha1.ConfigProviderSpec
+			err := configProviderSpec.FromInlineConfigProviderSpec(config)
+			Expect(err).ToNot(HaveOccurred())
+
+			*device.Spec.Config = append(*device.Spec.Config, configProviderSpec)
+			logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+		}
+	})
+
+	logrus.Infof("Waiting for the device to pick the config")
+	deviceRenderedVersion++
+	h.WaitForDeviceContents(deviceId, fmt.Sprintf("%s %d", util.UpdateRenderedVersionProgress.String(), deviceRenderedVersion),
+		func(device *v1alpha1.Device) bool {
+			for _, condition := range device.Status.Conditions {
+				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+					condition.Message == fmt.Sprintf("%s %d", util.UpdateRenderedVersionSuccess.String(), deviceRenderedVersion) {
+					return true
+				}
+			}
+			return false
+		}, util.TIMEOUT)
+
+	logrus.Infof("The status should be Online")
+	logrus.Infof("The device has the config %s", device.Spec.Config)
+	Eventually(h.GetDeviceWithStatusSummary, util.TIMEOUT, util.POLLING).WithArguments(
+		deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
+
+	return err
 }
 
 func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
