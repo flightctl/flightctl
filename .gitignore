@@ -6,3 +6,5 @@
 /packaging/rpm/flightctl-*.tar.gz
 /packaging/rpm/flightctl-*-build/
 /packaging/rpm/flightctl-*-vendor.tar.bz2
+flightctl-*.rpm
+

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +29,7 @@ import (
 
 const POLLING = "250ms"
 const TIMEOUT = "60s"
+const LONGTIMEOUT = "2m"
 
 type Harness struct {
 	VM        vm.TestVMInterface
@@ -418,6 +421,93 @@ func (h *Harness) parseImageReference(image string) (string, string) {
 	repo := strings.Join(parts[:len(parts)-1], ":")
 
 	return repo, tag
+}
+
+func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (deviceRenderedVersion string, err error) {
+	deviceRenderedVersion = "-1"
+
+	device := h.GetDeviceWithStatusSystem(deviceId)
+	Expect(device).ToNot(BeNil())
+
+	logrus.Infof("Waiting for the device to be UpToDate")
+	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
+		func(device *v1alpha1.Device) bool {
+			for _, condition := range device.Status.Conditions {
+				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
+					return true
+				}
+			}
+			return false
+		}, TIMEOUT)
+
+	if reflect.DeepEqual(device.JSON200.Status.Config, v1alpha1.DeviceConfigStatus{}) && device.JSON200.Status.Config.RenderedVersion == "" {
+		return deviceRenderedVersion, fmt.Errorf("the device %s is missing device.status.config.renderedversion field", deviceId)
+	}
+
+	device = h.GetDeviceWithStatusSystem(deviceId)
+
+	return device.JSON200.Status.Config.RenderedVersion, nil
+}
+
+func (h *Harness) GetNextDeviceRenderedVersion(deviceId string) (string, error) {
+	currentDeviceRenderedVersion, err := h.GetCurrentDeviceRenderedVersion(deviceId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get current version: %w", err)
+	}
+
+	renderedVersionInt, err := strconv.Atoi(currentDeviceRenderedVersion)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(renderedVersionInt).ToNot(BeNil())
+	if renderedVersionInt < 0 {
+		return "", fmt.Errorf("invalid negative version: %d", renderedVersionInt)
+
+	}
+	logrus.Infof("The device current renderedVersion is %d", renderedVersionInt)
+
+	newRenderedVersionInt := renderedVersionInt + 1
+	newRenderedVersion := fmt.Sprintf("%d", newRenderedVersionInt)
+	logrus.Infof("The next device current renderedVersion is %s", newRenderedVersion)
+
+	return newRenderedVersion, nil
+}
+
+func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersion string) (err error) {
+	//Validate the input
+	newRenderedVersionInt, err := strconv.Atoi(newRenderedVersion)
+
+	if err != nil {
+		return fmt.Errorf("invalid version format: %w", err)
+	}
+
+	if newRenderedVersionInt < 0 {
+		return fmt.Errorf("the new rendered version is invalid")
+	}
+
+	if deviceId == "" {
+		return fmt.Errorf("deviceId cannot be empty")
+	}
+
+	// Check that the device was already approved
+	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeEmpty())
+	logrus.Infof("The device %s was approved", deviceId)
+
+	// Wait for the device to pickup enrollment and report measurements on device status.
+	logrus.Infof("Waiting for the device to pick the config")
+	UpdateRenderedVersionSuccess := fmt.Sprintf("Updated to desired renderedVersion: %s", newRenderedVersion)
+	h.WaitForDeviceContents(deviceId, UpdateRenderedVersionSuccess,
+		func(device *v1alpha1.Device) bool {
+			for _, condition := range device.Status.Conditions {
+				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+					device.Status.Config.RenderedVersion == newRenderedVersion {
+					return true
+				}
+			}
+			return false
+		}, LONGTIMEOUT)
+
+	return nil
 }
 
 func (h *Harness) CleanUpResources(resourceType string) (string, error) {
