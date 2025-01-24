@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -24,13 +24,13 @@ func TestBootstrapCheckRollback(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockBootcClient := client.NewMockBootc(ctrl)
+	mockOSClient := os.NewMockClient(ctrl)
 	log := log.NewPrefixLogger("test")
 
 	s := &manager{
 		log:              log,
 		deviceReadWriter: mockReadWriter,
-		bootcClient:      mockBootcClient,
+		osClient:         mockOSClient,
 		cache:            newCache(log),
 	}
 
@@ -62,10 +62,11 @@ func TestBootstrapCheckRollback(t *testing.T) {
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(rollbackSpec, nil)
 
-		// bootcStatus
-		bootcStatus := &container.BootcHost{}
+		// bootc OSStatus
+		bootcStatus := container.BootcHost{}
 		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		isRollback, err := s.IsRollingBack(ctx)
 		require.NoError(err)
@@ -88,10 +89,11 @@ func TestBootstrapCheckRollback(t *testing.T) {
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(rollbackSpec, nil)
 
-		// bootcStatus
-		bootcStatus := &container.BootcHost{}
+		// bootc OSStatus
+		bootcStatus := container.BootcHost{}
 		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		isRollback, err := s.IsRollingBack(ctx)
 		require.NoError(err)
@@ -246,7 +248,7 @@ func Test_readRenderedSpecFromFile(t *testing.T) {
 	filePath := "test/path/spec.json"
 
 	t.Run("error when the file does not exist", func(t *testing.T) {
-		mockReader.EXPECT().ReadFile(filePath).Return(nil, os.ErrNotExist)
+		mockReader.EXPECT().ReadFile(filePath).Return(nil, errors.ErrNotExist)
 
 		_, err := readRenderedSpecFromFile(mockReader, filePath)
 		require.ErrorIs(err, errors.ErrMissingRenderedSpec)
@@ -452,14 +454,14 @@ func TestCheckOsReconciliation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockBootcClient := client.NewMockBootc(ctrl)
+	mockOSClient := os.NewMockClient(ctrl)
 	log := log.NewPrefixLogger("test")
 
 	desiredPath := "test/desired.json"
 	s := &manager{
 		log:              log,
 		deviceReadWriter: mockReadWriter,
-		bootcClient:      mockBootcClient,
+		osClient:         mockOSClient,
 		desiredPath:      desiredPath,
 		cache:            newCache(log),
 	}
@@ -472,15 +474,16 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 	t.Run("error getting bootc status", func(t *testing.T) {
 		bootcErr := errors.New("bootc problem")
-		mockBootcClient.EXPECT().Status(ctx).Return(nil, bootcErr)
+		mockOSClient.EXPECT().Status(ctx).Return(nil, bootcErr)
 
 		_, _, err := s.CheckOsReconciliation(ctx)
 		require.ErrorIs(err, errors.ErrGettingBootcStatus)
 	})
 
 	t.Run("error reading desired spec", func(t *testing.T) {
-		bootcStatus := &container.BootcHost{}
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+		bootcStatus := container.BootcHost{}
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		readErr := errors.New("unable to read file")
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(emptySpec, readErr)
@@ -492,9 +495,10 @@ func TestCheckOsReconciliation(t *testing.T) {
 	t.Run("desired os is not set in the spec", func(t *testing.T) {
 		bootedImage := "flightctl-device:v1"
 
-		bootcStatus := &container.BootcHost{}
+		bootcStatus := container.BootcHost{}
 		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(emptySpec, nil)
 
@@ -508,9 +512,10 @@ func TestCheckOsReconciliation(t *testing.T) {
 		bootedImage := "flightctl-device:v1"
 		desiredImage := "flightctl-device:v2"
 
-		bootcStatus := &container.BootcHost{}
+		bootcStatus := container.BootcHost{}
 		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		desiredSpec, err := createTestSpec(desiredImage)
 		require.NoError(err)
@@ -525,9 +530,10 @@ func TestCheckOsReconciliation(t *testing.T) {
 	t.Run("booted image and desired image are the same", func(t *testing.T) {
 		image := "flightctl-device:v2"
 
-		bootcStatus := &container.BootcHost{}
+		bootcStatus := container.BootcHost{}
 		bootcStatus.Status.Booted.Image.Image.Image = image
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcStatus, nil)
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		desiredSpec, err := createTestSpec(image)
 		require.NoError(err)
@@ -546,7 +552,7 @@ func TestCreateRollback(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockBootcClient := client.NewMockBootc(ctrl)
+	mockOSClient := os.NewMockClient(ctrl)
 	log := log.NewPrefixLogger("test")
 
 	currentPath := "test/current.json"
@@ -554,7 +560,7 @@ func TestCreateRollback(t *testing.T) {
 	s := &manager{
 		log:              log,
 		deviceReadWriter: mockReadWriter,
-		bootcClient:      mockBootcClient,
+		osClient:         mockOSClient,
 		currentPath:      currentPath,
 		rollbackPath:     rollbackPath,
 		cache:            newCache(log),
@@ -613,7 +619,8 @@ func TestCreateRollback(t *testing.T) {
 
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(marshaledCurrentSpec, nil)
 		bootcHost := createTestBootcHost(bootedImage)
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcHost, nil)
+		osStatus := os.Status{BootcHost: *bootcHost}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		rollbackSpec, err := createTestSpec(bootedImage)
 		require.NoError(err)
@@ -633,7 +640,8 @@ func TestCreateRollback(t *testing.T) {
 
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(marshaledCurrentSpec, nil)
 		bootcHost := createTestBootcHost(bootedImage)
-		mockBootcClient.EXPECT().Status(ctx).Return(bootcHost, nil)
+		osStatus := os.Status{BootcHost: *bootcHost}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
 		rollbackSpec, err := createTestSpec(bootedImage)
 		require.NoError(err)
@@ -650,7 +658,7 @@ func TestCreateRollback(t *testing.T) {
 		require.NoError(err)
 
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(marshaledCurrentSpec, nil)
-		mockBootcClient.EXPECT().Status(ctx).Return(nil, errors.ErrGettingBootcStatus)
+		mockOSClient.EXPECT().Status(ctx).Return(nil, errors.ErrGettingBootcStatus)
 
 		err = s.CreateRollback(ctx)
 		require.ErrorIs(err, errors.ErrGettingBootcStatus)
