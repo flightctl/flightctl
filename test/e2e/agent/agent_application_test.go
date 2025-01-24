@@ -40,9 +40,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			// Get the next expected rendered version
-			newRenderedVersion, err := harness.GetNextDeviceRenderedVersion(deviceId)
+			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(newRenderedVersion).ToNot(BeNil())
 
 			// Get the application url in the local registryand create the application config
 			extIP = util.GetExtIP()
@@ -97,9 +96,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			}
 
 			// Get the next expected rendered version before the update
-			newRenderedVersion, err = harness.GetNextDeviceRenderedVersion(deviceId)
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(newRenderedVersion).ToNot(BeNil())
 
 			applicationVars := map[string]string{
 				"FFO":      "FFO",
@@ -141,9 +139,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("SIMPLE"))
 
-			newRenderedVersion, err = harness.GetNextDeviceRenderedVersion(deviceId)
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(newRenderedVersion).ToNot(BeNil())
 
 			By("Delete the application from the fleet configuration")
 			logrus.Infof("Removing all the applications from %s", deviceId)
