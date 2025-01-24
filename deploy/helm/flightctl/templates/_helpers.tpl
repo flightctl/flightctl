@@ -63,7 +63,7 @@
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
     {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.api }} 
-  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq .Values.global.gatewayPorts.tls 443)) }}
+  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq int .Values.global.gatewayPorts.tls 443)) }}
     {{- printf "https://api.%s:%v" $baseDomain .Values.global.gatewayPorts.tls }}
   {{- else }}
     {{- printf "https://api.%s" $baseDomain }}
