@@ -153,6 +153,11 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for RolloutStrategy.
+const (
+	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -208,6 +213,9 @@ type Batch_Limit struct {
 type BatchSequence struct {
 	// Sequence A list of batch definitions.
 	Sequence *[]Batch `json:"sequence,omitempty"`
+
+	// Strategy The strategy of choice for device selection in rollout policy.
+	Strategy RolloutStrategy `json:"strategy"`
 }
 
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
@@ -617,9 +625,9 @@ type DiskResourceMonitorSpec struct {
 	SamplingInterval string `json:"samplingInterval"`
 }
 
-// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
-type DisruptionAllowance struct {
-	// GroupBy List of label keys to perform grouping for the disruption allowance.
+// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
+type DisruptionBudget struct {
+	// GroupBy List of label keys to perform grouping for the disruption budget.
 	GroupBy *[]string `json:"groupBy,omitempty"`
 
 	// MaxUnavailable The minimum number of required available devices during rollout.
@@ -1278,9 +1286,7 @@ type ResourceSyncStatus struct {
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
-	// Strategy The rollout strategy to use.
-	Strategy string `json:"strategy"`
-	union    json.RawMessage
+	union json.RawMessage
 }
 
 // RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
@@ -1291,12 +1297,15 @@ type RolloutPolicy struct {
 	// DeviceSelection Describes how to select devices for rollout.
 	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
 
-	// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
-	DisruptionAllowance *DisruptionAllowance `json:"disruptionAllowance,omitempty"`
+	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
+	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
 
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
+
+// RolloutStrategy The strategy of choice for device selection in rollout policy.
+type RolloutStrategy string
 
 // SshConfig Configuration for SSH transport.
 type SshConfig struct {
@@ -2346,8 +2355,7 @@ func (t RolloutDeviceSelection) AsBatchSequence() (BatchSequence, error) {
 
 // FromBatchSequence overwrites any union data inside the RolloutDeviceSelection as the provided BatchSequence
 func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
-	t.Strategy = "BatchSequence"
-
+	v.Strategy = "BatchSequence"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -2355,8 +2363,7 @@ func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
 
 // MergeBatchSequence performs a merge with any union data inside the RolloutDeviceSelection, using the provided BatchSequence
 func (t *RolloutDeviceSelection) MergeBatchSequence(v BatchSequence) error {
-	t.Strategy = "BatchSequence"
-
+	v.Strategy = "BatchSequence"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -2390,43 +2397,10 @@ func (t RolloutDeviceSelection) ValueByDiscriminator() (interface{}, error) {
 
 func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	object["strategy"], err = json.Marshal(t.Strategy)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'strategy': %w", err)
-	}
-
-	b, err = json.Marshal(object)
 	return b, err
 }
 
 func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["strategy"]; found {
-		err = json.Unmarshal(raw, &t.Strategy)
-		if err != nil {
-			return fmt.Errorf("error reading 'strategy': %w", err)
-		}
-	}
-
 	return err
 }
