@@ -84,7 +84,7 @@ func (s *Server) Run() error {
 	// Rollout disruption budget
 	disruptionBudget := disruption_budget.NewReconciler(s.store, callbackManager, s.log)
 	disruptionBudgetThread := thread.New(
-		s.log.WithField("pkg", "disruption-allowance"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, func() { disruptionBudget.Reconcile(ctx) })
+		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, func() { disruptionBudget.Reconcile(ctx) })
 	disruptionBudgetThread.Start()
 	defer disruptionBudgetThread.Stop()
 
