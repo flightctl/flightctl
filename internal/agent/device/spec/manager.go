@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -12,8 +11,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -30,7 +29,7 @@ type manager struct {
 
 	deviceReadWriter fileio.ReadWriter
 	managementClient client.Management
-	bootcClient      container.BootcClient
+	osClient         os.Client
 
 	cache *cache
 	queue PriorityQueue
@@ -48,7 +47,7 @@ func NewManager(
 	dataDir string,
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
-	bootcClient container.BootcClient,
+	osClient os.Client,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) Manager {
@@ -66,7 +65,7 @@ func NewManager(
 		desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
 		deviceReadWriter: deviceReadWriter,
-		bootcClient:      bootcClient,
+		osClient:         osClient,
 		backoff:          backoff,
 		cache:            newCache(log),
 		queue:            queue,
@@ -148,7 +147,7 @@ func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	bootcStatus, err := s.bootcClient.Status(ctx)
+	osStatus, err := s.osClient.Status(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -157,11 +156,11 @@ func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
 	// 1. There is no staged OS image, indicating that no update is in progress.
 	// 2. The currently booted OS image matches the rollback image.
 	// 3. The booted image does not match the desired OS image.
-	if bootcStatus.GetStagedImage() != "" {
+	if osStatus.GetStagedImage() != "" {
 		return false, nil
 	}
 
-	bootedOSImage := bootcStatus.GetBootedImage()
+	bootedOSImage := osStatus.GetBootedImage()
 	return bootedOSImage == rollback.Os.Image && bootedOSImage != desired.Os.Image, nil
 }
 
@@ -212,11 +211,11 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 	// In this case, we need to get the booted image from bootc.
 	var currentOSImage string
 	if current.Os == nil || current.Os.Image == "" {
-		bootcStatus, err := s.bootcClient.Status(ctx)
+		osStatus, err := s.osClient.Status(ctx)
 		if err != nil {
 			return err
 		}
-		currentOSImage = bootcStatus.GetBootedImage()
+		currentOSImage = osStatus.GetBootedImage()
 	} else {
 		currentOSImage = current.Os.Image
 	}
@@ -350,11 +349,11 @@ func (s *manager) IsOSUpdate() bool {
 }
 
 func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
-	bootc, err := s.bootcClient.Status(ctx)
+	osStatus, err := s.osClient.Status(ctx)
 	if err != nil {
 		return "", false, fmt.Errorf("%w: %w", errors.ErrGettingBootcStatus, err)
 	}
-	bootedOSImage := bootc.GetBootedImage()
+	bootedOSImage := osStatus.GetBootedImage()
 
 	desired, err := s.Read(Desired)
 	if err != nil {
@@ -365,7 +364,7 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 		return bootedOSImage, false, nil
 	}
 
-	return bootedOSImage, desired.Os.Image == bootc.GetBootedImage(), nil
+	return bootedOSImage, desired.Os.Image == osStatus.GetBootedImage(), nil
 }
 
 func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
@@ -472,7 +471,7 @@ func readRenderedSpecFromFile(
 	var current v1alpha1.RenderedDeviceSpec
 	renderedBytes, err := reader.ReadFile(filePath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if fileio.IsNotExist(err) {
 			// if the file does not exist, this means it has been removed/corrupted
 			return nil, fmt.Errorf("%w: reading %q: %w", errors.ErrMissingRenderedSpec, filePath, err)
 		}

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/rollout/device_selection"
+	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -68,6 +70,23 @@ func (s *Server) Run() error {
 		s.log.WithField("pkg", "device-disconnected"), "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
 	deviceDisconnectedThread.Start()
 	defer deviceDisconnectedThread.Stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Rollout device selection
+	rolloutDeviceSelection := device_selection.NewReconciler(s.store, callbackManager, s.log)
+	rolloutDeviceSelectionThread := thread.New(
+		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, func() { rolloutDeviceSelection.Reconcile(ctx) })
+	rolloutDeviceSelectionThread.Start()
+	defer rolloutDeviceSelectionThread.Stop()
+
+	// Rollout disruption budget
+	disruptionBudget := disruption_budget.NewReconciler(s.store, callbackManager, s.log)
+	disruptionBudgetThread := thread.New(
+		s.log.WithField("pkg", "disruption-allowance"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, func() { disruptionBudget.Reconcile(ctx) })
+	disruptionBudgetThread.Start()
+	defer disruptionBudgetThread.Stop()
 
 	sigShutdown := make(chan os.Signal, 1)
 

@@ -21,7 +21,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
-	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -43,7 +42,7 @@ type Agent struct {
 	configController       *config.Controller
 	resourceController     *resource.Controller
 	consoleController      *console.ConsoleController
-	bootcClient            container.BootcClient
+	osClient               os.Client
 	podmanClient           *client.Podman
 
 	fetchSpecInterval    util.Duration
@@ -73,7 +72,7 @@ func NewAgent(
 	configController *config.Controller,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,
-	bootcClient container.BootcClient,
+	osClient os.Client,
 	podmanClient *client.Podman,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
@@ -95,7 +94,7 @@ func NewAgent(
 		configController:       configController,
 		resourceController:     resourceController,
 		consoleController:      consoleController,
-		bootcClient:            bootcClient,
+		osClient:               osClient,
 		podmanClient:           podmanClient,
 		cancelFn:               func() {},
 		backoff:                backoff,
@@ -213,14 +212,6 @@ func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, d
 		a.handleSyncError(ctx, desired, err)
 		return
 	}
-
-	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusOnline,
-		Info:   nil,
-	}))
-	if updateErr != nil {
-		a.log.Errorf("Updating device status: %v", updateErr)
-	}
 }
 
 func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
@@ -263,14 +254,14 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 	}
 
 	if desired.Os != nil {
-		bootcStatus, err := a.bootcClient.Status(ctx)
+		osStatus, err := a.osClient.Status(ctx)
 		if err != nil {
 			return err
 		}
 
 		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOsStatus{
 			Image:       desired.Os.Image,
-			ImageDigest: bootcStatus.GetBootedImageDigest(),
+			ImageDigest: osStatus.GetBootedImageDigest(),
 		}))
 	}
 

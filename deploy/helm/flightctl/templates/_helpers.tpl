@@ -41,7 +41,7 @@
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "gateway" }}
     {{- if and (eq $scheme "http") (not (eq .Values.global.gatewayPorts.http 80))}}
       {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }} 
-    {{- else if and (eq $scheme "https") (not (eq .Values.global.gatewayPorts.tls 443))}}
+    {{- else if and (eq $scheme "https") (not (eq int (.Values.global.gatewayPorts.tls) 443))}}
       {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.tls }} 
     {{- else }}
       {{- printf "%s://ui.%s" $scheme $baseDomain }}
@@ -63,7 +63,7 @@
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
     {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.api }} 
-  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq .Values.global.gatewayPorts.tls 443)) }}
+  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
     {{- printf "https://api.%s:%v" $baseDomain .Values.global.gatewayPorts.tls }}
   {{- else }}
     {{- printf "https://api.%s" $baseDomain }}

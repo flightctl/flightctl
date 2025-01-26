@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -62,6 +63,7 @@ var (
 	ErrReadingPath = errors.New("failed reading path")
 	ErrPathIsDir   = errors.New("provided path is a directory")
 	ErrNotFound    = errors.New("not found")
+	ErrNotExist    = os.ErrNotExist
 
 	// images
 	ErrImageNotFound = errors.New("image not found")
