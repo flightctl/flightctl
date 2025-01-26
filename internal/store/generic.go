@@ -180,10 +180,6 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 }
 
 func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
-	if fromAPI && (util.DefaultIfNil(resource.GetOwner(), "<NIL>") != util.DefaultIfNil(existing.GetOwner(), "<NIL>")) {
-		return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-	}
-
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
 		if fromAPI {
