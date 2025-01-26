@@ -250,28 +250,52 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 	return results, nil
 }
 
-// UnmarkRolloutSelection unmarks all previously marked devices for rollout in a fleet
-func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
-	err := s.db.Model(&model.Device{}).Where(fmt.Sprintf("org_id = ? and owner = ? and annotations ? '%s'", api.DeviceAnnotationSelectedForRollout), orgId,
-		util.ResourceOwner(api.FleetKind, fleetName), gorm.Expr("?")).Update("annotations", gorm.Expr(fmt.Sprintf("annotations - '%s'", api.DeviceAnnotationSelectedForRollout))).Error
-	return ErrorFromGormError(err)
+func (s *DeviceStore) unmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) (bool, error) {
+	err := s.db.Model(&model.Device{}).Where("org_id = ? and owner = ? and annotations ? ?",
+		orgId, util.ResourceOwner(api.FleetKind, fleetName), gorm.Expr("?"), api.DeviceAnnotationSelectedForRollout).Updates(map[string]any{
+		"annotations":      gorm.Expr("annotations - ?", api.DeviceAnnotationSelectedForRollout),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}).Error
+	err = ErrorFromGormError(err)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	return false, nil
 }
 
-// MarkRolloutSelection marks all devices that can be filtered by the list params.  If limit is provided then the number of marked devices
-// will not be greater than the provided limit.
-func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error {
+// UnmarkRolloutSelection unmarks all previously marked devices for rollout in a fleet
+func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.unmarkRolloutSelection(ctx, orgId, fleetName)
+	})
+}
+
+func (s *DeviceStore) markRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) (bool, error) {
 	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if limit != nil {
 		query = query.Limit(*limit)
 		query = s.db.Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId,
 			query.Select("name"))
 	}
-	err = query.Update("annotations",
-		gorm.Expr(fmt.Sprintf(`jsonb_set(COALESCE(annotations, '{}'::jsonb), '{%s}', '""')`, api.DeviceAnnotationSelectedForRollout))).Error
-	return ErrorFromGormError(err)
+	err = query.Updates(map[string]any{
+		"annotations":      gorm.Expr(fmt.Sprintf(`jsonb_set(COALESCE(annotations, '{}'::jsonb), '{%s}', '""')`, api.DeviceAnnotationSelectedForRollout)),
+		"resource_version": gorm.Expr("resource_version + 1")}).Error
+	err = ErrorFromGormError(err)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	return false, nil
+}
+
+// MarkRolloutSelection marks all devices that can be filtered by the list params.  If limit is provided then the number of marked devices
+// will not be greater than the provided limit.
+func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error {
+	return retryUpdate(func() (bool, error) {
+		return s.markRolloutSelection(ctx, orgId, listParams, limit)
+	})
 }
 
 // Labels may contain characters that are not allowed to be part of a valid postgres field name.  This function
@@ -304,12 +328,15 @@ func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listPa
 	query = query.Where("status -> 'summary' ->> 'status' <> 'Unknown'")
 	if busyOnly {
 		// The busy devices are those that the 'status.config.renderedVersion' != annotations['device-controller/renderedVersion']
-		query = query.Where(fmt.Sprintf(`status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> '%s', '')`, api.DeviceAnnotationRenderedVersion))
+		query = query.Where(`status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> ?, '')`, api.DeviceAnnotationRenderedVersion)
 	}
-	selectList := lo.Map(groupBy, func(s string, _ int) string { return fmt.Sprintf("labels ->> '%s' as %s", s, labelKeyToSymbol(s)) })
-	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
+	selectList := lo.RepeatBy(len(groupBy), func(_ int) string { return "labels ->> ? as ?" })
 	selectList = append(selectList, "count(*) as count")
-	query.Select(strings.Join(selectList, ","))
+
+	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
+
+	query.Select(strings.Join(selectList, ","),
+		lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))...)
 	for _, g := range labelSymbols {
 		query = query.Group(g)
 	}
