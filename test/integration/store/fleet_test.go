@@ -411,15 +411,19 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
 
 			updatedFleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
+			updatedFleet.Metadata.Labels = nil
+			updatedFleet.Metadata.Annotations = nil
 
 			called := false
 			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
+			returnedFleet, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
+
+			Expect(returnedFleet.Metadata.Labels).ShouldNot(BeNil())
 
 			updatedFleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -512,13 +516,24 @@ var _ = Describe("FleetStore create", func() {
 				Message:            "message",
 			}
 
-			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
-			fleet.Status = &api.FleetStatus{Conditions: []api.Condition{condition}}
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("myfleet-1"),
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}},
+				},
+				Status: &api.FleetStatus{Conditions: []api.Condition{condition}},
+			}
 
-			_, err = storeInst.Fleet().UpdateStatus(ctx, orgId, fleet)
+			returnedFleet, err := storeInst.Fleet().UpdateStatus(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(returnedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(returnedFleet.Kind).To(Equal(api.FleetKind))
+			Expect(lo.FromPtr(returnedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
+			Expect(returnedFleet.Status.Conditions).ToNot(BeEmpty())
+			Expect(returnedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
