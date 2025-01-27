@@ -114,6 +114,13 @@ make clean-agent-vm VMNAME=flightctl-device-2
 make clean-agent-vm VMNAME=flightctl-device-3
 ```
 
+To quickly create agent instances for testing/development in a containerized environment. This is particularly useful for testing lightweight agent deployments without setting up VMs.
+
+```
+make agent-container
+make clean-agent-container
+```
+
 Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices
 
 ```
