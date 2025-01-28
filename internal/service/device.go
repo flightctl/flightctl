@@ -47,12 +47,12 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
 
 	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.callbackManager.DeviceUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.CreateDevice201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
+	case errors.Is(err, flterrors.ErrDuplicateName):
 		return server.CreateDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -181,10 +181,10 @@ func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDevi
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadDevice200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadDevice404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -231,20 +231,20 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
 
 	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, DeviceVerificationCallback, h.callbackManager.DeviceUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		if created {
 			return server.ReplaceDevice201JSONResponse(*result), nil
 		} else {
 			return server.ReplaceDevice200JSONResponse(*result), nil
 		}
-	case flterrors.ErrResourceIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil):
 		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceDevice404JSONResponse{}, nil
-	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed, flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed), errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -264,10 +264,10 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 	orgId := store.NullOrgId
 
 	err = h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DeleteDevice200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteDevice404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -287,10 +287,10 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadDeviceStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadDeviceStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -338,10 +338,10 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 
 	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.PatchDevice404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -387,14 +387,14 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDe
 	// create
 	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
 
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.PatchDevice200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.PatchDevice404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict, flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict), errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed):
 		return server.PatchDevice409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -420,10 +420,10 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	orgId := store.NullOrgId
 	deviceObj, err := h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.DecommissionDevice404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -448,12 +448,12 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
 	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"owner"}, false, DeviceVerificationCallback, updateCallback)
 
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DecommissionDevice200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DecommissionDevice404JSONResponse{}, nil
 	default:
 		return nil, err

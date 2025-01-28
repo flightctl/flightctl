@@ -49,10 +49,10 @@ func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, request server
 
 		csr, err := h.store.CertificateSigningRequest().Get(ctx, orgId, *request.Params.Csr)
 		if err != nil {
-			switch err {
-			case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+			switch {
+			case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 				return server.GetEnrollmentConfig400JSONResponse{Message: err.Error()}, nil
-			case flterrors.ErrResourceNotFound:
+			case errors.Is(err, flterrors.ErrResourceNotFound):
 				return server.GetEnrollmentConfig404JSONResponse{}, nil
 			default:
 				return nil, err

@@ -41,10 +41,10 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 	// that the agent does not provide or only have an outdated knowledge of
 	oldDevice, err := st.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.ReplaceDeviceStatus400JSONResponse{}, nil
 		default:
 			return nil, err
@@ -54,14 +54,14 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 	UpdateServiceSideStatus(ctx, st, log, orgId, oldDevice)
 
 	result, err := st.Device().UpdateStatus(ctx, orgId, oldDevice)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil):
 		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceDeviceStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -249,19 +249,19 @@ func GetRenderedDeviceSpec(ctx context.Context, st store.Store, _ logrus.FieldLo
 	orgId := store.NullOrgId
 
 	result, err := st.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion, consoleGrpcEndpoint)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		if result == nil {
 			return server.GetRenderedDeviceSpec204Response{}, nil
 		}
 		return server.GetRenderedDeviceSpec200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.GetRenderedDeviceSpec404JSONResponse{}, nil
-	case flterrors.ErrResourceOwnerIsNil:
+	case errors.Is(err, flterrors.ErrResourceOwnerIsNil):
 		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrTemplateVersionIsNil:
+	case errors.Is(err, flterrors.ErrTemplateVersionIsNil):
 		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrInvalidTemplateVersion:
+	case errors.Is(err, flterrors.ErrInvalidTemplateVersion):
 		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
