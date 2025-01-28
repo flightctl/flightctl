@@ -36,12 +36,12 @@ func CreateEnrollmentRequest(ctx context.Context, st store.Store, request server
 	}
 
 	result, err := st.EnrollmentRequest().Create(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.CreateEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
+	case errors.Is(err, flterrors.ErrDuplicateName):
 		return server.CreateEnrollmentRequest409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -52,10 +52,10 @@ func ReadEnrollmentRequest(ctx context.Context, st store.Store, request server.R
 	orgId := store.NullOrgId
 
 	result, err := st.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadEnrollmentRequest200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
