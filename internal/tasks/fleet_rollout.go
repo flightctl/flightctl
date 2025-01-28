@@ -9,9 +9,11 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -168,6 +170,15 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	fleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, ownerName)
 	if err != nil {
 		return fmt.Errorf("failed to get fleet: %w", err)
+	}
+	rolloutProgressStage, err := rollout.ProgressStage(fleet)
+	if err != nil {
+		return fmt.Errorf("failed to find rollout progress stage for fleet: %w", err)
+	}
+	if rolloutProgressStage == rollout.ConfiguredBatch {
+		// If a rollout is in progress, then the device will be rolled out by one of the next batches
+		f.log.Infof("Rollout is in progress for fleet %v/%s. Skipping device %s rollout", f.resourceRef.OrgID, lo.FromPtr(fleet.Metadata.Name), f.resourceRef.Name)
+		return nil
 	}
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
