@@ -403,14 +403,8 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceIntegrityStatus Status of device integrity.
+// DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
-	// Summary Summary status of the integrity of the device.
-	Summary DeviceIntegrityStatusSummary `json:"summary"`
-}
-
-// DeviceIntegrityStatusSummary Summary status of the integrity of the device.
-type DeviceIntegrityStatusSummary struct {
 	// Info Human readable information about the last integrity transition.
 	Info *string `json:"info,omitempty"`
 
@@ -525,7 +519,7 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
-	// Integrity Status of device integrity.
+	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
 	// LastSeen The last time the device was seen by the service.
