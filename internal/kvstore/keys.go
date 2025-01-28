@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const KeyPrefix = "flightctl"
+
 type TemplateVersionKey struct {
 	OrgID           uuid.UUID
 	Fleet           string
@@ -14,7 +16,7 @@ type TemplateVersionKey struct {
 }
 
 func (k *TemplateVersionKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/", k.OrgID, k.Fleet, k.TemplateVersion)
+	return fmt.Sprintf("%s:v1/%s/%s/%s/", KeyPrefix, k.OrgID, k.Fleet, k.TemplateVersion)
 }
 
 type RepositoryUrlKey struct {
@@ -25,7 +27,7 @@ type RepositoryUrlKey struct {
 }
 
 func (k *RepositoryUrlKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/repo-url/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository)
+	return fmt.Sprintf("%s:v1/%s/%s/%s/repo-url/%s", KeyPrefix, k.OrgID, k.Fleet, k.TemplateVersion, k.Repository)
 }
 
 type GitRevisionKey struct {
@@ -37,7 +39,7 @@ type GitRevisionKey struct {
 }
 
 func (k *GitRevisionKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/git-hash/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository, k.TargetRevision)
+	return fmt.Sprintf("%s:v1/%s/%s/%s/git-hash/%s/%s", KeyPrefix, k.OrgID, k.Fleet, k.TemplateVersion, k.Repository, k.TargetRevision)
 }
 
 type GitContentsKey struct {
@@ -50,7 +52,7 @@ type GitContentsKey struct {
 }
 
 func (k *GitContentsKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/git-data/%s/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Repository, k.TargetRevision, k.Path)
+	return fmt.Sprintf("%s:v1/%s/%s/%s/git-data/%s/%s/%s", KeyPrefix, k.OrgID, k.Fleet, k.TemplateVersion, k.Repository, k.TargetRevision, k.Path)
 }
 
 type K8sSecretKey struct {
@@ -62,7 +64,7 @@ type K8sSecretKey struct {
 }
 
 func (k *K8sSecretKey) ComposeKey() string {
-	return fmt.Sprintf("v1/%s/%s/%s/k8ssecret-data/%s/%s", k.OrgID, k.Fleet, k.TemplateVersion, k.Namespace, k.Name)
+	return fmt.Sprintf("%s:v1/%s/%s/%s/k8ssecret-data/%s/%s", KeyPrefix, k.OrgID, k.Fleet, k.TemplateVersion, k.Namespace, k.Name)
 }
 
 type HttpKey struct {
@@ -74,5 +76,5 @@ type HttpKey struct {
 
 func (k *HttpKey) ComposeKey() string {
 	md5sum := md5.Sum([]byte(k.URL)) //nolint: gosec
-	return fmt.Sprintf("v1/%s/%s/%s/http-data/%x", k.OrgID, k.Fleet, k.TemplateVersion, md5sum)
+	return fmt.Sprintf("%s:v1/%s/%s/%s/http-data/%x", KeyPrefix, k.OrgID, k.Fleet, k.TemplateVersion, md5sum)
 }
