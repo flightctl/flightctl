@@ -202,12 +202,12 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, re
 	}
 
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.CreateCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
+	case errors.Is(err, flterrors.ErrDuplicateName):
 		return server.CreateCertificateSigningRequest409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -236,10 +236,10 @@ func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, re
 	orgId := store.NullOrgId
 
 	err = h.store.CertificateSigningRequest().Delete(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DeleteCertificateSigningRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteCertificateSigningRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -259,10 +259,10 @@ func (h *ServiceHandler) ReadCertificateSigningRequest(ctx context.Context, requ
 	orgId := store.NullOrgId
 
 	result, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadCertificateSigningRequest200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadCertificateSigningRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -283,10 +283,10 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 
 	currentObj, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.PatchCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.PatchCertificateSigningRequest404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -316,14 +316,14 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.PatchCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.PatchCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.PatchCertificateSigningRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -363,16 +363,16 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 	}
 
 	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil):
 		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.ReplaceCertificateSigningRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -426,12 +426,12 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	}
 
 	oldCSR, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.UpdateCertificateSigningRequestApproval404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -454,12 +454,12 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	newCSR.Status.Conditions = newConditions
 
 	result, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, newCSR)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.UpdateCertificateSigningRequestApproval404JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.UpdateCertificateSigningRequestApproval409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -154,10 +155,10 @@ func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server
 	orgId := store.NullOrgId
 
 	result, err := h.store.TemplateVersion().Get(ctx, orgId, request.Fleet, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadTemplateVersion200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadTemplateVersion404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -183,10 +184,10 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request serv
 	}
 
 	err = h.store.TemplateVersion().Delete(ctx, orgId, request.Fleet, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DeleteTemplateVersion200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteTemplateVersion404JSONResponse{}, nil
 	default:
 		return nil, err

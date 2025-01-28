@@ -38,12 +38,12 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 	}
 
 	result, err := h.store.Repository().Create(ctx, orgId, request.Body, h.callbackManager.RepositoryUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.CreateRepository201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.CreateRepository400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
+	case errors.Is(err, flterrors.ErrDuplicateName):
 		return server.CreateRepository409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -135,10 +135,10 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 	orgId := store.NullOrgId
 
 	result, err := h.store.Repository().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadRepository200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadRepository404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -169,20 +169,20 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 	}
 
 	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body, h.callbackManager.RepositoryUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		if created {
 			return server.ReplaceRepository201JSONResponse(*result), nil
 		} else {
 			return server.ReplaceRepository200JSONResponse(*result), nil
 		}
-	case flterrors.ErrResourceIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil):
 		return server.ReplaceRepository400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.ReplaceRepository400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceRepository404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.ReplaceRepository409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -202,10 +202,10 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.De
 	orgId := store.NullOrgId
 
 	err = h.store.Repository().Delete(ctx, orgId, request.Name, h.callbackManager.RepositoryUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DeleteRepository200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteRepository404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -227,10 +227,10 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 
 	currentObj, err := h.store.Repository().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.PatchRepository404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -266,14 +266,14 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	}
 	result, err := h.store.Repository().Update(ctx, orgId, newObj, updateCallback)
 
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.PatchRepository200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.PatchRepository404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.PatchRepository409JSONResponse{}, nil
 	default:
 		return nil, err
