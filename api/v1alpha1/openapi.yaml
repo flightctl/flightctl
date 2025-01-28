@@ -3515,12 +3515,9 @@ components:
       required:
       - name
       - inline
-    FileSpec:
+    BaseFileSpec:
       type: object
       properties:
-        path:
-          type: string
-          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
         content:
           type: string
           description: The plain text (UTF-8) or base64-encoded content of the file.
@@ -3540,8 +3537,17 @@ components:
           type: string
           description: The file's group, specified either as a name or numeric ID. Defaults to "root".
       required:
-      - path
       - content
+    FileSpec:
+      allOf:
+        - $ref: '#/components/schemas/BaseFileSpec'
+        - type: object
+          properties:
+            path:
+              type: string
+              description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+          required:
+          - path
     HttpConfigProviderSpec:
       type: object
       properties:
@@ -3578,7 +3584,7 @@ components:
               description: The name of the application must be between 1 and 253 characters and start with a letter or number.
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProvider'
-            # extend application providers
+            - $ref: '#/components/schemas/InlineApplicationProvider'
     ImageApplicationProvider:
       type: object
       properties:
@@ -3587,6 +3593,21 @@ components:
           description: Reference to the container image for the application package.
       required:
         - image
+    InlineApplicationProvider:
+      type: object
+      description: Describes an application package that is provided inline.
+      additionalProperties:
+        $ref: '#/components/schemas/ApplicationFileSpec'
+    ApplicationFileSpec:
+      allOf:
+        - $ref: '#/components/schemas/BaseFileSpec'
+        - type: object
+          properties:
+            filename:
+              type: string
+              description: The name of the application file.
+          required:
+          - filename
     ApplicationEnvVars:
       type: object
       properties:
