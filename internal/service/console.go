@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -41,8 +42,8 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName)
 	// check for errors
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceNotFound:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			h.log.Errorf("console requested for unknown device: %s", deviceName)
 			http.Error(w, "Device not found", http.StatusNotFound)
 		default:
@@ -157,8 +158,8 @@ func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.Requ
 	// make sure the device exists
 	_, err = h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceNotFound:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.RequestConsole404JSONResponse{}, nil
 		default:
 			return nil, err
