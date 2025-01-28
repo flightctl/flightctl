@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/redisoptions"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -31,9 +32,10 @@ var _ = Describe("FleetSelector", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		cfg := config.NewDefault()
+		options, _ := redisoptions.ConfigToRedisOptions(cfg)
 
 		var err error
-		kvStore, err = kvstore.NewKVStore(ctx, log, cfg)
+		kvStore, err = kvstore.NewKVStore(ctx, log, options)
 		Expect(err).ToNot(HaveOccurred())
 	})
 

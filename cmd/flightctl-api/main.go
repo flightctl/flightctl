@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/redisoptions"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -93,7 +94,11 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
-	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	redisOptions, err := redisoptions.ConfigToRedisOptions(cfg)
+	if err != nil {
+		log.Fatalf("failed to generate redis connection configuration: %w", err)
+	}
+	provider, err := queues.NewRedisProvider(ctx, log, redisOptions)
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/redisoptions"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -47,7 +48,12 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to create fleet queue publisher")
 		return err
 	}
-	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg)
+	redisConnectionOptions, err := redisoptions.ConfigToRedisOptions(s.cfg)
+	if err != nil {
+		s.log.WithError(err).Error("failed to create kvStore options")
+		return err
+	}
+	kvStore, err := kvstore.NewKVStore(ctx, s.log, redisConnectionOptions)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err

@@ -2,14 +2,9 @@ package kvstore
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -30,13 +25,8 @@ type kvStore struct {
 	getSetNxScript *redis.Script
 }
 
-func NewKVStore(ctx context.Context, log logrus.FieldLogger, cfg *config.Config) (KVStore, error) {
-	options, err := configToRedisOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	client := redis.NewClient(options)
+func NewKVStore(ctx context.Context, log logrus.FieldLogger, connection_options *redis.Options) (KVStore, error) {
+	client := redis.NewClient(connection_options)
 
 	// Test the connection
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -148,49 +138,4 @@ func (s *kvStore) PrintAllKeys(ctx context.Context) {
 		return
 	}
 	fmt.Printf("Keys: %v\n", keys)
-}
-
-func configToRedisOptions(cfg *config.Config) (*redis.Options, error) {
-	options := &redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", cfg.KV.Hostname, cfg.KV.Port),
-		Password: cfg.KV.Password,
-		DB:       0,
-	}
-
-	if cfg.KV.CaCertFile != "" {
-		tlsConfig, err := loadTLSConfig(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to configure TLS for redis: %w", err)
-		}
-		options.TLSConfig = tlsConfig
-	}
-
-	return options, nil
-}
-
-func loadTLSConfig(cfg *config.Config) (*tls.Config, error) {
-	caCert, err := os.ReadFile(cfg.KV.CaCertFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA cert file: %w", err)
-	}
-
-	certPool := x509.NewCertPool()
-	if ok := certPool.AppendCertsFromPEM(caCert); !ok {
-		return nil, errors.New("failed to append CA cert")
-	}
-
-	clientCerts := []tls.Certificate{}
-	if cfg.KV.CertFile != "" {
-		clientCert, err := tls.LoadX509KeyPair(cfg.KV.CertFile, cfg.KV.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read client cert/key: %w", err)
-		}
-		clientCerts = append(clientCerts, clientCert)
-	}
-
-	return &tls.Config{
-		Certificates: clientCerts,
-		RootCAs:      certPool,
-		MinVersion:   tls.VersionTLS12,
-	}, nil
 }

@@ -26,14 +26,10 @@ type redisProvider struct {
 	mu      sync.Mutex
 }
 
-func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (Provider, error) {
+func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, connection_options *redis.Options) (Provider, error) {
 	var wg sync.WaitGroup
 	wg.Add(1)
-	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", hostname, port),
-		Password: password,
-		DB:       0,
-	})
+	client := redis.NewClient(connection_options)
 
 	// Test the connection
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
