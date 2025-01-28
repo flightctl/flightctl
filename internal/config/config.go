@@ -56,9 +56,14 @@ type svcConfig struct {
 }
 
 type kvConfig struct {
-	Hostname string `json:"hostname,omitempty"`
-	Port     uint   `json:"port,omitempty"`
-	Password string `json:"password,omitempty"`
+	Hostname   string `json:"hostname,omitempty"`
+	Port       uint   `json:"port,omitempty"`
+	Username   string `json:"username,omitempty"`
+	Password   string `json:"password,omitempty"`
+	CaCertFile string `json:"caCertFile,omitempty"`
+	CertFile   string `json:"certFile,omitempty"`
+	KeyFile    string `json:"keyFile,omitempty"`
+	DB         int    `json:"db,omitempty"`
 }
 
 type authConfig struct {
@@ -131,6 +136,7 @@ func NewDefault() *Config {
 			Hostname: "localhost",
 			Port:     6379,
 			Password: "adminpass",
+			DB:       0,
 		},
 		Prometheus: &prometheusConfig{
 			Address:        ":15690",
