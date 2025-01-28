@@ -7,7 +7,6 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/redisoptions"
 	"github.com/flightctl/flightctl/internal/store"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -44,11 +43,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
-	redisOptions, err := redisoptions.ConfigToRedisOptions(cfg)
-	if err != nil {
-		log.Fatalf("failed to generate redis connection configuration: %w", err)
-	}
-	provider, err := queues.NewRedisProvider(ctx, log, redisOptions)
+	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV)
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}

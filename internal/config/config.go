@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/kvconfig"
 	"sigs.k8s.io/yaml"
 )
 
@@ -16,11 +17,11 @@ const (
 )
 
 type Config struct {
-	Database   *dbConfig         `json:"database,omitempty"`
-	Service    *svcConfig        `json:"service,omitempty"`
-	KV         *kvConfig         `json:"kv,omitempty"`
-	Auth       *authConfig       `json:"auth,omitempty"`
-	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
+	Database   *dbConfig          `json:"database,omitempty"`
+	Service    *svcConfig         `json:"service,omitempty"`
+	KV         *kvconfig.KvConfig `json:"kv,omitempty"`
+	Auth       *authConfig        `json:"auth,omitempty"`
+	Prometheus *prometheusConfig  `json:"prometheus,omitempty"`
 }
 
 type dbConfig struct {
@@ -53,17 +54,6 @@ type svcConfig struct {
 	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
 	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
 	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
-}
-
-type kvConfig struct {
-	Hostname   string `json:"hostname,omitempty"`
-	Port       uint   `json:"port,omitempty"`
-	Username   string `json:"username,omitempty"`
-	Password   string `json:"password,omitempty"`
-	CaCertFile string `json:"caCertFile,omitempty"`
-	CertFile   string `json:"certFile,omitempty"`
-	KeyFile    string `json:"keyFile,omitempty"`
-	DB         int    `json:"db,omitempty"`
 }
 
 type authConfig struct {
@@ -132,7 +122,7 @@ func NewDefault() *Config {
 			HttpMaxUrlLength:      2000,
 			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
 		},
-		KV: &kvConfig{
+		KV: &kvconfig.KvConfig{
 			Hostname: "localhost",
 			Port:     6379,
 			Password: "adminpass",

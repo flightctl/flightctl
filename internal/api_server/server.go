@@ -19,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/redisoptions"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -134,11 +133,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 
-	redisConnectionOptions, err := redisoptions.ConfigToRedisOptions(s.cfg)
-	if err != nil {
-		return err
-	}
-	kvStore, err := kvstore.NewKVStore(ctx, s.log, redisConnectionOptions)
+	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV)
 	if err != nil {
 		return err
 	}

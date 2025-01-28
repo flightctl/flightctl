@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/redisoptions"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/store"
@@ -39,11 +38,7 @@ func New(
 
 // TODO: expose metrics
 func (s *Server) Run() error {
-	redisOptions, err := redisoptions.ConfigToRedisOptions(s.cfg)
-	if err != nil {
-		return err
-	}
-	provider, err := queues.NewRedisProvider(context.Background(), s.log, redisOptions)
+	provider, err := queues.NewRedisProvider(context.Background(), s.log, s.cfg.KV)
 	if err != nil {
 		return err
 	}

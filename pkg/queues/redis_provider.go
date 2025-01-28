@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/flightctl/flightctl/pkg/kvconfig"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -26,10 +27,15 @@ type redisProvider struct {
 	mu      sync.Mutex
 }
 
-func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, connection_options *redis.Options) (Provider, error) {
+func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, cfg *kvconfig.KvConfig) (Provider, error) {
 	var wg sync.WaitGroup
 	wg.Add(1)
-	client := redis.NewClient(connection_options)
+
+	redisOptions, err := kvconfig.ConfigToRedisOptions(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure Redis options: %w", err)
+	}
+	client := redis.NewClient(redisOptions)
 
 	// Test the connection
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
