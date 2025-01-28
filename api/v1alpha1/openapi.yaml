@@ -4070,14 +4070,6 @@ components:
       description: Status type of the device lifecycle.
     DeviceIntegrityStatus:
       type: object
-      description: Status of device integrity.
-      required:
-        - summary
-      properties:
-        summary:
-          $ref: "#/components/schemas/DeviceIntegrityStatusSummary"
-    DeviceIntegrityStatusSummary:
-      type: object
       description: Summary status of the integrity of the device.
       required:
         - status
@@ -4990,12 +4982,10 @@ components:
           format: byte
           type: string
         conditions:
+          type: array
           description: Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
           items:
-            allOf:
-              - $ref: '#/components/schemas/Condition'
-            default: {}
-          type: array
+            $ref: '#/components/schemas/Condition'
       required:
         - conditions
       type: object
