@@ -12,6 +12,12 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ApplicationFileSpecContentEncoding.
+const (
+	ApplicationFileSpecContentEncodingBase64 ApplicationFileSpecContentEncoding = "base64"
+	ApplicationFileSpecContentEncodingPlain  ApplicationFileSpecContentEncoding = "plain"
+)
+
 // Defines values for ApplicationStatusType.
 const (
 	ApplicationStatusCompleted ApplicationStatusType = "Completed"
@@ -28,6 +34,12 @@ const (
 	ApplicationsSummaryStatusError    ApplicationsSummaryStatusType = "Error"
 	ApplicationsSummaryStatusHealthy  ApplicationsSummaryStatusType = "Healthy"
 	ApplicationsSummaryStatusUnknown  ApplicationsSummaryStatusType = "Unknown"
+)
+
+// Defines values for BaseFileSpecContentEncoding.
+const (
+	BaseFileSpecContentEncodingBase64 BaseFileSpecContentEncoding = "base64"
+	BaseFileSpecContentEncodingPlain  BaseFileSpecContentEncoding = "plain"
 )
 
 // Defines values for ConditionStatus.
@@ -164,6 +176,30 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
+// ApplicationFileSpec defines model for ApplicationFileSpec.
+type ApplicationFileSpec struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *ApplicationFileSpecContentEncoding `json:"contentEncoding,omitempty"`
+
+	// Filename The name of the application file.
+	Filename string `json:"filename"`
+
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
+// ApplicationFileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type ApplicationFileSpecContentEncoding string
+
 // ApplicationSpec defines model for ApplicationSpec.
 type ApplicationSpec struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -188,6 +224,27 @@ type AuthConfig struct {
 	// AuthURL Auth URL.
 	AuthURL string `json:"authURL"`
 }
+
+// BaseFileSpec defines model for BaseFileSpec.
+type BaseFileSpec struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *BaseFileSpecContentEncoding `json:"contentEncoding,omitempty"`
+
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
+// BaseFileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type BaseFileSpecContentEncoding string
 
 // Batch Batch is an element in batch sequence.
 type Batch struct {
@@ -991,6 +1048,9 @@ type ImageApplicationProvider struct {
 	Image string `json:"image"`
 }
 
+// InlineApplicationProvider Describes an application package that is provided inline.
+type InlineApplicationProvider map[string]ApplicationFileSpec
+
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {
 	// Inline A list of files to create on the device.
@@ -1665,6 +1725,32 @@ func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvide
 
 // MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
 func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInlineApplicationProvider returns the union data inside the ApplicationSpec as a InlineApplicationProvider
+func (t ApplicationSpec) AsInlineApplicationProvider() (InlineApplicationProvider, error) {
+	var body InlineApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineApplicationProvider overwrites any union data inside the ApplicationSpec as the provided InlineApplicationProvider
+func (t *ApplicationSpec) FromInlineApplicationProvider(v InlineApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided InlineApplicationProvider
+func (t *ApplicationSpec) MergeInlineApplicationProvider(v InlineApplicationProvider) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
