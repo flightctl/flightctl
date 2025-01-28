@@ -18,6 +18,7 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
+BuildRequires:  git
 BuildRequires:  openssl-devel
 
 Requires: openssl
