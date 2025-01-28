@@ -52,12 +52,12 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateF
 	}
 
 	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.CreateFleet201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
+	case errors.Is(err, flterrors.ErrDuplicateName):
 		return server.CreateFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -157,10 +157,10 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.WithSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadFleet200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadFleet404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -194,20 +194,20 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.Replac
 	}
 
 	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.FleetUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		if created {
 			return server.ReplaceFleet201JSONResponse(*result), nil
 		} else {
 			return server.ReplaceFleet200JSONResponse(*result), nil
 		}
-	case flterrors.ErrResourceIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil):
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceFleet404JSONResponse{}, nil
-	case flterrors.ErrUpdatingResourceWithOwnerNotAllowed, flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed), errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -236,10 +236,10 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteF
 	}
 
 	err = h.store.Fleet().Delete(ctx, orgId, request.Name, h.callbackManager.FleetUpdatedCallback)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DeleteFleet200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteFleet404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -259,10 +259,10 @@ func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.Rea
 	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadFleetStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadFleetStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -282,10 +282,10 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.
 	orgId := store.NullOrgId
 
 	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReplaceFleetStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceFleetStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -307,10 +307,10 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 
 	currentObj, err := h.store.Fleet().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.PatchFleet404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -349,14 +349,14 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 	}
 	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback)
 
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.PatchFleet200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.PatchFleet404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.PatchFleet409JSONResponse{}, nil
 	default:
 		return nil, err

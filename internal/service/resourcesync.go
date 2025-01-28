@@ -37,12 +37,12 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.
 	}
 
 	result, err := h.store.ResourceSync().Create(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.CreateResourceSync201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
+	case errors.Is(err, flterrors.ErrDuplicateName):
 		return server.CreateResourceSync409JSONResponse{Message: err.Error()}, nil
 	default:
 		return nil, err
@@ -142,10 +142,10 @@ func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.Re
 	orgId := store.NullOrgId
 
 	result, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadResourceSync200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -175,20 +175,20 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server
 	}
 
 	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		if created {
 			return server.ReplaceResourceSync201JSONResponse(*result), nil
 		} else {
 			return server.ReplaceResourceSync200JSONResponse(*result), nil
 		}
-	case flterrors.ErrResourceIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil):
 		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceResourceSync404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.ReplaceResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -207,10 +207,10 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.
 	}
 	orgId := store.NullOrgId
 	err = h.store.ResourceSync().Delete(ctx, orgId, request.Name, h.store.Fleet().UnsetOwner)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DeleteResourceSync200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteResourceSync404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -232,10 +232,10 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 
 	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.PatchResourceSync404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -265,14 +265,14 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.P
 	newObj.Metadata.ResourceVersion = nil
 	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
 
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.PatchResourceSync200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.PatchResourceSync404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.PatchResourceSync409JSONResponse{}, nil
 	default:
 		return nil, err

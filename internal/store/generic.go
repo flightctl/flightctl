@@ -14,6 +14,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type IntegrationTestCallback func()
@@ -179,10 +180,6 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 }
 
 func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
-	if fromAPI && (util.DefaultIfNil(resource.GetOwner(), "<NIL>") != util.DefaultIfNil(existing.GetOwner(), "<NIL>")) {
-		return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-	}
-
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
 		if fromAPI {
@@ -218,7 +215,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 			lo.FromPtr(existing.GetResourceVersion())).
 		Select(selectFields)
 
-	result := query.Updates(resource)
+	result := query.Clauses(clause.Returning{}).Updates(resource)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -328,12 +325,20 @@ func (s *GenericStore[P, M, A, AL]) UpdateStatus(ctx context.Context, orgId uuid
 		return nil, err
 	}
 
-	result := s.db.WithContext(ctx).Model(&model).Where("org_id = ? AND name = ?", orgId, model.GetName()).Updates(
+	result := s.db.WithContext(ctx).Model(model).Where("org_id = ? AND name = ?", orgId, model.GetName()).Clauses(clause.Returning{}).Updates(
 		map[string]interface{}{
 			"status":           json,
 			"resource_version": gorm.Expr("resource_version + 1"),
 		})
-	return resource, ErrorFromGormError(result.Error)
+	if err := ErrorFromGormError(result.Error); err != nil {
+		return nil, err
+	}
+
+	apiResource, err := s.modelPtrToAPI(model)
+	if err != nil {
+		return nil, err
+	}
+	return apiResource, nil
 }
 
 func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*AL, error) {

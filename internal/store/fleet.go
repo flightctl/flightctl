@@ -341,24 +341,7 @@ func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback Fl
 }
 
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
-	return s.updateStatus(s.db, orgId, resource)
-}
-
-func (s *FleetStore) updateStatus(tx *gorm.DB, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
-	if resource.Metadata.Name == nil {
-		return nil, flterrors.ErrResourceNameIsNil
-	}
-	fleet := model.Fleet{
-		Resource: model.Resource{OrgID: orgId, Name: *resource.Metadata.Name},
-	}
-	result := tx.Model(&fleet).Updates(map[string]interface{}{
-		"status":           model.MakeJSONField(resource.Status),
-		"resource_version": gorm.Expr("resource_version + 1"),
-	})
-	return resource, ErrorFromGormError(result.Error)
+	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
 func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {

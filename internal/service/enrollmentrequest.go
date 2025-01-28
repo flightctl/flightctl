@@ -226,18 +226,18 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 	}
 
 	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		if created {
 			return server.ReplaceEnrollmentRequest201JSONResponse(*result), nil
 		} else {
 			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
 		}
-	case flterrors.ErrResourceNameIsNil, flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.ReplaceEnrollmentRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -259,10 +259,10 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request ser
 
 	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.PatchEnrollmentRequest404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -295,14 +295,14 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request ser
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.PatchEnrollmentRequest200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.PatchEnrollmentRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict, flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict), errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed):
 		return server.PatchEnrollmentRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -322,10 +322,10 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 	orgId := store.NullOrgId
 
 	err = h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -345,10 +345,10 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 	orgId := store.NullOrgId
 
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -371,12 +371,12 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 		return server.ApproveEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch err {
+	switch {
 	default:
 		return nil, err
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
-	case nil:
+	case err == nil:
 	}
 
 	// if the enrollment request was already approved we should not try to approve it one more time
@@ -412,10 +412,10 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 		}
 	}
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -439,10 +439,10 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 	}
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err

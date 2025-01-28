@@ -411,15 +411,19 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updatedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
 
 			updatedFleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
+			updatedFleet.Metadata.Labels = nil
+			updatedFleet.Metadata.Annotations = nil
 
 			called := false
 			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
+			returnedFleet, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
+
+			Expect(returnedFleet.Metadata.Labels).ShouldNot(BeNil())
 
 			updatedFleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -456,53 +460,6 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
 		})
 
-		It("CreateOrUpdate wrong owner", func() {
-			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
-			fleet.Status = nil
-
-			called := false
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
-				called = true
-			})
-			fleet.Metadata.Owner = util.StrToPtr("test")
-			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, nil, false, callback)
-			Expect(called).To(BeTrue())
-			Expect(err).ToNot(HaveOccurred())
-
-			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
-			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
-			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
-			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
-			Expect(updatedFleet.Status.Conditions).To(BeEmpty())
-			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
-			Expect(updatedFleet.Metadata.Owner).ToNot(BeNil())
-			Expect(*updatedFleet.Metadata.Owner).To(Equal("test"))
-
-			updatedFleet.Metadata.Owner = util.StrToPtr("test2")
-			called = false
-			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
-			Expect(err).To(HaveOccurred())
-			Expect(called).To(BeFalse())
-			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
-
-			updatedFleet.Metadata.Owner = nil
-			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
-			Expect(err).To(HaveOccurred())
-			Expect(called).To(BeFalse())
-			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
-
-			updatedFleet.Metadata.Owner = util.StrToPtr("test")
-			updatedFleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS2"}
-			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
-			Expect(err).To(HaveOccurred())
-			Expect(called).To(BeFalse())
-			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
-		})
-
 		It("UpdateStatus", func() {
 			condition := api.Condition{
 				Type:               api.FleetValid,
@@ -512,13 +469,24 @@ var _ = Describe("FleetStore create", func() {
 				Message:            "message",
 			}
 
-			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			fleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
-			fleet.Status = &api.FleetStatus{Conditions: []api.Condition{condition}}
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: util.StrToPtr("myfleet-1"),
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}},
+				},
+				Status: &api.FleetStatus{Conditions: []api.Condition{condition}},
+			}
 
-			_, err = storeInst.Fleet().UpdateStatus(ctx, orgId, fleet)
+			returnedFleet, err := storeInst.Fleet().UpdateStatus(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(returnedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(returnedFleet.Kind).To(Equal(api.FleetKind))
+			Expect(lo.FromPtr(returnedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
+			Expect(returnedFleet.Status.Conditions).ToNot(BeEmpty())
+			Expect(returnedFleet.Status.Conditions[0].Type).To(Equal(api.FleetValid))
+
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))

@@ -214,7 +214,7 @@ func (t *callbackManager) TemplateVersionCreatedCallback(orgId uuid.UUID, before
 	resourceRef := ResourceReference{
 		OrgID: orgId,
 		Kind:  api.FleetKind,
-		Name:  *templateVersion.Metadata.Name,
+		Name:  templateVersion.Spec.Fleet,
 	}
 	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
 }
