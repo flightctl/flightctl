@@ -25,7 +25,7 @@ func ConfigToRedisOptions(cfg *KvConfig) (*redis.Options, error) {
 	options := &redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Hostname, cfg.Port),
 		Password: cfg.Password,
-		DB:       0,
+		DB:       cfg.DB,
 	}
 
 	if cfg.CaCertFile != "" {
