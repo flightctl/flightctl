@@ -173,6 +173,9 @@ func Load(cfgFile string) (*Config, error) {
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
 		c.KV.Password = kvPass
 	}
+	if kvUsername := os.Getenv("KV_USERNAME"); kvUsername != "" {
+		c.KV.Username = kvUsername
+	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		c.Database.User = dbUser
 	}
