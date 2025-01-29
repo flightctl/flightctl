@@ -16,8 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const QueuePrefix = "flightctl"
-
 type redisProvider struct {
 	client  *redis.Client
 	log     logrus.FieldLogger
@@ -69,13 +67,11 @@ func (r *redisProvider) newQueue(queueName string) (*redisQueue, error) {
 }
 
 func (r *redisProvider) NewConsumer(queueName string) (Consumer, error) {
-	prefixedName := fmt.Sprintf("%s:%s", QueuePrefix, queueName)
-	return r.newQueue(prefixedName)
+	return r.newQueue(queueName)
 }
 
 func (r *redisProvider) NewPublisher(queueName string) (Publisher, error) {
-	prefixedName := fmt.Sprintf("%s:%s", QueuePrefix, queueName)
-	return r.newQueue(prefixedName)
+	return r.newQueue(queueName)
 }
 
 func (r *redisProvider) Stop() {
