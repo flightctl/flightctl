@@ -384,25 +384,68 @@ func (r CertificateSigningRequest) Validate() []error {
 	return allErrs
 }
 
+func (b *Batch) Validate() []error {
+	if b == nil {
+		return []error{errors.New("a batch in a batch sequence must not be null")}
+	}
+	return b.Selector.Validate()
+}
+
+func (b BatchSequence) Validate() []error {
+	var errs []error
+	for _, batch := range lo.FromPtr(b.Sequence) {
+		errs = append(errs, batch.Validate()...)
+	}
+	return errs
+}
+
+func (r *RolloutDeviceSelection) Validate() []error {
+	var errs []error
+	if r == nil {
+		return nil
+	}
+	i, err := r.ValueByDiscriminator()
+	if err != nil {
+		errs = append(errs, err)
+	} else {
+		switch v := i.(type) {
+		case BatchSequence:
+			errs = append(errs, v.Validate()...)
+		}
+	}
+	return errs
+}
+
+func (d *DisruptionBudget) Validate() []error {
+	if d == nil {
+		return nil
+	}
+	if d.MinAvailable == nil && d.MaxUnavailable == nil {
+		return []error{errors.New("at least one of [MinAvailable, MaxUnavailable] must be defined in disruption budget")}
+	}
+	return nil
+}
+
+func (r *RolloutPolicy) Validate() []error {
+	var errs []error
+	if r == nil {
+		return nil
+	}
+	if r.DeviceSelection == nil && r.DisruptionBudget == nil {
+		errs = append(errs, errors.New("at least one of [DeviceSelection, DisruptionBudget] must be defined"))
+	}
+	errs = append(errs, r.DeviceSelection.Validate()...)
+	errs = append(errs, r.DisruptionBudget.Validate()...)
+	return errs
+}
+
 func (r Fleet) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	allErrs = append(allErrs, r.Spec.Selector.Validate()...)
-	if r.Spec.RolloutPolicy != nil {
-		i, err := r.Spec.RolloutPolicy.DeviceSelection.ValueByDiscriminator()
-		if err != nil {
-			allErrs = append(allErrs, err)
-		} else {
-			switch v := i.(type) {
-			case BatchSequence:
-				for _, b := range lo.FromPtr(v.Sequence) {
-					allErrs = append(allErrs, b.Selector.Validate()...)
-				}
-			}
-		}
-	}
+	allErrs = append(allErrs, r.Spec.RolloutPolicy.Validate()...)
 
 	// Validate the Device spec settings
 	allErrs = append(allErrs, r.Spec.Template.Spec.Validate(true)...)
