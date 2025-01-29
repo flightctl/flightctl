@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
@@ -37,6 +38,16 @@ type Device struct {
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
+}
+
+type DeviceLabel struct {
+	OrgID      uuid.UUID `gorm:"primaryKey;type:uuid;index:,composite:device_label_org_device"`
+	DeviceName string    `gorm:"primaryKey;index:,composite:device_label_org_device"`
+	LabelKey   string    `gorm:"primaryKey;index:,composite:device_label_key"`
+	LabelValue string    `gorm:"index"`
+
+	// Foreign Key Constraint with CASCADE DELETE
+	Device Device `gorm:"foreignKey:OrgID,DeviceName;references:OrgID,Name;constraint:OnDelete:CASCADE"`
 }
 
 type ServiceConditions struct {

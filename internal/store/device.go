@@ -73,7 +73,7 @@ func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTest
 }
 
 func (s *DeviceStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.Device{}); err != nil {
+	if err := s.db.AutoMigrate(&model.Device{}, &model.DeviceLabel{}); err != nil {
 		return err
 	}
 
@@ -151,6 +151,64 @@ func (s *DeviceStore) InitialMigration() error {
 		}
 	}
 
+	// Create indexes for device_labels (Partial Matching Support)
+	if !s.db.Migrator().HasIndex(&model.DeviceLabel{}, "idx_device_labels_partial") {
+		if s.db.Dialector.Name() == "postgres" {
+			// Enable pg_trgm extension for partial matching
+			if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+				return err
+			}
+			// Create GIN index for partial match searches
+			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	// Ensure trigger is created for INSERT & UPDATE (labels JSONB changes)
+	if s.db.Dialector.Name() == "postgres" {
+		triggerSQL := `
+		DROP TRIGGER IF EXISTS device_labels_insert ON devices;
+		DROP TRIGGER IF EXISTS device_labels_update ON devices;
+	
+		CREATE OR REPLACE FUNCTION sync_device_labels()
+		RETURNS TRIGGER AS $$
+		DECLARE
+			label RECORD;
+		BEGIN
+			IF TG_OP = 'UPDATE' THEN
+				DELETE FROM device_labels
+				WHERE org_id = OLD.org_id AND device_name = OLD.name
+				AND label_key NOT IN (SELECT jsonb_object_keys(NEW.labels));
+			END IF;
+	
+			FOR label IN SELECT * FROM jsonb_each_text(NEW.labels)
+			LOOP
+				INSERT INTO device_labels (org_id, device_name, label_key, label_value)
+				VALUES (NEW.org_id, NEW.name, label.key, label.value)
+				ON CONFLICT (org_id, device_name, label_key) DO UPDATE
+				SET label_value = EXCLUDED.label_value;
+			END LOOP;
+	
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+	
+		CREATE TRIGGER device_labels_insert
+		AFTER INSERT ON devices
+		FOR EACH ROW
+		EXECUTE FUNCTION sync_device_labels();
+	
+		CREATE TRIGGER device_labels_update
+		AFTER UPDATE OF labels ON devices
+		FOR EACH ROW
+		WHEN (OLD.labels IS DISTINCT FROM NEW.labels)
+		EXECUTE FUNCTION sync_device_labels();
+		`
+		if err := s.db.Exec(triggerSQL).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
