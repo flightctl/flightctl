@@ -166,7 +166,18 @@ $ FC_CLI_BINARY=flightctl-linux-amd64
 Download the `flightctl` binary to your machine:
 
 ```console
-$ curl -LO https://github.com/flightctl/flightctl/releases/download/latest/${FC_CLI_BINARY}
+$ curl -LO https://github.com/flightctl/flightctl/releases/latest/download/${FC_CLI_BINARY}
+
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100 29.9M  100 29.9M    0     0  5965k      0  0:00:05  0:00:05 --:--:-- 7341k
+```
+
+To download a `pre-release` use its name instead of `latest`. For example to download `v0.4.0-rc3`:
+
+```console
+$ curl -LO https://github.com/flightctl/flightctl/releases/v0.4.0-rc3/download/${FC_CLI_BINARY}
 
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
