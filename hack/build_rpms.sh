@@ -15,6 +15,7 @@ if ! dnf install -y go-rpm-macros; then
     echo "Failed to install go-rpm-macros package"
     exit 1
 fi
+git config --global --add safe.directory /work
 ./hack/build_rpms_packit.sh
 EOF
     podman run --privileged --rm -t -v "$(pwd)":/work quay.io/flightctl/ci-rpm-builder:latest bash /work/bin/build_rpms.sh
