@@ -12,6 +12,19 @@ import (
 )
 
 func TestConfigToRedisOptions(t *testing.T) {
+	testDir := t.TempDir()
+
+	caCertFile := filepath.Join(testDir, "ca.crt")
+	caKeyFile := filepath.Join(testDir, "ca.key")
+	clientCertFile := filepath.Join(testDir, "client.crt")
+	clientKeyFile := filepath.Join(testDir, "client.key")
+
+	// Create test CA and client certs
+	ca, _, err := crypto.EnsureCA(caCertFile, caKeyFile, "", "ca", 2)
+	require.NoError(t, err)
+	_, _, err = ca.EnsureClientCertificate(clientCertFile, clientKeyFile, "test-client", 2)
+	require.NoError(t, err)
+
 	tests := []struct {
 		name        string
 		cfg         *KvConfig
@@ -32,7 +45,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 				Hostname:   "localhost",
 				Port:       6379,
 				Password:   "secret",
-				CaCertFile: "testdata/ca.crt",
+				CaCertFile: caCertFile,
 				DB:         2,
 			},
 		},
@@ -42,9 +55,9 @@ func TestConfigToRedisOptions(t *testing.T) {
 				Hostname:   "localhost",
 				Port:       6379,
 				Password:   "secret",
-				CaCertFile: "testdata/ca.crt",
-				CertFile:   "testdata/client.crt",
-				KeyFile:    "testdata/client.key",
+				CaCertFile: caCertFile,
+				CertFile:   clientCertFile,
+				KeyFile:    clientKeyFile,
 				DB:         3,
 			},
 		},
@@ -62,7 +75,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 			cfg: &KvConfig{
 				Hostname:   "localhost",
 				Port:       6379,
-				CaCertFile: "testdata/ca.crt",
+				CaCertFile: caCertFile,
 				CertFile:   "testdata/nonexistent.crt",
 			},
 			expectedErr: os.ErrNotExist,
@@ -72,25 +85,13 @@ func TestConfigToRedisOptions(t *testing.T) {
 			cfg: &KvConfig{
 				Hostname:   "localhost",
 				Port:       6379,
-				CaCertFile: "testdata/ca.crt",
-				CertFile:   "testdata/client.crt",
+				CaCertFile: caCertFile,
+				CertFile:   clientCertFile,
 				KeyFile:    "testdata/nonexistent.crt",
 			},
 			expectedErr: os.ErrNotExist,
 		},
 	}
-
-	// Create test certificate directory
-	testDir := filepath.Join("testdata")
-	err := os.MkdirAll(testDir, 0755)
-	require.NoError(t, err)
-	defer os.RemoveAll(testDir)
-
-	// Create test CA and client certs
-	ca, _, err := crypto.EnsureCA(filepath.Join(testDir, "ca.crt"), filepath.Join(testDir, "ca.key"), "", "ca", 2)
-	require.NoError(t, err)
-	_, _, err = ca.EnsureClientCertificate(filepath.Join(testDir, "client.crt"), filepath.Join(testDir, "client.key"), "test-client", 2)
-	require.NoError(t, err)
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
