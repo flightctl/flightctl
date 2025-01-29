@@ -29,7 +29,7 @@ build_images() {
         if [ "$BUILD_TYPE" = "regular" ]; then
             # create a temporary directory and cleanup on exit
             tmpdir=$(mktemp -d)
-            trap 'rm -rf "$tmpdir" EXIT'
+            trap 'rm -rf "$tmpdir"' EXIT
             cp "${containerfile_path}" "$tmpdir/Containerfile"
             echo 'CMD ["/usr/bin/flightctl-agent"]' >> "$tmpdir/Containerfile"
             containerfile_path="$tmpdir/Containerfile"
