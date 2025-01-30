@@ -22,7 +22,7 @@ func (d *Device) IsManagedBy(f *Fleet) bool {
 	if f == nil || !d.IsManaged() {
 		return false
 	}
-	return f.Metadata.Name == util.StrToPtr(strings.TrimPrefix("Fleet/", *d.Metadata.Owner))
+	return util.FromPtr(f.Metadata.Name) == strings.TrimPrefix(util.FromPtr(d.Metadata.Owner), "Fleet/")
 }
 
 // IsUpdating() is true if the device's agent reports that it is updating.
