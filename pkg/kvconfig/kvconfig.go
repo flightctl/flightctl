@@ -24,6 +24,7 @@ type KvConfig struct {
 func ConfigToRedisOptions(cfg *KvConfig) (*redis.Options, error) {
 	options := &redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Hostname, cfg.Port),
+		Username: cfg.Username,
 		Password: cfg.Password,
 		DB:       cfg.DB,
 	}

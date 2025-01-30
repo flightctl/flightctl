@@ -1,0 +1,2 @@
+user default off
+user flightctl on >flightctl-redis-pass allcommands ~flightctl* &flightctl*

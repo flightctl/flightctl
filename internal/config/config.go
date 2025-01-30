@@ -125,7 +125,8 @@ func NewDefault() *Config {
 		KV: &kvconfig.KvConfig{
 			Hostname: "localhost",
 			Port:     6379,
-			Password: "adminpass",
+			Username: "flightctl",
+			Password: "flightctl-redis-pass",
 			DB:       0,
 		},
 		Prometheus: &prometheusConfig{

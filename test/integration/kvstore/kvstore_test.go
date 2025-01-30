@@ -31,6 +31,9 @@ var _ = Describe("FleetSelector", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		cfg := config.NewDefault()
+		cfg.KV.Username = "flightctl"
+		cfg.KV.Password = "flightctl-redis-pass"
+
 		var err error
 		kvStore, err = kvstore.NewKVStore(ctx, log, cfg.KV)
 		Expect(err).ToNot(HaveOccurred())
