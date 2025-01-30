@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/pkg/kvconfig"
+	"github.com/flightctl/flightctl/pkg/kv"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -26,8 +26,8 @@ type kvStore struct {
 	getSetNxScript *redis.Script
 }
 
-func NewKVStore(ctx context.Context, log logrus.FieldLogger, cfg *kvconfig.KvConfig) (KVStore, error) {
-	redisOptions, err := kvconfig.ConfigToRedisOptions(cfg)
+func NewKVStore(ctx context.Context, log logrus.FieldLogger, cfg *kv.Config) (KVStore, error) {
+	redisOptions, err := kv.ConfigToRedisOptions(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to configure Redis options: %w", err)
 	}

@@ -1,4 +1,4 @@
-package kvconfig
+package kv
 
 import (
 	"fmt"
@@ -27,12 +27,12 @@ func TestConfigToRedisOptions(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		cfg         *KvConfig
+		cfg         *Config
 		expectedErr error
 	}{
 		{
 			name: "config without certs",
-			cfg: &KvConfig{
+			cfg: &Config{
 				Hostname: "localhost",
 				Port:     6379,
 				Password: "secret",
@@ -41,7 +41,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 		},
 		{
 			name: "config with ca cert file",
-			cfg: &KvConfig{
+			cfg: &Config{
 				Hostname:   "localhost",
 				Port:       6379,
 				Password:   "secret",
@@ -51,7 +51,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 		},
 		{
 			name: "config with ca cert and client certs",
-			cfg: &KvConfig{
+			cfg: &Config{
 				Hostname:   "localhost",
 				Port:       6379,
 				Password:   "secret",
@@ -63,7 +63,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 		},
 		{
 			name: "invalid CA cert file",
-			cfg: &KvConfig{
+			cfg: &Config{
 				Hostname:   "localhost",
 				Port:       6379,
 				CaCertFile: "testdata/nonexistent.crt",
@@ -72,7 +72,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 		},
 		{
 			name: "invalid client cert file",
-			cfg: &KvConfig{
+			cfg: &Config{
 				Hostname:   "localhost",
 				Port:       6379,
 				CaCertFile: caCertFile,
@@ -82,7 +82,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 		},
 		{
 			name: "invalid client key file",
-			cfg: &KvConfig{
+			cfg: &Config{
 				Hostname:   "localhost",
 				Port:       6379,
 				CaCertFile: caCertFile,

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/kvconfig"
+	"github.com/flightctl/flightctl/pkg/kv"
 	"sigs.k8s.io/yaml"
 )
 
@@ -17,11 +17,11 @@ const (
 )
 
 type Config struct {
-	Database   *dbConfig          `json:"database,omitempty"`
-	Service    *svcConfig         `json:"service,omitempty"`
-	KV         *kvconfig.KvConfig `json:"kv,omitempty"`
-	Auth       *authConfig        `json:"auth,omitempty"`
-	Prometheus *prometheusConfig  `json:"prometheus,omitempty"`
+	Database   *dbConfig         `json:"database,omitempty"`
+	Service    *svcConfig        `json:"service,omitempty"`
+	KV         *kv.Config        `json:"kv,omitempty"`
+	Auth       *authConfig       `json:"auth,omitempty"`
+	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
 }
 
 type dbConfig struct {
@@ -122,7 +122,7 @@ func NewDefault() *Config {
 			HttpMaxUrlLength:      2000,
 			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
 		},
-		KV: &kvconfig.KvConfig{
+		KV: &kv.Config{
 			Hostname: "localhost",
 			Port:     6379,
 			Username: "flightctl",

@@ -1,4 +1,4 @@
-package kvconfig
+package kv
 
 import (
 	"crypto/tls"
@@ -10,7 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type KvConfig struct {
+type Config struct {
 	Hostname   string `json:"hostname,omitempty"`
 	Port       uint   `json:"port,omitempty"`
 	Username   string `json:"username,omitempty"`
@@ -21,7 +21,7 @@ type KvConfig struct {
 	DB         int    `json:"db,omitempty"`
 }
 
-func ConfigToRedisOptions(cfg *KvConfig) (*redis.Options, error) {
+func ConfigToRedisOptions(cfg *Config) (*redis.Options, error) {
 	options := &redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Hostname, cfg.Port),
 		Username: cfg.Username,
@@ -40,7 +40,7 @@ func ConfigToRedisOptions(cfg *KvConfig) (*redis.Options, error) {
 	return options, nil
 }
 
-func loadTLSConfig(cfg *KvConfig) (*tls.Config, error) {
+func loadTLSConfig(cfg *Config) (*tls.Config, error) {
 	caCert, err := os.ReadFile(cfg.CaCertFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA cert file: %w", err)
