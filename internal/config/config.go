@@ -126,7 +126,7 @@ func NewDefault() *Config {
 			Hostname: "localhost",
 			Port:     6379,
 			Username: "flightctl",
-			Password: "flightctl-redis-pass",
+			Password: "flightctl-kv-pass",
 			DB:       0,
 		},
 		Prometheus: &prometheusConfig{
