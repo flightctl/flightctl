@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestConfigToRedisOptions(t *testing.T) {
 	testDir := t.TempDir()
+	require := require.New(t)
 
 	caCertFile := filepath.Join(testDir, "ca.crt")
 	caKeyFile := filepath.Join(testDir, "ca.key")
@@ -21,9 +21,9 @@ func TestConfigToRedisOptions(t *testing.T) {
 
 	// Create test CA and client certs
 	ca, _, err := crypto.EnsureCA(caCertFile, caKeyFile, "", "ca", 2)
-	require.NoError(t, err)
+	require.NoError(err)
 	_, _, err = ca.EnsureClientCertificate(clientCertFile, clientKeyFile, "test-client", 2)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	tests := []struct {
 		name        string
@@ -35,6 +35,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 			cfg: &Config{
 				Hostname: "localhost",
 				Port:     6379,
+				Username: "test-kv",
 				Password: "secret",
 				DB:       1,
 			},
@@ -45,6 +46,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 				Hostname:   "localhost",
 				Port:       6379,
 				Password:   "secret",
+				Username:   "test-kv",
 				CaCertFile: caCertFile,
 				DB:         2,
 			},
@@ -54,6 +56,7 @@ func TestConfigToRedisOptions(t *testing.T) {
 			cfg: &Config{
 				Hostname:   "localhost",
 				Port:       6379,
+				Username:   "test-kv",
 				Password:   "secret",
 				CaCertFile: caCertFile,
 				CertFile:   clientCertFile,
@@ -97,20 +100,21 @@ func TestConfigToRedisOptions(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			options, err := ConfigToRedisOptions(testCase.cfg)
 			if testCase.expectedErr != nil {
-				assert.ErrorIs(t, err, testCase.expectedErr)
+				require.ErrorIs(err, testCase.expectedErr)
 				return
 			}
-			require.NoError(t, err)
+			require.NoError(err)
 
-			assert.Equal(t, fmt.Sprintf("%s:%d", testCase.cfg.Hostname, testCase.cfg.Port), options.Addr)
-			assert.Equal(t, testCase.cfg.Password, options.Password)
-			assert.Equal(t, testCase.cfg.DB, options.DB)
+			require.Equal(fmt.Sprintf("%s:%d", testCase.cfg.Hostname, testCase.cfg.Port), options.Addr)
+			require.Equal(testCase.cfg.DB, options.DB)
+			require.Equal(testCase.cfg.Password, options.Password)
+			require.Equal(testCase.cfg.DB, options.DB)
 
 			if testCase.cfg.CaCertFile != "" {
-				assert.NotNil(t, options.TLSConfig.RootCAs)
+				require.NotNil(options.TLSConfig.RootCAs)
 
 				if testCase.cfg.CertFile != "" {
-					assert.NotEmpty(t, options.TLSConfig.Certificates)
+					require.NotEmpty(options.TLSConfig.Certificates)
 				}
 			}
 		})
