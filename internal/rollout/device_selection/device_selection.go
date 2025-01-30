@@ -28,7 +28,10 @@ type Selection interface {
 	IsRolledOut(ctx context.Context) (bool, error)
 	MayApproveAutomatically() (bool, error)
 	IsComplete(ctx context.Context) (bool, error)
-	SetSuccessPercentage(ctx context.Context) error
+	SetCompletionReport(ctx context.Context) error
+	OnRollout(ctx context.Context) error
+	OnSuspended(ctx context.Context) error
+	OnFinish(ctx context.Context) error
 }
 
 func getUpdateTimeout(defaultUpdateTimeoutStr *api.Duration) (time.Duration, error) {
