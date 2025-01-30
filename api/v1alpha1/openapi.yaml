@@ -4409,7 +4409,7 @@ components:
           description: List of label keys to perform grouping for the disruption budget.
         minAvailable:
           type: integer
-          minimum: 0
+          minimum: 1
           description: The maximum number of unavailable devices allowed during rollout.
         maxUnavailable:
           minimum: 1
