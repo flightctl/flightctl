@@ -2517,9 +2517,9 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: addDevicesCount
+        - name: addDevicesSummary
           in: query
-          description: Include the number of devices in each fleet.
+          description: Include a summary of the devices in the fleet.
           required: false
           schema:
             type: boolean

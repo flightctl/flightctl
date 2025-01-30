@@ -121,17 +121,23 @@ func (o *GetOptions) Validate(args []string) error {
 	if len(name) > 0 && len(o.FieldSelector) > 0 {
 		return fmt.Errorf("cannot specify field selector when fetching a single resource")
 	}
-	if o.Summary || o.SummaryOnly {
+	if o.Summary {
+		if kind != DeviceKind && kind != FleetKind {
+			return fmt.Errorf("summary can only be specified when fetching devices or fleets")
+		}
+		if kind == DeviceKind && len(name) > 0 {
+			return fmt.Errorf("cannot specify summary when fetching a single device")
+		}
+	}
+	if o.SummaryOnly {
 		if kind != DeviceKind {
-			return fmt.Errorf("summary can only be specified when fetching devices")
+			return fmt.Errorf("summary-only can only be specified when fetching devices")
 		}
 		if len(name) > 0 {
-			return fmt.Errorf("cannot specify summary when fetching a single resource")
+			return fmt.Errorf("cannot specify summary-only when fetching a single device")
 		}
-		if o.SummaryOnly {
-			if o.Limit > 0 || len(o.Continue) > 0 {
-				return fmt.Errorf("flags such as 'limit' and 'continue' are not supported when 'summary-only' is specified")
-			}
+		if o.Limit > 0 || len(o.Continue) > 0 {
+			return fmt.Errorf("flags such as 'limit' and 'continue' are not supported when 'summary-only' is specified")
 		}
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
@@ -191,14 +197,17 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		}
 		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
-		response, err = c.ReadFleetWithResponse(ctx, name, nil)
+		params := api.ReadFleetParams{
+			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
+		}
+		response, err = c.ReadFleetWithResponse(ctx, name, &params)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
-			LabelSelector:   util.ToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector:   util.ToPtrWithNilDefault(o.FieldSelector),
-			Limit:           util.ToPtrWithNilDefault(o.Limit),
-			Continue:        util.ToPtrWithNilDefault(o.Continue),
-			AddDevicesCount: lo.ToPtr(true),
+			LabelSelector:     util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector:     util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:             util.ToPtrWithNilDefault(o.Limit),
+			Continue:          util.ToPtrWithNilDefault(o.Continue),
+			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == TemplateVersionKind && len(name) > 0:
