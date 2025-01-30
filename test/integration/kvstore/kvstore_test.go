@@ -32,7 +32,7 @@ var _ = Describe("FleetSelector", func() {
 		log = flightlog.InitLogs()
 		cfg := config.NewDefault()
 		cfg.KV.Username = "flightctl"
-		cfg.KV.Password = "flightctl-redis-pass"
+		cfg.KV.Password = "flightctl-kv-pass"
 
 		var err error
 		kvStore, err = kvstore.NewKVStore(ctx, log, cfg.KV)
