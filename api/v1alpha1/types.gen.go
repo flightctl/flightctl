@@ -1507,8 +1507,8 @@ type ListFleetsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// AddDevicesCount Include the number of devices in each fleet.
-	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
+	// AddDevicesSummary Include a summary of the devices in the fleet.
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.

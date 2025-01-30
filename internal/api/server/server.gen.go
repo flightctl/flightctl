@@ -1539,11 +1539,11 @@ func (siw *ServerInterfaceWrapper) ListFleets(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// ------------- Optional query parameter "addDevicesCount" -------------
+	// ------------- Optional query parameter "addDevicesSummary" -------------
 
-	err = runtime.BindQueryParameter("form", true, false, "addDevicesCount", r.URL.Query(), &params.AddDevicesCount)
+	err = runtime.BindQueryParameter("form", true, false, "addDevicesSummary", r.URL.Query(), &params.AddDevicesSummary)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "addDevicesCount", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "addDevicesSummary", Err: err})
 		return
 	}
 

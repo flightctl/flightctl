@@ -108,7 +108,7 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFlee
 		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
 	}
 
-	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.WithDeviceCount(util.DefaultBoolIfNil(request.Params.AddDevicesCount, false)))
+	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.ListWithDevicesSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
 	if err == nil {
 		return server.ListFleets200JSONResponse(*result), nil
 	}
@@ -156,7 +156,7 @@ func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleet
 	}
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.WithSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
+	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.GetWithDeviceSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
 	switch {
 	case err == nil:
 		return server.ReadFleet200JSONResponse(*result), nil

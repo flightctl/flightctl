@@ -180,7 +180,7 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 			log.Errorf("Failed to determine owner for device %q: %v", *device.Metadata.Name, err)
 			return false
 		}
-		f, err := st.Fleet().Get(ctx, orgId, fleetName, store.WithSummary(false))
+		f, err := st.Fleet().Get(ctx, orgId, fleetName, store.GetWithDeviceSummary(false))
 		if err != nil {
 			log.Errorf("Failed to get fleet for device %q: %v", *device.Metadata.Name, err)
 			return false
