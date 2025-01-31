@@ -108,7 +108,6 @@ func TestConfigToRedisOptions(t *testing.T) {
 			require.Equal(fmt.Sprintf("%s:%d", testCase.cfg.Hostname, testCase.cfg.Port), options.Addr)
 			require.Equal(testCase.cfg.DB, options.DB)
 			require.Equal(testCase.cfg.Password, options.Password)
-			require.Equal(testCase.cfg.DB, options.DB)
 
 			if testCase.cfg.CaCertFile != "" {
 				require.NotNil(options.TLSConfig.RootCAs)
