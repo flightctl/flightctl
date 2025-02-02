@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -66,7 +65,7 @@ var _ = Describe("DeviceStore create", func() {
 		imageName := "tv"
 		device := api.Device{
 			Metadata: api.ObjectMeta{
-				Name: util.StrToPtr("newresourcename"),
+				Name: lo.ToPtr("newresourcename"),
 			},
 			Spec: &api.DeviceSpec{
 				Os: &api.DeviceOsSpec{Image: imageName},
@@ -94,7 +93,7 @@ var _ = Describe("DeviceStore create", func() {
 		status := api.NewDeviceStatus()
 		device := api.Device{
 			Metadata: api.ObjectMeta{
-				Name: util.StrToPtr("mydevice-1"),
+				Name: lo.ToPtr("mydevice-1"),
 			},
 			Spec: &api.DeviceSpec{
 				Os: &api.DeviceOsSpec{
@@ -109,7 +108,7 @@ var _ = Describe("DeviceStore create", func() {
 			if raceCalled {
 				return
 			}
-			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: util.StrToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "bah"}}}
+			otherupdate := api.Device{Metadata: api.ObjectMeta{Name: lo.ToPtr("mydevice-1")}, Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "bah"}}}
 			device, err := model.NewDeviceFromApiResource(&otherupdate)
 			device.OrgID = orgId
 			device.ResourceVersion = lo.ToPtr(int64(5))
@@ -132,7 +131,7 @@ var _ = Describe("DeviceStore create", func() {
 	It("CreateOrUpdateDevice update with stale resourceVersion", func() {
 		dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 		Expect(err).ToNot(HaveOccurred())
-		dev.Metadata.Owner = util.StrToPtr("newowner")
+		dev.Metadata.Owner = lo.ToPtr("newowner")
 		dev.Spec.Os.Image = "oldos"
 		// Update but don't save the new device, so we still have the old resourceVersion
 		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
@@ -298,8 +297,8 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with owner selector", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", util.StrToPtr("Fleet/fleet-a"), nil, nil)
-			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", util.StrToPtr("Fleet/fleet-b"), nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", lo.ToPtr("Fleet/fleet-a"), nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", lo.ToPtr("Fleet/fleet-b"), nil, nil)
 			listParams := store.ListParams{
 				Limit: 1000,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
@@ -331,7 +330,7 @@ var _ = Describe("DeviceStore create", func() {
 			imageName := "tv"
 			device := api.Device{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("newresourcename"),
+					Name: lo.ToPtr("newresourcename"),
 				},
 				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOsSpec{Image: imageName},
@@ -350,7 +349,7 @@ var _ = Describe("DeviceStore create", func() {
 			status := api.NewDeviceStatus()
 			device := api.Device{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("mydevice-1"),
+					Name: lo.ToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOsSpec{
@@ -370,7 +369,7 @@ var _ = Describe("DeviceStore create", func() {
 		It("CreateOrUpdateDevice update owned from API", func() {
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
-			dev.Metadata.Owner = util.StrToPtr("newowner")
+			dev.Metadata.Owner = lo.ToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
 			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
@@ -383,11 +382,11 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("CreateOrUpdateDevice update labels owned from API", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "owned-device", util.StrToPtr("ownerfleet"), nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "owned-device", lo.ToPtr("ownerfleet"), nil, nil)
 			dev, err := devStore.Get(ctx, orgId, "owned-device")
 			Expect(err).ToNot(HaveOccurred())
 
-			newDev := testutil.ReturnTestDevice(orgId, "owned-device", util.StrToPtr("ownerfleet"), nil, &map[string]string{"newkey": "newval"})
+			newDev := testutil.ReturnTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil, &map[string]string{"newkey": "newval"})
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
@@ -408,7 +407,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 			device := api.Device{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("mydevice-1"),
+					Name: lo.ToPtr("mydevice-1"),
 				},
 				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOsSpec{Image: "newos"},
@@ -431,7 +430,7 @@ var _ = Describe("DeviceStore create", func() {
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 
-			dev.Metadata.Owner = util.StrToPtr("newowner")
+			dev.Metadata.Owner = lo.ToPtr("newowner")
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
@@ -529,7 +528,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedConfig.RenderedVersion).To(Equal("1"))
 
 			// Passing correct renderedVersion
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"), "")
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(renderedConfig).To(BeNil())
 
@@ -538,7 +537,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"), "")
+			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*renderedConfig.Config).To(Equal("this is the second config"))
 			Expect(renderedConfig.Os.Image).To(Equal("os"))

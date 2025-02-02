@@ -10,8 +10,8 @@ import (
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 // Config controller is responsible for ensuring the device configuration is reconciled
@@ -38,10 +38,10 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 
 	if desired.Config != nil {
 		c.log.Debug("Syncing config data")
-		return c.ensureConfigData(ctx, util.FromPtr(current.Config), util.FromPtr(desired.Config))
+		return c.ensureConfigData(ctx, lo.FromPtr(current.Config), lo.FromPtr(desired.Config))
 	} else {
 		// the desired config is nil, so we should remove any files that are present in the current config
-		ignitionConfig, err := ParseAndConvertConfigFromStr(util.FromPtr(current.Config))
+		ignitionConfig, err := ParseAndConvertConfigFromStr(lo.FromPtr(current.Config))
 		if err != nil {
 			return err
 		}

@@ -8,8 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -58,7 +58,7 @@ func testRepositoryPatch(require *require.Assertions, patch v1alpha1.PatchReques
 		ApiVersion: "v1",
 		Kind:       "Repository",
 		Metadata: v1alpha1.ObjectMeta{
-			Name:   util.StrToPtr("foo"),
+			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: spec,
@@ -193,7 +193,7 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &RepositoryStore{RepositoryVal: v1alpha1.Repository{
-			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
+			Metadata: v1alpha1.ObjectMeta{Name: lo.ToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchRepository(context.Background(), server.PatchRepositoryRequestObject{

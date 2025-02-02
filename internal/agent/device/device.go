@@ -23,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -362,7 +363,7 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
 	var matchPatterns []string
 	if desired.Systemd != nil {
-		matchPatterns = util.FromPtr(desired.Systemd.MatchPatterns)
+		matchPatterns = lo.FromPtr(desired.Systemd.MatchPatterns)
 	}
 
 	if err := a.systemdManager.EnsurePatterns(matchPatterns); err != nil {
@@ -442,7 +443,7 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.RenderedDev
 	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", image)
 	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 		Status: v1alpha1.DeviceSummaryStatusRebooting,
-		Info:   util.StrToPtr(infoMsg),
+		Info:   lo.ToPtr(infoMsg),
 	}))
 	if updateErr != nil {
 		a.log.Warnf("Failed setting status: %v", updateErr)
@@ -472,22 +473,22 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		a.log.Errorf("Marking template version %v as failed: %v", version, syncErr)
 
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
-		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
+		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
 
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
 
 		a.specManager.SetUpgradeFailed()
-		a.log.Error(util.FromPtr(statusUpdate.Info))
+		a.log.Error(lo.FromPtr(statusUpdate.Info))
 	} else {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
-		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
+		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
 
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
-		a.log.Warn(util.FromPtr(statusUpdate.Info))
+		a.log.Warn(lo.FromPtr(statusUpdate.Info))
 	}
 
 	if _, err := a.statusManager.Update(ctx, status.SetDeviceSummary(statusUpdate)); err != nil {

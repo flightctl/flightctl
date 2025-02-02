@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -95,12 +96,12 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	lastDeviceStatus := device.Status.Summary.Status
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.Summary.Status = api.DeviceSummaryStatusUnknown
-		device.Status.Summary.Info = util.StrToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+		device.Status.Summary.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		return device.Status.Summary.Status != lastDeviceStatus
 	}
 	if device.IsRebooting() {
 		device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
-		device.Status.Summary.Info = util.StrToPtr(DeviceStatusInfoRebooting)
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoRebooting)
 		return device.Status.Summary.Status != lastDeviceStatus
 	}
 
@@ -128,13 +129,13 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	switch {
 	case len(resourceErrors) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusError
-		device.Status.Summary.Info = util.StrToPtr(strings.Join(resourceErrors, ", "))
+		device.Status.Summary.Info = lo.ToPtr(strings.Join(resourceErrors, ", "))
 	case len(resourceDegradations) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
-		device.Status.Summary.Info = util.StrToPtr(strings.Join(resourceDegradations, ", "))
+		device.Status.Summary.Info = lo.ToPtr(strings.Join(resourceDegradations, ", "))
 	default:
 		device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-		device.Status.Summary.Info = util.StrToPtr(DeviceStatusInfoHealthy)
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoHealthy)
 	}
 	return device.Status.Summary.Status != lastDeviceStatus
 }
@@ -144,7 +145,7 @@ func updateServerSideLifecycleStatus(device *api.Device) bool {
 
 	if device.IsDecommissioning() {
 		device.Status.Lifecycle = api.DeviceLifecycleStatus{
-			Info:   util.StrToPtr("Device has acknowledged decommissioning request"),
+			Info:   lo.ToPtr("Device has acknowledged decommissioning request"),
 			Status: api.DeviceLifecycleStatusDecommissioning,
 		}
 	}
@@ -157,20 +158,20 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 	if device.IsUpdating() {
 		if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
-			device.Status.Updated.Info = util.StrToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s) and had an update in progress at that time.", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+			device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s) and had an update in progress at that time.", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		} else {
 			var agentInfoMessage string
 			if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.DeviceUpdating); updateCondition != nil {
 				agentInfoMessage = updateCondition.Message
 			}
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
-			device.Status.Updated.Info = util.StrToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
+			device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
 		}
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
-		device.Status.Updated.Info = util.StrToPtr("There is a newer device spec for this device.")
+		device.Status.Updated.Info = lo.ToPtr("There is a newer device spec for this device.")
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
 	if device.IsManaged() {
@@ -186,7 +187,7 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 		}
 		if device.IsUpdatedToFleetSpec(f) {
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-			device.Status.Updated.Info = util.StrToPtr("The device has been updated to the fleet's latest device spec.")
+			device.Status.Updated.Info = lo.ToPtr("The device has been updated to the fleet's latest device spec.")
 		} else {
 			device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
 			errorMessage := "The device has not yet been scheduled for update to the fleet's latest device spec."
@@ -196,11 +197,11 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 					errorMessage = fmt.Sprintf("The device could not be updated to the fleet's latest device spec: %s", lastRolloutError)
 				}
 			}
-			device.Status.Updated.Info = util.StrToPtr(errorMessage)
+			device.Status.Updated.Info = lo.ToPtr(errorMessage)
 		}
 	} else {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-		device.Status.Updated.Info = util.StrToPtr("The device has been updated to the latest device spec.")
+		device.Status.Updated.Info = lo.ToPtr("The device has been updated to the latest device spec.")
 	}
 	return device.Status.Updated.Status != lastUpdateStatus
 }
@@ -209,12 +210,12 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 	lastApplicationSummaryStatus := device.Status.ApplicationsSummary.Status
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusUnknown
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 	}
 	if device.IsRebooting() {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(DeviceStatusInfoRebooting)
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(DeviceStatusInfoRebooting)
 		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 	}
 
@@ -231,16 +232,16 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 	switch {
 	case len(device.Status.Applications) == 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(ApplicationStatusInfoUndefined)
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoUndefined)
 	case len(appErrors) > 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(strings.Join(appErrors, ", "))
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(strings.Join(appErrors, ", "))
 	case len(appDegradations) > 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(strings.Join(appDegradations, ", "))
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(strings.Join(appDegradations, ", "))
 	default:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(ApplicationStatusInfoHealthy)
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoHealthy)
 	}
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 }

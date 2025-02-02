@@ -260,7 +260,7 @@ func renderImageApplicationProvider(app *api.ApplicationSpec) (*string, *api.Ren
 		return nil, nil, fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
 	}
 
-	appName := util.FromPtr(app.Name)
+	appName := lo.FromPtr(app.Name)
 	renderedApp := api.RenderedApplicationSpec{
 		Name:    app.Name,
 		EnvVars: app.EnvVars,
