@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -18,12 +20,28 @@ var (
 )
 
 type VersionOptions struct {
+	GlobalOptions
+
 	Output string
+}
+
+const (
+	cliVersionTitle     = "flightctl CLI version"
+	serviceVersionTitle = "flightctl service version"
+
+	errReadingVersion = "reading service version"
+	errUnmarshalling  = "unmarshalling error"
+)
+
+type serviceVersion struct {
+	Version string `json:"version,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 func DefaultVersionOptions() *VersionOptions {
 	return &VersionOptions{
-		Output: "",
+		GlobalOptions: DefaultGlobalOptions(),
+		Output:        "",
 	}
 }
 
@@ -62,20 +80,66 @@ func (o *VersionOptions) Validate(args []string) error {
 	return nil
 }
 
+func (o *VersionOptions) processResponse(response interface{}, err error) serviceVersion {
+	var serviceVer serviceVersion
+
+	if err != nil {
+		return serviceVersion{Error: fmt.Errorf("%s: %w", errReadingVersion, err).Error()}
+	}
+
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return serviceVersion{Error: err.Error()}
+	}
+
+	responseBody, err := responseField[[]byte](response, "Body")
+	if err != nil {
+		return serviceVersion{Error: err.Error()}
+	}
+
+	if httpResponse.StatusCode != http.StatusOK {
+		return serviceVersion{Error: fmt.Errorf("%s: %d", errReadingVersion, httpResponse.StatusCode).Error()}
+	}
+	if err := json.Unmarshal(responseBody, &serviceVer); err != nil {
+		return serviceVersion{Error: fmt.Errorf("%s: %w", errUnmarshalling, err).Error()}
+	}
+
+	return serviceVer
+}
+
 func (o *VersionOptions) Run(ctx context.Context, args []string) error {
-	versionInfo := version.Get()
+	versions := make(map[string]interface{}, 2)
+	cliVersion := version.Get()
+	var serviceVersion serviceVersion
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	if err != nil {
+		serviceVersion = o.processResponse(nil, err)
+	} else {
+		response, err := c.GetVersionWithResponse(ctx)
+		serviceVersion = o.processResponse(response, err)
+	}
+	versions[cliVersionTitle] = &cliVersion
+	versions[serviceVersionTitle] = &serviceVersion
 
 	switch o.Output {
 	case "":
-		fmt.Printf("flightctl version: %s\n", versionInfo.String())
+		fmt.Printf("%s: %s\n", cliVersionTitle, cliVersion.String())
+		fmt.Printf("%s: ", serviceVersionTitle)
+		if serviceVersion.Error != "" {
+			fmt.Print(serviceVersion.Error)
+		} else {
+			fmt.Print(serviceVersion.Version)
+		}
+		fmt.Println()
+
 	case "yaml":
-		marshalled, err := yaml.Marshal(&versionInfo)
+		marshalled, err := yaml.Marshal(&versions)
 		if err != nil {
 			return err
 		}
 		fmt.Print(string(marshalled))
 	case "json":
-		marshalled, err := json.MarshalIndent(&versionInfo, "", "  ")
+		marshalled, err := json.MarshalIndent(&versions, "", "  ")
 		if err != nil {
 			return err
 		}
