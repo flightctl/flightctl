@@ -16,6 +16,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
@@ -172,72 +173,72 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		response, err = c.GetRenderedDeviceSpecWithResponse(ctx, name, &api.GetRenderedDeviceSpecParams{})
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
-			SummaryOnly:   util.BoolToPtr(o.SummaryOnly),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+			SummaryOnly:   lo.ToPtr(o.SummaryOnly),
 		}
 		response, err = c.ListDevicesWithResponse(ctx, &params)
 	case kind == EnrollmentRequestKind && len(name) > 0:
 		response, err = c.ReadEnrollmentRequestWithResponse(ctx, name)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		params := api.ListEnrollmentRequestsParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
 		response, err = c.ReadFleetWithResponse(ctx, name, nil)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
-			LabelSelector:   util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector:   util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:           util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:        util.StrToPtrWithNilDefault(o.Continue),
-			AddDevicesCount: util.BoolToPtr(true),
+			LabelSelector:   util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector:   util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:           util.ToPtrWithNilDefault(o.Limit),
+			Continue:        util.ToPtrWithNilDefault(o.Continue),
+			AddDevicesCount: lo.ToPtr(true),
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == TemplateVersionKind && len(name) > 0:
 		response, err = c.ReadTemplateVersionWithResponse(ctx, o.FleetName, name)
 	case kind == TemplateVersionKind && len(name) == 0:
 		params := api.ListTemplateVersionsParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params)
 	case kind == RepositoryKind && len(name) > 0:
 		response, err = c.ReadRepositoryWithResponse(ctx, name)
 	case kind == RepositoryKind && len(name) == 0:
 		params := api.ListRepositoriesParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListRepositoriesWithResponse(ctx, &params)
 	case kind == ResourceSyncKind && len(name) > 0:
 		response, err = c.ReadResourceSyncWithResponse(ctx, name)
 	case kind == ResourceSyncKind && len(name) == 0:
 		params := api.ListResourceSyncParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListResourceSyncWithResponse(ctx, &params)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
 		response, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
 	case kind == CertificateSigningRequestKind && len(name) == 0:
 		params := api.ListCertificateSigningRequestsParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
 	default:

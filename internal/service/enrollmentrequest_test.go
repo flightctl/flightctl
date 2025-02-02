@@ -8,8 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,7 +56,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 		ApiVersion: "v1",
 		Kind:       "EnrollmentRequest",
 		Metadata: v1alpha1.ObjectMeta{
-			Name: util.StrToPtr("foo"),
+			Name: lo.ToPtr("foo"),
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
 			Csr:          string("TestCSR"),

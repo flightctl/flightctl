@@ -8,8 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,7 +52,7 @@ func testResourceSyncPatch(require *require.Assertions, patch v1alpha1.PatchRequ
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
 		Metadata: v1alpha1.ObjectMeta{
-			Name:   util.StrToPtr("foo"),
+			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: v1alpha1.ResourceSyncSpec{
@@ -77,7 +77,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
 		Metadata: v1alpha1.ObjectMeta{
-			Name:   util.StrToPtr("01234567890123456789012345678901234567890123456789012345678901234567890123456789"),
+			Name:   lo.ToPtr("01234567890123456789012345678901234567890123456789012345678901234567890123456789"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: v1alpha1.ResourceSyncSpec{
@@ -225,7 +225,7 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &ResourceSyncStore{ResourceSyncVal: v1alpha1.ResourceSync{
-			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
+			Metadata: v1alpha1.ObjectMeta{Name: lo.ToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchResourceSync(context.Background(), server.PatchResourceSyncRequestObject{

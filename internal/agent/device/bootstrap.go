@@ -12,10 +12,10 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
+	"github.com/samber/lo"
 )
 
 const (
@@ -90,7 +90,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		infoMsg := fmt.Sprintf("Bootstrap failed: %v", err)
 		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 			Status: v1alpha1.DeviceSummaryStatusError,
-			Info:   util.StrToPtr(infoMsg),
+			Info:   lo.ToPtr(infoMsg),
 		}))
 		if updateErr != nil {
 			b.log.Warnf("Failed setting status: %v", updateErr)
@@ -218,7 +218,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 
 	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 		Status: v1alpha1.DeviceSummaryStatusError,
-		Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
+		Info:   lo.ToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
 	}))
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)

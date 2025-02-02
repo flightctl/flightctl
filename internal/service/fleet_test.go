@@ -8,8 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,7 +52,7 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 		ApiVersion: "v1",
 		Kind:       "Fleet",
 		Metadata: v1alpha1.ObjectMeta{
-			Name:   util.StrToPtr("foo"),
+			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: v1alpha1.FleetSpec{
@@ -242,7 +242,7 @@ func TestFleetNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &FleetStore{FleetVal: v1alpha1.Fleet{
-			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
+			Metadata: v1alpha1.ObjectMeta{Name: lo.ToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchFleet(context.Background(), server.PatchFleetRequestObject{

@@ -74,8 +74,8 @@ func (e *EnrollmentRequest) ToApiResource(opts ...APIResourceOption) (*api.Enrol
 		ApiVersion: api.EnrollmentRequestAPIVersion,
 		Kind:       api.EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(e.Name),
-			CreationTimestamp: util.TimeToPtr(e.CreatedAt.UTC()),
+			Name:              lo.ToPtr(e.Name),
+			CreationTimestamp: lo.ToPtr(e.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(e.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(e.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(e.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(e.ResourceVersion), 10)), nil),

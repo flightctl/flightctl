@@ -84,8 +84,8 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 		ApiVersion: api.FleetAPIVersion,
 		Kind:       api.FleetKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(f.Name),
-			CreationTimestamp: util.TimeToPtr(f.CreatedAt.UTC()),
+			Name:              lo.ToPtr(f.Name),
+			CreationTimestamp: lo.ToPtr(f.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(f.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(f.Resource.Annotations)),
 			Generation:        f.Generation,
