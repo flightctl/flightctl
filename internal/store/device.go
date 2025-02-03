@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -25,6 +26,7 @@ type Device interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) ([]string, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -230,6 +232,38 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
+}
+
+func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) ([]string, error) {
+	var labels []model.DeviceLabel
+
+	resolver, err := selector.NewCompositeSelectorResolver(&model.Device{}, &model.DeviceLabel{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create selector resolver: %w", err)
+	}
+
+	query, err := ListQuery(model.Device{}, WithSelectorResolver(resolver)).BuildNoOrder(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
+	query = query.Select("DISTINCT device_labels.label_key, device_labels.label_value").
+		Joins("JOIN device_labels ON devices.org_id = device_labels.org_id AND devices.name = device_labels.device_name")
+
+	if listParams.Limit > 0 {
+		query = query.Limit(listParams.Limit)
+	}
+
+	if err := query.Find(&labels).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	labelStrings := make([]string, len(labels))
+	for i, label := range labels {
+		labelStrings[i] = fmt.Sprintf("%s=%s", label.LabelKey, label.LabelValue)
+	}
+
+	return labelStrings, nil
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
