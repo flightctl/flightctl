@@ -119,7 +119,7 @@ var _ = Describe("FleetStore create", func() {
 			// mydevice-3 | Healthy   | Online    | Updating
 			// mydevice-4 | Healthy   | Rebooting | Updating
 			// mydevice-5 | Error     | Error     | Unknown
-			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1", store.WithSummary(true))
+			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1", store.GetWithDeviceSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
 			Expect(fleet.Status.DevicesSummary.Total).To(Equal(int64(5)))
@@ -340,7 +340,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			lo.ForEach(fleets.Items, func(f api.Fleet, _ int) { Expect(f.Status.DevicesSummary).To(BeNil()) })
-			fleets, err = storeInst.Fleet().List(ctx, orgId, store.ListParams{}, store.WithDeviceCount(true))
+			fleets, err = storeInst.Fleet().List(ctx, orgId, store.ListParams{}, store.ListWithDevicesSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {

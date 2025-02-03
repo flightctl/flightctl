@@ -3126,9 +3126,9 @@ func NewListFleetsRequest(server string, params *ListFleetsParams) (*http.Reques
 
 		}
 
-		if params.AddDevicesCount != nil {
+		if params.AddDevicesSummary != nil {
 
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesCount", runtime.ParamLocationQuery, *params.AddDevicesCount); err != nil {
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesSummary", runtime.ParamLocationQuery, *params.AddDevicesSummary); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
