@@ -180,6 +180,14 @@ func SetDeviceSummary(summaryStatus v1alpha1.DeviceSummaryStatus) UpdateStatusFn
 	}
 }
 
+func SetDeviceLifecycleStatus(lifecyclestatus v1alpha1.DeviceLifecycleStatus) UpdateStatusFn {
+	return func(status *v1alpha1.DeviceStatus) error {
+		status.Lifecycle.Status = lifecyclestatus.Status
+		status.Lifecycle.Info = lifecyclestatus.Info
+		return nil
+	}
+}
+
 func SetConfig(configStatus v1alpha1.DeviceConfigStatus) UpdateStatusFn {
 	return func(status *v1alpha1.DeviceStatus) error {
 		status.Config.RenderedVersion = configStatus.RenderedVersion

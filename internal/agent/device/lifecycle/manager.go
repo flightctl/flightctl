@@ -11,8 +11,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/status"
+	fcstatus "github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
@@ -39,7 +40,7 @@ type LifecycleManager struct {
 	enrollmentClient client.Enrollment
 	defaultLabels    map[string]string
 	enrollmentCSR    []byte
-	statusManager    status.Manager
+	statusManager    fcstatus.Manager
 	systemdClient    *client.Systemd
 
 	backoff wait.Backoff
@@ -56,7 +57,7 @@ func NewManager(
 	enrollmentClient client.Enrollment,
 	enrollmentCSR []byte,
 	defaultLabels map[string]string,
-	statusManager status.Manager,
+	statusManager fcstatus.Manager,
 	systemdClient *client.Systemd,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
@@ -95,6 +96,14 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 		if err != nil {
 			return err
 		}
+	}
+
+	_, updateErr := m.statusManager.Update(ctx, fcstatus.SetDeviceLifecycleStatus(v1alpha1.DeviceLifecycleStatus{
+		Status: "Enrolled",
+		Info:   lo.ToPtr("Device was enrolled"),
+	}))
+	if updateErr != nil {
+		m.log.Warnf("Failed setting initial 'enrolled' status: %v", updateErr)
 	}
 
 	// write the management banner
