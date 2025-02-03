@@ -166,7 +166,7 @@ $ FC_CLI_BINARY=flightctl-linux-amd64
 Download the `flightctl` binary to your machine:
 
 ```console
-$ curl -LO https://github.com/flightctl/flightctl/releases/download/latest/${FC_CLI_BINARY}
+$ curl -LO https://github.com/flightctl/flightctl/releases/latest/download/${FC_CLI_BINARY}
 
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
