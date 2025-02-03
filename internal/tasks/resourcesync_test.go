@@ -47,13 +47,13 @@ func TestFleetDelta(t *testing.T) {
 	ownedFleets := []api.Fleet{
 		{
 			Metadata: api.ObjectMeta{
-				Name:  util.StrToPtr("fleet-1"),
+				Name:  lo.ToPtr("fleet-1"),
 				Owner: owner,
 			},
 		},
 		{
 			Metadata: api.ObjectMeta{
-				Name:  util.StrToPtr("fleet-2"),
+				Name:  lo.ToPtr("fleet-2"),
 				Owner: owner,
 			},
 		},
@@ -76,7 +76,7 @@ func TestParseAndValidate_already_in_sync(t *testing.T) {
 
 	// Patch the status so we are already in sync
 	rs.Status.Data.ObservedCommit = &gitRepoCommit
-	rs.Status.Data.ObservedGeneration = util.Int64ToPtr(1)
+	rs.Status.Data.ObservedGeneration = lo.ToPtr(int64(1))
 
 	// Already in sync with hash
 	rm, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
@@ -249,8 +249,8 @@ func TestParseFleet_multiple(t *testing.T) {
 func testResourceSync() model.ResourceSync {
 	return model.ResourceSync{
 		Resource: model.Resource{
-			Generation: util.Int64ToPtr(1),
-			Name:       *util.StrToPtr("rs"),
+			Generation: lo.ToPtr(int64(1)),
+			Name:       *lo.ToPtr("rs"),
 		},
 		Spec: &model.JSONField[api.ResourceSyncSpec]{
 			Data: api.ResourceSyncSpec{

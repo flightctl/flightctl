@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -117,13 +116,13 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create fleet1 referencing repo1, fleet2 referencing repo2
 		fleet1 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet1")},
 			Spec:     api.FleetSpec{},
 		}
 		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: &config1}
 
 		fleet2 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet2")},
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
@@ -139,14 +138,14 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create device1 referencing repo1, device2 referencing repo2
 		device1 := api.Device{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("device1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device1")},
 			Spec: &api.DeviceSpec{
 				Config: &config1,
 			},
 		}
 
 		device2 := api.Device{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("device2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device2")},
 			Spec: &api.DeviceSpec{
 				Config: &config2,
 			},

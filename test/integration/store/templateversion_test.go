@@ -7,12 +7,12 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -115,7 +115,7 @@ var _ = Describe("TemplateVersion", func() {
 			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.TemplateVersion().DeleteAll(ctx, otherOrgId, util.StrToPtr("myfleet"))
+			err = storeInst.TemplateVersion().DeleteAll(ctx, otherOrgId, lo.ToPtr("myfleet"))
 			Expect(err).ToNot(HaveOccurred())
 
 			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})

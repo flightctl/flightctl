@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coreos/ignition/v2/config/util"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -148,7 +148,7 @@ func newTestRenderedDeviceSpec(appSpecs []testApp) (*v1alpha1.RenderedDeviceSpec
 	var applications []v1alpha1.RenderedApplicationSpec
 	for _, spec := range appSpecs {
 		app := v1alpha1.RenderedApplicationSpec{
-			Name: util.StrToPtr(spec.name),
+			Name: lo.ToPtr(spec.name),
 		}
 		provider := v1alpha1.ImageApplicationProvider{
 			Image: spec.image,

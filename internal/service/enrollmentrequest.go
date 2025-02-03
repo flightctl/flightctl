@@ -16,9 +16,9 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 const ClientCertExpiryDays = 365
@@ -52,7 +52,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		return err
 	}
 	enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
-		Certificate: util.StrToPtr(string(certData)),
+		Certificate: lo.ToPtr(string(certData)),
 		Conditions:  []v1alpha1.Condition{},
 		Approval:    approval,
 	}

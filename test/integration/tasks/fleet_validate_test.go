@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -58,7 +57,7 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
 			Metadata: api.ObjectMeta{
-				Name: util.StrToPtr("git-repo"),
+				Name: lo.ToPtr("git-repo"),
 			},
 			Spec: spec,
 		}
@@ -70,7 +69,7 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		repositoryHttp := &api.Repository{
 			Metadata: api.ObjectMeta{
-				Name: util.StrToPtr("http-repo"),
+				Name: lo.ToPtr("http-repo"),
 			},
 			Spec: specHttp,
 		}
@@ -83,7 +82,7 @@ var _ = Describe("FleetValidate", func() {
 
 		fleet = &api.Fleet{
 			Metadata: api.ObjectMeta{
-				Name: util.StrToPtr("myfleet"),
+				Name: lo.ToPtr("myfleet"),
 			},
 		}
 
@@ -124,14 +123,14 @@ var _ = Describe("FleetValidate", func() {
 		}
 		goodHttpConfig.HttpRef.Repository = "http-repo"
 		goodHttpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
-		goodHttpConfig.HttpRef.Suffix = util.StrToPtr("/suffix")
+		goodHttpConfig.HttpRef.Suffix = lo.ToPtr("/suffix")
 
 		badHttpConfig = &api.HttpConfigProviderSpec{
 			Name: "badHttpConfig",
 		}
 		badHttpConfig.HttpRef.Repository = "http-missingrepo"
 		badHttpConfig.HttpRef.FilePath = "http-path"
-		badHttpConfig.HttpRef.Suffix = util.StrToPtr("/suffix")
+		badHttpConfig.HttpRef.Suffix = lo.ToPtr("/suffix")
 
 		callback = store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
 	})

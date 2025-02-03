@@ -11,9 +11,9 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
@@ -86,7 +86,7 @@ func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (
 		ApiVersion: "v1",
 		Kind:       "Device",
 		Metadata: v1alpha1.ObjectMeta{
-			Name:   util.StrToPtr("foo"),
+			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: &v1alpha1.DeviceSpec{
@@ -242,7 +242,7 @@ func TestDeviceNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &DeviceStore{DeviceVal: v1alpha1.Device{
-			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
+			Metadata: v1alpha1.ObjectMeta{Name: lo.ToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchDevice(context.Background(), server.PatchDeviceRequestObject{

@@ -56,22 +56,6 @@ func IsEmptyString(s *string) bool {
 	return len(*s) == 0
 }
 
-func StrToPtr(s string) *string {
-	return &s
-}
-
-func Int64ToPtr(i int64) *int64 {
-	return &i
-}
-
-func IntToPtr(i int) *int {
-	return &i
-}
-
-func BoolToPtr(b bool) *bool {
-	return &b
-}
-
 func DefaultBoolIfNil(b *bool, defaultB bool) bool {
 	if b == nil {
 		return defaultB
@@ -79,24 +63,11 @@ func DefaultBoolIfNil(b *bool, defaultB bool) bool {
 	return *b
 }
 
-func TimeToPtr(t time.Time) *time.Time {
-	return &t
-}
-
-func Int32ToPtrWithNilDefault(i int32) *int32 {
-	var defaultInt32 int32
-	if i == defaultInt32 {
+func ToPtrWithNilDefault[T comparable](i T) *T {
+	if lo.IsEmpty(i) {
 		return nil
 	}
 	return &i
-}
-
-func StrToPtrWithNilDefault(s string) *string {
-	var defaultString string
-	if s == defaultString {
-		return nil
-	}
-	return &s
 }
 
 func SliceToPtrWithNilDefault(s []string) *[]string {
@@ -115,7 +86,7 @@ func TimeStampString() string {
 }
 
 func TimeStampStringPtr() *string {
-	return StrToPtr(TimeStampString())
+	return lo.ToPtr(TimeStampString())
 }
 
 func BoolToStr(b bool, ifTrue string, ifFalse string) string {
@@ -123,19 +94,6 @@ func BoolToStr(b bool, ifTrue string, ifFalse string) string {
 		return ifTrue
 	}
 	return ifFalse
-}
-
-func FromPtr[T any](x *T) T {
-	if x == nil {
-		return Empty[T]()
-	}
-
-	return *x
-}
-
-func Empty[T any]() T {
-	var zero T
-	return zero
 }
 
 func SingleQuote(input []string) []string {

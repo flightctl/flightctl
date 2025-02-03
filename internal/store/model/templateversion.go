@@ -91,8 +91,8 @@ func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.Templa
 		ApiVersion: api.TemplateVersionAPIVersion,
 		Kind:       api.TemplateVersionKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(tv.Name),
-			CreationTimestamp: util.TimeToPtr(tv.CreatedAt.UTC()),
+			Name:              lo.ToPtr(tv.Name),
+			CreationTimestamp: lo.ToPtr(tv.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(tv.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(tv.Annotations)),
 			Generation:        tv.Generation,
