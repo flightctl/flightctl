@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -24,7 +25,7 @@ func createResourceSyncs(ctx context.Context, numResourceSyncs int, storeInst st
 	for i := 1; i <= numResourceSyncs; i++ {
 		resource := api.ResourceSync{
 			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("myresourcesync-%d", i)),
+				Name:   lo.ToPtr(fmt.Sprintf("myresourcesync-%d", i)),
 				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
 			},
 			Spec: api.ResourceSyncSpec{
@@ -70,7 +71,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			var gen int64 = 1
 			rs := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name:   util.StrToPtr("rs1"),
+					Name:   lo.ToPtr("rs1"),
 					Labels: &map[string]string{"key": "rs1"},
 				},
 				Spec: api.ResourceSyncSpec{
@@ -246,7 +247,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("CreateOrUpdateResourceSync create mode", func() {
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("newresourcename"),
+					Name: lo.ToPtr("newresourcename"),
 				},
 				Spec: api.ResourceSyncSpec{
 					Repository: "myrepo",
@@ -268,7 +269,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("CreateOrUpdateResourceSync update mode", func() {
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("myresourcesync-1"),
+					Name: lo.ToPtr("myresourcesync-1"),
 				},
 				Spec: api.ResourceSyncSpec{
 					Repository: "myotherrepo",

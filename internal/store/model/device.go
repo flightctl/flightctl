@@ -125,8 +125,8 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		ApiVersion: api.DeviceAPIVersion,
 		Kind:       api.DeviceKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(d.Name),
-			CreationTimestamp: util.TimeToPtr(d.CreatedAt.UTC()),
+			Name:              lo.ToPtr(d.Name),
+			CreationTimestamp: lo.ToPtr(d.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(d.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(d.Resource.Annotations)),
 			Generation:        d.Generation,

@@ -74,8 +74,8 @@ func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (
 		ApiVersion: api.CertificateSigningRequestAPI,
 		Kind:       api.CertificateSigningRequestKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(csr.Name),
-			CreationTimestamp: util.TimeToPtr(csr.CreatedAt.UTC()),
+			Name:              lo.ToPtr(csr.Name),
+			CreationTimestamp: lo.ToPtr(csr.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(csr.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(csr.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(csr.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(csr.ResourceVersion), 10)), nil),

@@ -11,7 +11,6 @@ import (
 	"text/template/parse"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
@@ -323,7 +322,7 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
 			// Can ignore errors because we just validated it in the previous line
 			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
-			_, paramErrs = validateParametersInString(util.StrToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
+			_, paramErrs = validateParametersInString(lo.ToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
 		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
@@ -472,7 +471,7 @@ func (u DeviceUpdatePolicySpec) Validate() []error {
 func (u UpdateSchedule) Validate() []error {
 	var allErrs []error
 	if u.TimeZone != nil {
-		if err := validateTimeZone(util.FromPtr(u.TimeZone)); err != nil {
+		if err := validateTimeZone(lo.FromPtr(u.TimeZone)); err != nil {
 			allErrs = append(allErrs, err...)
 		}
 	}
@@ -799,7 +798,7 @@ func validateParametersInString(s *string, path string, fleetTemplate bool) (boo
 	// strings, so an empty map is fine.
 	dev := &Device{
 		Metadata: ObjectMeta{
-			Name:   util.StrToPtr("name"),
+			Name:   lo.ToPtr("name"),
 			Labels: &map[string]string{},
 		},
 	}

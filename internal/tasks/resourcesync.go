@@ -185,7 +185,7 @@ func fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
 func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *model.Repository, gitCloneRepo cloneGitRepoFunc) ([]genericResourceMap, error) {
 	path := rs.Spec.Data.Path
 	revision := rs.Spec.Data.TargetRevision
-	mfs, hash, err := gitCloneRepo(repo, &revision, util.IntToPtr(1))
+	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1))
 	if err != nil {
 		// Cant fetch git repo
 		rs.AddRepoAccessCondition(err)
@@ -200,7 +200,7 @@ func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *m
 	}
 	rs.AddSyncedCondition(fmt.Errorf("out of sync"))
 
-	rs.Status.Data.ObservedCommit = util.StrToPtr(hash)
+	rs.Status.Data.ObservedCommit = lo.ToPtr(hash)
 
 	// Open files
 	fileInfo, err := mfs.Stat(path)

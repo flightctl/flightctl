@@ -9,7 +9,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -168,8 +167,8 @@ func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, nam
 }
 
 func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource P) (bool, error) {
-	resource.SetGeneration(util.Int64ToPtr(1))
-	resource.SetResourceVersion(util.Int64ToPtr(1))
+	resource.SetGeneration(lo.ToPtr(int64(1)))
+	resource.SetResourceVersion(lo.ToPtr(int64(1)))
 
 	result := s.db.WithContext(ctx).Create(resource)
 	if result.Error != nil {

@@ -5,7 +5,7 @@ import (
 
 	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -155,9 +155,9 @@ func createTestFile(path, data string, mode, user, group int) *ign3types.File {
 
 		FileEmbedded1: ign3types.FileEmbedded1{
 			Contents: ign3types.Resource{
-				Source: util.StrToPtr(data),
+				Source: lo.ToPtr(data),
 			},
-			Mode: util.IntToPtr(mode),
+			Mode: lo.ToPtr(mode),
 		},
 	}
 }
