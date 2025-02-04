@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -42,7 +43,7 @@ func New(
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := tasks.TaskQueuePublisher(s.provider)
+	publisher, err := tasks_client.TaskQueuePublisher(s.provider)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create fleet queue publisher")
 		return err
@@ -52,7 +53,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
-	callbackManager := tasks.NewCallbackManager(publisher, s.log)
+	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 	if err = tasks.LaunchConsumers(ctx, s.provider, s.store, callbackManager, s.k8sClient, kvStore, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err

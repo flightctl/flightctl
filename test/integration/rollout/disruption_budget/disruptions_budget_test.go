@@ -9,7 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -49,7 +49,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		cfg                 *config.Config
 		storeInst           store.Store
 		ctrl                *gomock.Controller
-		mockCallbackManager *tasks.MockCallbackManager
+		mockCallbackManager *tasks_client.MockCallbackManager
 		tvName              string
 	)
 
@@ -138,7 +138,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		ctrl = gomock.NewController(GinkgoT())
-		mockCallbackManager = tasks.NewMockCallbackManager(ctrl)
+		mockCallbackManager = tasks_client.NewMockCallbackManager(ctrl)
 	})
 	AfterEach(func() {
 		store.DeleteTestDB(log, cfg, storeInst, dbName)

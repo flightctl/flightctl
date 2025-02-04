@@ -6,7 +6,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -32,14 +32,14 @@ type InternalSessionRegistration interface {
 type ConsoleSessionManager struct {
 	store           store.Store
 	log             logrus.FieldLogger
-	callbackManager tasks.CallbackManager
+	callbackManager tasks_client.CallbackManager
 	kvStore         kvstore.KVStore
 	// This one is the gRPC Handler of the agent for now, in the next iteration
 	// this should be split so we funnel traffic through a queue in redis/valkey
 	sessionRegistration InternalSessionRegistration
 }
 
-func NewConsoleSessionManager(store store.Store, callbackManager tasks.CallbackManager, kvStore kvstore.KVStore, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
+func NewConsoleSessionManager(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
 	return &ConsoleSessionManager{
 		store:               store,
 		log:                 log,
