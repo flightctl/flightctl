@@ -1427,6 +1427,12 @@ type UpdateSchedule struct {
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
+// Version defines model for Version.
+type Version struct {
+	// Version Git version of the service.
+	Version string `json:"version"`
+}
+
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
 	// Authentication The authentication token to validate.

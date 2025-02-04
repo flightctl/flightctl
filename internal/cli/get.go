@@ -253,10 +253,10 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return o.processReponse(response, err, kind, name)
+	return o.processResponse(response, err, kind, name)
 }
 
-func (o *GetOptions) processReponse(response interface{}, err error, kind string, name string) error {
+func (o *GetOptions) processResponse(response interface{}, err error, kind string, name string) error {
 	errorPrefix := fmt.Sprintf("reading %s/%s", kind, name)
 	if len(name) == 0 {
 		errorPrefix = fmt.Sprintf("listing %s", plural(kind))

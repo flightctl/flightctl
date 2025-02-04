@@ -28,7 +28,34 @@ tags:
     description: Operations on Repository resources.
   - name: resourcesync
     description: Operations on ResourceSync resources.
+  - name: version
+    description: Operations for receiving service version.
 paths:
+  /api/version:
+    get:
+      tags:
+        - version
+      description: Get service version.
+      operationId: getVersion
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/auth/config:
     get:
       tags:
@@ -4989,3 +5016,11 @@ components:
       required:
         - conditions
       type: object
+    Version:
+      properties:
+        version:
+          description: Git version of the service.
+          type: string
+      required:
+        - version
+
