@@ -4,11 +4,15 @@ Description=FlightCtl Key Value service
 [Container]
 ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
-Environment=HOME=/root
+Exec=redis-server /usr/local/etc/redis/redis.conf
+
+# The following is necessary so that the redis user which runs the redis process inside of the container
+# can have write access to the flightctl-kv volume
+PodmanArgs="--userns=keep-id:uid=999,gid=999"
 
 PublishPort=6379:6379
-Volume=flightctl-redis:/var/lib/redis/data
-Volume=/etc/containers/systemd/flightctl-kv/flightctl-kv-config/redis.conf:/etc/redis/redis.conf:Z
+Volume=flightctl-kv:/var/lib/redis/data:Z,U
+Volume=/etc/containers/systemd/flightctl-kv/flightctl-kv-config/redis.conf:/usr/local/etc/redis/redis.conf:Z
 
 [Service]
 Type=notify
