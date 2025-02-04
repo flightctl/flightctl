@@ -328,6 +328,7 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, request server.P
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
 	orgId := store.NullOrgId
+
 	deviceObj, err := h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
 		switch {
@@ -343,6 +344,7 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 		return nil, fmt.Errorf("device already has decommissioning requested")
 	}
 
+	deviceObj.Status.Lifecycle.Status = api.DeviceLifecycleStatusDecommissioning
 	deviceObj.Spec.Decommissioning = request.Body
 
 	// these fields must be un-set so that device is no longer associated with any fleet
@@ -356,7 +358,7 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	}
 
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"owner"}, false, DeviceVerificationCallback, updateCallback)
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback)
 
 	switch {
 	case err == nil:
