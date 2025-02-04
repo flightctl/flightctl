@@ -33,13 +33,22 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	r.log.Infof("device selection: starting reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 	defer r.log.Infof("device selection: finished reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 
-	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
-		r.log.Debugf("no device selection definition for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
-		return
-	}
 	annotations := lo.FromPtr(fleet.Metadata.Annotations)
 	if annotations == nil {
 		r.log.Infof("no annotations for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+		return
+	}
+	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
+		r.log.Debugf("no device selection definition for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+		rolloutWasActive, err := cleanupRollout(ctx, orgId, &fleet, r.store)
+		if err != nil {
+			r.log.WithError(err).Errorf("%v/%s: CleanupRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
+		}
+		if rolloutWasActive {
+
+			// Send the entire fleet for rollout
+			r.callbackManager.FleetRolloutSelectionUpdated(orgId, lo.FromPtr(fleet.Metadata.Name))
+		}
 		return
 	}
 	templateVersionName, exists := annotations[api.FleetAnnotationTemplateVersion]
@@ -52,9 +61,13 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		r.log.WithError(err).Errorf("%v/%s: NewRolloutDeviceSelector", orgId, lo.FromPtr(fleet.Metadata.Name))
 		return
 	}
-
-	if selector.IsRolloutNew() {
-		// There is a new template version
+	definitionUpdated, err := selector.IsDefinitionUpdated()
+	if err != nil {
+		r.log.WithError(err).Errorf("%v/%s: IsDefinitionUpdated", orgId, lo.FromPtr(fleet.Metadata.Name))
+		return
+	}
+	if selector.IsRolloutNew() || definitionUpdated {
+		// There is either a new template version, or the rollout definition was updated
 		if err := selector.OnNewRollout(ctx); err != nil {
 			r.log.WithError(err).Errorf("%v/%s: OnNewRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
 			return
