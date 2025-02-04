@@ -26,7 +26,7 @@ type Device interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
-	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) ([]string, error)
+	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.DeviceLabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -234,8 +234,12 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) ([]string, error) {
+func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.DeviceLabelList, error) {
 	var labels []model.DeviceLabel
+
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
 
 	resolver, err := selector.NewCompositeSelectorResolver(&model.Device{}, &model.DeviceLabel{})
 	if err != nil {

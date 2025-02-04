@@ -416,6 +416,9 @@ type DeviceIntegrityStatus struct {
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
 
+// DeviceLabelList A list of distinct labels, where each item is formatted as "key=value".
+type DeviceLabelList = []string
+
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
 
