@@ -5,11 +5,10 @@ Requires=flightctl-db.service
 
 [Container]
 ContainerName=flightctl-worker
-Image=quay.io/flightctl/flightctl-worker:latest
+Image=quay.io/flightctl/flightctl-worker:0.4.0-rc3
 Network=flightctl.network
 Environment=HOME=/root
-
-Volume=/etc/containers/systemd/flightctl-worker/flightctl-worker-config/config.yaml:/root/.flightctl/config.yaml
+Volume=%h/.config/flightctl/flightctl-worker-config/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Restart=always

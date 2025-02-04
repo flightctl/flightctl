@@ -7,7 +7,7 @@ Before=flightctl-periodic.service flightctl-worker.service
 
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:latest
+Image=quay.io/flightctl/flightctl-api:0.4.0-rc3
 Network=flightctl.network
 Environment=HOME=/root
 Environment=FLIGHTCTL_DISABLE_AUTH=true
@@ -17,8 +17,8 @@ PublishPort=7443:7443
 PublishPort=7444:7444
 PublishPort=15690:15690
 PublishPort=15691:15691
-Volume=/etc/containers/systemd/flightctl-api/flightctl-api-config/config.yaml:/root/.flightctl/config.yaml
-Volume=flightctl-api-certs:/root/.flightctl/certs
+Volume=flightctl-api-certs:/root/.flightctl/certs:Z
+Volume=%h/.config/flightctl/flightctl-api-config/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Slice=flightctl.slice
