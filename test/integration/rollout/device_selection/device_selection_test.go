@@ -2,6 +2,7 @@ package device_selection
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"testing"
@@ -56,7 +57,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 	setLastSuccessPercentage := func(fleetName string, percentage int64) {
 		annotations := map[string]string{
-			api.FleetAnnotationLastBatchSuccessPercentage: strconv.FormatInt(percentage, 10),
+			api.FleetAnnotationLastBatchCompletionReport: fmt.Sprintf(`{"successPercentage":%d}`, percentage),
 		}
 		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil)).ToNot(HaveOccurred())
 	}
@@ -479,14 +480,16 @@ var _ = Describe("Rollout batch sequence test", func() {
 				selector := setupCompletion(numDevices, selected, rolledOut, rendered, renderedVersion, failed, timedOut)
 				selection, err := selector.CurrentSelection(ctx)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(selection.SetSuccessPercentage(ctx)).ToNot(HaveOccurred())
+				Expect(selection.SetCompletionReport(ctx)).ToNot(HaveOccurred())
 				fleet, err := storeInst.Fleet().Get(ctx, store.NullOrgId, FleetName)
 				Expect(err).ToNot(HaveOccurred())
-				val, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationLastBatchSuccessPercentage)
-				Expect(exists).To(BeTrue())
-				percentage, err := strconv.ParseInt(val, 10, 64)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(percentage).To(Equal(int64(expectedSuccessPercentage)))
+				val, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationLastBatchCompletionReport)
+				Expect(exists).To(Equal(selected != nil && selected.length > 0))
+				if exists {
+					var report device_selection.CompletionReport
+					Expect(json.Unmarshal([]byte(val), &report)).ToNot(HaveOccurred())
+					Expect(report.SuccessPercentage).To(Equal(int64(expectedSuccessPercentage)))
+				}
 			},
 			Entry("no devices", 0, nil, nil, nil, nil, nil, nil, 100),
 			Entry("no selected device", 1, nil, nil, nil, nil, nil, nil, 100),

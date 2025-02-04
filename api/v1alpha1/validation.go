@@ -416,13 +416,18 @@ func (r *RolloutDeviceSelection) Validate() []error {
 }
 
 func (d *DisruptionBudget) Validate() []error {
+	var errs []error
 	if d == nil {
 		return nil
 	}
 	if d.MinAvailable == nil && d.MaxUnavailable == nil {
-		return []error{errors.New("at least one of [MinAvailable, MaxUnavailable] must be defined in disruption budget")}
+		errs = append(errs, errors.New("at least one of [MinAvailable, MaxUnavailable] must be defined in disruption budget"))
 	}
-	return nil
+	groupBy := lo.FromPtr(d.GroupBy)
+	if len(groupBy) != len(lo.Uniq(groupBy)) {
+		errs = append(errs, errors.New("groupBy items must be unique"))
+	}
+	return errs
 }
 
 func (r *RolloutPolicy) Validate() []error {

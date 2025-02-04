@@ -4892,6 +4892,7 @@ components:
       - 'Synced'                # ResourceSync
       - 'OverlappingSelectors'  # Fleet
       - 'Valid'                 # Fleet
+      - 'RolloutInProgress'     # Fleet
       - 'Updating'              # Device
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
@@ -4907,6 +4908,7 @@ components:
       - ResourceSyncSynced
       - FleetOverlappingSelectors
       - FleetValid
+      - FleetRolloutInProgress
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
