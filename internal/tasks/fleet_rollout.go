@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"text/template"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -94,12 +95,20 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 		Limit:         ItemsPerPage,
 		FieldSelector: fs,
 	}
+	annotationFilter := []string{
+		api.MatchExpression{
+			Key:      api.DeviceAnnotationTemplateVersion,
+			Operator: api.NotIn,
+			Values:   &[]string{lo.FromPtr(templateVersion.Metadata.Name)},
+		}.String(),
+	}
 	if fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DeviceSelection != nil {
-		listParams.AnnotationSelector = selector.NewAnnotationSelectorOrDie(api.MatchExpression{
+		annotationFilter = append(annotationFilter, api.MatchExpression{
 			Key:      api.DeviceAnnotationSelectedForRollout,
 			Operator: api.Exists,
 		}.String())
 	}
+	listParams.AnnotationSelector = selector.NewAnnotationSelectorOrDie(strings.Join(annotationFilter, ","))
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
 	for {

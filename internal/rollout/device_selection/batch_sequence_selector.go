@@ -2,6 +2,7 @@ package device_selection
 
 import (
 	"context"
+	"crypto/md5" // #nosec G401,G501
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -127,10 +128,39 @@ func (b *batchSequenceSelector) IsRolloutNew() bool {
 	return b.templateVersionName != dtv
 }
 
+func (b *batchSequenceSelector) getPreviousBatchSequenceDigest() (string, bool) {
+	return b.getAnnotation(api.FleetAnnotationDeviceSelectionConfigDigest)
+}
+
+func (b *batchSequenceSelector) batchSequenceDigest() (string, error) {
+	marshalled, err := json.Marshal(&b.BatchSequence)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", md5.Sum(marshalled)), nil // #nosec G401,G501
+}
+
+func (b *batchSequenceSelector) IsDefinitionUpdated() (bool, error) {
+	previousBatchSequenceDigest, exists := b.getPreviousBatchSequenceDigest()
+	if !exists {
+		return true, nil
+	}
+	currentBatchSequenceDigest, err := b.batchSequenceDigest()
+	if err != nil {
+		return false, err
+	}
+	return previousBatchSequenceDigest != currentBatchSequenceDigest, nil
+}
+
 func (b *batchSequenceSelector) OnNewRollout(ctx context.Context) error {
 	b.log.Infof("%v/%s: OnNewRollout. Template version %s", b.orgId, b.fleetName, b.templateVersionName)
+	batchSequenceDigest, err := b.batchSequenceDigest()
+	if err != nil {
+		return err
+	}
 	annotations := map[string]string{
-		api.FleetAnnotationDeployingTemplateVersion: b.templateVersionName,
+		api.FleetAnnotationDeployingTemplateVersion:    b.templateVersionName,
+		api.FleetAnnotationDeviceSelectionConfigDigest: batchSequenceDigest,
 	}
 	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
 }
@@ -264,6 +294,7 @@ func (b *batchSequenceSelector) currentSelection(ctx context.Context, currentBat
 	batchName := b.batchName(currentBatch)
 	return &batchSelection{
 		batch:               batch,
+		batchNum:            currentBatch,
 		batchName:           batchName,
 		store:               b.store,
 		orgId:               b.orgId,
@@ -301,6 +332,7 @@ func (b *batchSequenceSelector) Reset(ctx context.Context) error {
 
 type batchSelection struct {
 	batch               *api.Batch
+	batchNum            int
 	batchName           string
 	store               store.Store
 	orgId               uuid.UUID
@@ -393,6 +425,9 @@ func (b *batchSelection) isApprovalMethodAutomatic() bool {
 // A batch may be approved atotmatically only if its approval method is "automatic" and the
 // success percentage of the previous batch is greater or equal to the success threshold
 func (b *batchSelection) MayApproveAutomatically() (bool, error) {
+	if b.batchNum == -1 {
+		return true, nil
+	}
 	if !b.isApprovalMethodAutomatic() {
 		return false, nil
 	}
