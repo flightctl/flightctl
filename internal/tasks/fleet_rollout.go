@@ -12,13 +12,14 @@ import (
 	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
-func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
-	if resourceRef.Op != FleetRolloutOpUpdate {
+func fleetRollout(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+	if resourceRef.Op != tasks_client.FleetRolloutOpUpdate {
 		log.Errorf("received unknown op %s", resourceRef.Op)
 		return nil
 	}
@@ -42,17 +43,17 @@ func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store sto
 }
 
 type FleetRolloutsLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	fleetStore      store.Fleet
 	devStore        store.Device
 	tvStore         store.TemplateVersion
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	itemsPerPage    int
 	owner           string
 }
 
-func NewFleetRolloutsLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef tasks_client.ResourceReference) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
 		callbackManager: callbackManager,
 		log:             log,

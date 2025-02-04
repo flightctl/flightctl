@@ -10,7 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -42,8 +42,8 @@ func (d *dummyPublisher) Close() {
 
 }
 
-func dummyCallbackManager() tasks.CallbackManager {
-	return tasks.NewCallbackManager(&dummyPublisher{}, logrus.New())
+func dummyCallbackManager() tasks_client.CallbackManager {
+	return tasks_client.NewCallbackManager(&dummyPublisher{}, logrus.New())
 }
 
 func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.Device, error) {

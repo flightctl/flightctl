@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/thread"
 	"github.com/sirupsen/logrus"
@@ -44,11 +45,11 @@ func (s *Server) Run() error {
 	}
 	defer provider.Stop()
 
-	publisher, err := tasks.TaskQueuePublisher(provider)
+	publisher, err := tasks_client.TaskQueuePublisher(provider)
 	if err != nil {
 		return err
 	}
-	callbackManager := tasks.NewCallbackManager(publisher, s.log)
+	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 
 	// repository tester
 	repoTester := tasks.NewRepoTester(s.log, s.store)

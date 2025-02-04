@@ -21,7 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
@@ -128,7 +128,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := tasks.TaskQueuePublisher(s.provider)
+	publisher, err := tasks_client.TaskQueuePublisher(s.provider)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	callbackManager := tasks.NewCallbackManager(publisher, s.log)
+	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 
 	s.log.Println("Initializing API server")
 	swagger, err := api.GetSwagger()

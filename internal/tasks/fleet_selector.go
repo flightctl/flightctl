@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -35,7 +36,7 @@ import (
 //
 // In addition, we have the cases where the user deleted all fleets or devices in an org
 
-func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+func fleetSelectorMatching(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	logic := FleetSelectorMatchingLogic{
 		callbackManager: callbackManager,
 		log:             log,
@@ -47,17 +48,17 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, 
 	var err error
 
 	switch {
-	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == api.FleetKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdate && resourceRef.Kind == api.FleetKind:
 		err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.FleetKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.FleetKind:
 		err = logic.HandleOrgwideUpdate(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.FleetKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.FleetKind:
 		err = logic.HandleDeleteAllFleets(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == api.DeviceKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdate && resourceRef.Kind == api.DeviceKind:
 		err = logic.CompareFleetsAndSetDeviceOwner(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.DeviceKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.DeviceKind:
 		err = logic.HandleOrgwideUpdate(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.DeviceKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.DeviceKind:
 		err = logic.HandleDeleteAllDevices(ctx)
 	default:
 		err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
@@ -70,15 +71,15 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, 
 }
 
 type FleetSelectorMatchingLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	fleetStore      store.Fleet
 	devStore        store.Device
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	itemsPerPage    int
 }
 
-func NewFleetSelectorMatchingLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetSelectorMatchingLogic {
+func NewFleetSelectorMatchingLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef tasks_client.ResourceReference) FleetSelectorMatchingLogic {
 	return FleetSelectorMatchingLogic{
 		callbackManager: callbackManager,
 		log:             log,
