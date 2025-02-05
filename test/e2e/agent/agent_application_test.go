@@ -6,7 +6,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -44,8 +43,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the application url in the local registryand create the application config
-			extIP = util.GetExtIP()
-			sleepAppImage := fmt.Sprintf("%s:5000/sleep-app:v1", extIP)
+			extIP = harness.RegistryEndpoint()
+			sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 			var applicationConfig = v1alpha1.ImageApplicationProvider{
 				Image: sleepAppImage,
 			}
