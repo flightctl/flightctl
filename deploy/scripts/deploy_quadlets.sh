@@ -15,8 +15,8 @@ export PRIMARY_IP
 
 echo "Copying quadlet unit files"
 mkdir -p $SYSTEMD_DIR
-find deploy/podman -type f -name "*.slice" -exec cp {} $SYSTEMD_DIR \;
-find deploy/podman -type f -name "*.network" -exec cp {} $SYSTEMD_DIR \;
+cp deploy/podman/flightctl.slice $SYSTEMD_DIR
+cp deploy/podman/flightctl.network $SYSTEMD_DIR
 find deploy/podman -type f -name "*.container" -exec cp {} $SYSTEMD_DIR \;
 
 echo "Copying quadlet config files"

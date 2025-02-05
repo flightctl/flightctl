@@ -11,25 +11,29 @@ deploy_service() {
     echo "Starting Deployment for $service_full_name"
 
     # Stop the service if it's running
-    sudo systemctl stop $service_full_name || true
+    systemctl --user stop $service_full_name || true
 
-    # Handle special handling for the db service
+    # Handle special handling for each service
     if [[ "$service_name" == "db" ]]; then
-        sudo podman volume rm flightctl-db || true
-        sudo podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
+        podman volume rm flightctl-db || true
+        podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
+    else
+        # Copy configuration files
+        mkdir -p "$CONFIG_DIR/flightctl-$service_name-config"
+        cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf $CONFIG_DIR/flightctl-kv-config/redis.conf
     fi
 
-    # Copy the configuration files
-    sudo mkdir -p "$SYSTEMD_DIR/flightctl-$service_name"
-    sudo cp -r deploy/podman/flightctl-$service_name/* "$SYSTEMD_DIR/flightctl-$service_name"
+    mkdir -p $SYSTEMD_DIR
+    cp deploy/podman/flightctl-$service_name/flightctl-$service_name-standalone.container $SYSTEMD_DIR
+    cp deploy/podman/flightctl.network $SYSTEMD_DIR
 
     start_service $service_full_name
 
     # Handle post-startup logic for db service
     if [[ "$service_name" == "db" ]]; then
         test/scripts/wait_for_postgres.sh podman
-        sudo podman exec flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
-        sudo podman exec flightctl-db createdb admin || true
+        podman exec flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
+        podman exec flightctl-db createdb admin || true
     fi
 
     echo "Deployment completed for $service_full_name"
