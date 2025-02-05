@@ -14,9 +14,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/coreos/ignition/v2/config/util"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/gliderlabs/ssh"
 	"github.com/samber/lo"
@@ -79,11 +79,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 		}})
 	require.NoError(err)
 
-	err = repotester.TestAccess(&model.Repository{
-		Spec: &model.JSONField[api.RepositorySpec]{
-			Data: spec,
-		},
-	})
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: util.StrToPtr("name")}, Spec: spec})
 
 	require.NoError(err)
 }
@@ -132,11 +128,7 @@ func TestSSHRepo(t *testing.T) {
 		}})
 	require.NoError(err)
 
-	err = repotester.TestAccess(&model.Repository{
-		Spec: &model.JSONField[api.RepositorySpec]{
-			Data: spec,
-		},
-	})
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: util.StrToPtr("name")}, Spec: spec})
 
 	require.NoError(err)
 }

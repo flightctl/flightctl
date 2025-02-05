@@ -8,9 +8,10 @@ import (
 type ctxKeyAuthHeader string
 
 const (
-	AuthHeader     string           = "Authorization"
-	TokenCtxKey    ctxKeyAuthHeader = "TokenCtxKey"
-	IdentityCtxKey ctxKeyAuthHeader = "IdentityCtxKey"
+	AuthHeader            string           = "Authorization"
+	TokenCtxKey           ctxKeyAuthHeader = "TokenCtxKey"
+	IdentityCtxKey        ctxKeyAuthHeader = "IdentityCtxKey"
+	InternalRequestCtxKey ctxKeyAuthHeader = "InternalRequestCtxKey"
 )
 
 type AuthConfig struct {
