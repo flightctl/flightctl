@@ -3925,6 +3925,7 @@ components:
         - architecture
         - bootID
         - operatingSystem
+        - agentVersion
       type: object
       properties:
         architecture:
@@ -3936,6 +3937,9 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
+        agentVersion:
+          type: string
+          description: The Agent version.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
     DeviceApplicationStatus:
       type: object

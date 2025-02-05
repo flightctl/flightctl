@@ -386,9 +386,9 @@ func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.
 
 func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 	if o.Output == wideFormat {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
+		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
 	} else {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	}
 	for _, d := range devices {
 		lastSeen := "<never>"
@@ -399,7 +399,7 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 		if d.Metadata.Labels != nil {
 			alias = (*d.Metadata.Labels)["alias"]
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
 			*d.Metadata.Name,
 			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
@@ -409,9 +409,9 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 			lastSeen,
 		)
 		if o.Output == wideFormat {
-			fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
+			_, _ = fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
 		} else {
-			fmt.Fprintln(w)
+			_, _ = fmt.Fprintln(w)
 		}
 	}
 }
