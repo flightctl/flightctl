@@ -13,16 +13,17 @@ if ! PRIMARY_IP=$(bash -c 'source ./test/scripts/functions && get_ext_ip'); then
 fi
 export PRIMARY_IP
 
-envsubst "\$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > deploy/podman/flightctl-api/flightctl-api-config/config.yaml
-
 echo "Copying quadlet unit files"
+mkdir -p $SYSTEMD_DIR
 find deploy/podman -type f -name "*.slice" -exec cp {} $SYSTEMD_DIR \;
 find deploy/podman -type f -name "*.network" -exec cp {} $SYSTEMD_DIR \;
 find deploy/podman -type f -name "*.container" -exec cp {} $SYSTEMD_DIR \;
 
 echo "Copying quadlet config files"
+mkdir -p $CONFIG_DIR
 mkdir -p $CONFIG_DIR/flightctl-api-config
-cp deploy/podman/flightctl-api/flightctl-api-config/config.yaml $CONFIG_DIR/flightctl-api-config/config.yaml
+touch $CONFIG_DIR/flightctl-api-config/config.yaml
+envsubst "\$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > $CONFIG_DIR/flightctl-api-config/config.yaml
 
 mkdir -p $CONFIG_DIR/flightctl-kv-config
 cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf $CONFIG_DIR/flightctl-kv-config/redis.conf
