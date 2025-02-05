@@ -5,6 +5,7 @@ Description=FlightCtl Key Value service
 ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
 Exec=redis-server /usr/local/etc/redis/redis.conf
+Network=flightctl.network
 
 # The following is necessary so that the redis user which runs the redis process inside of the container
 # can have write access to the flightctl-kv volume
