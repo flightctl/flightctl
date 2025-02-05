@@ -7,7 +7,7 @@ Before=flightctl-periodic.service flightctl-worker.service
 
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:0.4.0-rc3
+Image=quay.io/flightctl/flightctl-api:0.4.0
 Network=flightctl.network
 Environment=HOME=/root
 Environment=FLIGHTCTL_DISABLE_AUTH=true
