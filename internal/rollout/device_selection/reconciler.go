@@ -69,7 +69,28 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		selection, err := selector.CurrentSelection(ctx)
 		if err != nil {
 			r.log.WithError(err).Errorf("%v/%s: CurrentSelection", orgId, lo.FromPtr(fleet.Metadata.Name))
-			return
+			break
+		}
+
+		if !selection.IsApproved() {
+
+			// A batch may be approved either by a user or automatically
+			mayApprove, err := selection.MayApproveAutomatically()
+			if err != nil {
+				r.log.WithError(err).Errorf("%v/%s: MayApproveAutomatically", orgId, lo.FromPtr(fleet.Metadata.Name))
+				break
+			}
+			if mayApprove {
+				if err = selection.Approve(ctx); err != nil {
+					r.log.WithError(err).Errorf("%v/%s: Approve", orgId, lo.FromPtr(fleet.Metadata.Name))
+					break
+				}
+			} else {
+				if err = selection.OnSuspended(ctx); err != nil {
+					r.log.WithError(err).Errorf("%v/%s: OnSuspended", orgId, lo.FromPtr(fleet.Metadata.Name))
+				}
+				break
+			}
 		}
 
 		// Check if all devices in the batch have been processed by the fleet-rollout task
@@ -79,24 +100,9 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 			break
 		}
 		if !isRolledOut {
-			if !selection.IsApproved() {
-
-				// A batch may be approved either by a user or automatically
-				mayApprove, err := selection.MayApproveAutomatically()
-				if err != nil {
-					r.log.WithError(err).Errorf("%v/%s: MayApproveAutomatically", orgId, lo.FromPtr(fleet.Metadata.Name))
-					break
-				}
-				if mayApprove {
-					if err = selection.Approve(ctx); err != nil {
-						r.log.WithError(err).Errorf("%v/%s: Approve", orgId, lo.FromPtr(fleet.Metadata.Name))
-						break
-					}
-				} else {
-					break
-				}
+			if err = selection.OnRollout(ctx); err != nil {
+				r.log.WithError(err).Errorf("%v/%s: OnRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
 			}
-
 			// Send the current batch to be rolled out.
 			r.callbackManager.FleetRolloutSelectionUpdated(orgId, lo.FromPtr(fleet.Metadata.Name))
 		}
@@ -112,8 +118,8 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		}
 
 		// Once the batch is complete, set the success percentage of the current batch
-		if err = selection.SetSuccessPercentage(ctx); err != nil {
-			r.log.WithError(err).Errorf("%v/%s: SetSuccessPercentage", orgId, lo.FromPtr(fleet.Metadata.Name))
+		if err = selection.SetCompletionReport(ctx); err != nil {
+			r.log.WithError(err).Errorf("%v/%s: SetCompletionReport", orgId, lo.FromPtr(fleet.Metadata.Name))
 			break
 		}
 		hasMoreSelections, err := selector.HasMoreSelections(ctx)
@@ -122,6 +128,9 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 			break
 		}
 		if !hasMoreSelections {
+			if err = selection.OnFinish(ctx); err != nil {
+				r.log.WithError(err).Errorf("%v/%s: OnFinish", orgId, lo.FromPtr(fleet.Metadata.Name))
+			}
 			break
 		}
 

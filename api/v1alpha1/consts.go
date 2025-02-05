@@ -43,8 +43,8 @@ const (
 	// What is the active approval method: If automatic then it is based in the last batch success percentage.  Otherwise
 	// it requires manual approval
 	FleetAnnotationRolloutApprovalMethod = "fleet-controller/rolloutApprovalMethod"
-	// An integer value indicating what was the success rate of the last batch
-	FleetAnnotationLastBatchSuccessPercentage = "fleet-controller/lastBatchSuccessPercentage"
+	// A report specifying the completion report of the last batch
+	FleetAnnotationLastBatchCompletionReport = "fleet-controller/lastBatchCompletionReport"
 
 	RepositoryAPIVersion = "v1alpha1"
 	RepositoryKind       = "Repository"
@@ -105,4 +105,15 @@ const (
 	DecommissionStateComplete DecommissionState = "Completed"
 	// The agent has encoutered an error while decommissioning.
 	DecommissionStateError DecommissionState = "Error"
+)
+
+const (
+	// No rollout is currently active
+	RolloutInactiveReason = "Inactive"
+	// Rollout is in progress
+	RolloutActiveReason = "Active"
+	// Rollout is suspended
+	RolloutSuspendedReason = "Suspended"
+	// Rollout is pending on user approval
+	RolloutWaitingReason = "Waiting"
 )
