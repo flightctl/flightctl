@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/pkg/kv"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -25,12 +26,12 @@ type kvStore struct {
 	getSetNxScript *redis.Script
 }
 
-func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (KVStore, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", hostname, port),
-		Password: password,
-		DB:       0,
-	})
+func NewKVStore(ctx context.Context, log logrus.FieldLogger, cfg *kv.Config) (KVStore, error) {
+	redisOptions, err := kv.ConfigToRedisOptions(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure Redis options: %w", err)
+	}
+	client := redis.NewClient(redisOptions)
 
 	// Test the connection
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

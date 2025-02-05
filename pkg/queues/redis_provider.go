@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/flightctl/flightctl/pkg/kv"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -24,14 +25,15 @@ type redisProvider struct {
 	mu      sync.Mutex
 }
 
-func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (Provider, error) {
+func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, cfg *kv.Config) (Provider, error) {
 	var wg sync.WaitGroup
 	wg.Add(1)
-	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", hostname, port),
-		Password: password,
-		DB:       0,
-	})
+
+	redisOptions, err := kv.ConfigToRedisOptions(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure Redis options: %w", err)
+	}
+	client := redis.NewClient(redisOptions)
 
 	// Test the connection
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

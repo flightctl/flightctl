@@ -12,7 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const TaskQueue = "task-queue"
+const TaskQueue = "flightctl/task-queue"
 
 func dispatchTasks(store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -29,8 +30,12 @@ var _ = Describe("FleetSelector", func() {
 		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
+		cfg := config.NewDefault()
+		cfg.KV.Username = "flightctl"
+		cfg.KV.Password = "flightctl-kv-pass"
+
 		var err error
-		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err = kvstore.NewKVStore(ctx, log, cfg.KV)
 		Expect(err).ToNot(HaveOccurred())
 	})
 

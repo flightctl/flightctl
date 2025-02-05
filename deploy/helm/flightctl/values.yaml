@@ -62,6 +62,7 @@ global:
     grpc: 7444
     ui: 9000
     keycloak: 8081
+    kv: 6379
   gatewayPorts:
     tls: 443
     http: 80
@@ -93,7 +94,9 @@ kv:
     image: docker.io/redis
     tag: 7.4.1
     pullPolicy: Always
-  password: adminpass
+  password: flightctl-kv-pass
+  username: flightctl
+  db: 0
   # Save if at least 1 key changed in 5 minutes
   save: 300 1
   loglevel: warning

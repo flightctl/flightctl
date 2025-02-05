@@ -9,9 +9,11 @@ metadata:
 data:
   redis.conf: |-
     bind 0.0.0.0
-    protected-mode yes
     port 6379
     dir /var/lib/redis/data
+
+    # User configuration
+    aclfile /etc/redis/redis-users.acl
 
     # Logging
     loglevel {{ default "warning" .Values.kv.loglevel }}
@@ -48,6 +50,23 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      initContainers:
+        - name: init-flightctl-kv-acl
+          image: registry.access.redhat.com/ubi9/ubi-micro
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              echo "Generating redis-users.acl..."
+              REDIS_PASS=$(cat /secret/password)
+              echo "user default off" > /tmp/redis-users.acl
+              echo "user flightctl on >$REDIS_PASS allcommands ~flightctl* &flightctl*" >> /tmp/redis-users.acl
+          volumeMounts:
+            - name: flightctl-kv-acl
+              mountPath: /tmp
+            - name: flightctl-kv-secret
+              mountPath: /secret
+              readOnly: true
       containers:
         - name: flightctl-kv
           image: {{ .Values.kv.image.image }}:{{ .Values.kv.image.tag }}
@@ -64,14 +83,15 @@ spec:
           command:
             - "redis-server"
             - "/etc/redis/redis.conf"
-            - "--requirepass"
-            - "$(REDIS_PASSWORD)"
           volumeMounts:
             - name: flightctl-kv-data
               mountPath: /var/lib/redis/data
             - name: flightctl-kv-config
               mountPath: /etc/redis/redis.conf
               subPath: redis.conf
+            - name: flightctl-kv-acl
+              mountPath: /etc/redis/redis-users.acl
+              subPath: redis-users.acl
           resources:
             requests:
               cpu: "1000m"
@@ -81,6 +101,12 @@ spec:
           configMap:
             name: flightctl-kv-config
             defaultMode: 0644
+        - name: flightctl-kv-acl
+          emptyDir: {}
+        - name: flightctl-kv-secret
+          secret:
+            secretName: flightctl-kv-secret
+            defaultMode: 0400
   volumeClaimTemplates:
     - metadata:
         name: flightctl-kv-data

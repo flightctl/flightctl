@@ -43,7 +43,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
-	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV)
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}

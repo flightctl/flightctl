@@ -48,7 +48,9 @@ data:
           - flightctl-api-agent-grpc.{{ .Release.Namespace }}.svc.cluster.local
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
-        port: 6379
+        port: {{ .Values.global.nodePorts.kv }}
+        username: {{ .Values.kv.username }}
+        db: {{ .Values.kv.db }}
     {{- if not (eq .Values.global.auth.type "none")  }}
     auth:
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}

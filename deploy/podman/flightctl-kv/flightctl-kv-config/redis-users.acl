@@ -1,0 +1,2 @@
+user default off
+user flightctl on >flightctl-kv-pass allcommands ~flightctl* &flightctl*

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/kv"
 	"sigs.k8s.io/yaml"
 )
 
@@ -18,7 +19,7 @@ const (
 type Config struct {
 	Database   *dbConfig         `json:"database,omitempty"`
 	Service    *svcConfig        `json:"service,omitempty"`
-	KV         *kvConfig         `json:"kv,omitempty"`
+	KV         *kv.Config        `json:"kv,omitempty"`
 	Auth       *authConfig       `json:"auth,omitempty"`
 	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
 }
@@ -53,12 +54,6 @@ type svcConfig struct {
 	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
 	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
 	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
-}
-
-type kvConfig struct {
-	Hostname string `json:"hostname,omitempty"`
-	Port     uint   `json:"port,omitempty"`
-	Password string `json:"password,omitempty"`
 }
 
 type authConfig struct {
@@ -127,10 +122,12 @@ func NewDefault() *Config {
 			HttpMaxUrlLength:      2000,
 			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
 		},
-		KV: &kvConfig{
+		KV: &kv.Config{
 			Hostname: "localhost",
 			Port:     6379,
-			Password: "adminpass",
+			Username: "flightctl",
+			Password: "flightctl-kv-pass",
+			DB:       0,
 		},
 		Prometheus: &prometheusConfig{
 			Address:        ":15690",
@@ -176,6 +173,9 @@ func Load(cfgFile string) (*Config, error) {
 
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
 		c.KV.Password = kvPass
+	}
+	if kvUsername := os.Getenv("KV_USERNAME"); kvUsername != "" {
+		c.KV.Username = kvUsername
 	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		c.Database.User = dbUser

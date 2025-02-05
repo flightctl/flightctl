@@ -132,7 +132,8 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+
+	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV)
 	if err != nil {
 		return err
 	}
