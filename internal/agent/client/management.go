@@ -38,7 +38,7 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 		return err
 	}
 	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
 	}
 
 	if m.rpcMetricsCallbackFunc != nil {
@@ -63,7 +63,7 @@ func (m *management) GetRenderedDeviceSpec(ctx context.Context, name string, par
 		return nil, http.StatusInternalServerError, err
 	}
 	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
 	}
 
 	if m.rpcMetricsCallbackFunc != nil {
