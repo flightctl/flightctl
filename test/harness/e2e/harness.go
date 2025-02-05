@@ -298,39 +298,53 @@ func (h *Harness) SH(command string, args ...string) (string, error) {
 	return h.SHWithStdin("", command, args...)
 }
 
-func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) {
+func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) error {
+	var err error = nil
 	Eventually(func(updFunction func(*v1alpha1.Device)) error {
 		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
-		Expect(err).NotTo(HaveOccurred())
-		if response.JSON200 == nil {
+		if err != nil {
 			logrus.Errorf("An error happened retrieving device: %+v", response)
-			return errors.New("device not found???")
+			return err
+		}
+		if response.JSON200 == nil {
+			err = fmt.Errorf("device not found???")
+			logrus.Errorf("An error happened retrieving device: %+v", response)
+			return err
 		}
 		device := response.JSON200
 
 		updFunction(device)
 
-		resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceId, *device)
+		resp, error := h.Client.ReplaceDeviceWithResponse(h.Context, deviceId, *device)
 
 		// if a conflict happens (the device updated status or object since we read it) we retry
 		if resp.JSON409 != nil {
 			logrus.Warningf("conflict updating device: %s", deviceId)
-			return errors.New("conflict")
+		}
+
+		if resp.JSON400 != nil {
+			err = fmt.Errorf("bad request 400 happened \n %s", string(resp.Body))
+			logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
+			return err
 		}
 
 		// if other type of error happens we fail
-		Expect(err).ToNot(HaveOccurred())
+		if error != nil {
+			logrus.Errorf("An error happened updating device: %+v", resp)
+			return error
+		}
 
 		// response code 200 = updated, we are expecting to update... something else is unexpected
 		if resp.StatusCode() != 200 {
+			err = fmt.Errorf("unexpected http response happened updating device")
 			logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
 			logrus.Errorf("Unexpected http response: %s", string(resp.Body))
+			return err
 		}
-		// make the test fail and stop the Eventually loop if at this point we didn't have a 200 response
-		Expect(resp.StatusCode()).Should(Equal(200))
-
-		return nil
+		logrus.Infof("===============\nDevice status is: %s", resp.Status())
+		return err
 	}, TIMEOUT, "1s").WithArguments(updateFunction).Should(BeNil())
+	return err
 }
 
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
@@ -363,30 +377,6 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		return errors.New("not updated")
 	}, timeout, "2s").Should(BeNil())
 }
-func (h *Harness) WaitForDeviceConfigUpdate(deviceId string, configs []v1alpha1.ConfigProviderSpec) error {
-
-	deviceRenderedVersion, err := h.PrepareNextDeviceVersion(deviceId)
-	if err != nil {
-		return fmt.Errorf("failed to parse rendered version: %w", err)
-	}
-	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-		device.Spec.Config = &configs
-		logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
-	})
-
-	logrus.Infof("Waiting for the device to pick the config")
-	err = h.WaitForDeviceNewRenderedVersion(deviceId, deviceRenderedVersion)
-
-	if err != nil {
-		return fmt.Errorf("failed to get new rendered version: %w", err)
-	}
-
-	logrus.Infof("Waiting for device %s to return to Online status", deviceId)
-	Eventually(h.GetDeviceWithStatusSummary, util.TIMEOUT, util.POLLING).WithArguments(
-		deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
-
-	return nil
-}
 
 func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	deviceId := h.GetEnrollmentIDFromConsole()
@@ -413,7 +403,7 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	return deviceId, device
 }
 
-func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1alpha1.Device, string) {
+func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1alpha1.Device, string, error) {
 	// Check the device status right after bootstrap
 	response := h.GetDeviceWithStatusSystem(deviceId)
 	device := response.JSON200
@@ -421,7 +411,7 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 
 	var newImageReference string
 
-	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
 		repo, _ := h.parseImageReference(currentImage)
@@ -429,8 +419,11 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 		device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
+	if err != nil {
+		return device, newImageReference, fmt.Errorf("failed to update the device: %w", err)
+	}
 
-	return device, newImageReference
+	return device, newImageReference, nil
 }
 
 func (h *Harness) parseImageReference(image string) (string, string) {
