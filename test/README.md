@@ -45,7 +45,7 @@ code in `pkg/log/log.go` should have unit tests in `pkg/log/log_test.go`
 We use the go unit test framework with testify for unit tests.
 
 Unit tests can be run locally with:
-    
+
 ```bash
 make unit-test
 ```
@@ -258,41 +258,31 @@ make in-cluster-e2e-test
 
 #### If your host system is not suitable for bootc image builder
 
-* Install vagrant
+* Create a test vm. Note the ssh command in the cmd output.
 ```bash
-sudo dnf install vagrant
+make deploy-e2e-ocp-test-vm
 ```
-* Install vagrant-libvirt plugin
+* Ssh into the vm.
 ```bash
-vagrant plugin install vagrant-libvirt
+ssh kni@${VM_IP}
 ```
 
-* Continue inside vagrant
+* Continue inside the vm
 
 ```bash
-cp you-kubeconfig-file ~/.kube/config
-
 cd ~/flightctl
-
-# this may be necessary for vagrant libvirtd to work
-sudo systemctl enable --now virtnetworkd
-
-vagrant up --provider libvirt
-vagrant ssh
-
-cd /vagrant
 
 export FLIGHTCTL_NS=flightctl
 export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
-make in-cluster-e2e-test
+export API_SERVER=your-oc-api-server
 
-exit
+oc login -u kubeadmin -p ${KUBEADMIN_PASS} ${API_SERVER}
+
+oc delete ns flightctl-e2e
+
+make clean build in-cluster-e2e-test
+
 ```
-
-If you are debugging and modifying scripts or tests on the host machine
-you can use the `vagrant rsync` or `vagrant rsync-auto` commands to sync
-the files between the host and the vagrant machine.
-
 ## Command line tool testing
 
 Today we test the command line tool using the bash/github actions, we
