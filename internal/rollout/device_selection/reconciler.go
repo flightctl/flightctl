@@ -5,7 +5,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -18,10 +18,10 @@ type Reconciler interface {
 type reconciler struct {
 	store           store.Store
 	log             logrus.FieldLogger
-	callbackManager tasks.CallbackManager
+	callbackManager tasks_client.CallbackManager
 }
 
-func NewReconciler(store store.Store, callbackManager tasks.CallbackManager, log logrus.FieldLogger) Reconciler {
+func NewReconciler(store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
 		store:           store,
 		log:             log,

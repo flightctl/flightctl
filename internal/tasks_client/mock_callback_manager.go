@@ -7,7 +7,7 @@
 //
 
 // Package tasks is a generated GoMock package.
-package tasks
+package tasks_client
 
 import (
 	reflect "reflect"

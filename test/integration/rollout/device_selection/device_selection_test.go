@@ -14,7 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -501,11 +501,11 @@ var _ = Describe("Rollout batch sequence test", func() {
 	Context("reconciler", func() {
 		var (
 			ctrl                *gomock.Controller
-			mockCallbackManager *tasks.MockCallbackManager
+			mockCallbackManager *tasks_client.MockCallbackManager
 		)
 		BeforeEach(func() {
 			ctrl = gomock.NewController(GinkgoT())
-			mockCallbackManager = tasks.NewMockCallbackManager(ctrl)
+			mockCallbackManager = tasks_client.NewMockCallbackManager(ctrl)
 		})
 		AfterEach(func() {
 			ctrl.Finish()

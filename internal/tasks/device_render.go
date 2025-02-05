@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -20,9 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
 	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, kvStore, *resourceRef)
-	if resourceRef.Op == DeviceRenderOpUpdate {
+	if resourceRef.Op == tasks_client.DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
 			log.Errorf("failed rendering device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
@@ -36,19 +37,19 @@ func deviceRender(ctx context.Context, resourceRef *ResourceReference, store sto
 }
 
 type DeviceRenderLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	ownerFleet      *string
 	templateVersion *string
 	deviceConfig    *[]api.ConfigProviderSpec
 	applications    *[]api.ApplicationSpec
 }
 
-func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef ResourceReference) DeviceRenderLogic {
+func NewDeviceRenderLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef tasks_client.ResourceReference) DeviceRenderLogic {
 	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
 }
 
