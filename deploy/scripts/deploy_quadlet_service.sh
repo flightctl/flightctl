@@ -11,7 +11,7 @@ deploy_service() {
     echo "Starting Deployment for $service_full_name"
 
     # Stop the service if it's running
-    systemctl --user stop $service_full_name || true
+    systemctl --user stop "$service_full_name" || true
 
     # Handle special handling for each service
     if [[ "$service_name" == "db" ]]; then
@@ -20,12 +20,12 @@ deploy_service() {
     else
         # Copy configuration files
         mkdir -p "$CONFIG_DIR/flightctl-$service_name-config"
-        cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf $CONFIG_DIR/flightctl-kv-config/redis.conf
+        cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf "$CONFIG_DIR/flightctl-kv-config/redis.conf"
     fi
 
-    mkdir -p $SYSTEMD_DIR
-    cp deploy/podman/flightctl-$service_name/flightctl-$service_name-standalone.container $SYSTEMD_DIR
-    cp deploy/podman/flightctl.network $SYSTEMD_DIR
+    mkdir -p "$SYSTEMD_DIR"
+    cp deploy/podman/flightctl-$service_name/flightctl-$service_name-standalone.container "$SYSTEMD_DIR"
+    cp deploy/podman/flightctl.network "$SYSTEMD_DIR"
 
     start_service $service_full_name
 

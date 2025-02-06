@@ -14,25 +14,25 @@ fi
 export PRIMARY_IP
 
 echo "Copying quadlet unit files"
-mkdir -p $SYSTEMD_DIR
-cp deploy/podman/flightctl.slice $SYSTEMD_DIR
-cp deploy/podman/flightctl.network $SYSTEMD_DIR
-find deploy/podman -type f -name "*.container" -exec cp {} $SYSTEMD_DIR \;
+mkdir -p "$SYSTEMD_DIR"
+cp deploy/podman/flightctl.slice "$SYSTEMD_DIR"
+cp deploy/podman/flightctl.network "$SYSTEMD_DIR"
+find deploy/podman -type f -name "*.container" -exec cp {} "$SYSTEMD_DIR" \;
 
 echo "Copying quadlet config files"
-mkdir -p $CONFIG_DIR
-mkdir -p $CONFIG_DIR/flightctl-api-config
-touch $CONFIG_DIR/flightctl-api-config/config.yaml
-envsubst "\$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > $CONFIG_DIR/flightctl-api-config/config.yaml
+mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR/flightctl-api-config"
+touch "$CONFIG_DIR/flightctl-api-config/config.yaml"
+envsubst "\$PRIMARY_IP" < deploy/podman/flightctl-api/flightctl-api-config/config.yaml.template > "$CONFIG_DIR/flightctl-api-config/config.yaml"
 
-mkdir -p $CONFIG_DIR/flightctl-kv-config
-cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf $CONFIG_DIR/flightctl-kv-config/redis.conf
+mkdir -p "$CONFIG_DIR/flightctl-kv-config"
+cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf "$CONFIG_DIR/flightctl-kv-config/redis.conf"
 
-mkdir -p $CONFIG_DIR/flightctl-periodic-config
-cp deploy/podman/flightctl-periodic/flightctl-periodic-config/config.yaml $CONFIG_DIR/flightctl-periodic-config/config.yaml
+mkdir -p "$CONFIG_DIR/flightctl-periodic-config"
+cp deploy/podman/flightctl-periodic/flightctl-periodic-config/config.yaml "$CONFIG_DIR/flightctl-periodic-config/config.yaml"
 
-mkdir -p $CONFIG_DIR/flightctl-worker-config
-cp deploy/podman/flightctl-worker/flightctl-worker-config/config.yaml $CONFIG_DIR/flightctl-worker-config/config.yaml
+mkdir -p "$CONFIG_DIR/flightctl-worker-config"
+cp deploy/podman/flightctl-worker/flightctl-worker-config/config.yaml "$CONFIG_DIR/flightctl-worker-config/config.yaml"
 
 start_service flightctl.slice
 
