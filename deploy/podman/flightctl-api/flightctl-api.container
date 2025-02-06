@@ -27,4 +27,3 @@ RestartSec=30
 
 [Install]
 WantedBy=flightctl.slice
-WantedBy=default.target
