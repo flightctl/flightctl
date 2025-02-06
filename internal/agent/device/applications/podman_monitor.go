@@ -342,9 +342,6 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 		}
 		statuses = append(statuses, *appStatus)
 
-		m.log.Debugf("Application %s status: %s", app.Name(), appStatus.Status)
-		m.log.Debugf("Application %s summary status: %s", app.Name(), appSummary.Status)
-
 		// phases can get worse but not better
 		switch appSummary.Status {
 		case v1alpha1.ApplicationsSummaryStatusError:
