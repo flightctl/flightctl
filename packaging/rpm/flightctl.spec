@@ -38,6 +38,7 @@ Flightctl is a command line interface for managing edge device fleets.
 Summary: Flightctl Agent
 
 Requires: bootc
+Requires: firewalld
 
 %description agent
 Flightctl Agent is a component of the flightctl tool.
