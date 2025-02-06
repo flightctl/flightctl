@@ -7,7 +7,6 @@ Requires=flightctl-db.service
 ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
 Network=flightctl.network
-Environment=HOME=/root
 Exec=redis-server /usr/local/etc/redis/redis.conf
 
 # The following is necessary so that the redis user which runs the redis process inside of the container
