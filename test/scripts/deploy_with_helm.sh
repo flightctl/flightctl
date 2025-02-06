@@ -7,7 +7,7 @@ DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
 SQL_VERSION=${SQL_VERSION:-"latest"}
-SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-12-c8s"}
+SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
 KV_VERSION=${KV_VERSION:-"7.4.1"}
 KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
 
