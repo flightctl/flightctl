@@ -17,4 +17,3 @@ Slice=flightctl.slice
 
 [Install]
 WantedBy=flightctl.slice
-WantedBy=default.target
