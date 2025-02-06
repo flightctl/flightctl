@@ -74,7 +74,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		versionInfo.GitCommit,
 	)
 
-	if err := b.ensureSpecFiles(); err != nil {
+	if err := b.ensureSpecFiles(ctx); err != nil {
 		return err
 	}
 
@@ -156,7 +156,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	}
 }
 
-func (b *Bootstrap) ensureSpecFiles() error {
+func (b *Bootstrap) ensureSpecFiles(ctx context.Context) error {
 	if b.lifecycle.IsInitialized() {
 		// it is unexpected to have a missing spec files when the device is
 		// enrolled. reset the spec files to empty if they are missing to allow
@@ -167,7 +167,7 @@ func (b *Bootstrap) ensureSpecFiles() error {
 		}
 	} else {
 		b.log.Info("Device is not enrolled, initializing spec files")
-		if err := b.specManager.Initialize(); err != nil {
+		if err := b.specManager.Initialize(ctx); err != nil {
 			return fmt.Errorf("initializing spec files: %w", err)
 		}
 	}
@@ -236,7 +236,8 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	}
 
 	b.log.Warn("Starting spec rollback")
-	if err := b.specManager.Rollback(); err != nil {
+	// rollback and set the version to failed
+	if err := b.specManager.Rollback(ctx, spec.WithSetFailed()); err != nil {
 		return fmt.Errorf("failed spec rollback: %w", err)
 	}
 	b.log.Info("Spec rollback complete, resuming bootstrap")

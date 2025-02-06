@@ -111,7 +111,7 @@ func TestInitialization(t *testing.T) {
 			) {
 				gomock.InOrder(
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(false),
-					mockSpecManager.EXPECT().Initialize().Return(nil),
+					mockSpecManager.EXPECT().Initialize(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
@@ -211,7 +211,7 @@ func TestBootstrapCheckRollback(t *testing.T) {
 					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil),
-					mockSpecManager.EXPECT().Rollback().Return(nil),
+					mockSpecManager.EXPECT().Rollback(context.TODO(), gomock.Any()).Return(nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2"),
 					mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil),
 				)
@@ -237,7 +237,7 @@ func TestBootstrapCheckRollback(t *testing.T) {
 					mockSpecManager.EXPECT().OSVersion(spec.Desired).Return(desiredOS),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil),
-					mockSpecManager.EXPECT().Rollback().Return(mockErr),
+					mockSpecManager.EXPECT().Rollback(context.TODO(), gomock.Any()).Return(mockErr),
 				)
 			},
 			expectedError: mockErr,
@@ -313,7 +313,7 @@ func TestEnsureBootedOS(t *testing.T) {
 				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("unexpected-booted-image", false, nil)
 				mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil)
-				mockSpecManager.EXPECT().Rollback().Return(nil)
+				mockSpecManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
 				mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil)
 				mockSpecManager.EXPECT().RenderedVersion(spec.Desired).Return("2")
 				mockStatusManager.EXPECT().UpdateCondition(gomock.Any(), gomock.Any()).Return(nil)
