@@ -298,13 +298,18 @@ func (h *Harness) SH(command string, args ...string) (string, error) {
 	return h.SHWithStdin("", command, args...)
 }
 
-func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) {
+func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) error {
+	var err error
 	Eventually(func(updFunction func(*v1alpha1.Device)) error {
 		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
-		Expect(err).NotTo(HaveOccurred())
-		if response.JSON200 == nil {
+		if err != nil {
 			logrus.Errorf("An error happened retrieving device: %+v", response)
-			return errors.New("device not found???")
+			return err
+		}
+		if response.JSON200 == nil {
+			err = fmt.Errorf("device not found???")
+			logrus.Errorf("An error happened retrieving device: %+v", response)
+			return err
 		}
 		device := response.JSON200
 
@@ -315,22 +320,31 @@ func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*
 		// if a conflict happens (the device updated status or object since we read it) we retry
 		if resp.JSON409 != nil {
 			logrus.Warningf("conflict updating device: %s", deviceId)
-			return errors.New("conflict")
+		}
+
+		if resp.JSON400 != nil {
+			err = fmt.Errorf("exit code 400: Bad request for the device: %+v", resp.JSON400)
+			logrus.Errorf("Exit code 400: Bad request for the device: %+v", resp.JSON400)
+			return err
 		}
 
 		// if other type of error happens we fail
-		Expect(err).ToNot(HaveOccurred())
+		if err != nil {
+			logrus.Errorf("An error happened updating device: %+v", resp)
+			return err
+		}
 
 		// response code 200 = updated, we are expecting to update... something else is unexpected
 		if resp.StatusCode() != 200 {
+			err = fmt.Errorf("unexpected http response happened updating device")
 			logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
 			logrus.Errorf("Unexpected http response: %s", string(resp.Body))
+			return err
 		}
-		// make the test fail and stop the Eventually loop if at this point we didn't have a 200 response
-		Expect(resp.StatusCode()).Should(Equal(200))
 
 		return nil
 	}, TIMEOUT, "1s").WithArguments(updateFunction).Should(BeNil())
+	return err
 }
 
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
@@ -369,10 +383,13 @@ func (h *Harness) WaitForDeviceConfigUpdate(deviceId string, configs []v1alpha1.
 	if err != nil {
 		return fmt.Errorf("failed to parse rendered version: %w", err)
 	}
-	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		device.Spec.Config = &configs
 		logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
 	})
+	if err != nil {
+		return fmt.Errorf("failed to update the device config: %w", err)
+	}
 
 	logrus.Infof("Waiting for the device to pick the config")
 	err = h.WaitForDeviceNewRenderedVersion(deviceId, deviceRenderedVersion)
@@ -413,7 +430,7 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	return deviceId, device
 }
 
-func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1alpha1.Device, string) {
+func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1alpha1.Device, string, error) {
 	// Check the device status right after bootstrap
 	response := h.GetDeviceWithStatusSystem(deviceId)
 	device := response.JSON200
@@ -421,7 +438,7 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 
 	var newImageReference string
 
-	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
 		repo, _ := h.parseImageReference(currentImage)
@@ -429,8 +446,11 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 		device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
+	if err != nil {
+		return device, newImageReference, fmt.Errorf("failed to update the device: %w", err)
+	}
 
-	return device, newImageReference
+	return device, newImageReference, nil
 }
 
 func (h *Harness) parseImageReference(image string) (string, string) {
@@ -444,6 +464,39 @@ func (h *Harness) parseImageReference(image string) (string, string) {
 	repo := strings.Join(parts[:len(parts)-1], ":")
 
 	return repo, tag
+}
+
+func (h *Harness) GetCurrentDeviceGeneration(deviceId string) (deviceRenderedVersionInt int64, err error) {
+	var deviceGeneration int64 = -1
+	logrus.Infof("Waiting for the device to be UpToDate")
+	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
+		func(device *v1alpha1.Device) bool {
+			for _, condition := range device.Status.Conditions {
+				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
+					deviceGeneration = *device.Metadata.Generation
+
+					return true
+				}
+			}
+			return false
+		}, TIMEOUT)
+
+	if deviceGeneration <= 0 {
+		return deviceGeneration, fmt.Errorf("invalid generation: %d", deviceGeneration)
+
+	}
+	logrus.Infof("The device current generation is %d", deviceGeneration)
+
+	return deviceGeneration, nil
+}
+
+func (h *Harness) PrepareNextDeviceGeneration(deviceId string) (int64, error) {
+	currentGeneration, err := h.GetCurrentDeviceGeneration(deviceId)
+	if err != nil {
+		return -1, err
+	}
+	return currentGeneration + 1, nil
 }
 
 func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (deviceRenderedVersionInt int, err error) {
@@ -499,6 +552,29 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate &&
 					device.Status.Config.RenderedVersion == strconv.Itoa(newRenderedVersionInt) {
+					return true
+				}
+			}
+			return false
+		}, LONGTIMEOUT)
+
+	return nil
+}
+
+func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int64) (err error) {
+	// Check that the device was already approved
+	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+		deviceId).ShouldNot(BeEmpty())
+	logrus.Infof("The device %s was approved", deviceId)
+
+	// Wait for the device to pickup the new config and report measurements on device status.
+	logrus.Infof("Waiting for the device to pick the config")
+	h.WaitForDeviceContents(deviceId, "Wainting fot the device generation",
+		func(device *v1alpha1.Device) bool {
+			for _, condition := range device.Status.Conditions {
+				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate &&
+					newGeneration == *device.Metadata.Generation {
 					return true
 				}
 			}
@@ -573,4 +649,132 @@ func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) v1alpha1.EnrollmentR
 // Wrapper function for CertificateSigningRequest
 func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1alpha1.CertificateSigningRequest {
 	return getYamlResourceByFile[v1alpha1.CertificateSigningRequest](csrYaml)
+}
+
+// getDeviceConfig is a generic helper function to retrieve device configurations
+func GetDeviceConfig[T any](device *v1alpha1.Device, configType v1alpha1.ConfigProviderType,
+	asConfig func(v1alpha1.ConfigProviderSpec) (T, error)) (T, error) {
+
+	var config T
+	if device.Spec == nil || device.Spec.Config == nil {
+		return config, fmt.Errorf("device spec or config is nil")
+	}
+
+	if len(*device.Spec.Config) > 0 {
+		for _, configItem := range *device.Spec.Config {
+			// Check config type
+			itemType, err := configItem.Type()
+			if err != nil {
+				return config, fmt.Errorf("failed to get config type: %w", err)
+			}
+			if itemType == configType {
+				// Convert to the expected config type
+				config, err := asConfig(configItem)
+				if err != nil {
+					return config, fmt.Errorf("failed to convert config: %w", err)
+				}
+
+				return config, nil
+			}
+		}
+	}
+
+	// If we don't find the config, return an error
+	return config, fmt.Errorf("%s config not found in the device", configType)
+}
+
+// Get InlineConfig
+func (h *Harness) GetDeviceInlineConfig(device *v1alpha1.Device, configName string) (v1alpha1.InlineConfigProviderSpec, error) {
+	return GetDeviceConfig(device, v1alpha1.InlineConfigProviderType,
+		func(c v1alpha1.ConfigProviderSpec) (v1alpha1.InlineConfigProviderSpec, error) {
+			inlineConfig, err := c.AsInlineConfigProviderSpec()
+			if err != nil {
+				return inlineConfig, fmt.Errorf("failed to cast config type: %w", err)
+			}
+			if inlineConfig.Name == configName {
+				logrus.Infof("Inline configuration found %s", configName)
+				return inlineConfig, nil
+			}
+			return v1alpha1.InlineConfigProviderSpec{}, fmt.Errorf("inline config not found")
+		})
+}
+
+// Get GitConfig
+func (h *Harness) GetDeviceGitConfig(device *v1alpha1.Device, configName string) (v1alpha1.GitConfigProviderSpec, error) {
+	return GetDeviceConfig(device, v1alpha1.GitConfigProviderType,
+		func(c v1alpha1.ConfigProviderSpec) (v1alpha1.GitConfigProviderSpec, error) {
+			gitConfig, err := c.AsGitConfigProviderSpec()
+			if err != nil {
+				return gitConfig, fmt.Errorf("failed to cast config type: %w", err)
+			}
+			if gitConfig.Name == configName {
+				logrus.Infof("Git configuration found %s", configName)
+				return gitConfig, nil
+			}
+			return v1alpha1.GitConfigProviderSpec{}, fmt.Errorf("git config not found")
+		})
+}
+
+// Get HttpConfig
+func (h *Harness) GetDeviceHttpConfig(device *v1alpha1.Device, configName string) (v1alpha1.HttpConfigProviderSpec, error) {
+	return GetDeviceConfig(device, v1alpha1.HttpConfigProviderType,
+		func(c v1alpha1.ConfigProviderSpec) (v1alpha1.HttpConfigProviderSpec, error) {
+			httpConfig, err := c.AsHttpConfigProviderSpec()
+			if err != nil {
+				return httpConfig, fmt.Errorf("failed to cast config type: %w", err)
+			}
+			if httpConfig.Name == configName {
+				logrus.Infof("Http configuration found %s", configName)
+				return httpConfig, nil
+			}
+			return v1alpha1.HttpConfigProviderSpec{}, fmt.Errorf("http config not found")
+		})
+}
+
+// Get an http config of a device resource
+func (h *Harness) GetDeviceOsImage(device *v1alpha1.Device) (image string, err error) {
+	if device.Spec == nil {
+		return "", fmt.Errorf("device spec is nil")
+	}
+	if device.Spec.Os == nil {
+		return "", fmt.Errorf("device os spec is nil")
+	}
+
+	return device.Spec.Os.Image, nil
+}
+
+// Create a test fleet resource
+func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, testFleetSelector v1alpha1.LabelSelector, testFleetSpec v1alpha1.DeviceSpec) error {
+	var testFleet = v1alpha1.Fleet{
+		ApiVersion: v1alpha1.FleetAPIVersion,
+		Kind:       v1alpha1.FleetKind,
+		Metadata: v1alpha1.ObjectMeta{
+			Name:   &testFleetName,
+			Labels: &map[string]string{},
+		},
+		Spec: v1alpha1.FleetSpec{
+			Selector: &testFleetSelector,
+			Template: struct {
+				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
+				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
+			}{
+				Spec: testFleetSpec,
+			},
+		},
+	}
+	_, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
+	return err
+}
+
+// Create a repository resource
+func (h Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
+	var repository = v1alpha1.Repository{
+		ApiVersion: v1alpha1.RepositoryAPIVersion,
+		Kind:       v1alpha1.RepositoryKind,
+
+		Metadata: metadata,
+		Spec:     repositorySpec,
+	}
+	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
+	return err
 }

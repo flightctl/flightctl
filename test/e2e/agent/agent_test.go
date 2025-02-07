@@ -68,9 +68,12 @@ var _ = Describe("VM Agent behavior", func() {
 
 	Context("status", Label("75991"), func() {
 		It("should report the correct device status after an inline config is added", func() {
+			enrollmentID := harness.GetEnrollmentIDFromConsole()
+			harness.WaitForEnrollmentRequest(enrollmentID)
+
 			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create ConfigProviderSpec.
 				var configProviderSpec v1alpha1.ConfigProviderSpec
@@ -80,6 +83,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
 				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("Waiting for the device to pick the config")
 			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
@@ -105,10 +109,12 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 
 		It("should report the correct device status when trying to upgrade to a not existing image", func() {
+			enrollmentID := harness.GetEnrollmentIDFromConsole()
+			harness.WaitForEnrollmentRequest(enrollmentID)
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 			var newImageReference string
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				currentImage := device.Status.Os.Image
 				logrus.Infof("Current image for %s is %s", deviceId, currentImage)
 				repo, _ := parseImageReference(currentImage)
@@ -116,6 +122,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 				logrus.Infof("Updating %s to image %s", deviceId, device.Spec.Os.Image)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Error",
 				func(device *v1alpha1.Device) bool {
@@ -128,9 +135,11 @@ var _ = Describe("VM Agent behavior", func() {
 
 		It(`should show an error when trying to update a device with
 			"a reference to a not existing git repo, and report 'Online' status`, Label("git"), func() {
+			enrollmentID := harness.GetEnrollmentIDFromConsole()
+			harness.WaitForEnrollmentRequest(enrollmentID)
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				logrus.Infof("Current device is %s", deviceId)
 
 				// Create ConfigProviderSpec.
@@ -141,6 +150,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
 				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, `Error: failed fetching specified Repository definition`,
@@ -159,6 +169,8 @@ var _ = Describe("VM Agent behavior", func() {
 
 		It(`should show an error when trying to update a device with a httpConfigProviderSpec
 			with invalid Path, and report 'Online' status`, func() {
+			enrollmentID := harness.GetEnrollmentIDFromConsole()
+			harness.WaitForEnrollmentRequest(enrollmentID)
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 			// Create the http repository.
@@ -166,7 +178,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the device with the http invalid config.
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				logrus.Infof("current device is %s", deviceId)
 				// Create ConfigProviderSpec.
 				var configProviderSpec v1alpha1.ConfigProviderSpec
@@ -176,6 +188,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
 				logrus.Infof("updating %s with config %s", deviceId, device.Spec.Config)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, "Error: sending HTTP Request",
@@ -193,6 +206,8 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 
 		It("should report 'Unknown' after the device vm is powered-off", func() {
+			enrollmentID := harness.GetEnrollmentIDFromConsole()
+			harness.WaitForEnrollmentRequest(enrollmentID)
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 			// Shutdown the vm.
