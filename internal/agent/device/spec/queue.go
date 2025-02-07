@@ -245,8 +245,8 @@ func (m *queueManager) pruneRequeueStatus() {
 		var minVersion int64
 		var initialized bool
 
-		for version := range m.requeueLookup {
-			if !initialized || version < minVersion {
+		for version, state := range m.requeueLookup {
+			if !initialized || version < minVersion && state.tries > 0 {
 				minVersion = version
 				initialized = true
 			}
