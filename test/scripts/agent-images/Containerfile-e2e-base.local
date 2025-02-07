@@ -29,6 +29,8 @@ RUN if [[ -z $RPM_COPR ]]; then \
 
 RUN dnf install -y epel-release epel-next-release
 RUN dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    dnf install -y firewalld && \
+    systemctl enable firewalld.service && \
     systemctl enable podman.service
 
 
