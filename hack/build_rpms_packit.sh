@@ -9,4 +9,5 @@ mkdir -p bin/rpm
 cp packaging/rpm/flightctl.spec /tmp
 packit build locally
 cp /tmp/flightctl.spec packaging/rpm
+mv noarch/flightctl-*.rpm bin/rpm
 mv $(uname -m)/flightctl-*.rpm bin/rpm
