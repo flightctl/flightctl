@@ -4,8 +4,15 @@
 # Define the Go Import Path
 %global goipath github.com/flightctl/flightctl
 
+# SELinux specifics
+%global selinuxtype targeted
+%define selinux_policyver 3.14.3-67
+%define agent_relabel_files() \
+    semanage fcontext -a -t flightctl_agent_exec_t "/usr/bin/flightctl-agent" ; \
+    restorecon -v /usr/bin/flightctl-agent
+
 Name:           flightctl
-Version:        0.3.0
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Flightctl is a manager of the edge device fleets.
 
@@ -14,7 +21,7 @@ Summary:        Flightctl is a manager of the edge device fleets.
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        %{name}-%{version}.tar.gz
+Source0:        1%{?dist}
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -37,10 +44,24 @@ Flightctl is a command line interface for managing edge device fleets.
 %package agent
 Summary: Flightctl Agent
 
+Requires: flightctl-selinux = %{version}
 Requires: bootc
 
 %description agent
 Flightctl Agent is a component of the flightctl tool.
+
+
+%package selinux
+Summary: SELinux policies for Flightctl Agent
+BuildRequires: selinux-policy >= %{selinux_policyver}
+BuildRequires: selinux-policy-devel >= %{selinux_policyver}
+BuildArch: noarch
+Requires: flightctl-agent = %{version}
+Requires: selinux-policy >= %{selinux_policyver}
+
+%description selinux
+The flightctl-selinux package provides the SELinux policy modules required by the Flightctl Agent.
+
 
 %prep
 %goprep -A
@@ -60,6 +81,9 @@ Flightctl Agent is a component of the flightctl tool.
     SOURCE_GIT_TAG_NO_V=%{version} \
     make build-cli build-agent
 
+    # SELinux modules build
+    make --directory packaging/selinux
+
 %install
     mkdir -p %{buildroot}/usr/bin
     cp bin/flightctl %{buildroot}/usr/bin
@@ -78,6 +102,8 @@ Flightctl Agent is a component of the flightctl tool.
     install -Dpm 0644 flightctl-completion.fish -t %{buildroot}/%{_datadir}/fish/vendor_completions.d/
     bin/flightctl completion zsh > _flightctl-completion
     install -Dpm 0644 _flightctl-completion -t %{buildroot}/%{_datadir}/zsh/site-functions/
+    install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
+    install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
 
     rm -f licenses.list
 
@@ -95,6 +121,25 @@ Flightctl Agent is a component of the flightctl tool.
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
+
+
+%pre selinux
+%selinux_relabel_pre -s %{selinuxtype}
+
+%post selinux
+
+%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
+%agent_relabel_files
+
+%postun selinux
+
+if [ $1 -eq 0 ]; then
+    %selinux_modules_uninstall -s %{selinuxtype} flightctl_agent
+fi
+
+%posttrans selinux
+
+%selinux_relabel_post -s %{selinuxtype}
 
 # File listings
 # No %files section for the main package, so it won't be built
@@ -117,8 +162,14 @@ Flightctl Agent is a component of the flightctl tool.
     %{_docdir}/%{NAME}/*
     %{_docdir}/%{NAME}/.markdownlint-cli2.yaml
 
+%files selinux
+%{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
 %changelog
+
+* Fri Feb 7 2025 Miguel Angel Ajo <majopela@redhat.com> - 0.4.0-1
+- Add selinux support for console pty access
+
 * Mon Nov 4 2024 Miguel Angel Ajo <majopela@redhat.com> - 0.3.0-1
 - Move the Release field to -1 so we avoid auto generating packages
   with -5 all the time.
